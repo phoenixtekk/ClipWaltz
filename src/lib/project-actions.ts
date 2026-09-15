@@ -15,11 +15,25 @@ async function assertOwner(userId: string, projectId: string) {
   if (!row) throw new Error("Project not found");
 }
 
+// Templates selectable at MVP. "birthday" ships later, so it's not accepted yet.
+const ACTIVE_TEMPLATES = new Set(["trip", "event", "surprise"]);
+const DEFAULT_TITLE: Record<string, string> = {
+  trip: "Trip video",
+  event: "Event video",
+  surprise: "Untitled project",
+};
+
 /** Create a new draft project for the current user. Returns its id. */
-export async function createProject(): Promise<string> {
+export async function createProject(template?: string): Promise<string> {
   const userId = await requireUserId();
+  const t = template && ACTIVE_TEMPLATES.has(template) ? template : "surprise";
   const id = randomUUID();
-  await db.insert(schema.projects).values({ id, ownerId: userId, title: "Untitled project" });
+  await db.insert(schema.projects).values({
+    id,
+    ownerId: userId,
+    template: t,
+    title: DEFAULT_TITLE[t] ?? "Untitled project",
+  });
   revalidatePath("/projects");
   return id;
 }
