@@ -22,8 +22,8 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 ## MVP application features (planned — from the Design & Build Plan)
 | Feature | Status | Notes |
 |---|---|---|
-| Projects + dashboard | ⬜ | List with Draft/Rendering/Ready status |
-| New Project wizard (occasion templates) | ⬜ | 2 templates + "Surprise me"; 9:16 only |
+| Projects + dashboard | ✅ | `/projects` (auth-gated app shell). Lists user's projects newest-first with Draft/Rendering/Ready/Failed badges; create/rename/duplicate/delete via server actions (owner-checked); empty state + free-tier retention banner. Verified E2E against the DB. |
+| New Project wizard (occasion templates) | ⬜ | 2 templates + "Surprise me"; 9:16 only. "New Project" currently creates a draft directly (wizard is next) |
 | Media import (drag-drop / picker / guided USB) | ⬜ | Resumable chunked upload to MinIO; USB = OS-assisted import |
 | Cloud auto-assemble (beat-synced) | ⬜ | FFmpeg workers on the AI box |
 | Draft preview + light editor | ⬜ | Reorder, swap music, set length |
