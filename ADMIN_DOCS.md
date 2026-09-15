@@ -1,0 +1,61 @@
+# ClipWaltz — Admin & Operations
+
+Configuration, environment, and runbooks. Companion to [`FEATURES.md`](FEATURES.md) and the
+[Design & Build Plan](DESIGN_BUILD_PLAN.md).
+
+## Stack
+- **Framework:** Next.js 16 (App Router, TypeScript, Tailwind v4, shadcn/Base UI kit)
+- **Auth:** Better Auth (self-hosted) on Postgres
+- **DB/ORM:** Postgres + Drizzle (`casing: snake_case`)
+- **Object storage:** MinIO on **linuxg7** `:9000` (S3-compatible) — bucket `clipwaltz`
+- **Email:** Amazon SES (SMTP 587, nodemailer)
+- **Billing:** Stripe (direct) — see [`BILLING.md`](BILLING.md)
+- **Render:** FFmpeg workers on the **AI box** (`ai`, 192.168.166.168, 32 cores)
+- **Hosting (planned):** a linuxg host behind a Cloudflare Tunnel; canonical `https://www.clipwaltz.com`
+
+## Local setup
+```bash
+cp env.example .env.local          # then fill values
+openssl rand -base64 32            # → BETTER_AUTH_SECRET
+npm install
+npm run db:generate               # regenerate migrations after schema changes
+npm run db:migrate                # apply to the DB in DATABASE_URL
+npm run dev                        # http://localhost:3000
+```
+
+## Environment variables
+See [`env.example`](env.example) for the full list. Groups:
+- **App:** `NEXT_PUBLIC_APP_URL`
+- **Auth:** `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `AUTH_REQUIRE_EMAIL_VERIFICATION`, optional social creds
+- **DB:** `DATABASE_URL`
+- **Storage (MinIO):** `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_REGION`
+- **Email (SES):** `SES_SMTP_HOST/PORT/USER/PASS`, `EMAIL_FROM`
+- **Billing (Stripe):** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_PLUS`, `STRIPE_PRICE_PRO`
+
+> **Never** commit `.env*`, log secrets, or put secrets in `NEXT_PUBLIC_*`.
+
+## Scripts
+| Script | Does |
+|---|---|
+| `npm run dev` | Dev server |
+| `npm run build` / `npm start` | Production build / serve |
+| `npm run db:generate` | Generate Drizzle migration from schema |
+| `npm run db:migrate` | Apply migrations |
+| `npm run db:push` | Push schema directly (dev only) |
+| `npm run lint` | ESLint |
+
+## Build note
+`next build` needs `BETTER_AUTH_SECRET` and `DATABASE_URL` present in the environment
+(Postgres connects lazily, so a live DB is not required to build).
+
+## Deployment (planned — per fleet rules)
+- Bind Next to `0.0.0.0` on a free port (verify live with `ss -tlnp`; check `server-inventory.md`).
+- Route publicly via the host's existing **Cloudflare Tunnel** (owner adds the Public Hostname
+  `www.clipwaltz.com` → `http://localhost:<port>`); create the DNS CNAME via API.
+- Set `BETTER_AUTH_URL` and `NEXT_PUBLIC_APP_URL` to `https://www.clipwaltz.com`.
+- After standing up the service, **update `server-inventory.md`** (port/route) and re-publish the wiki copy.
+
+## Runbooks (to expand as features land)
+- **Object storage:** MinIO on linuxg7 — never recursive-delete the bucket (documented incident on the fleet).
+- **Render pool:** FFmpeg on the AI box; keep renders off the shared linuxg web hosts (they throttle transcoding).
+- **Cost instrumentation:** record `cpuSeconds`/`costCents` on each `renders` row → cost-per-render.

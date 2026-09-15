@@ -1,0 +1,53 @@
+"use client";
+import { useRouter } from "next/navigation";
+import { LogOut, User as UserIcon } from "lucide-react";
+import { authClient, useSession } from "@/lib/auth-client";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+
+export function UserMenu() {
+  const router = useRouter();
+  const { data } = useSession();
+  const email = data?.user?.email;
+  const name = data?.user?.name;
+  const initial = (name || email || "?").charAt(0).toUpperCase();
+
+  async function handleSignOut() {
+    await authClient.signOut();
+    router.push("/");
+    router.refresh();
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button variant="ghost" size="icon" aria-label="Account" className="rounded-full" />
+        }
+      >
+        <span className="grid size-7 place-items-center rounded-full bg-secondary text-sm font-medium">
+          {initial}
+        </span>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuLabel>
+          <div className="flex items-center gap-2">
+            <UserIcon className="size-4" />
+            <span className="truncate">{name || email || "Account"}</span>
+          </div>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={handleSignOut} className="text-destructive focus:bg-destructive/10">
+          <LogOut className="size-4" /> Sign out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}

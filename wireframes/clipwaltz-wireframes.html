@@ -1,0 +1,801 @@
+<title>ClipWaltz MVP Wireframes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root{
+    --bg:#f2f0ec; --stage-bg:#ecebe6; --surface:#ffffff;
+    --card-line:#ded9d0; --hair:#e6e2da;
+    --wire-fill:#e9e7e2; --wire-line:#c6c2b9; --wire-faint:#d7d3cb;
+    --wire-text:#928d83; --ink:#2a2824; --ink-soft:#6c685f;
+    --accent:#cf5330; --accent-tint:rgba(207,83,48,.10);
+    --ok:#3f8f5f; --ok-tint:rgba(63,143,95,.12);
+    --note:#37618e; --note-bg:rgba(55,97,142,.07); --note-line:rgba(55,97,142,.34);
+    --display:'Bricolage Grotesque',system-ui,sans-serif;
+    --sans:'Instrument Sans',system-ui,sans-serif;
+    --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,monospace;
+    --shadow:0 1px 2px rgba(40,35,28,.04),0 8px 24px rgba(40,35,28,.05);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#171613; --stage-bg:#1c1b17; --surface:#232120;
+      --card-line:#38352f; --hair:#2c2a26;
+      --wire-fill:#2c2a27; --wire-line:#4a463f; --wire-faint:#3a3833;
+      --wire-text:#8d887e; --ink:#ece9e1; --ink-soft:#a8a39a;
+      --accent:#e8734a; --accent-tint:rgba(232,115,74,.14);
+      --ok:#5cb07e; --ok-tint:rgba(92,176,126,.16);
+      --note:#84b0dd; --note-bg:rgba(132,176,221,.09); --note-line:rgba(132,176,221,.32);
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.34);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#171613; --stage-bg:#1c1b17; --surface:#232120;
+    --card-line:#38352f; --hair:#2c2a26;
+    --wire-fill:#2c2a27; --wire-line:#4a463f; --wire-faint:#3a3833;
+    --wire-text:#8d887e; --ink:#ece9e1; --ink-soft:#a8a39a;
+    --accent:#e8734a; --accent-tint:rgba(232,115,74,.14);
+    --ok:#5cb07e; --ok-tint:rgba(92,176,126,.16);
+    --note:#84b0dd; --note-bg:rgba(132,176,221,.09); --note-line:rgba(132,176,221,.32);
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.34);
+  }
+
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);
+    line-height:1.5;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 20px;padding-block:0 64px;}
+
+  /* ---------- header ---------- */
+  header{padding-block:40px 20px;}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--accent);display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+  .eyebrow .dot{width:5px;height:5px;border-radius:50%;background:var(--accent);opacity:.55}
+  h1{font-family:var(--display);font-weight:700;font-size:clamp(2rem,6vw,3.1rem);
+    line-height:1.02;letter-spacing:-.02em;margin:12px 0 0;text-wrap:balance;}
+  .lede{max-width:60ch;color:var(--ink-soft);font-size:1.02rem;margin:14px 0 0;}
+  .lede b{color:var(--ink);font-weight:600}
+
+  .toolbar{display:flex;justify-content:space-between;align-items:center;gap:16px;
+    flex-wrap:wrap;margin-top:24px;}
+  .toggle{display:inline-flex;background:var(--surface);border:1px solid var(--card-line);
+    border-radius:999px;padding:3px;gap:2px}
+  .toggle button{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--ink-soft);
+    background:transparent;border:0;border-radius:999px;padding:6px 12px;cursor:pointer}
+  .toggle button.on{background:var(--accent-tint);color:var(--accent)}
+  .toggle button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  /* legend */
+  .legend{margin-top:22px;background:var(--surface);border:1px solid var(--card-line);
+    border-radius:14px;padding:16px 18px;box-shadow:var(--shadow)}
+  .legend h3{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-soft);margin:0 0 12px;font-weight:600}
+  .legend-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px 20px}
+  .leg{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--ink-soft)}
+  .leg .sw{flex:none;width:26px;height:18px;border-radius:4px}
+  .sw.fill{background:var(--wire-fill);border:1px solid var(--wire-line)}
+  .sw.drop{background:var(--wire-fill);border:1.5px dashed var(--wire-line)}
+  .sw.cta{background:var(--accent-tint);border:1px solid var(--accent)}
+  .sw.note{background:var(--note-bg);border:1px dashed var(--note-line)}
+  .sw.phone{background:var(--wire-fill);border:1px solid var(--wire-line);width:12px;height:20px;border-radius:3px}
+  .sw.ready{background:var(--ok-tint);border:1px solid var(--ok)}
+
+  /* constraints strip */
+  .constraints{margin-top:14px;display:flex;flex-wrap:wrap;gap:8px}
+  .chip{font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.02em;
+    padding:6px 10px;border-radius:999px;background:var(--wire-fill);
+    border:1px solid var(--wire-line);color:var(--ink-soft)}
+  .chip.hot{background:var(--accent-tint);border-color:var(--accent);color:var(--accent)}
+
+  /* index */
+  .index{margin-top:14px;display:flex;flex-wrap:wrap;gap:6px}
+  .index a{font-family:var(--mono);font-size:11px;font-weight:500;text-decoration:none;
+    color:var(--ink-soft);border:1px solid var(--card-line);border-radius:7px;
+    padding:5px 9px;background:var(--surface);transition:.15s}
+  .index a:hover{color:var(--accent);border-color:var(--accent)}
+  .index a b{color:var(--accent)}
+
+  /* ---------- frame card ---------- */
+  .frame{margin-top:22px;background:var(--surface);border:1px solid var(--card-line);
+    border-radius:16px;overflow:hidden;box-shadow:var(--shadow);scroll-margin-top:16px}
+  .fhead{display:flex;gap:14px;align-items:flex-start;padding:16px 18px}
+  .num{flex:none;font-family:var(--mono);font-weight:700;font-size:12px;color:var(--accent);
+    border:1px solid var(--accent);border-radius:9px;padding:7px 9px;line-height:1}
+  .fhead h2{font-family:var(--display);font-weight:600;font-size:1.18rem;letter-spacing:-.01em;
+    margin:2px 0 3px}
+  .fhead p{margin:0;font-size:12.5px;color:var(--ink-soft)}
+
+  .fgrid{display:grid;grid-template-columns:1.45fr 1fr;border-top:1px solid var(--hair)}
+  .stage{padding:20px 18px;background:var(--stage-bg);border-right:1px solid var(--hair);
+    display:flex;flex-direction:column;gap:12px;min-width:0}
+  .meta{padding:18px;display:flex;flex-direction:column;gap:16px;min-width:0}
+  .devtag{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--wire-text);display:flex;align-items:center;gap:7px}
+  .devtag::before{content:"";width:14px;height:1px;background:var(--wire-line)}
+
+  .msec h4{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-soft);margin:0 0 8px;font-weight:600}
+  .msec p{margin:0;font-size:13px;color:var(--ink-soft)}
+  .klist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px}
+  .klist li{position:relative;padding-left:16px;font-size:13px;color:var(--ink)}
+  .klist li::before{content:"›";position:absolute;left:2px;top:-1px;color:var(--accent);font-weight:700}
+  .mchips{display:flex;flex-wrap:wrap;gap:6px}
+  .mchips .chip{font-size:9.5px;padding:4px 8px}
+
+  /* ---------- wireframe primitives ---------- */
+  .win{border:1px solid var(--wire-line);border-radius:9px;background:var(--surface);overflow:hidden}
+  .winbar{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--wire-fill);
+    border-bottom:1px solid var(--wire-line)}
+  .tl{display:flex;gap:4px}.tl i{width:8px;height:8px;border-radius:50%;background:var(--wire-line)}
+  .url{flex:1;font-family:var(--mono);font-size:10.5px;color:var(--wire-text);background:var(--surface);
+    border:1px solid var(--wire-line);border-radius:6px;padding:5px 9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .winbody{padding:14px;display:flex;flex-direction:column;gap:12px}
+
+  .bar{height:8px;border-radius:5px;background:var(--wire-line);flex:none}
+  .bar.sm{height:6px}.bar.lg{height:12px}.bar.xl{height:18px;border-radius:6px}
+  .bar.soft{background:var(--wire-faint)}
+  .stack{display:flex;flex-direction:column;gap:7px}
+  .row{display:flex;align-items:center;gap:10px}
+  .row.wrap{flex-wrap:wrap}
+  .grow{flex:1;min-width:0}
+  .between{display:flex;align-items:center;justify-content:space-between;gap:10px}
+
+  .box{background:var(--wire-fill);border:1px solid var(--wire-line);border-radius:7px}
+  .img{background:var(--wire-fill);border:1px solid var(--wire-line);border-radius:7px;
+    display:flex;align-items:center;justify-content:center;color:var(--wire-text);
+    font-family:var(--mono);font-size:10px;
+    background-image:repeating-linear-gradient(45deg,transparent 0 7px,var(--wire-faint) 7px 8px)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    font-family:var(--mono);font-size:11px;font-weight:600;color:var(--ink-soft);
+    background:var(--surface);border:1px solid var(--wire-line);border-radius:7px;padding:7px 12px;white-space:nowrap}
+  .btn.pri{color:var(--accent);border-color:var(--accent);background:var(--accent-tint)}
+  .btn.sm{font-size:10px;padding:5px 9px}
+  .btn.block{width:100%}
+
+  .badge{font-family:var(--mono);font-size:9.5px;font-weight:600;padding:4px 8px;border-radius:999px;
+    border:1px solid var(--wire-line);color:var(--wire-text);background:var(--surface);white-space:nowrap}
+  .badge.draft{color:var(--ink-soft)}
+  .badge.render{color:var(--accent);border-color:var(--accent);background:var(--accent-tint)}
+  .badge.ready{color:var(--ok);border-color:var(--ok);background:var(--ok-tint)}
+
+  .phone{aspect-ratio:9/16;background:var(--wire-fill);border:1px solid var(--wire-line);
+    border-radius:12px;display:flex;flex-direction:column;overflow:hidden;position:relative;max-width:100%}
+  .phone .ratiotag{position:absolute;top:6px;right:6px;font-family:var(--mono);font-size:9px;
+    color:var(--wire-text);background:var(--surface);border:1px solid var(--wire-line);
+    border-radius:5px;padding:2px 5px}
+  .play{width:38px;height:38px;border-radius:50%;border:1.5px solid var(--accent);
+    display:flex;align-items:center;justify-content:center;color:var(--accent);margin:auto}
+  .play::after{content:"";border-left:11px solid currentColor;border-top:7px solid transparent;
+    border-bottom:7px solid transparent;margin-left:3px}
+
+  .drop{border:1.5px dashed var(--wire-line);border-radius:10px;background:var(--wire-fill);
+    padding:20px 14px;text-align:center;color:var(--wire-text);font-family:var(--mono);font-size:11.5px;line-height:1.5}
+  .drop b{color:var(--ink-soft);display:block;font-size:12.5px;margin-bottom:4px}
+
+  .tabs{display:flex;gap:2px;border-bottom:1px solid var(--wire-line);flex-wrap:wrap}
+  .tab{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--wire-text);
+    padding:8px 11px;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+  .tab.on{color:var(--ink);border-bottom-color:var(--accent)}
+
+  .field{border:1px solid var(--wire-line);border-radius:7px;background:var(--surface);
+    padding:9px 10px;font-family:var(--mono);font-size:10.5px;color:var(--wire-text)}
+  .fieldlabel{font-family:var(--mono);font-size:10px;color:var(--wire-text);text-transform:uppercase;letter-spacing:.06em}
+
+  .anno{display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.45;
+    color:var(--note);background:var(--note-bg);border:1px dashed var(--note-line);
+    border-radius:9px;padding:9px 11px}
+  .anno .mk{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.06em;
+    border:1px solid var(--note-line);border-radius:5px;padding:2px 5px;flex:none;margin-top:1px}
+  .anno b{color:var(--note);font-weight:600}
+  .stage .anno{margin-top:2px}
+
+  .cardgrid{display:grid;gap:10px}
+  .mini{border:1px solid var(--wire-line);border-radius:8px;background:var(--surface);
+    padding:8px;display:flex;flex-direction:column;gap:7px}
+  .tmpl{border:1px solid var(--wire-line);border-radius:9px;background:var(--surface);
+    padding:12px 10px;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+  .tmpl.sel{border-color:var(--accent);background:var(--accent-tint)}
+  .glyph{width:100%;height:44px;border-radius:6px;background:var(--wire-fill);
+    border:1px solid var(--wire-line);display:flex;align-items:center;justify-content:center;
+    font-family:var(--mono);font-size:16px;color:var(--wire-text)}
+  .track{display:flex;align-items:center;gap:9px;padding:7px 8px;border:1px solid var(--wire-line);
+    border-radius:7px;background:var(--surface)}
+  .track.sel{border-color:var(--accent);background:var(--accent-tint)}
+  .wave{flex:1;height:16px;display:flex;align-items:center;gap:2px;overflow:hidden}
+  .wave i{width:2px;background:var(--wire-line);border-radius:2px;flex:none}
+  .track.sel .wave i{background:var(--accent);opacity:.55}
+
+  .filmstrip{display:flex;gap:6px;overflow:hidden}
+  .frameclip{flex:none;width:34px;height:54px;border-radius:5px;background:var(--wire-fill);
+    border:1px solid var(--wire-line);position:relative}
+  .frameclip::after{content:"⋮⋮";position:absolute;top:2px;left:50%;transform:translateX(-50%);
+    font-size:8px;color:var(--wire-text);letter-spacing:-1px}
+
+  .progress{height:8px;border-radius:999px;background:var(--wire-fill);border:1px solid var(--wire-line);overflow:hidden}
+  .progress i{display:block;height:100%;width:62%;background:var(--accent);border-radius:999px}
+  .ring{width:96px;height:96px;border-radius:50%;margin:0 auto;
+    background:conic-gradient(var(--accent) 0 62%,var(--wire-line) 62% 100%);
+    display:flex;align-items:center;justify-content:center;position:relative}
+  .ring::before{content:"62%";width:70px;height:70px;border-radius:50%;background:var(--stage-bg);
+    display:flex;align-items:center;justify-content:center;font-family:var(--mono);
+    font-size:14px;font-weight:600;color:var(--ink)}
+
+  .toast{display:flex;align-items:center;gap:9px;border:1px solid var(--wire-line);
+    border-left:3px solid var(--accent);border-radius:8px;background:var(--surface);padding:9px 11px}
+  .wmk{font-family:var(--mono);font-size:9px;font-weight:600;color:var(--ink-soft);
+    background:var(--surface);border:1px solid var(--wire-line);border-radius:5px;padding:3px 6px}
+
+  .cats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .cat{border:1px solid var(--wire-line);border-radius:8px;background:var(--surface);
+    padding:10px 8px;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+  .cat .ico{font-family:var(--mono);font-size:14px;color:var(--wire-text)}
+
+  .invoice{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:7px 0;border-bottom:1px solid var(--hair)}
+
+  .foot{margin-top:36px;padding-top:18px;border-top:1px solid var(--card-line);
+    font-family:var(--mono);font-size:11px;color:var(--ink-soft);
+    display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
+
+  @media (max-width:720px){
+    .fgrid{grid-template-columns:1fr}
+    .stage{border-right:none;border-bottom:1px solid var(--hair)}
+    .cats{grid-template-columns:repeat(2,1fr)}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">
+    <span>Wireframe set</span><span class="dot"></span>
+    <span>v1 · low–mid fidelity</span><span class="dot"></span>
+    <span>Desktop web · Windows &amp; Mac browser</span>
+  </div>
+  <h1>ClipWaltz MVP Wireframes</h1>
+  <p class="lede">Structure &amp; flow for the 10 approved MVP screens — the cloud app that turns a
+    phone's photos &amp; videos into a <b>polished, music-driven highlight video</b>. Greyscale on
+    purpose: these are for layout &amp; interaction review, not final visual design.</p>
+
+  <div class="toolbar">
+    <div class="devtag" style="color:var(--ink-soft)">Approved from the ClipWaltz Design &amp; Build Plan</div>
+    <div class="toggle" role="radiogroup" aria-label="Color theme">
+      <button data-theme-set="light" role="radio" aria-checked="false">Light</button>
+      <button data-theme-set="dark" role="radio" aria-checked="false">Dark</button>
+      <button data-theme-set="system" role="radio" aria-checked="true" class="on">System</button>
+    </div>
+  </div>
+
+  <div class="legend">
+    <h3>Reading these wireframes</h3>
+    <div class="legend-grid">
+      <div class="leg"><span class="sw fill"></span> Placeholder box / image / text</div>
+      <div class="leg"><span class="sw cta"></span> Primary action · CTA (interactive)</div>
+      <div class="leg"><span class="sw drop"></span> Drop zone / dashed = input target</div>
+      <div class="leg"><span class="sw phone"></span> 9:16 video output frame</div>
+      <div class="leg"><span class="sw ready"></span> Success / "Ready" state</div>
+      <div class="leg"><span class="sw note"></span> Designer annotation (not UI)</div>
+    </div>
+    <div class="constraints" aria-label="MVP constraints">
+      <span class="chip hot">9:16 vertical only</span>
+      <span class="chip">~10 licensed tracks</span>
+      <span class="chip">Free tier = watermark</span>
+      <span class="chip">Sources auto-delete 7 days (free)</span>
+      <span class="chip">Paid "Project Vault" keeps longer</span>
+      <span class="chip">Draft ~30–60s → async HD render</span>
+      <span class="chip">Auth: Better Auth</span>
+      <span class="chip">Billing: Stripe</span>
+      <span class="chip">Canonical host: www.clipwaltz.com</span>
+    </div>
+    <nav class="index" aria-label="Jump to a screen">
+      <a href="#s1"><b>01</b> Landing</a>
+      <a href="#s2"><b>02</b> Auth</a>
+      <a href="#s3"><b>03</b> Dashboard</a>
+      <a href="#s4"><b>04</b> New Project</a>
+      <a href="#s5"><b>05</b> Import media</a>
+      <a href="#s6"><b>06</b> Draft + Editor</a>
+      <a href="#s7"><b>07</b> Render status</a>
+      <a href="#s8"><b>08</b> Export / Share</a>
+      <a href="#s9"><b>09</b> Account / Billing</a>
+      <a href="#s10"><b>10</b> Help Center</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ============ 01 LANDING ============ -->
+<section class="frame" id="s1">
+  <div class="fhead">
+    <span class="num">01</span>
+    <div><h2>Marketing / Landing page</h2>
+      <p>Public site at the canonical www host. Converts a visitor into a signup.</p></div>
+  </div>
+  <div class="fgrid">
+    <div class="stage">
+      <div class="devtag">Browser · public site</div>
+      <div class="win">
+        <div class="winbar"><span class="tl"><i></i><i></i><i></i></span>
+          <span class="url">https://www.clipwaltz.com</span></div>
+        <div class="winbody">
+          <div class="between">
+            <div class="row"><div class="box" style="width:26px;height:26px;border-radius:7px"></div>
+              <div class="bar" style="width:74px"></div></div>
+            <div class="row"><div class="bar sm" style="width:38px"></div>
+              <div class="bar sm" style="width:38px"></div>
+              <span class="btn sm">Log in</span><span class="btn sm pri">Sign up</span></div>
+          </div>
+          <div class="row" style="gap:16px;align-items:stretch">
+            <div class="grow stack" style="gap:10px;justify-content:center">
+              <div class="bar xl" style="width:95%"></div>
+              <div class="bar xl" style="width:78%"></div>
+              <div class="stack" style="gap:6px;margin-top:4px">
+                <div class="bar sm soft" style="width:90%"></div>
+                <div class="bar sm soft" style="width:70%"></div>
+              </div>
+              <div class="row" style="margin-top:6px">
+                <span class="btn pri">Start free →</span><span class="btn">See an example</span>
+              </div>
+            </div>
+            <div class="phone" style="width:104px;flex:none">
+              <span class="ratiotag">9:16</span><div class="play"></div>
+              <div class="bar sm" style="width:60%;margin:0 auto 10px"></div>
+            </div>
+          </div>
+          <div class="row" style="gap:8px">
+            <div class="mini grow"><div class="bar sm" style="width:60%"></div><div class="bar sm soft" style="width:90%"></div></div>
+            <div class="mini grow"><div class="bar sm" style="width:60%"></div><div class="bar sm soft" style="width:90%"></div></div>
+            <div class="mini grow"><div class="bar sm" style="width:60%"></div><div class="bar sm soft" style="width:90%"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="anno"><span class="mk">NOTE</span><span>Hero headline is verbatim: <b>"Turn the photos and videos on your phone into a polished, music-driven highlight video in under a minute."</b></span></div>
+    </div>
+    <div class="meta">
+      <div class="msec"><h4>Purpose</h4><p>First touch for cold traffic — sell the outcome fast and push a single, unmistakable signup CTA.</p></div>
+      <div class="msec"><h4>Key interactions</h4>
+        <ul class="klist">
+          <li>Primary CTA "Start free" → Auth (signup)</li>
+          <li>Muted autoplay 9:16 sample loops in hero</li>
+          <li>Sticky top nav with Log in / Sign up</li>
+          <li>Apex clipwaltz.com → 308 redirect to www</li>
+        </ul></div>
+      <div class="mchips"><span class="chip hot">Canonical www</span><span class="chip">9:16 sample</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 02 AUTH ============ -->
+<section class="frame" id="s2">
+  <div class="fhead">
+    <span class="num">02</span>
+    <div><h2>Sign up / Log in</h2>
+      <p>One combined auth card — email plus a single social provider.</p></div>
+  </div>
+  <div class="fgrid">
+    <div class="stage">
+      <div class="devtag">Browser · centered auth card</div>
+      <div class="win">
+        <div class="winbar"><span class="tl"><i></i><i></i><i></i></span>
+          <span class="url">https://www.clipwaltz.com/signup</span></div>
+        <div class="winbody" style="align-items:center;padding:20px">
+          <div class="box" style="width:34px;height:34px;border-radius:9px"></div>
+          <div class="bar lg" style="width:150px;margin-top:2px"></div>
+          <div class="win" style="width:100%;max-width:290px;margin-top:4px">
+            <div class="tabs"><span class="tab on">Sign up</span><span class="tab">Log in</span></div>
+            <div class="winbody" style="gap:10px">
+              <span class="btn block"><span style="font-family:var(--mono);font-size:10px">◎</span> Continue with Google</span>
+              <div class="row"><div class="bar sm grow soft"></div><span style="font-family:var(--mono);font-size:9px;color:var(--wire-text)">or</span><div class="bar sm grow soft"></div></div>
+              <div class="stack" style="gap:4px"><span class="fieldlabel">Email</span><div class="field">you@example.com</div></div>
+              <div class="stack" style="gap:4px"><span class="fieldlabel">Password</span><div class="field">••••••••</div></div>
+              <span class="btn pri block">Create account</span>
+              <div class="bar sm soft" style="width:70%;margin:0 auto"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="anno"><span class="mk">NOTE</span><span>Powered by <b>Better Auth</b> (self-hosted, sessions in our Postgres). Email + one OAuth provider at MVP. Password entry stays on our own hosted form.</span></div>
+    </div>
+    <div class="meta">
+      <div class="msec"><h4>Purpose</h4><p>Lowest-friction account creation; log in and sign up share one screen via a tab toggle.</p></div>
+      <div class="msec"><h4>Key interactions</h4>
+        <ul class="klist">
+          <li>Tab switch: Sign up ⇄ Log in</li>
+          <li>"Continue with Google" OAuth flow</li>
+          <li>Inline validation + forgot-password link</li>
+          <li>Success → Dashboard</li>
+        </ul></div>
+      <div class="mchips"><span class="chip hot">Better Auth</span><span class="chip">Email + 1 social</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 03 DASHBOARD ============ -->
+<section class="frame" id="s3">
+  <div class="fhead">
+    <span class="num">03</span>
+    <div><h2>Dashboard / Projects list</h2>
+      <p>Home after login — every past project with its render status, and the way in to a new one.</p></div>
+  </div>
+  <div class="fgrid">
+    <div class="stage">
+      <div class="devtag">Browser · signed-in app shell</div>
+      <div class="win">
+        <div class="winbar"><span class="tl"><i></i><i></i><i></i></span>
+          <span class="url">https://www.clipwaltz.com/projects</span></div>
+        <div class="winbody">
+          <div class="between">
+            <div class="row"><div class="box" style="width:22px;height:22px;border-radius:6px"></div>
+              <div class="bar" style="width:96px"></div></div>
+            <div class="row"><span class="btn pri sm">+ New Project</span>
+              <div class="box" style="width:24px;height:24px;border-radius:50%"></div></div>
+          </div>
+          <div class="cardgrid" style="grid-template-columns:repeat(3,1fr)">
+            <div class="mini"><div class="img" style="aspect-ratio:9/16">9:16</div>
+              <div class="between"><div class="bar sm" style="width:50%"></div><span class="badge ready">Ready</span></div></div>
+            <div class="mini"><div class="img" style="aspect-ratio:9/16">9:16</div>
+              <div class="between"><div class="bar sm" style="width:50%"></div><span class="badge render">Rendering</span></div></div>
+            <div class="mini"><div class="img" style="aspect-ratio:9/16">9:16</div>
+              <div class="between"><div class="bar sm" style="width:50%"></div><span class="badge draft">Draft</span></div></div>
+            <div class="mini"><div class="img" style="aspect-ratio:9/16">9:16</div>
+              <div class="between"><div class="bar sm" style="width:50%"></div><span class="badge ready">Ready</span></div></div>
+            <div class="mini"><div class="img" style="aspect-ratio:9/16">9:16</div>
+              <div class="between"><div class="bar sm" style="width:50%"></div><span class="badge draft">Draft</span></div></div>
+            <div class="mini" style="align-items:center;justify-content:center;border-style:dashed;color:var(--wire-text);font-family:var(--mono);font-size:11px;min-height:120px">+ New</div>
+          </div>
+        </div>
+      </div>
+      <div class="anno"><span class="mk">NOTE</span><span>Three render states as status badges: <b>Draft</b> (grey) · <b>Rendering</b> (accent) · <b>Ready</b> (green). Rendering cards keep updating live.</span></div>
+    </div>
+    <div class="meta">
+      <div class="msec"><h4>Purpose</h4><p>At-a-glance status of all work; make "New Project" the most prominent control on the page.</p></div>
+      <div class="msec"><h4>Key interactions</h4>
+        <ul class="klist">
+          <li>"+ New Project" → New Project wizard</li>
+          <li>Click a card → its editor / export</li>
+          <li>Card menu: rename, duplicate, delete</li>
+          <li>Empty state seeds a first-project prompt</li>
+        </ul></div>
+      <div class="mchips"><span class="chip">Draft / Rendering / Ready</span><span class="chip">Auto-delete banner (free)</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 04 NEW PROJECT ============ -->
+<section class="frame" id="s4">
+  <div class="fhead">
+    <span class="num">04</span>
+    <div><h2>New Project wizard</h2>
+      <p>Pick an occasion template — or let ClipWaltz choose — then continue to import.</p></div>
+  </div>
+  <div class="fgrid">
+    <div class="stage">
+      <div class="devtag">Browser · wizard step 1 of 2</div>
+      <div class="win">
+        <div class="winbar"><span class="tl"><i></i><i></i><i></i></span>
+          <span class="url">https://www.clipwaltz.com/projects/new</span></div>
+        <div class="winbody">
+          <div class="between">
+            <div class="bar lg" style="width:150px"></div>
+            <div class="row"><span class="badge">Step 1 · Occasion</span><span class="badge">Step 2 · Import</span></div>
+          </div>
+          <div class="cardgrid" style="grid-template-columns:repeat(2,1fr)">
+            <div class="tmpl sel"><div class="glyph">✈</div><div class="bar sm" style="width:40%"></div><div class="bar sm soft" style="width:80%"></div></div>
+            <div class="tmpl"><div class="glyph">◈</div><div class="bar sm" style="width:55%"></div><div class="bar sm soft" style="width:80%"></div></div>
+            <div class="tmpl"><div class="glyph">✿</div><div class="bar sm" style="width:45%"></div><div class="bar sm soft" style="width:80%"></div></div>
+            <div class="tmpl"><div class="glyph">✦</div><div class="bar sm" style="width:60%"></div><div class="bar sm soft" style="width:80%"></div></div>
+          </div>
+          <div class="between">
+            <div class="row"><span class="fieldlabel">Aspect</span><span class="badge render">9:16 vertical</span><span style="font-family:var(--mono);font-size:9px;color:var(--wire-text)">locked</span></div>
+            <span class="btn pri sm">Continue →</span>
+          </div>
+        </div>
+      </div>
+      <div class="anno"><span class="mk">NOTE</span><span>Tiles = Trip · Event/Wedding · Birthday · "Surprise me". <b>Only 2 templates ship at MVP</b> (the rest greyed "Coming soon"). Aspect is <b>9:16 only</b> and non-editable.</span></div>
+    </div>
+    <div class="meta">
+      <div class="msec"><h4>Purpose</h4><p>Set the edit's pacing/mood via an occasion template so the auto-edit has a target style before any media arrives.</p></div>
+      <div class="msec"><h4>Key interactions</h4>
+        <ul class="klist">
+          <li>Select one template tile (radio behavior)</li>
+          <li>"Surprise me" lets the editor pick</li>
+          <li>Continue → Import media (step 2)</li>
+        </ul></div>
+      <div class="mchips"><span class="chip hot">9:16 only</span><span class="chip">2 templates @ MVP</span><span class="chip">Surprise me</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 05 IMPORT ============ -->
+<section class="frame" id="s5">
+  <div class="fhead">
+    <span class="num">05</span>
+    <div><h2>Import media</h2>
+      <p>Three ways to get files in — including an OS-assisted "Connect your phone" flow.</p></div>
+  </div>
+  <div class="fgrid">
+    <div class="stage">
+      <div class="devtag">Browser · import step</div>
+      <div class="win">
+        <div class="winbar"><span class="tl"><i></i><i></i><i></i></span>
+          <span class="url">https://www.clipwaltz.com/projects/new/import</span></div>
+        <div class="winbody">
+          <div class="tabs">
+            <span class="tab">Drag &amp; drop</span>
+            <span class="tab">Choose files / folder</span>
+            <span class="tab on">Connect your phone</span>
+          </div>
+          <div class="drop" style="padding:14px"><b>Drag photos &amp; videos here</b>or use the picker · files upload in resumable chunks</div>
+          <div class="box" style="padding:11px;background:var(--surface)">
+            <div class="row" style="gap:8px;margin-bottom:8px"><span class="badge render">Guided</span><div class="bar sm" style="width:130px"></div></div>
+            <div class="stack" style="gap:8px">
+              <div class="row"><span class="badge">1</span><div class="grow bar sm"></div></div>
+              <div class="row"><span class="badge">2</span><div class="grow bar sm" style="width:80%"></div></div>
+              <div class="row"><span class="badge">3</span><div class="grow bar sm" style="width:65%"></div></div>
+            </div>
+          </div>
+          <div class="stack" style="gap:6px">
+            <div class="between"><div class="bar sm" style="width:120px"></div><span style="font-family:var(--mono);font-size:9px;color:var(--wire-text)">3 of 8 · resumable</span></div>
+            <div class="row" style="gap:6px">
+              <div class="img" style="width:30px;height:30px">▣</div>
+              <div class="grow progress"><i></i></div>
+            </div>
+            <div class="filmstrip" style="gap:5px">
+              <div class="frameclip" style="width:26px;height:40px"></div>
+              <div class="frameclip" style="width:26px;height:40px"></div>
+              <div class="frameclip" style="width:26px;height:40px"></div>
+              <div class="frameclip" style="width:26px;height:40px"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="anno"><span class="mk">CRITICAL</span><span><b>"Connect your phone" is an OS-assisted import, not browser-over-USB.</b> Browsers cannot read a phone's photo library over USB. The 3 steps are: <b>1)</b> Plug phone into your PC via USB · <b>2)</b> Your computer opens the phone (Windows: This PC → phone → DCIM; Mac: Photos / Image Capture, or Android File Transfer) · <b>3)</b> Select those files here.</span></div>
+    </div>
+    <div class="meta">
+      <div class="msec"><h4>Purpose</h4><p>Remove the "how do I get phone footage onto my computer?" wall — three parallel paths, phone flow guided step-by-step.</p></div>
+      <div class="msec"><h4>Key interactions</h4>
+        <ul class="klist">
+          <li>Tabs: drag-drop · file/folder picker · connect phone</li>
+          <li>Chunked, resumable uploads with per-file progress</li>
+          <li>Thumbnails populate as files land</li>
+          <li>Continue enabled once ≥1 clip uploaded</li>
+        </ul></div>
+      <div class="mchips"><span class="chip hot">OS-assisted, not USB-to-browser</span><span class="chip">Resumable / chunked</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 06 EDITOR ============ -->
+<section class="frame" id="s6">
+  <div class="fhead">
+    <span class="num">06</span>
+    <div><h2>Draft Preview + Editor</h2>
+      <p>A fast low-res draft with light edit controls, then a "Render HD" hand-off.</p></div>
+  </div>
+  <div class="fgrid">
+    <div class="stage">
+      <div class="devtag">Browser · draft editor</div>
+      <div class="win">
+        <div class="winbar"><span class="tl"><i></i><i></i><i></i></span>
+          <span class="url">https://www.clipwaltz.com/projects/summer-trip/edit</span></div>
+        <div class="winbody">
+          <div class="row" style="gap:12px;align-items:stretch">
+            <div class="phone" style="width:118px;flex:none"><span class="ratiotag">9:16</span><div class="play"></div>
+              <div class="stack" style="gap:5px;padding:0 10px 10px"><div class="progress"><i style="width:40%"></i></div></div></div>
+            <div class="grow stack" style="gap:10px">
+              <div class="stack" style="gap:5px">
+                <span class="fieldlabel">Music · royalty-free catalog</span>
+                <div class="track sel"><div class="wave"><i style="height:6px"></i><i style="height:12px"></i><i style="height:8px"></i><i style="height:14px"></i><i style="height:5px"></i><i style="height:11px"></i><i style="height:9px"></i><i style="height:13px"></i></div><span class="badge">120 BPM · Upbeat</span></div>
+                <div class="track"><div class="wave"><i style="height:8px"></i><i style="height:5px"></i><i style="height:11px"></i><i style="height:7px"></i><i style="height:13px"></i><i style="height:6px"></i></div><span class="badge">90 · Chill</span></div>
+              </div>
+              <div class="stack" style="gap:5px"><span class="fieldlabel">Length</span>
+                <div class="row"><span class="badge">15s</span><span class="badge render">30s</span><span class="badge">60s</span></div></div>
+            </div>
+          </div>
+          <div class="stack" style="gap:5px"><span class="fieldlabel">Clips · drag to reorder</span>
+            <div class="filmstrip"><div class="frameclip"></div><div class="frameclip"></div><div class="frameclip"></div><div class="frameclip"></div><div class="frameclip"></div><div class="frameclip"></div><div class="frameclip" style="border-style:dashed"></div></div>
+          </div>
+          <div class="between"><span class="btn sm">Regenerate draft</span><span class="btn pri sm">Render HD →</span></div>
+        </div>
+      </div>
+      <div class="anno"><span class="mk">NOTE</span><span>Draft player is <b>low-res and appears in ~30–60s</b>. Editing stays intentionally light: reorder clips, swap track, set length. "Render HD" kicks off the async job (screen 07).</span></div>
+    </div>
+    <div class="meta">
+      <div class="msec"><h4>Purpose</h4><p>Let the user confirm the auto-edit "feels right" and make a few quick changes before committing GPU time to HD.</p></div>
+      <div class="msec"><h4>Key interactions</h4>
+        <ul class="klist">
+          <li>Play / scrub the 9:16 draft</li>
+          <li>Drag filmstrip clips to reorder; remove clips</li>
+          <li>Swap music from ~10 licensed tracks (BPM + mood)</li>
+          <li>Set length (15 / 30 / 60s); "Render HD"</li>
+        </ul></div>
+      <div class="mchips"><span class="chip hot">Draft ~30–60s</span><span class="chip">~10 tracks · BPM/mood</span><span class="chip">9:16</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 07 RENDER ============ -->
+<section class="frame" id="s7">
+  <div class="fhead">
+    <span class="num">07</span>
+    <div><h2>Render status</h2>
+      <p>Async HD render — the user is free to leave and gets notified when it's done.</p></div>
+  </div>
+  <div class="fgrid">
+    <div class="stage">
+      <div class="devtag">Browser · async render</div>
+      <div class="win">
+        <div class="winbar"><span class="tl"><i></i><i></i><i></i></span>
+          <span class="url">https://www.clipwaltz.com/projects/summer-trip/render</span></div>
+        <div class="winbody" style="align-items:center;text-align:center;padding:22px;gap:14px">
+          <div class="ring" role="img" aria-label="Rendering 62 percent"></div>
+          <div class="bar lg" style="width:180px"></div>
+          <div class="stack" style="gap:6px;align-items:center"><div class="bar sm soft" style="width:220px"></div><div class="bar sm soft" style="width:170px"></div></div>
+          <div class="toast" style="width:100%;max-width:300px"><span style="font-family:var(--mono);font-size:11px;color:var(--accent)">✉</span><div class="grow bar sm"></div></div>
+          <div class="row"><span class="btn sm">Back to projects</span><span class="btn sm">Notify me by email</span></div>
+        </div>
+      </div>
+      <div class="anno"><span class="mk">NOTE</span><span>Copy makes clear: <b>"You can leave this page — we'll let you know when it's ready."</b> Completion fires an <b>in-app notification</b> and an <b>email ("Your video is ready")</b>.</span></div>
+    </div>
+    <div class="meta">
+      <div class="msec"><h4>Purpose</h4><p>Reassure during a long-running job and free the user from waiting; the project card also flips to "Rendering" then "Ready".</p></div>
+      <div class="msec"><h4>Key interactions</h4>
+        <ul class="klist">
+          <li>Live progress ring / percentage + stage label</li>
+          <li>"Back to projects" — render continues server-side</li>
+          <li>In-app toast + email on completion → Export</li>
+        </ul></div>
+      <div class="mchips"><span class="chip hot">Async / leave anytime</span><span class="chip">In-app + email notify</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 08 EXPORT ============ -->
+<section class="frame" id="s8">
+  <div class="fhead">
+    <span class="num">08</span>
+    <div><h2>Export / Share</h2>
+      <p>Finished video with download and share link; free tier carries a watermark.</p></div>
+  </div>
+  <div class="fgrid">
+    <div class="stage">
+      <div class="devtag">Browser · finished video</div>
+      <div class="win">
+        <div class="winbar"><span class="tl"><i></i><i></i><i></i></span>
+          <span class="url">https://www.clipwaltz.com/projects/summer-trip/export</span></div>
+        <div class="winbody">
+          <div class="row" style="gap:12px;align-items:stretch">
+            <div class="phone" style="width:110px;flex:none"><span class="ratiotag">9:16</span><div class="play"></div>
+              <div style="position:absolute;bottom:8px;left:8px" class="wmk">ClipWaltz ▷</div></div>
+            <div class="grow stack" style="gap:10px;justify-content:center">
+              <div class="bar lg" style="width:70%"></div>
+              <span class="btn pri block">↓ Download video</span>
+              <div class="stack" style="gap:4px"><span class="fieldlabel">Share link</span>
+                <div class="row"><div class="field grow">clipwaltz.com/v/8kd2…</div><span class="btn sm">Copy</span></div></div>
+            </div>
+          </div>
+          <div class="toast"><span class="wmk">FREE TIER</span><div class="grow stack" style="gap:5px"><div class="bar sm" style="width:60%"></div><div class="bar sm soft" style="width:80%"></div></div><span class="btn pri sm">Upgrade</span></div>
+        </div>
+      </div>
+      <div class="anno"><span class="mk">NOTE</span><span>Free exports show a <b>watermark badge</b> on the video + an "Upgrade to remove watermark + HD" banner. Paid tiers export clean at full resolution.</span></div>
+    </div>
+    <div class="meta">
+      <div class="msec"><h4>Purpose</h4><p>Deliver the finished asset and make sharing effortless — while surfacing the upgrade at the highest-intent moment.</p></div>
+      <div class="msec"><h4>Key interactions</h4>
+        <ul class="klist">
+          <li>Play the final 9:16 video</li>
+          <li>Download file · Copy share link</li>
+          <li>Upgrade CTA → Account / Billing</li>
+        </ul></div>
+      <div class="mchips"><span class="chip hot">Watermark (free)</span><span class="chip">Upgrade = clean + HD</span><span class="chip">9:16</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 09 BILLING ============ -->
+<section class="frame" id="s9">
+  <div class="fhead">
+    <span class="num">09</span>
+    <div><h2>Account / Billing</h2>
+      <p>Current plan, upgrade path across three tiers, and invoice history.</p></div>
+  </div>
+  <div class="fgrid">
+    <div class="stage">
+      <div class="devtag">Browser · account settings</div>
+      <div class="win">
+        <div class="winbar"><span class="tl"><i></i><i></i><i></i></span>
+          <span class="url">https://www.clipwaltz.com/account/billing</span></div>
+        <div class="winbody">
+          <div class="between"><div class="bar lg" style="width:120px"></div><span class="badge">Current: Free</span></div>
+          <div class="cardgrid" style="grid-template-columns:repeat(3,1fr)">
+            <div class="tmpl"><div class="bar sm" style="width:50%"></div><div class="bar lg" style="width:70%"></div><div class="stack" style="gap:5px;width:100%"><div class="bar sm soft" style="width:90%"></div><div class="bar sm soft" style="width:75%"></div></div><span class="btn sm block">Current</span></div>
+            <div class="tmpl sel"><div class="row" style="gap:6px"><div class="bar sm" style="width:34px"></div><span class="badge render">Popular</span></div><div class="bar lg" style="width:70%"></div><div class="stack" style="gap:5px;width:100%"><div class="bar sm soft" style="width:90%"></div><div class="bar sm soft" style="width:80%"></div></div><span class="btn pri sm block">Upgrade to Plus</span></div>
+            <div class="tmpl"><div class="bar sm" style="width:42%"></div><div class="bar lg" style="width:70%"></div><div class="stack" style="gap:5px;width:100%"><div class="bar sm soft" style="width:90%"></div><div class="bar sm soft" style="width:70%"></div></div><span class="btn sm block">Upgrade to Pro</span></div>
+          </div>
+          <div class="stack" style="gap:0"><span class="fieldlabel" style="margin-bottom:6px">Invoices</span>
+            <div class="invoice"><div class="bar sm" style="width:90px"></div><div class="bar sm soft" style="width:44px"></div><span class="btn sm">PDF</span></div>
+            <div class="invoice"><div class="bar sm" style="width:90px"></div><div class="bar sm soft" style="width:44px"></div><span class="btn sm">PDF</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="anno"><span class="mk">NOTE</span><span>Tiers: <b>Free · Plus · Pro</b>. Billing via <b>Stripe (direct)</b> — processor-hosted checkout, upgrade opens Stripe Checkout, invoices pulled from Stripe. Paid unlocks no-watermark, HD, and the longer-retention Project Vault.</span></div>
+    </div>
+    <div class="meta">
+      <div class="msec"><h4>Purpose</h4><p>Show what the current plan includes and make upgrading a one-click, trustworthy path.</p></div>
+      <div class="msec"><h4>Key interactions</h4>
+        <ul class="klist">
+          <li>Compare Free / Plus / Pro</li>
+          <li>Upgrade → Stripe Checkout (hosted)</li>
+          <li>Manage plan · download invoice PDFs</li>
+        </ul></div>
+      <div class="mchips"><span class="chip hot">Stripe (direct)</span><span class="chip">Free · Plus · Pro</span><span class="chip">Project Vault (paid)</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 10 HELP ============ -->
+<section class="frame" id="s10">
+  <div class="fhead">
+    <span class="num">10</span>
+    <div><h2>Help Center</h2>
+      <p>Searchable end-user docs with categories mirroring the product's features.</p></div>
+  </div>
+  <div class="fgrid">
+    <div class="stage">
+      <div class="devtag">Browser · help center</div>
+      <div class="win">
+        <div class="winbar"><span class="tl"><i></i><i></i><i></i></span>
+          <span class="url">https://www.clipwaltz.com/help</span></div>
+        <div class="winbody" style="gap:14px">
+          <div class="stack" style="gap:8px;align-items:center;text-align:center">
+            <div class="bar lg" style="width:180px"></div>
+            <div class="field" style="width:100%;max-width:340px;display:flex;align-items:center;gap:8px"><span style="font-family:var(--mono)">⌕</span> Search help articles…</div>
+          </div>
+          <div class="cats">
+            <div class="cat"><span class="ico">▷</span><div class="bar sm" style="width:80%"></div><div class="bar sm soft" style="width:60%"></div></div>
+            <div class="cat"><span class="ico">▤</span><div class="bar sm" style="width:70%"></div><div class="bar sm soft" style="width:55%"></div></div>
+            <div class="cat"><span class="ico">♪</span><div class="bar sm" style="width:85%"></div><div class="bar sm soft" style="width:50%"></div></div>
+            <div class="cat"><span class="ico">⟳</span><div class="bar sm" style="width:75%"></div><div class="bar sm soft" style="width:60%"></div></div>
+            <div class="cat"><span class="ico">$</span><div class="bar sm" style="width:65%"></div><div class="bar sm soft" style="width:55%"></div></div>
+            <div class="cat"><span class="ico">◑</span><div class="bar sm" style="width:80%"></div><div class="bar sm soft" style="width:50%"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="anno"><span class="mk">NOTE</span><span>Categories map 1:1 to features: <b>Getting started · Importing media (incl. Connect your phone) · Editing &amp; music · Rendering &amp; export · Billing &amp; plans · Account</b>. Kept in sync with FEATURES.md &amp; mirrored to the wiki.</span></div>
+    </div>
+    <div class="meta">
+      <div class="msec"><h4>Purpose</h4><p>Deflect support load and unblock users at the exact step they're stuck on — especially the phone-import flow.</p></div>
+      <div class="msec"><h4>Key interactions</h4>
+        <ul class="klist">
+          <li>Search across all articles</li>
+          <li>Browse by feature category</li>
+          <li>Article view with related links + contact fallback</li>
+        </ul></div>
+      <div class="mchips"><span class="chip">Categories = features</span><span class="chip">Searchable</span></div>
+    </div>
+  </div>
+</section>
+
+<div class="foot">
+  <span>ClipWaltz MVP · 10-screen wireframe set · for owner review &amp; approval</span>
+  <span>Low–mid fidelity · not production UI</span>
+</div>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement;
+  var btns=document.querySelectorAll('.toggle button');
+  function apply(mode){
+    try{
+      if(mode==='system'){root.removeAttribute('data-theme');localStorage.removeItem('cw-theme');}
+      else{root.setAttribute('data-theme',mode);localStorage.setItem('cw-theme',mode);}
+    }catch(e){ if(mode==='system'){root.removeAttribute('data-theme');}else{root.setAttribute('data-theme',mode);} }
+    btns.forEach(function(b){
+      var on=b.getAttribute('data-theme-set')===mode;
+      b.classList.toggle('on',on);b.setAttribute('aria-checked',on?'true':'false');
+    });
+  }
+  var saved='system';
+  try{saved=localStorage.getItem('cw-theme')||'system';}catch(e){}
+  apply(saved);
+  btns.forEach(function(b){b.addEventListener('click',function(){apply(b.getAttribute('data-theme-set'));});});
+})();
+</script>
