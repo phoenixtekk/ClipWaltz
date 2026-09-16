@@ -63,3 +63,16 @@ export function tierForPriceId(priceId: string | null | undefined): Tier {
   if (priceId && priceId === TIERS.pro.priceId) return "pro";
   return "free";
 }
+
+/** Stripe-hosted billing portal (manage/cancel a subscription). */
+export async function createPortalSession(customerId: string) {
+  return getStripe().billingPortal.sessions.create({
+    customer: customerId,
+    return_url: `${appBaseUrl()}/account/billing`,
+  });
+}
+
+/** Whether Stripe keys are present (page degrades gracefully when not). */
+export function isStripeConfigured(): boolean {
+  return !!process.env.STRIPE_SECRET_KEY;
+}

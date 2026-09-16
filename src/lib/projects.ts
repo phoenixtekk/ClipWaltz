@@ -15,6 +15,7 @@ export type ProjectSummary = {
 export type ProjectDetail = ProjectSummary & {
   template: string;
   lengthSec: number;
+  musicTrackId: string | null;
 };
 
 /** A single project owned by the current user, or null. */
@@ -32,6 +33,7 @@ export async function getProject(id: string): Promise<ProjectDetail | null> {
     aspect: r.aspect,
     template: r.template,
     lengthSec: r.lengthSec,
+    musicTrackId: r.musicTrackId,
     updatedAt: r.updatedAt.toISOString(),
   };
 }

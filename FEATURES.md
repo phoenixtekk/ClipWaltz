@@ -26,14 +26,15 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 | Projects + dashboard | ✅ | `/projects` (auth-gated app shell). Lists user's projects newest-first with Draft/Rendering/Ready/Failed badges; create/rename/duplicate/delete via server actions (owner-checked); empty state + free-tier retention banner. "New Project" → wizard. Verified E2E. |
 | New Project wizard (occasion templates) | ✅ | `/projects/new`: Trip + Event/Wedding + "Surprise me" active, Birthday "Coming soon"; 9:16 locked. Continue creates the project with the chosen template → `/projects/[id]/import`. Verified E2E in-browser (select → create → import step → dashboard card). |
 | Render pipeline (queue + worker) | ✅ | `renders` DB queue; `worker/render-worker.mjs` claims jobs (FOR UPDATE SKIP LOCKED), pulls clips from MinIO, FFmpeg-assembles a 1080p 9:16 video (photos + videos, optional music, optional watermark), uploads to MinIO, updates status. Verified E2E (valid 1080×1920 MP4). **Deploy target: AI box** (pending — see ADMIN_DOCS). |
-| Editor (screen 06) | 🚧 | `/projects/[id]/edit`: lists clips, **Render HD** button + live status polling + **Download** (proxied). Draft preview / reorder / music-swap UI still to come. |
+| Editor (screen 06) | ✅ | `/projects/[id]/edit`: reorder clips (up/down), remove, **music picker** (from catalog), **length** (15/30/60), **Render HD** + live status + **Download** (proxied). Fast low-res draft-preview player still to come. |
 | Media import (drag-drop / picker / guided USB) | ✅ | `/projects/[id]/import`: 3 tabs (drag-drop, files/folder picker, guided OS-assisted USB), per-file progress, proxied upload → MinIO `clipwaltz` bucket, delete. Continue → editor. Verified E2E (object confirmed in bucket). *(v1.1: presigned multipart + resumable for large files.)* |
-| Cloud auto-assemble | 🚧 | Normalize-to-9:16 + concat + music + watermark works. Beat-synced cuts & face/scene-aware selection = v1.1 |
-| Draft preview + light editor | ⬜ | Fast low-res draft, reorder, swap music, set length |
+| Cloud auto-assemble | 🚧 | Normalize-to-9:16 + concat + selected music + length cap + watermark works. Beat-synced cuts & face/scene-aware selection = v1.1 |
+| Light editor (reorder / music / length) | ✅ | Server-actions, owner-checked; verified E2E (render used the chosen track + capped length) |
+| Fast low-res draft preview | ⬜ | Quick preview render before HD |
 | Cloud HD render (async) | ✅ | DB queue + worker + live status polling; download served (proxied). SES "video ready" email still to wire |
 | Export / share (watermark on free) | 🚧 | Download ✅ (proxied). Watermark drawtext in worker (font-fallback safe); public share link still to come |
-| Licensed music catalog (~10 tracks) | ⬜ | BPM/mood metadata |
-| Account / billing (Free/Plus/Pro) | ⬜ | Stripe Checkout |
+| Music catalog | 🚧 | 3 **placeholder** instrumental beds seeded (BPM/mood, in MinIO `music/`). ⚠️ `license_ref=PLACEHOLDER-DO-NOT-SHIP` — replace with real licensed royalty-free tracks before launch. Seeder: `scripts/seed-music.mjs` |
+| Account / billing (Free/Plus/Pro) | 🚧 | `/account/billing` page + Stripe hosted Checkout + billing portal + webhook (persists subscription/plan) all wired and build-clean; degrades gracefully. **Needs Stripe test keys + products/prices to go live** (see BILLING.md) |
 | Help Center | ⬜ | Categories mirror features |
 | Retention: 7-day auto-delete (free) | ⬜ | Paid "Project Vault" keeps longer |
 

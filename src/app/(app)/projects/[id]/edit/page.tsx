@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Film, Image as ImageIcon } from "lucide-react";
 import { getProject } from "@/lib/projects";
 import { listAssets } from "@/lib/assets";
+import { getMusicTracks } from "@/lib/music";
 import { getLatestRender } from "@/lib/render";
 import { Button } from "@/components/ui/button";
+import { ProjectEditor } from "@/components/project-editor";
 import { RenderPanel } from "@/components/render-panel";
 
 export const metadata = { title: "Editor" };
@@ -13,8 +14,11 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const project = await getProject(id);
   if (!project) notFound();
-  const assets = await listAssets(id);
-  const latestRender = await getLatestRender(id);
+  const [assets, tracks, latestRender] = await Promise.all([
+    listAssets(id),
+    getMusicTracks(),
+    getLatestRender(id),
+  ]);
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -26,31 +30,19 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
         </p>
       </div>
 
-      {assets.length > 0 ? (
-        <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {assets.map((a) => (
-            <li
-              key={a.id}
-              className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm"
-            >
-              {a.kind === "video" ? (
-                <Film className="size-4 shrink-0 text-muted-foreground" />
-              ) : (
-                <ImageIcon className="size-4 shrink-0 text-muted-foreground" />
-              )}
-              <span className="min-w-0 flex-1 truncate">{a.name}</span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-sm text-muted-foreground">No clips yet — import some first.</p>
-      )}
+      <ProjectEditor
+        projectId={id}
+        assets={assets}
+        tracks={tracks}
+        musicTrackId={project.musicTrackId}
+        lengthSec={project.lengthSec}
+      />
 
       <RenderPanel projectId={id} initial={latestRender} canRender={assets.length > 0} />
 
       <p className="text-xs text-muted-foreground">
-        The cloud assembles your clips into a {project.aspect} video with music. Draft preview, clip
-        reordering, and music selection arrive in the next iteration.
+        Reorder clips, pick a soundtrack, set the length, then render. A fast low-res draft preview and
+        beat-synced cuts arrive in a later iteration.
       </p>
 
       <div className="flex items-center gap-2 border-t border-border pt-4">

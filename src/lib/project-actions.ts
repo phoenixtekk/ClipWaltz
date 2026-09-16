@@ -1,9 +1,17 @@
 "use server";
 import { randomUUID } from "crypto";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
+
+async function assertProjectOwner(userId: string, projectId: string) {
+  const [p] = await db
+    .select({ id: schema.projects.id })
+    .from(schema.projects)
+    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.ownerId, userId)));
+  if (!p) throw new Error("Project not found");
+}
 
 // Confirm the current user owns the project before any mutation (defends against
 // a tampered projectId from the client).
@@ -54,6 +62,57 @@ export async function renameProject(projectId: string, title: string): Promise<v
     .set({ title: clean, updatedAt: new Date() })
     .where(eq(schema.projects.id, projectId));
   revalidatePath("/projects");
+}
+
+export async function setProjectLength(projectId: string, lengthSec: number): Promise<void> {
+  const userId = await requireUserId();
+  await assertProjectOwner(userId, projectId);
+  const len = [15, 30, 60].includes(lengthSec) ? lengthSec : 30;
+  await db
+    .update(schema.projects)
+    .set({ lengthSec: len, updatedAt: new Date() })
+    .where(eq(schema.projects.id, projectId));
+  revalidatePath(`/projects/${projectId}/edit`);
+}
+
+export async function setProjectMusic(projectId: string, trackId: string | null): Promise<void> {
+  const userId = await requireUserId();
+  await assertProjectOwner(userId, projectId);
+  if (trackId) {
+    const [t] = await db
+      .select({ id: schema.musicTracks.id })
+      .from(schema.musicTracks)
+      .where(and(eq(schema.musicTracks.id, trackId), eq(schema.musicTracks.active, true)));
+    if (!t) throw new Error("Track not found");
+  }
+  await db
+    .update(schema.projects)
+    .set({ musicTrackId: trackId, updatedAt: new Date() })
+    .where(eq(schema.projects.id, projectId));
+  revalidatePath(`/projects/${projectId}/edit`);
+}
+
+export async function moveAsset(
+  projectId: string,
+  assetId: string,
+  dir: "up" | "down",
+): Promise<void> {
+  const userId = await requireUserId();
+  await assertProjectOwner(userId, projectId);
+  const rows = await db
+    .select({ id: schema.assets.id })
+    .from(schema.assets)
+    .where(eq(schema.assets.projectId, projectId))
+    .orderBy(asc(schema.assets.orderIndex), asc(schema.assets.createdAt));
+  const order = rows.map((r) => r.id);
+  const idx = order.indexOf(assetId);
+  const swap = dir === "up" ? idx - 1 : idx + 1;
+  if (idx < 0 || swap < 0 || swap >= order.length) return;
+  [order[idx], order[swap]] = [order[swap], order[idx]];
+  for (let i = 0; i < order.length; i++) {
+    await db.update(schema.assets).set({ orderIndex: i }).where(eq(schema.assets.id, order[i]));
+  }
+  revalidatePath(`/projects/${projectId}/edit`);
 }
 
 export async function duplicateProject(projectId: string): Promise<string> {

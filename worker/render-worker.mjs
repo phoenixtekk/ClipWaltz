@@ -49,7 +49,7 @@ async function ffmpeg(args) {
   });
 }
 
-async function assemble(dir, assets, music, watermark) {
+async function assemble(dir, assets, music, watermark, lengthSec) {
   const segments = [];
   for (let i = 0; i < assets.length; i++) {
     const a = assets[i];
@@ -89,6 +89,7 @@ async function assemble(dir, assets, music, watermark) {
     if (musicFile) args.push("-map", "0:v:0", "-map", "1:a:0", "-shortest");
     args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p");
     if (musicFile) args.push("-c:a", "aac", "-b:a", "192k");
+    if (lengthSec > 0) args.push("-t", String(lengthSec)); // cap to project length
     args.push(fwd(out));
     await ffmpeg(args);
   }
@@ -109,17 +110,29 @@ async function assemble(dir, assets, music, watermark) {
 
 async function processRender(r) {
   const started = Date.now();
+  const [project] = await sql`select * from projects where id = ${r.project_id}`;
   const assets = await sql`
     select * from assets
     where project_id = ${r.project_id} and upload_state = 'uploaded'
     order by order_index asc, created_at asc`;
   if (assets.length === 0) throw new Error("no uploaded assets");
-  const [music] = await sql`select * from music_tracks where active = true order by created_at asc limit 1`;
+
+  // Prefer the project's chosen track; else the first active track; else silent.
+  let music = null;
+  if (project?.music_track_id) {
+    [music] = await sql`select * from music_tracks where id = ${project.music_track_id} and active = true`;
+  }
+  if (!music) {
+    [music] = await sql`select * from music_tracks where active = true order by created_at asc limit 1`;
+  }
+  const lengthSec = project?.length_sec ?? 30;
 
   const dir = mkdtempSync(join(tmpdir(), "cw-render-"));
   try {
-    console.log(`[worker] render ${r.id}: ${assets.length} clips${music ? " + music" : " (no music)"}`);
-    const out = await assemble(dir, assets, music ?? null, r.watermark);
+    console.log(
+      `[worker] render ${r.id}: ${assets.length} clips${music ? ` + ${music.title}` : " (no music)"}, ${lengthSec}s`,
+    );
+    const out = await assemble(dir, assets, music ?? null, r.watermark, lengthSec);
     const key = `renders/${r.project_id}/${r.id}.mp4`;
     await s3.send(
       new PutObjectCommand({
