@@ -1,0 +1,14 @@
+[Unit]
+Description=ClipWaltz render worker
+After=clipwaltz-db-tunnel.service
+Requires=clipwaltz-db-tunnel.service
+
+[Service]
+WorkingDirectory=%h/clipwaltz
+EnvironmentFile=%h/clipwaltz/.env.worker
+ExecStart=/usr/local/bin/node worker/render-worker.mjs
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,13 @@
+[Unit]
+Description=ClipWaltz DB tunnel to linuxg1 Postgres
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Runs on the AI box. Requires the AI box's SSH key authorized on linuxg1 (user lacy).
+ExecStart=/usr/bin/ssh -N -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -L 55432:127.0.0.1:5432 lacy@linuxg1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
