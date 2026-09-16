@@ -43,3 +43,14 @@ export async function deleteObject(key: string) {
 export async function presignGet(key: string, expiresIn = 3600): Promise<string> {
   return getSignedUrl(s3(), new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }), { expiresIn });
 }
+
+/** Fetch an object as a web stream (for proxied downloads through the app). */
+export async function getObject(
+  key: string,
+): Promise<{ body: ReadableStream; contentType?: string; size?: number }> {
+  const out = await s3().send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }));
+  const body = (
+    out.Body as unknown as { transformToWebStream: () => ReadableStream }
+  ).transformToWebStream();
+  return { body, contentType: out.ContentType, size: out.ContentLength };
+}

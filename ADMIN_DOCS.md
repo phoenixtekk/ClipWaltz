@@ -58,4 +58,25 @@ See [`env.example`](env.example) for the full list. Groups:
 ## Runbooks (to expand as features land)
 - **Object storage:** MinIO on linuxg7 at `192.168.166.169:9000` (LAN), bucket `clipwaltz` (versioning on), accessed via a **bucket-scoped service account** (least privilege; not the root key). Keys in `.env.local`/`_keys`. Never recursive-delete the bucket (documented incident on the fleet). Uploads are proxied through `/api/projects/[id]/assets` (MinIO stays off the public internet).
 - **Render pool:** FFmpeg on the AI box; keep renders off the shared linuxg web hosts (they throttle transcoding).
+
+## Render worker
+`worker/render-worker.mjs` claims queued rows from `renders` (FOR UPDATE SKIP LOCKED), pulls the
+project's clips from MinIO, FFmpeg-assembles a 1080p 9:16 video (photos 2s, videos ≤4s, optional
+music from `music_tracks`, optional watermark), uploads to `renders/<projectId>/<renderId>.mp4`,
+and marks the row `done` (+ project `ready`). Reuses the app's `postgres` + S3 deps.
+
+Run (from project root):
+```bash
+node --env-file=.env.local worker/render-worker.mjs --once   # one job, then exit
+node --env-file=.env.local worker/render-worker.mjs          # loop (polls every 5s)
+```
+It needs `DATABASE_URL` reachable and the `S3_*` env. Verified end-to-end from the dev workstation
+(FFmpeg local + Postgres via the SSH tunnel + MinIO on the LAN).
+
+**Prod deployment (pending owner approval):** run it as a systemd service on the **AI box**
+(32-core, FFmpeg, reaches MinIO directly). The AI box currently **cannot** reach linuxg1's
+`localhost`-only Postgres — deploying requires **authorizing the AI box's SSH key on linuxg1** so it
+can hold an SSH tunnel to `:5432` (a security change on a production host — get explicit sign-off
+first). Then: copy `worker/`, `npm i postgres @aws-sdk/client-s3`, set env, and run under systemd.
+*(v1.1: move the queue to Redis/BullMQ; beat-synced cuts; SES "video ready" email.)*
 - **Cost instrumentation:** record `cpuSeconds`/`costCents` on each `renders` row → cost-per-render.
