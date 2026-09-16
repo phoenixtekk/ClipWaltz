@@ -12,6 +12,9 @@
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1133.0",
+    "@aws-sdk/lib-storage": "^3.1133.0",
+    "@aws-sdk/s3-request-presigner": "^3.1133.0",
     "@base-ui/react": "^1.8.0",
     "better-auth": "^1.7.5",
     "class-variance-authority": "^0.7.1",

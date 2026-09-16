@@ -56,6 +56,6 @@ See [`env.example`](env.example) for the full list. Groups:
 - After standing up the service, **update `server-inventory.md`** (port/route) and re-publish the wiki copy.
 
 ## Runbooks (to expand as features land)
-- **Object storage:** MinIO on linuxg7 — never recursive-delete the bucket (documented incident on the fleet).
+- **Object storage:** MinIO on linuxg7 at `192.168.166.169:9000` (LAN), bucket `clipwaltz` (versioning on), accessed via a **bucket-scoped service account** (least privilege; not the root key). Keys in `.env.local`/`_keys`. Never recursive-delete the bucket (documented incident on the fleet). Uploads are proxied through `/api/projects/[id]/assets` (MinIO stays off the public internet).
 - **Render pool:** FFmpeg on the AI box; keep renders off the shared linuxg web hosts (they throttle transcoding).
 - **Cost instrumentation:** record `cpuSeconds`/`costCents` on each `renders` row → cost-per-render.
