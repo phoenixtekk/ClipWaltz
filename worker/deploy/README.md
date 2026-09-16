@@ -2,38 +2,26 @@
 
 Prod render host: **AI box** (`ai`, 192.168.166.168 — 32-core, FFmpeg, reaches MinIO on the LAN).
 
-## Prerequisite (one-time, blocked from automation — run yourself)
-The AI box must be able to SSH to linuxg1 to tunnel to Postgres. Authorize its key (run from your
-workstation):
+## Prerequisite — already satisfied
+Run the worker as **lacy@ai** (not root@ai): `lacy@ai` already has key-auth to `lacy@linuxg1`
+(verified 2026-09-16), so the Postgres tunnel needs no `authorized_keys` change. (The earlier
+"authorize the AI box key" idea was a red herring from a root@ai-vs-lacy@ai mix-up.)
+
+## Already deployed (2026-09-16)
+Code + deps + env are in place on **`lacy@ai:~/clipwaltz`**: `worker/render-worker.mjs`,
+`npm i postgres @aws-sdk/client-s3` done, and `~/clipwaltz/.env.worker` (mode 600, **PROD** db
+`clipwaltz` via the tunnel + S3 creds). The DB tunnel + worker startup were verified (worker
+connected, "no queued renders"). A full render on the box is still unverified — blocked by a
+**linuxg7 (MinIO host) outage** on 2026-09-16.
+
+## Remaining (once linuxg7/MinIO is back)
+Install the user systemd services so it runs always-on:
 ```bash
-PUB=$(ssh ai 'cat ~/.ssh/id_ed25519.pub'); ssh linuxg1 "grep -qF \"$PUB\" ~/.ssh/authorized_keys || echo \"$PUB\" >> ~/.ssh/authorized_keys"
-```
-Verify: `ssh ai 'ssh -o BatchMode=yes lacy@linuxg1 hostname'` → should print `linuxg1`.
-
-## Install (on the AI box)
-```bash
-# 1. copy the app's worker + deps (git clone the repo, or rsync worker/, package.json)
-mkdir -p ~/clipwaltz && cd ~/clipwaltz
-# ...place worker/ here...
-npm init -y >/dev/null && npm i postgres @aws-sdk/client-s3
-
-# 2. env (fill secrets from G:\VisualStudioCode\_keys\clipwaltz.txt — PROD db, not _dev)
-cat > ~/clipwaltz/.env.worker <<'ENV'
-DATABASE_URL=postgres://clipwaltz:<PW>@127.0.0.1:55432/clipwaltz
-S3_ENDPOINT=http://192.168.166.169:9000
-S3_BUCKET=clipwaltz
-S3_ACCESS_KEY=<key>
-S3_SECRET_KEY=<secret>
-S3_REGION=us-east-1
-ENV
-chmod 600 ~/clipwaltz/.env.worker
-
-# 3. services (user units)
 mkdir -p ~/.config/systemd/user
-cp worker/deploy/clipwaltz-db-tunnel.service worker/deploy/clipwaltz-worker.service ~/.config/systemd/user/
+cp ~/clipwaltz/worker/deploy/clipwaltz-db-tunnel.service ~/clipwaltz/worker/deploy/clipwaltz-worker.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now clipwaltz-db-tunnel clipwaltz-worker
-loginctl enable-linger "$USER"   # keep user services running after logout
+sudo loginctl enable-linger lacy   # keep user services running after logout
 ```
 
 ## Verify
