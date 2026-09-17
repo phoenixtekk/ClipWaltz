@@ -38,3 +38,10 @@ yarn-error.log*
 !.vscode/extensions.json
 .idea
 Thumbs.db
+
+# music catalog — real manifest carries licence refs, not committed
+scripts/music-manifest.json
+
+# Next.js 16 auto-generated agent rules (regenerated on dev boot)
+AGENTS.md
+/CLAUDE.md

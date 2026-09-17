@@ -1,0 +1,41 @@
+{
+  "_comment": "ClipWaltz music catalog manifest. Copy to music-manifest.json, drop the real bed files in a media dir, fill in a REAL licenseRef per track (the exact catalog/licence proof — e.g. 'Pixabay <id> — Pixabay Content License' or 'Uppbeat <slug> — Uppbeat Free licence, credit not required'), then: node --env-file=.env.local scripts/seed-music.mjs scripts/music-manifest.json <media-dir>. See MUSIC_CATALOG.md.",
+  "tracks": [
+    {
+      "id": "t-sunlit",
+      "title": "Sunlit",
+      "artist": "REPLACE — track artist / uploader",
+      "mood": "upbeat",
+      "bpm": 120,
+      "durationSec": 118,
+      "file": "sunlit.mp3",
+      "licenseRef": "PLACEHOLDER-DO-NOT-SHIP",
+      "source": "REPLACE — URL the track was licensed from",
+      "active": true
+    },
+    {
+      "id": "t-drift",
+      "title": "Drift",
+      "artist": "REPLACE — track artist / uploader",
+      "mood": "chill",
+      "bpm": 90,
+      "durationSec": 132,
+      "file": "drift.mp3",
+      "licenseRef": "PLACEHOLDER-DO-NOT-SHIP",
+      "source": "REPLACE — URL the track was licensed from",
+      "active": true
+    },
+    {
+      "id": "t-goldenhour",
+      "title": "Golden Hour",
+      "artist": "REPLACE — track artist / uploader",
+      "mood": "cinematic",
+      "bpm": 100,
+      "durationSec": 145,
+      "file": "goldenhour.mp3",
+      "licenseRef": "PLACEHOLDER-DO-NOT-SHIP",
+      "source": "REPLACE — URL the track was licensed from",
+      "active": true
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import { getMusicTracks } from "@/lib/music";
 import { getLatestRender } from "@/lib/render";
 import { Button } from "@/components/ui/button";
 import { ProjectEditor } from "@/components/project-editor";
+import { DraftPreview } from "@/components/draft-preview";
 import { RenderPanel } from "@/components/render-panel";
 
 export const metadata = { title: "Editor" };
@@ -38,11 +39,19 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
         lengthSec={project.lengthSec}
       />
 
+      <DraftPreview
+        projectId={id}
+        assets={assets}
+        musicTrackId={project.musicTrackId}
+        musicTrackTitle={tracks.find((t) => t.id === project.musicTrackId)?.title ?? null}
+        lengthSec={project.lengthSec}
+      />
+
       <RenderPanel projectId={id} initial={latestRender} canRender={assets.length > 0} />
 
       <p className="text-xs text-muted-foreground">
-        Reorder clips, pick a soundtrack, set the length, then render. A fast low-res draft preview and
-        beat-synced cuts arrive in a later iteration.
+        Reorder clips, pick a soundtrack, set the length — the draft preview updates instantly. Render HD
+        for the full-quality video. Beat-synced cuts and smart clip selection arrive in a later iteration.
       </p>
 
       <div className="flex items-center gap-2 border-t border-border pt-4">

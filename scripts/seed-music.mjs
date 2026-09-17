@@ -1,22 +1,40 @@
 #!/usr/bin/env node
-// Seed the ClipWaltz music catalog: upload bed files to MinIO + insert music_tracks rows.
-// Idempotent. Usage: node --env-file=.env.local scripts/seed-music.mjs <dir-with-m4a-files>
+// Seed / update the ClipWaltz music catalog from a manifest: upload each bed file to
+// MinIO and upsert its music_tracks row. Idempotent.
 //
-// NOTE: the generated beds are PLACEHOLDERS (license_ref=PLACEHOLDER-DO-NOT-SHIP).
-// Replace with real licensed royalty-free tracks before launch.
+//   node --env-file=.env.local scripts/seed-music.mjs <manifest.json> <media-dir> [--allow-placeholder]
+//
+// The manifest carries the REAL per-track licence reference (proof the track is safe to
+// post). Tracks whose licenseRef is missing or still a PLACEHOLDER are refused unless you
+// pass --allow-placeholder (dev only) — that guard is what keeps unlicensed beds from
+// reaching the live catalog. See MUSIC_CATALOG.md for sourcing + the go-live checklist.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import postgres from "postgres";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 
-const dir = process.argv[2];
-if (!dir) throw new Error("pass the music dir as an argument");
+const args = process.argv.slice(2);
+const allowPlaceholder = args.includes("--allow-placeholder");
+const [manifestPath, dir] = args.filter((a) => !a.startsWith("--"));
+if (!manifestPath || !dir) {
+  throw new Error("usage: seed-music.mjs <manifest.json> <media-dir> [--allow-placeholder]");
+}
 
-const TRACKS = [
-  { id: "t-sunlit", title: "Sunlit", artist: "ClipWaltz", mood: "upbeat", bpm: 120, file: "sunlit.m4a" },
-  { id: "t-drift", title: "Drift", artist: "ClipWaltz", mood: "chill", bpm: 90, file: "drift.m4a" },
-  { id: "t-goldenhour", title: "Golden Hour", artist: "ClipWaltz", mood: "cinematic", bpm: 100, file: "goldenhour.m4a" },
-];
+const PLACEHOLDER = "PLACEHOLDER-DO-NOT-SHIP";
+const isPlaceholder = (ref) => !ref || ref.trim() === "" || ref.includes(PLACEHOLDER);
+
+const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+const tracks = Array.isArray(manifest.tracks) ? manifest.tracks : [];
+if (tracks.length === 0) throw new Error("manifest has no tracks[]");
+
+const bad = tracks.filter((t) => isPlaceholder(t.licenseRef));
+if (bad.length && !allowPlaceholder) {
+  throw new Error(
+    `refusing to seed ${bad.length} track(s) with a placeholder/empty licenseRef: ` +
+      `${bad.map((t) => t.id).join(", ")}. Add a real licence reference in the manifest, ` +
+      `or pass --allow-placeholder for local dev only.`,
+  );
+}
 
 const sql = postgres(process.env.DATABASE_URL, { prepare: false });
 const s3 = new S3Client({
@@ -30,23 +48,35 @@ const s3 = new S3Client({
 });
 const BUCKET = process.env.S3_BUCKET ?? "clipwaltz";
 
-for (const t of TRACKS) {
-  const key = `music/${t.id}.m4a`;
+for (const t of tracks) {
+  const ext = (t.file.split(".").pop() ?? "m4a").toLowerCase();
+  const contentType = ext === "mp3" ? "audio/mpeg" : ext === "m4a" ? "audio/mp4" : "audio/mpeg";
+  const key = `music/${t.id}.${ext}`;
   await s3.send(
     new PutObjectCommand({
       Bucket: BUCKET,
       Key: key,
       Body: readFileSync(join(dir, t.file)),
-      ContentType: "audio/mp4",
+      ContentType: contentType,
     }),
   );
+  const active = t.active !== false;
   await sql`
     insert into music_tracks (id, title, artist, license_ref, bpm, mood, duration_sec, storage_key, active)
-    values (${t.id}, ${t.title}, ${t.artist}, ${"PLACEHOLDER-DO-NOT-SHIP"}, ${t.bpm}, ${t.mood}, ${40}, ${key}, ${true})
-    on conflict (id) do update set title=excluded.title, storage_key=excluded.storage_key, bpm=excluded.bpm, mood=excluded.mood, active=true`;
-  console.log(`seeded ${t.id} (${t.mood}, ${t.bpm} BPM) → ${key}`);
+    values (${t.id}, ${t.title}, ${t.artist ?? null}, ${t.licenseRef}, ${t.bpm ?? null},
+            ${t.mood ?? null}, ${t.durationSec ?? null}, ${key}, ${active})
+    on conflict (id) do update set
+      title=excluded.title, artist=excluded.artist, license_ref=excluded.license_ref,
+      bpm=excluded.bpm, mood=excluded.mood, duration_sec=excluded.duration_sec,
+      storage_key=excluded.storage_key, active=excluded.active`;
+  console.log(
+    `seeded ${t.id} — ${t.title}${t.mood ? ` (${t.mood})` : ""}${t.bpm ? ` ${t.bpm} BPM` : ""} → ${key}` +
+      `${isPlaceholder(t.licenseRef) ? "  ⚠ PLACEHOLDER LICENCE" : ""}`,
+  );
 }
 
-const rows = await sql`select count(*)::int as n from music_tracks where active=true`;
-console.log(`music_tracks active: ${rows[0].n}`);
+const [{ n }] = await sql`select count(*)::int as n from music_tracks where active=true`;
+const [{ p }] = await sql`
+  select count(*)::int as p from music_tracks where active=true and license_ref like ${"%" + PLACEHOLDER + "%"}`;
+console.log(`music_tracks active: ${n}${p ? `  (⚠ ${p} still on a placeholder licence — do not ship)` : ""}`);
 await sql.end();
