@@ -7,11 +7,16 @@ worker muxes the chosen track under the video (`worker/render-worker.mjs`), loop
 The draft preview and (future) picker audition stream a track via `GET /api/music/[trackId]`
 (owner/auth-checked, proxied through the app so MinIO stays off the public internet).
 
-## ⚠️ Status: the seeded catalog is PLACEHOLDER — do not ship
+## Status
 
-The three seeded tracks carry `license_ref = PLACEHOLDER-DO-NOT-SHIP`. They must be replaced with
-**real, licensed, royalty-free** tracks before launch. `license_ref` is the per-track proof that a
-bed is safe to post; the seed script refuses placeholder refs unless `--allow-placeholder` (dev only).
+- **`clipwaltz_dev` (2026-09-17): seeded with 6 real Pixabay tracks** (2 each upbeat / chill /
+  cinematic — see `scripts/music-manifest.json`); the 3 original placeholders are `active = false`.
+  Verified: 0 active placeholders, all beds retrievable from MinIO (`audio/mpeg`).
+- **`clipwaltz` (prod): still needs the same seed run before launch** — re-run the seeder with a
+  prod `DATABASE_URL`, then confirm 0 active placeholders.
+
+`license_ref` is the per-track proof that a bed is safe to post; the seed script refuses placeholder
+refs unless `--allow-placeholder` (dev only).
 
 ## The licensing decision (owner)
 
