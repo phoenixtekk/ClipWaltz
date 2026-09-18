@@ -187,9 +187,10 @@ async function convertAsset(a) {
     await download(a.storage_key, src);
     const isPhoto = a.source_format === "insp" || a.kind === "photo";
     const streams = await probeVideoStreams(src);
+    // roll=90 levels typical Insta360 dual-fisheye footage (no gyro/auto-level in ffmpeg).
     const proj =
       streams >= 2
-        ? "[0:v:0][0:v:1]hstack=inputs=2,v360=dfisheye:flat:ih_fov=200:iv_fov=200:h_fov=110:v_fov=100:w=1920:h=1080"
+        ? "[0:v:0][0:v:1]hstack=inputs=2,v360=dfisheye:flat:ih_fov=200:iv_fov=200:h_fov=110:v_fov=100:roll=90:w=1920:h=1080"
         : "[0:v:0]v360=fisheye:flat:ih_fov=200:iv_fov=200:h_fov=110:v_fov=100:w=1920:h=1080";
 
     let outKey;
@@ -853,7 +854,7 @@ async function convtest() {
   const streams = await probeVideoStreams(src);
   const proj =
     streams >= 2
-      ? "[0:v:0][0:v:1]hstack=inputs=2,v360=dfisheye:flat:ih_fov=200:iv_fov=200:h_fov=110:v_fov=100:w=1920:h=1080"
+      ? "[0:v:0][0:v:1]hstack=inputs=2,v360=dfisheye:flat:ih_fov=200:iv_fov=200:h_fov=110:v_fov=100:roll=90:w=1920:h=1080"
       : "[0:v:0]v360=fisheye:flat:ih_fov=200:iv_fov=200:h_fov=110:v_fov=100:w=1920:h=1080";
   const out = "/tmp/convtest.mp4";
   await ffmpeg(["-i", src, "-filter_complex", `${proj},format=yuv420p[v]`, "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", out]);
