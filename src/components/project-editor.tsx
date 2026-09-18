@@ -1,16 +1,14 @@
 "use client";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronUp, ChevronDown, Trash2, Film, Image as ImageIcon, Music, Type, Sparkles } from "lucide-react";
+import { ChevronUp, ChevronDown, Trash2, Film, Image as ImageIcon, Type, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { AssetSummary } from "@/lib/assets";
-import type { Track } from "@/lib/music";
 import { deleteAsset } from "@/lib/asset-actions";
 import {
-  setProjectMusic,
   setProjectLength,
   setProjectAspect,
   setProjectStyle,
@@ -29,8 +27,6 @@ const FILTERS = [
 export function ProjectEditor({
   projectId,
   assets,
-  tracks,
-  musicTrackId,
   lengthSec,
   aspect,
   titleText,
@@ -43,8 +39,6 @@ export function ProjectEditor({
 }: {
   projectId: string;
   assets: AssetSummary[];
-  tracks: Track[];
-  musicTrackId: string | null;
   lengthSec: number;
   aspect: string;
   titleText: string | null;
@@ -58,12 +52,6 @@ export function ProjectEditor({
   const router = useRouter();
   const [pending, start] = useTransition();
   const [title, setTitle] = useState(titleText ?? "");
-  const [musicQ, setMusicQ] = useState("");
-  const filteredTracks = musicQ.trim()
-    ? tracks.filter((t) =>
-        `${t.title} ${t.mood ?? ""}`.toLowerCase().includes(musicQ.trim().toLowerCase()),
-      )
-    : tracks;
 
   const runAction = (fn: () => Promise<unknown>, err: string) =>
     start(async () => {
@@ -132,41 +120,6 @@ export function ProjectEditor({
             ))}
           </ul>
         )}
-      </section>
-
-      {/* music */}
-      <section className="space-y-2">
-        <h2 className="flex items-center gap-1.5 text-sm font-medium">
-          <Music className="size-4" /> Music
-        </h2>
-        {tracks.length > 10 ? (
-          <Input
-            value={musicQ}
-            onChange={(e) => setMusicQ(e.target.value)}
-            placeholder={`Search ${tracks.length} tracks…`}
-            className="h-8"
-          />
-        ) : null}
-        <div className="flex max-h-56 flex-wrap gap-2 overflow-y-auto rounded-lg border border-border p-2">
-          <TrackChip
-            selected={!musicTrackId}
-            label="No music"
-            onClick={() => runAction(() => setProjectMusic(projectId, null), "Could not update music.")}
-            disabled={pending}
-          />
-          {filteredTracks.map((t) => (
-            <TrackChip
-              key={t.id}
-              selected={musicTrackId === t.id}
-              label={`${t.title}${t.mood ? ` · ${t.mood}` : ""}${t.bpm ? ` · ${t.bpm} BPM` : ""}`}
-              onClick={() => runAction(() => setProjectMusic(projectId, t.id), "Could not update music.")}
-              disabled={pending}
-            />
-          ))}
-          {filteredTracks.length === 0 ? (
-            <p className="px-1 py-2 text-xs text-muted-foreground">No tracks match &ldquo;{musicQ}&rdquo;.</p>
-          ) : null}
-        </div>
       </section>
 
       {/* aspect */}
