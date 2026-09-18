@@ -23,13 +23,16 @@ export function DraftPreview({
   musicTrackId,
   musicTrackTitle,
   lengthSec,
+  aspect = "9:16",
 }: {
   projectId: string;
   assets: AssetSummary[];
   musicTrackId: string | null;
   musicTrackTitle: string | null;
   lengthSec: number;
+  aspect?: string;
 }) {
+  const wide = aspect === "16:9";
   const uploaded = useMemo(
     () => assets.filter((a) => a.uploadState === "uploaded"),
     [assets],
@@ -126,13 +129,18 @@ export function DraftPreview({
       <h2 className="flex items-center gap-1.5 text-sm font-medium">
         <Film className="size-4" /> Draft preview
         <span className="ml-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">
-          low-res
+          low-res · {aspect}
         </span>
       </h2>
 
-      <div className="mx-auto flex w-full max-w-[240px] flex-col gap-3">
-        {/* 9:16 stage */}
-        <div className="relative aspect-[9/16] w-full overflow-hidden rounded-xl border border-border bg-black">
+      <div className={cn("mx-auto flex w-full flex-col gap-3", wide ? "max-w-[420px]" : "max-w-[240px]")}>
+        {/* preview stage */}
+        <div
+          className={cn(
+            "relative w-full overflow-hidden rounded-xl border border-border bg-black",
+            wide ? "aspect-[16/9]" : "aspect-[9/16]",
+          )}
+        >
           {clips.length === 0 ? (
             <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-xs text-white/70">
               Import clips to preview your draft.

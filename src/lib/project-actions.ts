@@ -31,19 +31,34 @@ const DEFAULT_TITLE: Record<string, string> = {
   surprise: "Untitled project",
 };
 
+const ASPECTS = new Set(["9:16", "16:9"]);
+
 /** Create a new draft project for the current user. Returns its id. */
-export async function createProject(template?: string): Promise<string> {
+export async function createProject(template?: string, aspect?: string): Promise<string> {
   const userId = await requireUserId();
   const t = template && ACTIVE_TEMPLATES.has(template) ? template : "surprise";
+  const a = aspect && ASPECTS.has(aspect) ? aspect : "9:16";
   const id = randomUUID();
   await db.insert(schema.projects).values({
     id,
     ownerId: userId,
     template: t,
+    aspect: a,
     title: DEFAULT_TITLE[t] ?? "Untitled project",
   });
   revalidatePath("/projects");
   return id;
+}
+
+export async function setProjectAspect(projectId: string, aspect: string): Promise<void> {
+  const userId = await requireUserId();
+  await assertProjectOwner(userId, projectId);
+  const a = ASPECTS.has(aspect) ? aspect : "9:16";
+  await db
+    .update(schema.projects)
+    .set({ aspect: a, updatedAt: new Date() })
+    .where(eq(schema.projects.id, projectId));
+  revalidatePath(`/projects/${projectId}/edit`);
 }
 
 export async function deleteProject(projectId: string): Promise<void> {

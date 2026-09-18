@@ -37,6 +37,7 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
         tracks={tracks}
         musicTrackId={project.musicTrackId}
         lengthSec={project.lengthSec}
+        aspect={project.aspect}
       />
 
       <DraftPreview
@@ -45,6 +46,7 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
         musicTrackId={project.musicTrackId}
         musicTrackTitle={tracks.find((t) => t.id === project.musicTrackId)?.title ?? null}
         lengthSec={project.lengthSec}
+        aspect={project.aspect}
       />
 
       <RenderPanel projectId={id} initial={latestRender} canRender={assets.length > 0} />

@@ -22,7 +22,12 @@ const ONCE = process.argv.includes("--once");
 const POLL_MS = 5000;
 const PER_IMAGE = 2; // seconds per photo
 const PER_VIDEO = 4; // max seconds per video clip
-const V = "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30";
+
+// Normalize each clip to the project's canvas. 16:9 = 1920x1080, else 9:16 = 1080x1920.
+function vf(aspect) {
+  const [w, h] = aspect === "16:9" ? [1920, 1080] : [1080, 1920];
+  return `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30`;
+}
 
 const sql = postgres(process.env.DATABASE_URL, { prepare: false });
 const s3 = new S3Client({
@@ -49,7 +54,8 @@ async function ffmpeg(args) {
   });
 }
 
-async function assemble(dir, assets, music, watermark, lengthSec) {
+async function assemble(dir, assets, music, watermark, lengthSec, aspect) {
+  const V = vf(aspect);
   const segments = [];
   for (let i = 0; i < assets.length; i++) {
     const a = assets[i];
@@ -132,7 +138,7 @@ async function processRender(r) {
     console.log(
       `[worker] render ${r.id}: ${assets.length} clips${music ? ` + ${music.title}` : " (no music)"}, ${lengthSec}s`,
     );
-    const out = await assemble(dir, assets, music ?? null, r.watermark, lengthSec);
+    const out = await assemble(dir, assets, music ?? null, r.watermark, lengthSec, r.aspect ?? project?.aspect ?? "9:16");
     const key = `renders/${r.project_id}/${r.id}.mp4`;
     await s3.send(
       new PutObjectCommand({

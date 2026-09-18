@@ -268,3 +268,11 @@
   .cw-lift, .cw-sheen::after { transition: none !important; }
 }
 }
+
+@layer components {
+  .cw-legal h2 { color: var(--cw-fg); font-weight: 600; font-size: 1.125rem; margin-top: 1.75rem; margin-bottom: .25rem; }
+  .cw-legal p, .cw-legal li { color: var(--cw-muted); line-height: 1.7; }
+  .cw-legal ul { list-style: disc; padding-left: 1.25rem; margin-top: .25rem; }
+  .cw-legal a { color: var(--cw-blue); text-decoration: underline; }
+  .cw-legal strong { color: var(--cw-fg); }
+}

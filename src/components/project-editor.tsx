@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import type { AssetSummary } from "@/lib/assets";
 import type { Track } from "@/lib/music";
 import { deleteAsset } from "@/lib/asset-actions";
-import { setProjectMusic, setProjectLength, moveAsset } from "@/lib/project-actions";
+import { setProjectMusic, setProjectLength, setProjectAspect, moveAsset } from "@/lib/project-actions";
 
 export function ProjectEditor({
   projectId,
@@ -16,12 +16,14 @@ export function ProjectEditor({
   tracks,
   musicTrackId,
   lengthSec,
+  aspect,
 }: {
   projectId: string;
   assets: AssetSummary[];
   tracks: Track[];
   musicTrackId: string | null;
   lengthSec: number;
+  aspect: string;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -113,6 +115,25 @@ export function ProjectEditor({
               selected={musicTrackId === t.id}
               label={`${t.title}${t.mood ? ` · ${t.mood}` : ""}${t.bpm ? ` · ${t.bpm} BPM` : ""}`}
               onClick={() => runAction(() => setProjectMusic(projectId, t.id), "Could not update music.")}
+              disabled={pending}
+            />
+          ))}
+        </div>
+      </section>
+
+      {/* aspect */}
+      <section className="space-y-2">
+        <h2 className="text-sm font-medium">Aspect</h2>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { key: "9:16", label: "9:16 vertical" },
+            { key: "16:9", label: "16:9 wide" },
+          ].map((a) => (
+            <TrackChip
+              key={a.key}
+              selected={aspect === a.key}
+              label={a.label}
+              onClick={() => runAction(() => setProjectAspect(projectId, a.key), "Could not set aspect.")}
               disabled={pending}
             />
           ))}

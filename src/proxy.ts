@@ -9,6 +9,9 @@ const PUBLIC_PATHS = [
   /^\/sign-up(?:\/|$)/,
   /^\/forgot-password(?:\/|$)/,
   /^\/reset-password(?:\/|$)/,
+  /^\/terms(?:\/|$)/,
+  /^\/privacy(?:\/|$)/,
+  /^\/refund(?:\/|$)/,
   /^\/api\/auth(?:\/|$)/,
 ];
 

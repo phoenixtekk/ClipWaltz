@@ -25,12 +25,13 @@ const TEMPLATES: Template[] = [
 export function NewProjectWizard() {
   const router = useRouter();
   const [selected, setSelected] = useState("trip");
+  const [aspect, setAspect] = useState<"9:16" | "16:9">("9:16");
   const [pending, start] = useTransition();
 
   function onContinue() {
     start(async () => {
       try {
-        const id = await createProject(selected);
+        const id = await createProject(selected, aspect);
         router.push(`/projects/${id}/import`);
       } catch {
         toast.error("Could not create the project. Please try again.");
@@ -98,14 +99,31 @@ export function NewProjectWizard() {
         })}
       </div>
 
-      {/* aspect (locked) + actions */}
+      {/* aspect + actions */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="uppercase tracking-wide">Aspect</span>
-          <span className="rounded-full border border-primary bg-primary/10 px-2 py-0.5 font-semibold text-primary">
-            9:16 vertical
-          </span>
-          <span>locked at MVP</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">Aspect</span>
+          {([
+            { key: "9:16", label: "9:16 vertical", box: "h-5 w-3" },
+            { key: "16:9", label: "16:9 wide", box: "h-3 w-5" },
+          ] as const).map((a) => (
+            <button
+              key={a.key}
+              type="button"
+              aria-pressed={aspect === a.key}
+              disabled={pending}
+              onClick={() => setAspect(a.key)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors disabled:opacity-60",
+                aspect === a.key
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border bg-card text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <span className={cn("rounded-[3px] border-2 border-current", a.box)} />
+              {a.label}
+            </button>
+          ))}
         </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" render={<Link href="/projects" />}>
