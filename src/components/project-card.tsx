@@ -77,7 +77,7 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
   return (
     <div
       className={cn(
-        "group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5",
+        "cw-sheen group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-all hover:-translate-y-0.5 hover:border-[color:var(--cw-violet)]/50 hover:shadow-xl hover:shadow-[color:var(--cw-violet)]/10",
         pending && "opacity-50",
       )}
     >
@@ -85,7 +85,7 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
       <Link href={editHref} className="block" aria-label={`Open ${project.title}`}>
         <div
           className={cn(
-            "relative flex items-center justify-center overflow-hidden bg-gradient-to-br from-primary/15 via-fuchsia-500/10 to-orange-400/10",
+            "relative flex items-center justify-center overflow-hidden bg-gradient-to-br from-[color:var(--cw-blue)]/20 via-[color:var(--cw-magenta)]/15 to-[color:var(--cw-coral)]/15",
             wide ? "aspect-[16/9]" : "aspect-[9/16]",
           )}
         >

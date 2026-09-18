@@ -280,10 +280,31 @@
 @layer components {
   /* Subtle brand aurora for the in-app surfaces (theme-aware via --background). */
   .cw-app {
+    /* Glass + surface tokens so cw-glass / cw-muted / cw-subtle work in-app too
+       (they are otherwise only defined under .cw-landing). LIGHT values. */
+    --cw-glass-bg: linear-gradient(160deg, rgba(255,255,255,0.72), rgba(255,255,255,0.42));
+    --cw-glass-border: rgba(17,13,43,0.10);
+    --cw-glass-hi: rgba(255,255,255,0.85);
+    --cw-glass-shadow: 0 20px 50px -30px rgba(17,13,43,0.28);
+    --cw-fill: rgba(17,13,43,0.05);
+    --cw-hair: rgba(17,13,43,0.10);
+    --cw-muted: rgba(17,13,43,0.70);
+    --cw-subtle: rgba(17,13,43,0.52);
+
     background:
       radial-gradient(900px 520px at 100% -8%, color-mix(in oklab, var(--primary) 12%, transparent), transparent 60%),
       radial-gradient(760px 520px at 0% 3%, color-mix(in oklab, var(--cw-coral) 9%, transparent), transparent 55%),
       var(--background);
     background-attachment: fixed;
+  }
+  .dark .cw-app {
+    --cw-glass-bg: linear-gradient(160deg, rgba(255,255,255,0.09), rgba(255,255,255,0.025));
+    --cw-glass-border: rgba(255,255,255,0.12);
+    --cw-glass-hi: rgba(255,255,255,0.26);
+    --cw-glass-shadow: 0 20px 50px -26px rgba(3,2,12,0.8);
+    --cw-fill: rgba(255,255,255,0.06);
+    --cw-hair: rgba(255,255,255,0.10);
+    --cw-muted: rgba(255,255,255,0.70);
+    --cw-subtle: rgba(255,255,255,0.52);
   }
 }

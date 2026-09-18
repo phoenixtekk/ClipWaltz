@@ -66,8 +66,10 @@ export function ProjectEditor({
   return (
     <div className={cn("space-y-6", pending && "opacity-60")}>
       {/* clips */}
-      <section className="space-y-2">
-        <h2 className="text-sm font-medium">Clips · in order</h2>
+      <section className="cw-glass space-y-3 rounded-xl p-4">
+        <h2 className="flex items-center gap-1.5 text-sm font-medium">
+          <Film className="size-4 text-[color:var(--cw-violet)]" /> Clips · in order
+        </h2>
         {assets.length === 0 ? (
           <p className="text-sm text-muted-foreground">No clips — import some first.</p>
         ) : (
@@ -122,8 +124,9 @@ export function ProjectEditor({
         )}
       </section>
 
+      <div className="grid gap-6 sm:grid-cols-2">
       {/* aspect */}
-      <section className="space-y-2">
+      <section className="cw-glass space-y-2 rounded-xl p-4">
         <h2 className="text-sm font-medium">Aspect</h2>
         <div className="flex flex-wrap gap-2">
           {[
@@ -142,7 +145,7 @@ export function ProjectEditor({
       </section>
 
       {/* length */}
-      <section className="space-y-2">
+      <section className="cw-glass space-y-2 rounded-xl p-4">
         <h2 className="text-sm font-medium">Length</h2>
         <div className="flex flex-wrap gap-2">
           {[15, 30, 60].map((s) => (
@@ -156,11 +159,12 @@ export function ProjectEditor({
           ))}
         </div>
       </section>
+      </div>
 
       {/* style */}
-      <section className="space-y-4">
+      <section className="cw-glass space-y-4 rounded-xl p-4">
         <h2 className="flex items-center gap-1.5 text-sm font-medium">
-          <Sparkles className="size-4" /> Style
+          <Sparkles className="size-4 text-[color:var(--cw-violet)]" /> Style
         </h2>
 
         <div className="space-y-1.5">
