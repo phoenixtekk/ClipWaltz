@@ -1,7 +1,7 @@
 "use client";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronUp, ChevronDown, Trash2, Film, Image as ImageIcon, Type, Sparkles } from "lucide-react";
+import { ChevronUp, ChevronDown, Trash2, Film, Image as ImageIcon, Type, Sparkles, Eye, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
@@ -71,6 +71,7 @@ export function ProjectEditor({
 
   const isCustomLength = !LENGTH_PRESETS.some((p) => p.s === lengthSec);
   const [customMin, setCustomMin] = useState(isCustomLength ? String(Math.round(lengthSec / 60)) : "");
+  const [preview, setPreview] = useState<{ id: string; kind: string; name: string } | null>(null);
 
   const runAction = (fn: () => Promise<unknown>, err: string) =>
     start(async () => {
@@ -110,33 +111,43 @@ export function ProjectEditor({
                 className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2"
               >
                 <span className="w-5 text-xs text-muted-foreground">{i + 1}</span>
-                <div className="relative size-12 shrink-0 overflow-hidden rounded-md border border-border bg-muted">
-                  {a.uploadState === "uploaded" && a.kind === "video" ? (
-                    <video
-                      src={`/api/projects/${projectId}/assets/${a.id}#t=0.1`}
-                      muted
-                      playsInline
-                      preload="metadata"
-                      className="size-full object-cover"
-                    />
-                  ) : a.uploadState === "uploaded" ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={`/api/projects/${projectId}/assets/${a.id}`} alt="" className="size-full object-cover" />
-                  ) : (
-                    <div className="flex size-full items-center justify-center">
-                      {a.kind === "video" ? (
-                        <Film className="size-4 text-muted-foreground" />
-                      ) : (
-                        <ImageIcon className="size-4 text-muted-foreground" />
-                      )}
-                    </div>
-                  )}
-                  {a.kind === "video" ? (
-                    <span className="absolute bottom-0.5 right-0.5 rounded bg-black/60 p-0.5">
-                      <Film className="size-2.5 text-white" />
+                {a.uploadState === "uploaded" ? (
+                  <button
+                    type="button"
+                    onClick={() => setPreview({ id: a.id, kind: a.kind, name: a.name })}
+                    aria-label={`Preview ${a.name}`}
+                    className="group relative size-12 shrink-0 overflow-hidden rounded-md border border-border bg-muted"
+                  >
+                    {a.kind === "video" ? (
+                      <video
+                        src={`/api/projects/${projectId}/assets/${a.id}#t=0.1`}
+                        muted
+                        playsInline
+                        preload="metadata"
+                        className="size-full object-cover"
+                      />
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={`/api/projects/${projectId}/assets/${a.id}`} alt="" className="size-full object-cover" />
+                    )}
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-opacity group-hover:bg-black/40 group-hover:opacity-100">
+                      <Eye className="size-4 text-white" />
                     </span>
-                  ) : null}
-                </div>
+                    {a.kind === "video" ? (
+                      <span className="absolute bottom-0.5 right-0.5 rounded bg-black/60 p-0.5">
+                        <Film className="size-2.5 text-white" />
+                      </span>
+                    ) : null}
+                  </button>
+                ) : (
+                  <div className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">
+                    {a.kind === "video" ? (
+                      <Film className="size-4 text-muted-foreground" />
+                    ) : (
+                      <ImageIcon className="size-4 text-muted-foreground" />
+                    )}
+                  </div>
+                )}
                 <span className="min-w-0 flex-1 truncate text-sm">{a.name}</span>
                 <div className="flex items-center gap-1">
                   <Button
@@ -355,6 +366,44 @@ export function ProjectEditor({
           </div>
         </div>
       </section>
+
+      {preview ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Preview ${preview.name}`}
+          onClick={() => setPreview(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+        >
+          <button
+            type="button"
+            aria-label="Close preview"
+            onClick={() => setPreview(null)}
+            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
+          >
+            <X className="size-5" />
+          </button>
+          <div className="max-h-[85vh] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
+            {preview.kind === "video" ? (
+              <video
+                src={`/api/projects/${projectId}/assets/${preview.id}`}
+                controls
+                autoPlay
+                playsInline
+                className="max-h-[85vh] max-w-[90vw] rounded-lg"
+              />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={`/api/projects/${projectId}/assets/${preview.id}`}
+                alt={preview.name}
+                className="max-h-[85vh] max-w-[90vw] rounded-lg object-contain"
+              />
+            )}
+            <p className="mt-2 truncate text-center text-sm text-white/80">{preview.name}</p>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
