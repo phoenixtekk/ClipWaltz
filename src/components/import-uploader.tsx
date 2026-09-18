@@ -17,6 +17,36 @@ type Item = {
 
 type Tab = "drop" | "pick" | "phone";
 
+// Files larger than this use resumable multipart (per-part retry + reload-resume);
+// smaller ones use a single POST. S3/MinIO requires parts ≥ 5MB (except the last).
+const MULTIPART_THRESHOLD = 8 * 1024 * 1024;
+const PART_SIZE = 8 * 1024 * 1024;
+const PART_RETRIES = 3;
+
+type ResumeState = { assetId: string; uploadId: string; parts: Record<number, string> };
+function lsGet(key: string): ResumeState | null {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as ResumeState) : null;
+  } catch {
+    return null;
+  }
+}
+function lsSet(key: string, v: ResumeState) {
+  try {
+    localStorage.setItem(key, JSON.stringify(v));
+  } catch {
+    /* private mode / quota — resume simply won't persist */
+  }
+}
+function lsDel(key: string) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function ImportUploader({
   projectId,
   initial,
@@ -34,34 +64,131 @@ export function ImportUploader({
   const uploadedCount = initial.length + items.filter((i) => i.status === "done").length;
   const anyUploading = items.some((i) => i.status === "uploading");
 
+  const setProgress = (localId: string, pct: number) =>
+    setItems((prev) => prev.map((i) => (i.localId === localId ? { ...i, progress: pct } : i)));
+  const setStatus = (localId: string, status: Item["status"], progress?: number) =>
+    setItems((prev) =>
+      prev.map((i) => (i.localId === localId ? { ...i, status, ...(progress != null ? { progress } : {}) } : i)),
+    );
+
   function uploadOne(file: File, localId: string) {
+    if (file.size > MULTIPART_THRESHOLD) {
+      void uploadResumable(file, localId);
+    } else {
+      uploadSimple(file, localId);
+    }
+  }
+
+  function uploadSimple(file: File, localId: string) {
     const type = file.type || "application/octet-stream";
     const q = new URLSearchParams({ name: file.name, type });
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `/api/projects/${projectId}/assets?${q.toString()}`);
     xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) {
-        const pct = Math.round((e.loaded / e.total) * 100);
-        setItems((prev) => prev.map((i) => (i.localId === localId ? { ...i, progress: pct } : i)));
-      }
+      if (e.lengthComputable) setProgress(localId, Math.round((e.loaded / e.total) * 100));
     };
     xhr.onload = () => {
       const ok = xhr.status >= 200 && xhr.status < 300;
-      setItems((prev) =>
-        prev.map((i) =>
-          i.localId === localId
-            ? { ...i, status: ok ? "done" : "error", progress: ok ? 100 : i.progress }
-            : i,
-        ),
-      );
+      setStatus(localId, ok ? "done" : "error", ok ? 100 : undefined);
       if (!ok) toast.error(`Upload failed: ${file.name}`);
       else router.refresh();
     };
     xhr.onerror = () => {
-      setItems((prev) => prev.map((i) => (i.localId === localId ? { ...i, status: "error" } : i)));
+      setStatus(localId, "error");
       toast.error(`Upload failed: ${file.name}`);
     };
     xhr.send(file);
+  }
+
+  // Upload one part via XHR (progress + resolves with ETag), retrying transient failures.
+  function putPart(
+    assetId: string,
+    uploadId: string,
+    partNumber: number,
+    chunk: Blob,
+    onProgress: (loaded: number) => void,
+  ): Promise<string> {
+    const attempt = (tryNo: number): Promise<string> =>
+      new Promise<string>((resolve, reject) => {
+        const q = new URLSearchParams({ uploadId, partNumber: String(partNumber) });
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", `/api/projects/${projectId}/assets/${assetId}/part?${q.toString()}`);
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) onProgress(e.loaded);
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              resolve((JSON.parse(xhr.responseText) as { etag: string }).etag);
+            } catch {
+              reject(new Error("bad part response"));
+            }
+          } else {
+            reject(new Error(`part ${partNumber} http ${xhr.status}`));
+          }
+        };
+        xhr.onerror = () => reject(new Error(`part ${partNumber} network error`));
+        xhr.send(chunk);
+      }).catch((err) => {
+        if (tryNo < PART_RETRIES) return new Promise<string>((r) => setTimeout(r, 800 * tryNo)).then(() => attempt(tryNo + 1));
+        throw err;
+      });
+    return attempt(1);
+  }
+
+  async function uploadResumable(file: File, localId: string) {
+    const type = file.type || "application/octet-stream";
+    const lsKey = `cw-up:${projectId}:${file.name}:${file.size}:${file.lastModified}`;
+    try {
+      let state = lsGet(lsKey);
+      if (!state) {
+        const res = await fetch(`/api/projects/${projectId}/assets/multipart`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "init", name: file.name, type }),
+        });
+        if (!res.ok) throw new Error("init failed");
+        const j = (await res.json()) as { assetId: string; uploadId: string };
+        state = { assetId: j.assetId, uploadId: j.uploadId, parts: {} };
+        lsSet(lsKey, state);
+      }
+
+      const totalParts = Math.ceil(file.size / PART_SIZE);
+      const parts: { PartNumber: number; ETag: string }[] = [];
+      let baseLoaded = 0; // bytes from already-finished parts
+
+      for (let p = 1; p <= totalParts; p++) {
+        const start = (p - 1) * PART_SIZE;
+        const end = Math.min(start + PART_SIZE, file.size);
+        const size = end - start;
+        if (state.parts[p]) {
+          parts.push({ PartNumber: p, ETag: state.parts[p] });
+          baseLoaded += size;
+          setProgress(localId, Math.round((baseLoaded / file.size) * 100));
+          continue;
+        }
+        const etag = await putPart(state.assetId, state.uploadId, p, file.slice(start, end), (loaded) => {
+          setProgress(localId, Math.min(99, Math.round(((baseLoaded + loaded) / file.size) * 100)));
+        });
+        state.parts[p] = etag;
+        lsSet(lsKey, state);
+        parts.push({ PartNumber: p, ETag: etag });
+        baseLoaded += size;
+      }
+
+      const cres = await fetch(`/api/projects/${projectId}/assets/multipart`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "complete", assetId: state.assetId, uploadId: state.uploadId, parts }),
+      });
+      if (!cres.ok) throw new Error("complete failed");
+      lsDel(lsKey);
+      setStatus(localId, "done", 100);
+      router.refresh();
+    } catch {
+      setStatus(localId, "error");
+      toast.error(`Upload failed: ${file.name} — retry to resume`);
+    }
   }
 
   function addFiles(list: FileList | null) {

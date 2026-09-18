@@ -3,6 +3,10 @@ import {
   PutObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -37,6 +41,47 @@ export async function putObject(key: string, body: Uint8Array, contentType?: str
 
 export async function deleteObject(key: string) {
   await s3().send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: key }));
+}
+
+// ---- Resumable multipart upload (proxied — MinIO stays LAN-only) --------------
+export async function createMultipart(key: string, contentType?: string): Promise<string> {
+  const out = await s3().send(
+    new CreateMultipartUploadCommand({ Bucket: S3_BUCKET, Key: key, ContentType: contentType }),
+  );
+  if (!out.UploadId) throw new Error("no upload id");
+  return out.UploadId;
+}
+
+export async function uploadPart(
+  key: string,
+  uploadId: string,
+  partNumber: number,
+  body: Uint8Array,
+): Promise<string> {
+  const out = await s3().send(
+    new UploadPartCommand({ Bucket: S3_BUCKET, Key: key, UploadId: uploadId, PartNumber: partNumber, Body: body }),
+  );
+  if (!out.ETag) throw new Error("no etag");
+  return out.ETag;
+}
+
+export async function completeMultipart(
+  key: string,
+  uploadId: string,
+  parts: { PartNumber: number; ETag: string }[],
+): Promise<void> {
+  await s3().send(
+    new CompleteMultipartUploadCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+      UploadId: uploadId,
+      MultipartUpload: { Parts: [...parts].sort((a, b) => a.PartNumber - b.PartNumber) },
+    }),
+  );
+}
+
+export async function abortMultipart(key: string, uploadId: string): Promise<void> {
+  await s3().send(new AbortMultipartUploadCommand({ Bucket: S3_BUCKET, Key: key, UploadId: uploadId }));
 }
 
 /** Short-lived presigned GET URL (viewer must be able to reach the MinIO endpoint). */
