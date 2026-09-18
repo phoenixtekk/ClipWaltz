@@ -7,6 +7,7 @@ export type RenderStatus = {
   status: string; // queued | rendering | done | failed
   version: number;
   hasOutput: boolean;
+  visibility: string; // private | unlisted | public
 } | null;
 
 /** Latest render for a project the current user owns. */
@@ -25,5 +26,11 @@ export async function getLatestRender(projectId: string): Promise<RenderStatus> 
     .orderBy(desc(schema.renders.version))
     .limit(1);
   if (!r) return null;
-  return { id: r.id, status: r.status, version: r.version, hasOutput: !!r.outputKey };
+  return {
+    id: r.id,
+    status: r.status,
+    version: r.version,
+    hasOutput: !!r.outputKey,
+    visibility: r.visibility,
+  };
 }

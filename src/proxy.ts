@@ -12,6 +12,9 @@ const PUBLIC_PATHS = [
   /^\/terms(?:\/|$)/,
   /^\/privacy(?:\/|$)/,
   /^\/refund(?:\/|$)/,
+  /^\/feed(?:\/|$)/, // public community feed
+  /^\/w\/[^/]+$/, // public watch page
+  /^\/api\/renders\/[^/]+\/watch(?:\/|$)/, // public shared-render stream
   /^\/api\/auth(?:\/|$)/,
   /^\/api\/billing\/webhook(?:\/|$)/, // Stripe posts here with no cookie
 ];

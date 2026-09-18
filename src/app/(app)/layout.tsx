@@ -19,6 +19,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <span className="cw-gradient-text text-lg font-bold tracking-tight">ClipWaltz</span>
           </Link>
           <div className="flex items-center gap-4">
+            <Link
+              href="/feed"
+              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Feed
+            </Link>
             {admin ? (
               <Link
                 href="/admin"

@@ -80,8 +80,22 @@ export const renders = pgTable("renders", {
   watermark: boolean().notNull().default(true), // free tier = watermark
   cpuSeconds: real(), // instrumentation → cost-per-render
   costCents: integer(),
+  visibility: text().notNull().default("private"), // private | unlisted | public (community feed)
+  sharedAt: timestamp({ withTimezone: true }),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp({ withTimezone: true }),
+});
+
+// Community-feed likes on shared renders.
+export const renderLikes = pgTable("render_likes", {
+  id: text().primaryKey(),
+  renderId: text()
+    .notNull()
+    .references(() => renders.id, { onDelete: "cascade" }),
+  userId: text()
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
 
 // Admin-issued comp access invites. When an invited email signs up, the grant is
