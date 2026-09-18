@@ -28,10 +28,10 @@ export default async function WatchPage({ params }: { params: Promise<{ id: stri
             <Image src="/logo-name-1.png" alt="ClipWaltz" width={1204} height={306} className="h-7 w-auto" />
           </Link>
           <Link
-            href="/feed"
+            href="/community"
             className="text-sm font-medium text-slate-700 transition-colors hover:text-slate-950"
           >
-            Community feed
+            Community
           </Link>
         </nav>
       </header>

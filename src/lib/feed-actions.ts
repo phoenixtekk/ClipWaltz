@@ -21,7 +21,7 @@ export async function shareRender(renderId: string, visibility: string): Promise
     .update(schema.renders)
     .set({ visibility: v, sharedAt: v === "private" ? null : new Date() })
     .where(eq(schema.renders.id, renderId));
-  revalidatePath("/feed");
+  revalidatePath("/community");
   return v;
 }
 
@@ -37,6 +37,6 @@ export async function toggleLike(renderId: string): Promise<boolean> {
     return false;
   }
   await db.insert(schema.renderLikes).values({ id: randomUUID(), renderId, userId });
-  revalidatePath("/feed");
+  revalidatePath("/community");
   return true;
 }

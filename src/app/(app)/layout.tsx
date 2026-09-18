@@ -20,10 +20,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </Link>
           <div className="flex items-center gap-4">
             <Link
-              href="/feed"
+              href="/community"
               className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
-              Feed
+              Community
             </Link>
             {admin ? (
               <Link

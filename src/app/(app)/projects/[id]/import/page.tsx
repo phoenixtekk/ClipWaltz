@@ -5,6 +5,8 @@ import { getAuthUserId } from "@/lib/auth";
 import { hasGoogleConnection, googleConfigured } from "@/lib/google";
 import { ImportUploader } from "@/components/import-uploader";
 import { GoogleImport } from "@/components/google-import";
+import { DropboxImport } from "@/components/dropbox-import";
+import { OneDriveImport } from "@/components/onedrive-import";
 
 export const metadata = { title: "Import media" };
 
@@ -39,18 +41,20 @@ export default async function ImportPage({
         </ol>
       </div>
 
-      {googleConfigured() ? (
-        <section className="space-y-2 rounded-xl border border-border bg-card p-4">
-          <h2 className="text-sm font-medium">Import from the cloud</h2>
-          <div className="flex flex-wrap items-center gap-2">
+      <section className="space-y-2 rounded-xl border border-border bg-card p-4">
+        <h2 className="text-sm font-medium">Import from the cloud</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          {googleConfigured() ? (
             <GoogleImport projectId={id} connected={googleConnected} feedback={feedback} />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            On iPhone, use the file picker below — iCloud Photos has no web import, but Safari&rsquo;s
-            picker reaches your library. OneDrive &amp; Dropbox coming next.
-          </p>
-        </section>
-      ) : null}
+          ) : null}
+          <DropboxImport projectId={id} />
+          <OneDriveImport projectId={id} />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Pick from Google Photos, Dropbox, or OneDrive. On iPhone, use the file picker below —
+          iCloud Photos has no web import, but Safari&rsquo;s picker reaches your library.
+        </p>
+      </section>
 
       <ImportUploader projectId={id} initial={assets} />
     </div>

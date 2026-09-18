@@ -12,18 +12,21 @@ const PUBLIC_PATHS = [
   /^\/terms(?:\/|$)/,
   /^\/privacy(?:\/|$)/,
   /^\/refund(?:\/|$)/,
-  /^\/feed(?:\/|$)/, // public community feed
+  /^\/community(?:\/|$)/, // public community feed
+  /^\/feed(?:\/|$)/, // legacy → redirects to /community
   /^\/w\/[^/]+$/, // public watch page
   /^\/api\/renders\/[^/]+\/watch(?:\/|$)/, // public shared-render stream
   /^\/api\/auth(?:\/|$)/,
   /^\/api\/billing\/webhook(?:\/|$)/, // Stripe posts here with no cookie
+  /^\/api\/oauth\/microsoft\/callback(?:\/|$)/, // OneDrive.js picker redirect (SDK loader)
 ];
 
 export default function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Canonical host: apex → www (standing rule). www.clipwaltz.com is canonical.
-  const host = req.headers.get("host") || "";
+  // Behind the Cloudflare tunnel the real hostname arrives as x-forwarded-host.
+  const host = (req.headers.get("x-forwarded-host") || req.headers.get("host") || "").toLowerCase();
   if (host === "clipwaltz.com") {
     return NextResponse.redirect(
       `https://www.clipwaltz.com${pathname}${req.nextUrl.search}`,
