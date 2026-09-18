@@ -54,6 +54,12 @@ export function ProjectEditor({
   const router = useRouter();
   const [pending, start] = useTransition();
   const [title, setTitle] = useState(titleText ?? "");
+  const [musicQ, setMusicQ] = useState("");
+  const filteredTracks = musicQ.trim()
+    ? tracks.filter((t) =>
+        `${t.title} ${t.mood ?? ""}`.toLowerCase().includes(musicQ.trim().toLowerCase()),
+      )
+    : tracks;
 
   const runAction = (fn: () => Promise<unknown>, err: string) =>
     start(async () => {
@@ -129,14 +135,22 @@ export function ProjectEditor({
         <h2 className="flex items-center gap-1.5 text-sm font-medium">
           <Music className="size-4" /> Music
         </h2>
-        <div className="flex flex-wrap gap-2">
+        {tracks.length > 10 ? (
+          <Input
+            value={musicQ}
+            onChange={(e) => setMusicQ(e.target.value)}
+            placeholder={`Search ${tracks.length} tracks…`}
+            className="h-8"
+          />
+        ) : null}
+        <div className="flex max-h-56 flex-wrap gap-2 overflow-y-auto rounded-lg border border-border p-2">
           <TrackChip
             selected={!musicTrackId}
             label="No music"
             onClick={() => runAction(() => setProjectMusic(projectId, null), "Could not update music.")}
             disabled={pending}
           />
-          {tracks.map((t) => (
+          {filteredTracks.map((t) => (
             <TrackChip
               key={t.id}
               selected={musicTrackId === t.id}
@@ -145,6 +159,9 @@ export function ProjectEditor({
               disabled={pending}
             />
           ))}
+          {filteredTracks.length === 0 ? (
+            <p className="px-1 py-2 text-xs text-muted-foreground">No tracks match &ldquo;{musicQ}&rdquo;.</p>
+          ) : null}
         </div>
       </section>
 

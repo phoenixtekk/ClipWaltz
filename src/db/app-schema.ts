@@ -86,6 +86,21 @@ export const renders = pgTable("renders", {
   completedAt: timestamp({ withTimezone: true }),
 });
 
+// Connected cloud accounts (Google, Microsoft) for photo/drive import — OAuth tokens.
+export const oauthAccounts = pgTable("oauth_accounts", {
+  id: text().primaryKey(),
+  userId: text()
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  provider: text().notNull(), // google | microsoft | dropbox
+  accessToken: text(),
+  refreshToken: text(),
+  expiresAt: timestamp({ withTimezone: true }),
+  scope: text(),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
 // Community-feed likes on shared renders.
 export const renderLikes = pgTable("render_likes", {
   id: text().primaryKey(),

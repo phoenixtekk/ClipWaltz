@@ -29,6 +29,13 @@
       "when": 1789747970385,
       "tag": "0003_peaceful_dreaming_celestial",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789749881227,
+      "tag": "0004_silent_the_anarchist",
+      "breakpoints": true
     }
   ]
 }
