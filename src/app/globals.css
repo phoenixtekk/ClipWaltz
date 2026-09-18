@@ -144,27 +144,73 @@
   --cw-spectrum: linear-gradient(120deg, var(--cw-blue), var(--cw-violet) 42%, var(--cw-magenta) 68%, var(--cw-coral));
 }
 
+/* Landing theme tokens — LIGHT is the default; .dark flips them. */
 .cw-landing {
+  --cw-bg-1: rgba(79,124,255,0.14);
+  --cw-bg-2: rgba(224,91,214,0.12);
+  --cw-bg-3: rgba(255,122,89,0.10);
+  --cw-base: #f5f4fe;
+  --cw-fg: #0b0a1f;
+  --cw-muted: rgba(17,13,43,0.70);
+  --cw-subtle: rgba(17,13,43,0.52);
+  --cw-glass-bg: linear-gradient(160deg, rgba(255,255,255,0.78), rgba(255,255,255,0.55));
+  --cw-glass-border: rgba(17,13,43,0.10);
+  --cw-glass-hi: rgba(255,255,255,0.85);
+  --cw-glass-shadow: 0 24px 60px -28px rgba(17,13,43,0.30);
+  --cw-fill: rgba(17,13,43,0.05);
+  --cw-hair: rgba(17,13,43,0.10);
+  --cw-ring-fill: #ffffff;
+
   background:
-    radial-gradient(1200px 700px at 15% -5%, rgba(79,124,255,0.22), transparent 60%),
-    radial-gradient(1100px 700px at 95% 0%, rgba(224,91,214,0.18), transparent 55%),
-    radial-gradient(900px 600px at 60% 100%, rgba(255,122,89,0.14), transparent 55%),
-    var(--cw-ink);
-  color: #eef0ff;
+    radial-gradient(1200px 700px at 15% -5%, var(--cw-bg-1), transparent 60%),
+    radial-gradient(1100px 700px at 95% 0%, var(--cw-bg-2), transparent 55%),
+    radial-gradient(900px 600px at 60% 100%, var(--cw-bg-3), transparent 55%),
+    var(--cw-base);
+  color: var(--cw-fg);
   font-feature-settings: "ss01";
 }
+.dark .cw-landing {
+  --cw-bg-1: rgba(79,124,255,0.22);
+  --cw-bg-2: rgba(224,91,214,0.18);
+  --cw-bg-3: rgba(255,122,89,0.14);
+  --cw-base: var(--cw-ink);
+  --cw-fg: #eef0ff;
+  --cw-muted: rgba(255,255,255,0.70);
+  --cw-subtle: rgba(255,255,255,0.52);
+  --cw-glass-bg: linear-gradient(160deg, rgba(255,255,255,0.10), rgba(255,255,255,0.028));
+  --cw-glass-border: rgba(255,255,255,0.12);
+  --cw-glass-hi: rgba(255,255,255,0.30);
+  --cw-glass-shadow: 0 24px 60px -24px rgba(3,2,12,0.85);
+  --cw-fill: rgba(255,255,255,0.06);
+  --cw-hair: rgba(255,255,255,0.10);
+  --cw-ring-fill: var(--cw-ink-2);
+}
+.cw-muted { color: var(--cw-muted); }
+.cw-subtle { color: var(--cw-subtle); }
+.cw-fg { color: var(--cw-fg); }
+.cw-fill { background-color: var(--cw-fill); }
+.cw-hair { border-color: var(--cw-hair); }
 
-/* frosted glass, dark */
+/* frosted glass — theme-aware via tokens */
 .cw-glass {
   position: relative;
-  background: linear-gradient(160deg, rgba(255,255,255,0.10), rgba(255,255,255,0.028));
+  background: var(--cw-glass-bg);
   backdrop-filter: blur(18px) saturate(140%);
   -webkit-backdrop-filter: blur(18px) saturate(140%);
-  border: 1px solid rgba(255,255,255,0.12);
+  border: 1px solid var(--cw-glass-border);
   box-shadow:
-    inset 0 1px 0 0 rgba(255,255,255,0.30),
-    inset 0 -1px 0 0 rgba(0,0,0,0.35),
-    0 24px 60px -24px rgba(3,2,12,0.85);
+    inset 0 1px 0 0 var(--cw-glass-hi),
+    inset 0 -1px 0 0 rgba(0,0,0,0.15),
+    var(--cw-glass-shadow);
+}
+/* always-dark glass (sits on the phone's dark gradient screen) */
+.cw-glass-dark {
+  position: relative;
+  background: linear-gradient(160deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.22);
+  color: #fff;
 }
 /* light frosted (nav / logo chips so the dark wordmark reads) */
 .cw-glass-light {
@@ -186,7 +232,7 @@
 .cw-ring {
   border: 1px solid transparent;
   background:
-    linear-gradient(var(--cw-ink-2), var(--cw-ink-2)) padding-box,
+    linear-gradient(var(--cw-ring-fill), var(--cw-ring-fill)) padding-box,
     var(--cw-spectrum) border-box;
 }
 .cw-gradient { background-image: var(--cw-spectrum); }
@@ -218,7 +264,7 @@
 .cw-anim-drift { animation: cw-drift-y 6s ease-in-out infinite; }
 
 @media (prefers-reduced-motion: reduce) {
-  .cw-gradient-text, .cw-anim-float, .cw-anim-float-2, .cw-anim-drift { animation: none !important; }
+  .cw-gradient-text, .cw-anim-float, .cw-anim-float-2, .cw-anim-drift, .cw-eq-bar { animation: none !important; }
   .cw-lift, .cw-sheen::after { transition: none !important; }
 }
 }

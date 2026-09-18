@@ -17,9 +17,10 @@ import {
   Sparkles,
   Star,
 } from "lucide-react";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export const metadata = {
-  title: "ClipWaltz — your memories, set to music",
+  title: "ClipWaltz — your memories, shown to the beat",
   description:
     "Drop in the photos and clips from your trip, event, or launch and ClipWaltz auto-edits them into a beat-synced, share-ready music video in under a minute. No editing required.",
 };
@@ -80,6 +81,7 @@ function Nav() {
           <a href="#pricing" className="transition-colors hover:text-slate-950">Pricing</a>
         </div>
         <div className="flex items-center gap-2">
+          <ThemeToggle className="inline-flex size-9 items-center justify-center rounded-full text-slate-700 transition-colors hover:bg-black/5" />
           <Link
             href="/sign-in"
             className="hidden rounded-full px-3.5 py-2 text-sm font-semibold text-slate-800 transition-colors hover:bg-black/5 sm:inline-flex"
@@ -103,16 +105,17 @@ function Hero() {
   return (
     <section className="mx-auto grid max-w-6xl items-center gap-12 px-5 pt-16 pb-20 lg:grid-cols-[1.05fr_0.95fr] lg:pt-24">
       <div>
-        <span className="cw-glass inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-medium text-white/80">
+        <span className="cw-glass cw-muted inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-medium">
           <Sparkles className="size-3.5 text-[color:var(--cw-coral)]" />
           Auto music-video maker · no editing required
         </span>
-        <h1 className="mt-6 text-balance text-5xl font-semibold leading-[1.03] tracking-tight sm:text-6xl">
+        <p className="cw-gradient-text mt-6 text-lg font-bold tracking-tight">ClipWaltz</p>
+        <h1 className="mt-1 text-balance text-5xl font-semibold leading-[1.03] tracking-tight sm:text-6xl">
           Your memories,
           <br />
-          <span className="cw-gradient-text">set to music.</span>
+          <span className="cw-gradient-text">Shown to the beat!</span>
         </h1>
-        <p className="mt-6 max-w-xl text-pretty text-lg leading-relaxed text-white/70">
+        <p className="cw-muted mt-6 max-w-xl text-pretty text-lg leading-relaxed">
           Drop in the photos and clips from your trip, your event, your launch. ClipWaltz
           auto-edits them in the cloud into a beat-synced, share-ready music video — in under a
           minute. No timeline. No editing. Just the good part.
@@ -126,12 +129,12 @@ function Hero() {
           </Link>
           <a
             href="#how"
-            className="cw-glass inline-flex items-center gap-2 rounded-full px-6 py-3.5 text-base font-semibold text-white transition-colors hover:bg-white/10"
+            className="cw-glass cw-fg inline-flex items-center gap-2 rounded-full px-6 py-3.5 text-base font-semibold transition-colors"
           >
             <Play className="size-4 fill-current" /> See how it works
           </a>
         </div>
-        <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-white/55">
+        <div className="cw-subtle mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
           <span className="inline-flex items-center gap-1.5"><Check className="size-4 text-[color:var(--cw-blue)]" /> 9:16 for TikTok, Reels &amp; Shorts</span>
           <span className="inline-flex items-center gap-1.5"><Check className="size-4 text-[color:var(--cw-violet)]" /> Licensed music</span>
           <span className="inline-flex items-center gap-1.5"><Check className="size-4 text-[color:var(--cw-coral)]" /> HD render</span>
@@ -154,14 +157,14 @@ function PhoneMockup() {
         style={{ width: 340, height: 340, inset: "10% 10% auto auto", background: "var(--cw-violet)", opacity: 0.5 }}
       />
       <div className="cw-glass cw-metal cw-anim-drift relative rounded-[2.6rem] p-3">
-        <div className="relative aspect-[9/19] w-[248px] overflow-hidden rounded-[2.1rem] bg-black sm:w-[268px]">
+        <div className="relative aspect-[9/19] w-[248px] overflow-hidden rounded-[2.1rem] bg-black text-white sm:w-[268px]">
           {/* animated "clip" background */}
           <div className="cw-gradient absolute inset-0 opacity-90" />
           <div className="absolute inset-0 bg-[radial-gradient(120%_80%_at_50%_0%,transparent,rgba(0,0,0,0.55))]" />
           {/* top chip */}
           <div className="absolute inset-x-3 top-3 flex items-center justify-between text-[11px] font-medium text-white/90">
-            <span className="cw-glass rounded-full px-2.5 py-1">Trip · Italy</span>
-            <span className="cw-glass inline-flex items-center gap-1 rounded-full px-2.5 py-1">
+            <span className="cw-glass-dark rounded-full px-2.5 py-1">Trip · Italy</span>
+            <span className="cw-glass-dark inline-flex items-center gap-1 rounded-full px-2.5 py-1">
               <Music className="size-3" /> Golden Hour
             </span>
           </div>
@@ -182,13 +185,13 @@ function PhoneMockup() {
         </div>
       </div>
       {/* floating stat cards */}
-      <div className="cw-glass cw-metal absolute -left-10 top-14 z-20 hidden whitespace-nowrap rounded-2xl px-3.5 py-2.5 sm:block">
-        <p className="text-[11px] text-white/60">Render time</p>
-        <p className="text-lg font-semibold text-white">~48s</p>
+      <div className="cw-glass cw-metal absolute -left-10 top-14 z-20 hidden whitespace-nowrap rounded-2xl px-3.5 py-2.5 xl:block">
+        <p className="cw-subtle text-[11px]">Render time</p>
+        <p className="cw-fg text-lg font-semibold">~48s</p>
       </div>
-      <div className="cw-glass cw-metal absolute -right-10 bottom-16 z-20 hidden whitespace-nowrap rounded-2xl px-3.5 py-2.5 sm:block">
-        <p className="text-[11px] text-white/60">Beat-synced</p>
-        <p className="inline-flex items-center gap-1 text-lg font-semibold text-white">
+      <div className="cw-glass cw-metal absolute -right-10 bottom-16 z-20 hidden whitespace-nowrap rounded-2xl px-3.5 py-2.5 xl:block">
+        <p className="cw-subtle text-[11px]">Beat-synced</p>
+        <p className="cw-fg inline-flex items-center gap-1 text-lg font-semibold">
           <Wand2 className="size-4 text-[color:var(--cw-coral)]" /> Auto
         </p>
       </div>
@@ -203,7 +206,7 @@ function EqBars() {
       {bars.map((d, i) => (
         <span
           key={i}
-          className="w-full origin-bottom rounded-full bg-white/85"
+          className="cw-eq-bar w-full origin-bottom rounded-full bg-white/85"
           style={{
             height: "100%",
             animation: `cw-eq ${0.9 + (i % 4) * 0.18}s ease-in-out ${i * 0.06}s infinite`,
@@ -220,8 +223,8 @@ function TwoVibes() {
   return (
     <section className="mx-auto max-w-6xl px-5 py-12">
       <div className="mx-auto max-w-2xl text-center">
-        <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">One tool, two vibes</h2>
-        <p className="mt-3 text-white/60">
+        <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">One App, Two Vibes</h2>
+        <p className="cw-muted mt-3">
           The same one-minute magic, whether you&apos;re chasing sunsets or shipping a brand.
         </p>
       </div>
@@ -274,10 +277,10 @@ function VibeCard({
         {kicker}
       </p>
       <h3 className="mt-1.5 text-2xl font-semibold tracking-tight">{title}</h3>
-      <p className="mt-3 text-white/65">{body}</p>
+      <p className="cw-muted mt-3">{body}</p>
       <div className="mt-5 flex flex-wrap gap-2">
         {tags.map((t) => (
-          <span key={t} className="rounded-full border border-white/12 bg-white/5 px-3 py-1 text-xs text-white/70">
+          <span key={t} className="cw-fill cw-hair cw-muted rounded-full border px-3 py-1 text-xs">
             {t}
           </span>
         ))}
@@ -312,18 +315,18 @@ function HowItWorks() {
           How it works
         </p>
         <h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
-          Three steps to a video that moves
+          Three steps to Pictures becoming Videos
         </h2>
       </div>
       <div className="mt-12 grid gap-5 md:grid-cols-3">
         {steps.map((s, i) => (
           <div key={s.title} className="cw-glass cw-lift relative rounded-3xl p-7">
             <div className="cw-gradient-text text-6xl font-bold leading-none">{i + 1}</div>
-            <div className="mt-4 inline-flex size-11 items-center justify-center rounded-xl bg-white/8 text-white">
+            <div className="cw-fill cw-fg mt-4 inline-flex size-11 items-center justify-center rounded-xl">
               {s.icon}
             </div>
             <h3 className="mt-4 text-xl font-semibold">{s.title}</h3>
-            <p className="mt-2 text-white/60">{s.body}</p>
+            <p className="cw-muted mt-2">{s.body}</p>
           </div>
         ))}
       </div>
@@ -348,17 +351,17 @@ function Features() {
           Features
         </p>
         <h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
-          Everything the edit used to take
+          From Camera Roll to Cinematic Videos
         </h2>
       </div>
       <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {items.map((it) => (
           <div key={it.title} className="cw-glass cw-metal cw-lift rounded-2xl p-6">
-            <div className="cw-ring mb-4 inline-flex size-11 items-center justify-center rounded-xl text-white">
+            <div className="cw-ring cw-fg mb-4 inline-flex size-11 items-center justify-center rounded-xl">
               {it.icon}
             </div>
             <h3 className="text-lg font-semibold">{it.title}</h3>
-            <p className="mt-1.5 text-sm text-white/60">{it.body}</p>
+            <p className="cw-muted mt-1.5 text-sm">{it.body}</p>
           </div>
         ))}
       </div>
@@ -384,7 +387,7 @@ function Templates() {
           <h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
             Start from a vibe
           </h2>
-          <p className="mt-3 text-white/60">
+          <p className="cw-muted mt-3">
             Pick the occasion and ClipWaltz tunes the pacing, music, and mood to match.
           </p>
         </div>
@@ -400,7 +403,7 @@ function Templates() {
             </div>
             <div className="px-3 pb-2 pt-3">
               <h3 className="font-semibold">{c.name}</h3>
-              <p className="text-xs text-white/55">{c.vibe}</p>
+              <p className="cw-subtle text-xs">{c.vibe}</p>
             </div>
           </div>
         ))}
@@ -443,14 +446,14 @@ function Pricing() {
         <h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
           Start free. Upgrade when it clicks.
         </h2>
-        <p className="mt-3 text-white/60">Founding-member pricing at launch. Cancel anytime.</p>
+        <p className="cw-muted mt-3">Founding-member pricing at launch. Cancel anytime.</p>
       </div>
       <div className="mt-12 grid items-stretch gap-5 md:grid-cols-3">
         {tiers.map((t) => (
           <div
             key={t.name}
             className={`cw-lift relative flex flex-col rounded-3xl p-7 ${
-              t.featured ? "cw-ring cw-metal bg-[color:var(--cw-ink-2)]" : "cw-glass"
+              t.featured ? "cw-ring cw-metal bg-[color:var(--cw-ring-fill)]" : "cw-glass"
             }`}
           >
             {t.featured && (
@@ -459,8 +462,8 @@ function Pricing() {
               </span>
             )}
             <h3 className="text-xl font-semibold">{t.name}</h3>
-            <p className="mt-1 text-sm text-white/55">{t.tagline}</p>
-            <ul className="mt-6 space-y-2.5 text-sm text-white/75">
+            <p className="cw-subtle mt-1 text-sm">{t.tagline}</p>
+            <ul className="cw-muted mt-6 space-y-2.5 text-sm">
               {t.features.map((f) => (
                 <li key={f} className="flex items-start gap-2">
                   <Check className="mt-0.5 size-4 shrink-0 text-[color:var(--cw-coral)]" />
@@ -473,7 +476,7 @@ function Pricing() {
               className={`cw-sheen mt-7 inline-flex items-center justify-center gap-1.5 rounded-full px-5 py-3 text-sm font-semibold transition-colors ${
                 t.featured
                   ? "cw-gradient text-white shadow-lg shadow-fuchsia-500/25"
-                  : "border border-white/15 bg-white/5 text-white hover:bg-white/10"
+                  : "cw-fill cw-hair cw-fg border"
               }`}
             >
               {t.cta} <ArrowRight className="size-4" />
@@ -500,7 +503,7 @@ function FinalCta() {
           <h2 className="mx-auto max-w-2xl text-balance text-4xl font-semibold tracking-tight sm:text-5xl">
             Make your first <span className="cw-gradient-text">ClipWaltz</span> today
           </h2>
-          <p className="mx-auto mt-4 max-w-xl text-white/70">
+          <p className="cw-muted mx-auto mt-4 max-w-xl">
             The trip already happened. The launch is live. Turn what you captured into something
             worth watching — in the next minute.
           </p>
@@ -513,7 +516,7 @@ function FinalCta() {
             </Link>
             <Link
               href="/sign-in"
-              className="cw-glass inline-flex items-center gap-2 rounded-full px-7 py-4 text-base font-semibold text-white transition-colors hover:bg-white/10"
+              className="cw-glass cw-fg inline-flex items-center gap-2 rounded-full px-7 py-4 text-base font-semibold transition-colors"
             >
               Log in
             </Link>
@@ -527,21 +530,21 @@ function FinalCta() {
 /* ------------------------------------------------------------- Footer */
 function Footer() {
   return (
-    <footer className="border-t border-white/10 px-5 py-12">
+    <footer className="cw-hair border-t px-5 py-12">
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-6 sm:flex-row">
         <div className="cw-glass-light inline-flex items-center rounded-xl px-3 py-2">
           <Image src="/logo-name-1.png" alt="ClipWaltz" width={1204} height={306} className="h-6 w-auto" />
         </div>
-        <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-white/55">
-          <a href="#how" className="hover:text-white">How it works</a>
-          <a href="#features" className="hover:text-white">Features</a>
-          <a href="#pricing" className="hover:text-white">Pricing</a>
-          <Link href="/sign-in" className="hover:text-white">Log in</Link>
-          <Link href="/sign-up" className="hover:text-white">Start free</Link>
+        <div className="cw-subtle flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm">
+          <a href="#how" className="transition-colors hover:text-[color:var(--cw-fg)]">How it works</a>
+          <a href="#features" className="transition-colors hover:text-[color:var(--cw-fg)]">Features</a>
+          <a href="#pricing" className="transition-colors hover:text-[color:var(--cw-fg)]">Pricing</a>
+          <Link href="/sign-in" className="transition-colors hover:text-[color:var(--cw-fg)]">Log in</Link>
+          <Link href="/sign-up" className="transition-colors hover:text-[color:var(--cw-fg)]">Start free</Link>
         </div>
       </div>
-      <p className="mx-auto mt-8 max-w-6xl text-center text-xs text-white/35 sm:text-left">
-        © {new Date().getFullYear()} ClipWaltz · www.clipwaltz.com — your memories, set to music.
+      <p className="cw-subtle mx-auto mt-8 max-w-6xl text-center text-xs sm:text-left">
+        © {new Date().getFullYear()} ClipWaltz · www.clipwaltz.com — your memories, shown to the beat.
       </p>
     </footer>
   );
