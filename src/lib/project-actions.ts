@@ -90,6 +90,37 @@ export async function setProjectLength(projectId: string, lengthSec: number): Pr
   revalidatePath(`/projects/${projectId}/edit`);
 }
 
+const STYLE_FILTERS = new Set(["none", "warm", "cool", "vivid", "bw", "vintage"]);
+const TRANSITIONS = new Set(["cut", "crossfade"]);
+
+/** Update Editor Phase-1 styling on a project (owner-checked). Partial patch. */
+export async function setProjectStyle(
+  projectId: string,
+  patch: {
+    titleText?: string | null;
+    styleFilter?: string;
+    transition?: string;
+    motion?: boolean;
+    fades?: boolean;
+  },
+): Promise<void> {
+  const userId = await requireUserId();
+  await assertProjectOwner(userId, projectId);
+  const set: Record<string, unknown> = { updatedAt: new Date() };
+  if (patch.titleText !== undefined) {
+    const t = (patch.titleText ?? "").trim().slice(0, 80);
+    set.titleText = t.length ? t : null;
+  }
+  if (patch.styleFilter !== undefined)
+    set.styleFilter = STYLE_FILTERS.has(patch.styleFilter) ? patch.styleFilter : "none";
+  if (patch.transition !== undefined)
+    set.transition = TRANSITIONS.has(patch.transition) ? patch.transition : "cut";
+  if (patch.motion !== undefined) set.motion = !!patch.motion;
+  if (patch.fades !== undefined) set.fades = !!patch.fades;
+  await db.update(schema.projects).set(set).where(eq(schema.projects.id, projectId));
+  revalidatePath(`/projects/${projectId}/edit`);
+}
+
 export async function setProjectMusic(projectId: string, trackId: string | null): Promise<void> {
   const userId = await requireUserId();
   await assertProjectOwner(userId, projectId);

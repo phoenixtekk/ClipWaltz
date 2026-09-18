@@ -16,6 +16,11 @@ export type ProjectDetail = ProjectSummary & {
   template: string;
   lengthSec: number;
   musicTrackId: string | null;
+  titleText: string | null;
+  styleFilter: string;
+  transition: string;
+  motion: boolean;
+  fades: boolean;
 };
 
 /** A single project owned by the current user, or null. */
@@ -34,6 +39,11 @@ export async function getProject(id: string): Promise<ProjectDetail | null> {
     template: r.template,
     lengthSec: r.lengthSec,
     musicTrackId: r.musicTrackId,
+    titleText: r.titleText,
+    styleFilter: r.styleFilter,
+    transition: r.transition,
+    motion: r.motion,
+    fades: r.fades,
     updatedAt: r.updatedAt.toISOString(),
   };
 }

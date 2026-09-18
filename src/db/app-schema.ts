@@ -37,6 +37,12 @@ export const projects = pgTable("projects", {
   lengthSec: integer().notNull().default(30),
   status: text().notNull().default("draft"), // draft | rendering | ready | failed
   musicTrackId: text().references(() => musicTracks.id),
+  // Editor Phase 1 styling (applied by the render worker).
+  titleText: text(), // optional title/caption overlay
+  styleFilter: text().notNull().default("none"), // none|warm|cool|vivid|bw|vintage
+  transition: text().notNull().default("cut"), // cut | crossfade
+  motion: boolean().notNull().default(true), // Ken Burns zoom/pan on photos
+  fades: boolean().notNull().default(true), // fade in/out
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });

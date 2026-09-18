@@ -38,6 +38,11 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
         musicTrackId={project.musicTrackId}
         lengthSec={project.lengthSec}
         aspect={project.aspect}
+        titleText={project.titleText}
+        styleFilter={project.styleFilter}
+        transition={project.transition}
+        motion={project.motion}
+        fades={project.fades}
       />
 
       <DraftPreview

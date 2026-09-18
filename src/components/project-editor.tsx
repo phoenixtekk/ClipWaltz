@@ -1,14 +1,30 @@
 "use client";
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronUp, ChevronDown, Trash2, Film, Image as ImageIcon, Music } from "lucide-react";
+import { ChevronUp, ChevronDown, Trash2, Film, Image as ImageIcon, Music, Type, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import type { AssetSummary } from "@/lib/assets";
 import type { Track } from "@/lib/music";
 import { deleteAsset } from "@/lib/asset-actions";
-import { setProjectMusic, setProjectLength, setProjectAspect, moveAsset } from "@/lib/project-actions";
+import {
+  setProjectMusic,
+  setProjectLength,
+  setProjectAspect,
+  setProjectStyle,
+  moveAsset,
+} from "@/lib/project-actions";
+
+const FILTERS = [
+  { key: "none", label: "None" },
+  { key: "warm", label: "Warm" },
+  { key: "cool", label: "Cool" },
+  { key: "vivid", label: "Vivid" },
+  { key: "bw", label: "B&W" },
+  { key: "vintage", label: "Vintage" },
+];
 
 export function ProjectEditor({
   projectId,
@@ -17,6 +33,11 @@ export function ProjectEditor({
   musicTrackId,
   lengthSec,
   aspect,
+  titleText,
+  styleFilter,
+  transition,
+  motion,
+  fades,
 }: {
   projectId: string;
   assets: AssetSummary[];
@@ -24,9 +45,15 @@ export function ProjectEditor({
   musicTrackId: string | null;
   lengthSec: number;
   aspect: string;
+  titleText: string | null;
+  styleFilter: string;
+  transition: string;
+  motion: boolean;
+  fades: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const [title, setTitle] = useState(titleText ?? "");
 
   const runAction = (fn: () => Promise<unknown>, err: string) =>
     start(async () => {
@@ -153,6 +180,83 @@ export function ProjectEditor({
               disabled={pending}
             />
           ))}
+        </div>
+      </section>
+
+      {/* style */}
+      <section className="space-y-4">
+        <h2 className="flex items-center gap-1.5 text-sm font-medium">
+          <Sparkles className="size-4" /> Style
+        </h2>
+
+        <div className="space-y-1.5">
+          <label htmlFor="cw-title" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Type className="size-3.5" /> Title / caption (optional)
+          </label>
+          <Input
+            id="cw-title"
+            value={title}
+            maxLength={80}
+            placeholder="e.g. Italy 2026"
+            disabled={pending}
+            onChange={(e) => setTitle(e.target.value)}
+            onBlur={() => {
+              if ((title.trim() || null) !== (titleText ?? null))
+                runAction(() => setProjectStyle(projectId, { titleText: title }), "Could not save title.");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+            }}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-xs text-muted-foreground">Filter</p>
+          <div className="flex flex-wrap gap-2">
+            {FILTERS.map((f) => (
+              <TrackChip
+                key={f.key}
+                selected={styleFilter === f.key}
+                label={f.label}
+                onClick={() => runAction(() => setProjectStyle(projectId, { styleFilter: f.key }), "Could not set filter.")}
+                disabled={pending}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-x-8 gap-y-3">
+          <div className="space-y-1.5">
+            <p className="text-xs text-muted-foreground">Transition</p>
+            <div className="flex gap-2">
+              {[{ k: "cut", l: "Cut" }, { k: "crossfade", l: "Crossfade" }].map((t) => (
+                <TrackChip
+                  key={t.k}
+                  selected={transition === t.k}
+                  label={t.l}
+                  onClick={() => runAction(() => setProjectStyle(projectId, { transition: t.k }), "Could not set transition.")}
+                  disabled={pending}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs text-muted-foreground">Effects</p>
+            <div className="flex gap-2">
+              <TrackChip
+                selected={motion}
+                label="Ken Burns"
+                onClick={() => runAction(() => setProjectStyle(projectId, { motion: !motion }), "Could not toggle motion.")}
+                disabled={pending}
+              />
+              <TrackChip
+                selected={fades}
+                label="Fade in/out"
+                onClick={() => runAction(() => setProjectStyle(projectId, { fades: !fades }), "Could not toggle fades.")}
+                disabled={pending}
+              />
+            </div>
+          </div>
         </div>
       </section>
     </div>
