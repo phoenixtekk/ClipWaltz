@@ -12,7 +12,9 @@ import { user } from "./auth-schema";
 // ClipWaltz domain tables (MVP). Field names are camelCase; with the snake_case-cased
 // Drizzle client the DB columns become snake_case automatically.
 
-// Licensed royalty-free music catalog (see Design & Build Plan §2 — music strategy).
+// Music catalog. Sourced through the ClipWaltz Music Provider Layer (see lib/music/providers):
+// `provider` identifies the source (pixabay | epidemic | soundstripe | artlist | upload | ai),
+// `premium` marks partner/premium catalogs, `providerTrackId` is the id in that provider's system.
 export const musicTracks = pgTable("music_tracks", {
   id: text().primaryKey(),
   title: text().notNull(),
@@ -22,9 +24,28 @@ export const musicTracks = pgTable("music_tracks", {
   mood: text(), // e.g. upbeat, chill, cinematic
   durationSec: real(),
   storageKey: text().notNull(), // MinIO object key
+  provider: text().notNull().default("pixabay"), // source provider id
+  providerTrackId: text(), // id within the provider's catalog
+  premium: boolean().notNull().default(false), // partner/premium vs included
   active: boolean().notNull().default(true),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
+
+// A user's favourite tracks (music panel → "My Music").
+export const musicFavorites = pgTable(
+  "music_favorites",
+  {
+    id: text().primaryKey(),
+    userId: text()
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    trackId: text()
+      .notNull()
+      .references(() => musicTracks.id, { onDelete: "cascade" }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.trackId)],
+);
 
 // A user's video project.
 export const projects = pgTable("projects", {
@@ -43,7 +64,8 @@ export const projects = pgTable("projects", {
   styleFilter: text().notNull().default("none"), // none|warm|cool|vivid|bw|vintage
   transition: text().notNull().default("cut"), // cut | crossfade
   motion: boolean().notNull().default(true), // Ken Burns zoom/pan on photos
-  fades: boolean().notNull().default(true), // fade in/out
+  fades: boolean().notNull().default(true), // fade IN at the start
+  fadeOut: boolean().notNull().default(true), // fade OUT to black at the end
   smartCut: boolean().notNull().default(true), // pick the most active window of each video
   beatSync: boolean().notNull().default(true), // time cuts to the music's beats
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -87,6 +109,28 @@ export const renders = pgTable("renders", {
   sharedAt: timestamp({ withTimezone: true }),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp({ withTimezone: true }),
+});
+
+// Licensing ledger: a per-render snapshot of the music license so we can always answer
+// "what license did this video use?" — populated when a render completes. Clearance fields
+// (safelist/YouTube codes) fill in once a premium provider adapter is wired.
+export const renderLicenses = pgTable("render_licenses", {
+  id: text().primaryKey(),
+  renderId: text()
+    .notNull()
+    .references(() => renders.id, { onDelete: "cascade" }),
+  userId: text().references(() => user.id, { onDelete: "set null" }),
+  projectId: text(),
+  provider: text().notNull(), // pixabay | epidemic | soundstripe | artlist | upload | ai
+  providerTrackId: text(),
+  trackTitle: text(),
+  artist: text(),
+  licenseType: text(), // e.g. "Pixabay Content License", "Epidemic Sound Commercial"
+  licenseRef: text(), // catalog/license reference
+  clearanceStatus: text().notNull().default("n/a"), // n/a | pending | cleared | failed
+  clearanceRef: text(), // safelist / YouTube clearance id (provider-dependent)
+  licensedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp({ withTimezone: true }),
 });
 
 // Connected cloud accounts (Google, Microsoft) for photo/drive import — OAuth tokens.

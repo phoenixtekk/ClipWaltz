@@ -2,9 +2,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getProject } from "@/lib/projects";
 import { listAssets } from "@/lib/assets";
-import { getMusicTracks } from "@/lib/music";
+import { getMusicTracks, getFavoriteTrackIds } from "@/lib/music";
 import { getLatestRender } from "@/lib/render";
 import { getActiveContest, isRenderEntered } from "@/lib/contest";
+import { getAuthUserId } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { ProjectEditor } from "@/components/project-editor";
 import { MusicPanel } from "@/components/music-panel";
@@ -17,11 +18,13 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const project = await getProject(id);
   if (!project) notFound();
-  const [assets, tracks, latestRender, activeContest] = await Promise.all([
+  const userId = await getAuthUserId();
+  const [assets, tracks, latestRender, activeContest, favorites] = await Promise.all([
     listAssets(id),
     getMusicTracks(),
     getLatestRender(id),
     getActiveContest(),
+    getFavoriteTrackIds(userId),
   ]);
 
   // Contest entry state for the current render (only when a finished render exists).
@@ -53,8 +56,10 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
             transition={project.transition}
             motion={project.motion}
             fades={project.fades}
+            fadeOut={project.fadeOut}
             smartCut={project.smartCut}
             beatSync={project.beatSync}
+            hasRender={!!latestRender?.hasOutput}
           />
 
           <DraftPreview
@@ -84,7 +89,12 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
         </div>
 
         {/* music side-panel */}
-        <MusicPanel projectId={id} tracks={tracks} musicTrackId={project.musicTrackId} />
+        <MusicPanel
+          projectId={id}
+          tracks={tracks}
+          musicTrackId={project.musicTrackId}
+          favorites={[...favorites]}
+        />
       </div>
     </div>
   );

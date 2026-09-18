@@ -44,8 +44,10 @@ export function ProjectEditor({
   transition,
   motion,
   fades,
+  fadeOut,
   smartCut,
   beatSync,
+  hasRender,
 }: {
   projectId: string;
   assets: AssetSummary[];
@@ -56,8 +58,10 @@ export function ProjectEditor({
   transition: string;
   motion: boolean;
   fades: boolean;
+  fadeOut: boolean;
   smartCut: boolean;
   beatSync: boolean;
+  hasRender: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -104,11 +108,33 @@ export function ProjectEditor({
                 className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2"
               >
                 <span className="w-5 text-xs text-muted-foreground">{i + 1}</span>
-                {a.kind === "video" ? (
-                  <Film className="size-4 shrink-0 text-muted-foreground" />
-                ) : (
-                  <ImageIcon className="size-4 shrink-0 text-muted-foreground" />
-                )}
+                <div className="relative size-12 shrink-0 overflow-hidden rounded-md border border-border bg-muted">
+                  {a.uploadState === "uploaded" && a.kind === "video" ? (
+                    <video
+                      src={`/api/projects/${projectId}/assets/${a.id}#t=0.1`}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      className="size-full object-cover"
+                    />
+                  ) : a.uploadState === "uploaded" ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={`/api/projects/${projectId}/assets/${a.id}`} alt="" className="size-full object-cover" />
+                  ) : (
+                    <div className="flex size-full items-center justify-center">
+                      {a.kind === "video" ? (
+                        <Film className="size-4 text-muted-foreground" />
+                      ) : (
+                        <ImageIcon className="size-4 text-muted-foreground" />
+                      )}
+                    </div>
+                  )}
+                  {a.kind === "video" ? (
+                    <span className="absolute bottom-0.5 right-0.5 rounded bg-black/60 p-0.5">
+                      <Film className="size-2.5 text-white" />
+                    </span>
+                  ) : null}
+                </div>
                 <span className="min-w-0 flex-1 truncate text-sm">{a.name}</span>
                 <div className="flex items-center gap-1">
                   <Button
@@ -166,6 +192,12 @@ export function ProjectEditor({
             />
           ))}
         </div>
+        {hasRender ? (
+          <p className="text-xs text-muted-foreground">
+            Changing the aspect re-frames the video — click <b>Render HD</b> again to produce the new
+            version.
+          </p>
+        ) : null}
       </section>
 
       {/* length */}
@@ -297,8 +329,14 @@ export function ProjectEditor({
               />
               <TrackChip
                 selected={fades}
-                label="Fade in/out"
-                onClick={() => runAction(() => setProjectStyle(projectId, { fades: !fades }), "Could not toggle fades.")}
+                label="Fade in"
+                onClick={() => runAction(() => setProjectStyle(projectId, { fades: !fades }), "Could not toggle fade in.")}
+                disabled={pending}
+              />
+              <TrackChip
+                selected={fadeOut}
+                label="Fade out ending"
+                onClick={() => runAction(() => setProjectStyle(projectId, { fadeOut: !fadeOut }), "Could not toggle fade out.")}
                 disabled={pending}
               />
             </div>

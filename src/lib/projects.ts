@@ -22,6 +22,7 @@ export type ProjectDetail = ProjectSummary & {
   transition: string;
   motion: boolean;
   fades: boolean;
+  fadeOut: boolean;
   smartCut: boolean;
   beatSync: boolean;
 };
@@ -47,6 +48,7 @@ export async function getProject(id: string): Promise<ProjectDetail | null> {
     transition: r.transition,
     motion: r.motion,
     fades: r.fades,
+    fadeOut: r.fadeOut,
     smartCut: r.smartCut,
     beatSync: r.beatSync,
     updatedAt: r.updatedAt.toISOString(),

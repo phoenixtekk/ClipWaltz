@@ -12,6 +12,7 @@
 // ffmpeg/ffprobe, and aubiotrack (aubio-tools) for beat detection.
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -371,10 +372,8 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
       );
     }
     if (useWatermark) parts.push(WM);
-    if (style.fades) {
-      parts.push("fade=t=in:st=0:d=0.5");
-      if (outDur > 1.6) parts.push(`fade=t=out:st=${(outDur - 0.7).toFixed(2)}:d=0.7`);
-    }
+    if (style.fades) parts.push("fade=t=in:st=0:d=0.5");
+    if (style.fadeOut && outDur > 1.6) parts.push(`fade=t=out:st=${(outDur - 0.7).toFixed(2)}:d=0.7`);
     return parts.length ? parts.join(",") : "null";
   }
 
@@ -446,6 +445,7 @@ async function processRender(r) {
     transition: project?.transition ?? "cut",
     motion: project?.motion ?? true,
     fades: project?.fades ?? true,
+    fadeOut: project?.fade_out ?? true,
     smartCut: project?.smart_cut ?? true,
     beatSync: project?.beat_sync ?? true,
   };
@@ -465,6 +465,18 @@ async function processRender(r) {
     await sql`update renders set status='done', output_key=${key}, cpu_seconds=${secs}, completed_at=now() where id=${r.id}`;
     await sql`update projects set status='ready', updated_at=now() where id=${r.project_id}`;
     console.log(`[worker] render ${r.id} done in ${secs}s → ${key}`);
+    // Licensing ledger: snapshot the music license for this render (best-effort).
+    if (music) {
+      const licenseType =
+        music.provider === "pixabay" ? "Pixabay Content License" : `${music.provider} license`;
+      await sql`
+        insert into render_licenses
+          (id, render_id, user_id, project_id, provider, provider_track_id, track_title, artist, license_type, license_ref, clearance_status)
+        values (${randomUUID()}, ${r.id}, ${project?.owner_id ?? null}, ${r.project_id},
+          ${music.provider ?? "pixabay"}, ${music.provider_track_id ?? null}, ${music.title ?? null},
+          ${music.artist ?? null}, ${licenseType}, ${music.license_ref ?? null}, 'n/a')
+      `.catch((e) => console.log(`[worker] ledger insert failed: ${e.message}`));
+    }
     await notifyReady(r.id);
   } finally {
     rmSync(dir, { recursive: true, force: true });

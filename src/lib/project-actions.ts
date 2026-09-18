@@ -104,6 +104,7 @@ export async function setProjectStyle(
     transition?: string;
     motion?: boolean;
     fades?: boolean;
+    fadeOut?: boolean;
     smartCut?: boolean;
     beatSync?: boolean;
   },
@@ -121,6 +122,7 @@ export async function setProjectStyle(
     set.transition = TRANSITIONS.has(patch.transition) ? patch.transition : "cut";
   if (patch.motion !== undefined) set.motion = !!patch.motion;
   if (patch.fades !== undefined) set.fades = !!patch.fades;
+  if (patch.fadeOut !== undefined) set.fadeOut = !!patch.fadeOut;
   if (patch.smartCut !== undefined) set.smartCut = !!patch.smartCut;
   if (patch.beatSync !== undefined) set.beatSync = !!patch.beatSync;
   await db.update(schema.projects).set(set).where(eq(schema.projects.id, projectId));
