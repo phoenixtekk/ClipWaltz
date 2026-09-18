@@ -85,6 +85,13 @@
       "when": 1789770600054,
       "tag": "0011_big_true_believers",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789774253184,
+      "tag": "0012_jazzy_sunspot",
+      "breakpoints": true
     }
   ]
 }

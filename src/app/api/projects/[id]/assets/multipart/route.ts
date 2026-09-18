@@ -42,9 +42,20 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const safe = name.replace(/[^a-zA-Z0-9._-]/g, "_");
     const key = `projects/${projectId}/${assetId}-${safe}`;
     const uploadId = await createMultipart(key, sourceFormat ? "application/octet-stream" : type);
+    const mediaId = randomUUID();
+    await db.insert(schema.media).values({
+      id: mediaId,
+      ownerId: userId,
+      kind,
+      originalName: name,
+      storageKey: key,
+      sourceFormat,
+      lastUsedAt: new Date(),
+    });
     await db.insert(schema.assets).values({
       id: assetId,
       projectId,
+      mediaId,
       storageKey: key,
       kind,
       originalName: name,
@@ -58,7 +69,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   // complete / abort both need to resolve the asset (owner-scoped).
   const assetId = body.assetId ?? "";
   const [asset] = await db
-    .select({ id: schema.assets.id, key: schema.assets.storageKey, sourceFormat: schema.assets.sourceFormat })
+    .select({ id: schema.assets.id, key: schema.assets.storageKey, sourceFormat: schema.assets.sourceFormat, mediaId: schema.assets.mediaId })
     .from(schema.assets)
     .where(and(eq(schema.assets.id, assetId), eq(schema.assets.projectId, projectId)));
   if (!asset) return NextResponse.json({ error: "asset not found" }, { status: 404 });
@@ -72,10 +83,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     } catch (err) {
       return NextResponse.json({ error: `storage error: ${(err as Error).message}` }, { status: 502 });
     }
-    await db
-      .update(schema.assets)
-      .set({ uploadState: "uploaded", conversionState: asset.sourceFormat ? "pending" : "ready" })
-      .where(eq(schema.assets.id, assetId));
+    const conv = asset.sourceFormat ? "pending" : "ready";
+    await db.update(schema.assets).set({ uploadState: "uploaded", conversionState: conv }).where(eq(schema.assets.id, assetId));
+    if (asset.mediaId) await db.update(schema.media).set({ conversionState: conv }).where(eq(schema.media.id, asset.mediaId));
     return NextResponse.json({ id: assetId, uploaded: true });
   }
 

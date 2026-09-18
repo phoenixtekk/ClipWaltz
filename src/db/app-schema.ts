@@ -76,12 +76,34 @@ export const projects = pgTable("projects", {
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
 
-// Uploaded source media (photos + videos) for a project.
+// User-level media library: a file lives once and can be reused across projects.
+// It is the source of truth for the library view (import date, usage, download) and
+// carries the 360 conversion result so a 360 file is converted once and reused.
+export const media = pgTable("media", {
+  id: text().primaryKey(),
+  ownerId: text()
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  kind: text().notNull(), // photo | video
+  originalName: text(),
+  storageKey: text().notNull(), // MinIO object key of the original file
+  convertedKey: text(), // flat mp4/jpg for 360 sources
+  sourceFormat: text(), // insv | lrv | insp | null
+  conversionState: text().notNull().default("ready"), // ready | pending | converting | failed
+  sizeBytes: integer(),
+  durationSec: real(),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(), // imported at
+  lastUsedAt: timestamp({ withTimezone: true }),
+});
+
+// Uploaded source media (photos + videos) for a project. Now a placement that references
+// a library `media` row (mediaId); deleting it removes the clip from the project, not the file.
 export const assets = pgTable("assets", {
   id: text().primaryKey(),
   projectId: text()
     .notNull()
     .references(() => projects.id, { onDelete: "cascade" }),
+  mediaId: text().references(() => media.id, { onDelete: "cascade" }),
   storageKey: text().notNull(), // MinIO object key
   kind: text().notNull(), // photo | video
   originalName: text(),

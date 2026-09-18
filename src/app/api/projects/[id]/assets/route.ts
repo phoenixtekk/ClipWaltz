@@ -52,9 +52,22 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     );
   }
 
+  const mediaId = randomUUID();
+  await db.insert(schema.media).values({
+    id: mediaId,
+    ownerId: userId,
+    kind,
+    originalName: name,
+    storageKey: key,
+    sourceFormat,
+    conversionState,
+    sizeBytes: buf.byteLength,
+    lastUsedAt: new Date(),
+  });
   await db.insert(schema.assets).values({
     id: assetId,
     projectId,
+    mediaId,
     storageKey: key,
     kind,
     originalName: name,

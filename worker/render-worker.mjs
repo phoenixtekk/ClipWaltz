@@ -200,6 +200,7 @@ async function convertAsset(a) {
       outKey = `projects/${a.project_id}/${a.id}-flat.jpg`;
       await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: outKey, Body: readFileSync(out), ContentType: "image/jpeg" }));
       await sql`update assets set converted_key=${outKey}, conversion_state='ready', kind='photo' where id=${a.id}`;
+      if (a.media_id) await sql`update media set converted_key=${outKey}, conversion_state='ready', kind='photo' where id=${a.media_id}`;
     } else {
       const out = join(dir, "flat.mp4");
       await ffmpeg([
@@ -213,6 +214,7 @@ async function convertAsset(a) {
       outKey = `projects/${a.project_id}/${a.id}-flat.mp4`;
       await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: outKey, Body: readFileSync(out), ContentType: "video/mp4" }));
       await sql`update assets set converted_key=${outKey}, conversion_state='ready', kind='video' where id=${a.id}`;
+      if (a.media_id) await sql`update media set converted_key=${outKey}, conversion_state='ready', kind='video' where id=${a.media_id}`;
     }
     console.log(`[worker] converted 360 asset ${a.id} (${streams} lens) → ${outKey}`);
   } finally {
