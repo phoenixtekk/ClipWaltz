@@ -78,6 +78,13 @@
       "when": 1789770238135,
       "tag": "0010_sleepy_the_twelve",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789770600054,
+      "tag": "0011_big_true_believers",
+      "breakpoints": true
     }
   ]
 }

@@ -34,7 +34,10 @@ export function DraftPreview({
 }) {
   const wide = aspect === "16:9";
   const uploaded = useMemo(
-    () => assets.filter((a) => a.uploadState === "uploaded"),
+    () =>
+      assets.filter(
+        (a) => a.uploadState === "uploaded" && (!a.sourceFormat || a.conversionState === "ready"),
+      ),
     [assets],
   );
   const { clips, totalSec } = useMemo(

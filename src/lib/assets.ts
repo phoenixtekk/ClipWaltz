@@ -8,6 +8,8 @@ export type AssetSummary = {
   kind: string; // photo | video
   uploadState: string;
   orderIndex: number;
+  sourceFormat: string | null; // insv | lrv | insp | null
+  conversionState: string; // ready | pending | converting | failed
 };
 
 /** Assets for a project the current user owns (empty if not owner). */
@@ -31,5 +33,7 @@ export async function listAssets(projectId: string): Promise<AssetSummary[]> {
     kind: r.kind,
     uploadState: r.uploadState,
     orderIndex: r.orderIndex,
+    sourceFormat: r.sourceFormat,
+    conversionState: r.conversionState,
   }));
 }

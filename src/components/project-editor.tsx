@@ -1,7 +1,7 @@
 "use client";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronUp, ChevronDown, Trash2, Film, Image as ImageIcon, Type, Sparkles, Eye, X } from "lucide-react";
+import { ChevronUp, ChevronDown, Trash2, Film, Image as ImageIcon, Type, Sparkles, Eye, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
@@ -116,13 +116,26 @@ export function ProjectEditor({
           <p className="text-sm text-muted-foreground">No clips — import some first.</p>
         ) : (
           <ul className="space-y-2">
-            {assets.map((a, i) => (
+            {assets.map((a, i) => {
+              const converting = a.uploadState === "uploaded" && !!a.sourceFormat && a.conversionState !== "ready" && a.conversionState !== "failed";
+              const failed = a.conversionState === "failed";
+              const ready = a.uploadState === "uploaded" && !converting && !failed;
+              return (
               <li
                 key={a.id}
                 className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2"
               >
                 <span className="w-5 text-xs text-muted-foreground">{i + 1}</span>
-                {a.uploadState === "uploaded" ? (
+                {converting ? (
+                  <div className="relative flex size-12 shrink-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-md border border-border bg-muted">
+                    <Loader2 className="size-4 animate-spin text-[color:var(--cw-violet)]" />
+                    <span className="text-[8px] font-semibold text-muted-foreground">360</span>
+                  </div>
+                ) : failed ? (
+                  <div className="flex size-12 shrink-0 items-center justify-center rounded-md border border-destructive/40 bg-destructive/10 text-[9px] font-semibold text-destructive">
+                    360 ✕
+                  </div>
+                ) : ready ? (
                   <button
                     type="button"
                     onClick={() => setPreview({ id: a.id, kind: a.kind, name: a.name })}
@@ -193,7 +206,8 @@ export function ProjectEditor({
                   </Button>
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </section>

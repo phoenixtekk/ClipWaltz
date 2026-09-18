@@ -25,6 +25,7 @@ export async function GET(
   const [row] = await db
     .select({
       key: schema.assets.storageKey,
+      convertedKey: schema.assets.convertedKey,
       state: schema.assets.uploadState,
       ownerId: schema.projects.ownerId,
     })
@@ -36,7 +37,8 @@ export async function GET(
     return new NextResponse("not found", { status: 404 });
   }
 
-  const { body, contentType } = await getObject(row.key);
+  // Serve the reprojected flat clip for 360 files; the raw .insv isn't browser-playable.
+  const { body, contentType } = await getObject(row.convertedKey ?? row.key);
   return new NextResponse(body, {
     headers: {
       "content-type": contentType ?? "application/octet-stream",

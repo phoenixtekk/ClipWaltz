@@ -85,6 +85,10 @@ export const assets = pgTable("assets", {
   storageKey: text().notNull(), // MinIO object key
   kind: text().notNull(), // photo | video
   originalName: text(),
+  // 360 / Insta360 ingest: original format + async reprojection to a usable flat clip.
+  sourceFormat: text(), // null for normal uploads; insv | lrv | insp for 360 files
+  conversionState: text().notNull().default("ready"), // ready | pending | converting | failed
+  convertedKey: text(), // MinIO key of the flat mp4/jpg once reprojected
   durationSec: real(),
   width: integer(),
   height: integer(),

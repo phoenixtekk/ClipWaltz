@@ -16,6 +16,7 @@ import {
   Briefcase,
   Sparkles,
   Star,
+  Aperture,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -342,6 +343,7 @@ function Features() {
     { icon: <Play className="size-5" />, title: "Instant draft preview", body: "See the whole cut in the editor before you commit to a full render." },
     { icon: <Gauge className="size-5" />, title: "Cloud HD render", body: "1080p 9:16 rendered on our machines, not your laptop. Leave and come back." },
     { icon: <Palette className="size-5" />, title: "Occasion templates", body: "Trip, event, birthday, or ‘surprise me’ — start from a vibe that fits." },
+    { icon: <Aperture className="size-5" />, title: "360 camera ready", body: "Drop in Insta360 (.insv) & 360 footage — we reframe it into a normal, shareable video. No desktop software." },
     { icon: <ShieldCheck className="size-5" />, title: "Watermark-free", body: "Upgrade to export clean, full-length videos with no watermark." },
   ];
   return (

@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, X, Film, Image as ImageIcon, GripVertical, ListVideo, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -41,6 +41,14 @@ export function ProjectTimeline({
   }
 
   const totalSec = order.reduce((s, a) => s + clipSec(a), 0);
+
+  // While any 360 clip is converting, refresh periodically so it flips to ready on its own.
+  useEffect(() => {
+    const converting = assets.some((a) => a.sourceFormat && a.conversionState !== "ready" && a.conversionState !== "failed");
+    if (!converting) return;
+    const t = setInterval(() => router.refresh(), 6000);
+    return () => clearInterval(t);
+  }, [assets, router]);
 
   function commit(next: AssetSummary[]) {
     setOrder(next);
@@ -99,8 +107,13 @@ export function ProjectTimeline({
         return;
       }
       try {
-        const { id, kind } = JSON.parse(xhr.responseText) as { id: string; kind: string };
-        const inserted: AssetSummary = { id, name: file.name, kind, uploadState: "uploaded", orderIndex: idx };
+        const { id, kind, sourceFormat, conversionState } = JSON.parse(xhr.responseText) as {
+          id: string; kind: string; sourceFormat: string | null; conversionState: string;
+        };
+        const inserted: AssetSummary = {
+          id, name: file.name, kind, uploadState: "uploaded", orderIndex: idx,
+          sourceFormat: sourceFormat ?? null, conversionState: conversionState ?? "ready",
+        };
         const next = [...order];
         next.splice(idx, 0, inserted);
         commit(next);
@@ -159,7 +172,14 @@ export function ProjectTimeline({
                   dragId === a.id && "opacity-40",
                 )}
               >
-                {a.uploadState === "uploaded" && a.kind === "video" ? (
+                {a.sourceFormat && a.conversionState !== "ready" && a.conversionState !== "failed" ? (
+                  <div className="flex size-full flex-col items-center justify-center gap-0.5 text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin text-[color:var(--cw-violet)]" />
+                    <span className="text-[8px] font-semibold">360…</span>
+                  </div>
+                ) : a.conversionState === "failed" ? (
+                  <div className="flex size-full items-center justify-center text-[9px] font-semibold text-destructive">360 ✕</div>
+                ) : a.uploadState === "uploaded" && a.kind === "video" ? (
                   <video src={`/api/projects/${projectId}/assets/${a.id}#t=0.1`} muted playsInline preload="metadata" className="size-full object-cover" />
                 ) : a.uploadState === "uploaded" ? (
                   // eslint-disable-next-line @next/next/no-img-element

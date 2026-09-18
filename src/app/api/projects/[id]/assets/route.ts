@@ -29,7 +29,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const url = new URL(req.url);
   const name = (url.searchParams.get("name") ?? "file").slice(0, 200);
   const type = url.searchParams.get("type") ?? "application/octet-stream";
-  const kind = type.startsWith("video/") ? "video" : "photo";
+
+  // 360 / Insta360 files (browsers can't play these; the worker reprojects them to flat mp4).
+  const ext = (name.split(".").pop() ?? "").toLowerCase();
+  const sourceFormat = ext === "insv" || ext === "lrv" || ext === "insp" ? ext : null;
+  const kind = sourceFormat === "insp" ? "photo" : sourceFormat ? "video" : type.startsWith("video/") ? "video" : "photo";
+  const conversionState = sourceFormat ? "pending" : "ready";
 
   const buf = new Uint8Array(await req.arrayBuffer());
   if (buf.byteLength === 0) return NextResponse.json({ error: "empty file" }, { status: 400 });
@@ -39,7 +44,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const key = `projects/${projectId}/${assetId}-${safe}`;
 
   try {
-    await putObject(key, buf, type);
+    await putObject(key, buf, sourceFormat ? "application/octet-stream" : type);
   } catch (err) {
     return NextResponse.json(
       { error: `storage error: ${(err as Error).message}` },
@@ -54,7 +59,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     kind,
     originalName: name,
     uploadState: "uploaded",
+    sourceFormat,
+    conversionState,
   });
 
-  return NextResponse.json({ id: assetId, name, kind, bytes: buf.byteLength });
+  return NextResponse.json({ id: assetId, name, kind, bytes: buf.byteLength, sourceFormat, conversionState });
 }

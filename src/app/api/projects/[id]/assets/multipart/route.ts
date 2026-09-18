@@ -35,11 +35,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (body.action === "init") {
     const name = (body.name ?? "file").slice(0, 200);
     const type = body.type ?? "application/octet-stream";
-    const kind = type.startsWith("video/") ? "video" : "photo";
+    const ext = (name.split(".").pop() ?? "").toLowerCase();
+    const sourceFormat = ext === "insv" || ext === "lrv" || ext === "insp" ? ext : null;
+    const kind = sourceFormat === "insp" ? "photo" : sourceFormat ? "video" : type.startsWith("video/") ? "video" : "photo";
     const assetId = randomUUID();
     const safe = name.replace(/[^a-zA-Z0-9._-]/g, "_");
     const key = `projects/${projectId}/${assetId}-${safe}`;
-    const uploadId = await createMultipart(key, type);
+    const uploadId = await createMultipart(key, sourceFormat ? "application/octet-stream" : type);
     await db.insert(schema.assets).values({
       id: assetId,
       projectId,
@@ -47,6 +49,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       kind,
       originalName: name,
       uploadState: "uploading",
+      sourceFormat,
+      // conversion starts once the multipart upload completes (see the complete branch)
     });
     return NextResponse.json({ assetId, uploadId, kind });
   }
@@ -54,7 +58,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   // complete / abort both need to resolve the asset (owner-scoped).
   const assetId = body.assetId ?? "";
   const [asset] = await db
-    .select({ id: schema.assets.id, key: schema.assets.storageKey })
+    .select({ id: schema.assets.id, key: schema.assets.storageKey, sourceFormat: schema.assets.sourceFormat })
     .from(schema.assets)
     .where(and(eq(schema.assets.id, assetId), eq(schema.assets.projectId, projectId)));
   if (!asset) return NextResponse.json({ error: "asset not found" }, { status: 404 });
@@ -70,7 +74,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     }
     await db
       .update(schema.assets)
-      .set({ uploadState: "uploaded" })
+      .set({ uploadState: "uploaded", conversionState: asset.sourceFormat ? "pending" : "ready" })
       .where(eq(schema.assets.id, assetId));
     return NextResponse.json({ id: assetId, uploaded: true });
   }

@@ -193,14 +193,19 @@ export function ImportUploader({
 
   function addFiles(list: FileList | null) {
     if (!list || list.length === 0) return;
+    const is360 = (f: File) => /\.(insv|lrv|insp)$/i.test(f.name);
     const accepted = Array.from(list).filter(
-      (f) => f.type.startsWith("image/") || f.type.startsWith("video/"),
+      (f) => f.type.startsWith("image/") || f.type.startsWith("video/") || is360(f),
     );
     const skipped = list.length - accepted.length;
     if (skipped > 0) toast.message(`Skipped ${skipped} unsupported file${skipped === 1 ? "" : "s"}`);
     for (const file of accepted) {
       const localId = crypto.randomUUID();
-      const kind: Item["kind"] = file.type.startsWith("video/") ? "video" : "photo";
+      const kind: Item["kind"] = /\.insp$/i.test(file.name)
+        ? "photo"
+        : is360(file) || file.type.startsWith("video/")
+          ? "video"
+          : "photo";
       setItems((prev) => [...prev, { localId, name: file.name, kind, progress: 0, status: "uploading" }]);
       uploadOne(file, localId);
     }
@@ -238,7 +243,7 @@ export function ImportUploader({
         ref={fileInput}
         type="file"
         multiple
-        accept="image/*,video/*"
+        accept="image/*,video/*,.insv,.lrv,.insp"
         hidden
         onChange={(e) => {
           addFiles(e.target.files);
@@ -279,7 +284,7 @@ export function ImportUploader({
         >
           <UploadCloud className="size-8 text-muted-foreground" />
           <p className="text-sm font-medium">Drag photos &amp; videos here</p>
-          <p className="text-xs text-muted-foreground">or click to choose files · images and video</p>
+          <p className="text-xs text-muted-foreground">or click to choose files · images, video &amp; 360 (.insv)</p>
         </div>
       ) : null}
 

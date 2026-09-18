@@ -163,6 +163,82 @@ function energyAt(curve, t) {
   return best.e;
 }
 
+// Count video streams in a file (Insta360 dual-fisheye = 2, single = 1).
+async function probeVideoStreams(file) {
+  try {
+    const { stdout } = await run(
+      "ffprobe",
+      ["-v", "error", "-select_streams", "v", "-show_entries", "stream=index", "-of", "csv=p=0", file],
+      { maxBuffer: 1024 * 1024 },
+    );
+    return String(stdout).trim().split(/\s+/).filter(Boolean).length;
+  } catch {
+    return 1;
+  }
+}
+
+// Reproject a 360 file (Insta360 .insv/.lrv/.insp) to a flat clip/photo using ffmpeg v360.
+// Dual-fisheye (2 streams) → hstack → dfisheye; single fisheye → fisheye. No Insta360 Studio.
+async function convertAsset(a) {
+  const dir = mkdtempSync(join(tmpdir(), "cw-conv-"));
+  try {
+    const inExt = (a.original_name?.split(".").pop() ?? "bin").replace(/[^a-z0-9]/gi, "") || "bin";
+    const src = join(dir, `src.${inExt}`);
+    await download(a.storage_key, src);
+    const isPhoto = a.source_format === "insp" || a.kind === "photo";
+    const streams = await probeVideoStreams(src);
+    const proj =
+      streams >= 2
+        ? "[0:v:0][0:v:1]hstack=inputs=2,v360=dfisheye:flat:ih_fov=200:iv_fov=200:h_fov=110:v_fov=100:w=1920:h=1080"
+        : "[0:v:0]v360=fisheye:flat:ih_fov=200:iv_fov=200:h_fov=110:v_fov=100:w=1920:h=1080";
+
+    let outKey;
+    if (isPhoto) {
+      const out = join(dir, "flat.jpg");
+      await ffmpeg(["-i", src, "-filter_complex", `${proj},format=yuvj420p`, "-frames:v", "1", "-q:v", "3", out]);
+      outKey = `projects/${a.project_id}/${a.id}-flat.jpg`;
+      await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: outKey, Body: readFileSync(out), ContentType: "image/jpeg" }));
+      await sql`update assets set converted_key=${outKey}, conversion_state='ready', kind='photo' where id=${a.id}`;
+    } else {
+      const out = join(dir, "flat.mp4");
+      await ffmpeg([
+        "-i", src,
+        "-filter_complex", `${proj},format=yuv420p[v]`,
+        "-map", "[v]", "-map", "0:a?",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "192k",
+        out,
+      ]);
+      outKey = `projects/${a.project_id}/${a.id}-flat.mp4`;
+      await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: outKey, Body: readFileSync(out), ContentType: "video/mp4" }));
+      await sql`update assets set converted_key=${outKey}, conversion_state='ready', kind='video' where id=${a.id}`;
+    }
+    console.log(`[worker] converted 360 asset ${a.id} (${streams} lens) → ${outKey}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+async function claimConversion() {
+  const rows = await sql`
+    update assets set conversion_state='converting'
+    where id = (select id from assets where conversion_state='pending' and upload_state='uploaded'
+                order by created_at asc limit 1 for update skip locked)
+    returning *`;
+  return rows[0] ?? null;
+}
+async function convTick() {
+  const a = await claimConversion();
+  if (!a) return false;
+  try {
+    await convertAsset(a);
+  } catch (e) {
+    console.error(`[worker] convert ${a.id} FAILED:`, e.message);
+    await sql`update assets set conversion_state='failed' where id=${a.id}`;
+  }
+  return true;
+}
+
 // Beat timestamps (seconds) from aubiotrack; [] if unavailable.
 async function getBeats(musicFile) {
   try {
@@ -489,9 +565,10 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
   const srcDurs = new Map();
   for (let i = 0; i < assets.length; i++) {
     const a = assets[i];
-    const ext = (a.original_name?.split(".").pop() ?? "bin").replace(/[^a-z0-9]/gi, "") || "bin";
+    const srcKey = a.converted_key ?? a.storage_key; // reprojected flat clip for 360 sources
+    const ext = a.converted_key ? "mp4" : (a.original_name?.split(".").pop() ?? "bin").replace(/[^a-z0-9]/gi, "") || "bin";
     a._src = join(dir, `src${i}.${ext}`);
-    await download(a.storage_key, a._src);
+    await download(srcKey, a._src);
     if (a.kind === "video") srcDurs.set(a.storage_key, await probe(a._src));
   }
 
@@ -633,6 +710,7 @@ async function processRender(r) {
   const assets = await sql`
     select * from assets
     where project_id = ${r.project_id} and upload_state = 'uploaded'
+      and (source_format is null or conversion_state = 'ready')
     order by order_index asc, created_at asc`;
   if (assets.length === 0) throw new Error("no uploaded assets");
 
@@ -767,10 +845,27 @@ async function overlaytest() {
   await sql.end();
 }
 
+// Diagnostic: `--convtest <insv>` reprojects a 360 file to /tmp/convtest.mp4 (no DB).
+async function convtest() {
+  const i = process.argv.indexOf("--convtest");
+  const src = process.argv[i + 1];
+  if (!src) { console.error("usage: --convtest <insv>"); process.exit(2); }
+  const streams = await probeVideoStreams(src);
+  const proj =
+    streams >= 2
+      ? "[0:v:0][0:v:1]hstack=inputs=2,v360=dfisheye:flat:ih_fov=200:iv_fov=200:h_fov=110:v_fov=100:w=1920:h=1080"
+      : "[0:v:0]v360=fisheye:flat:ih_fov=200:iv_fov=200:h_fov=110:v_fov=100:w=1920:h=1080";
+  const out = "/tmp/convtest.mp4";
+  await ffmpeg(["-i", src, "-filter_complex", `${proj},format=yuv420p[v]`, "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", out]);
+  console.log(`[convtest] ${streams} lens → ${out} dur=${(await probe(out)).toFixed(2)}s`);
+  await sql.end();
+}
+
 async function main() {
   if (process.argv.includes("--selftest")) return selftest();
   if (process.argv.includes("--waltztest")) return waltztest();
   if (process.argv.includes("--overlaytest")) return overlaytest();
+  if (process.argv.includes("--convtest")) return convtest();
   console.log(`[worker] ClipWaltz render worker starting (${ONCE ? "once" : "loop"})`);
   if (ONCE) {
     const did = await tick();
@@ -782,6 +877,7 @@ async function main() {
     let worked = false;
     try {
       worked = await tick();
+      if (!worked) worked = await convTick(); // 360 reprojection queue
     } catch (e) {
       console.error("[worker] tick error:", e.message);
     }
