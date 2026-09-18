@@ -38,6 +38,8 @@ export function ProjectEditor({
   transition,
   motion,
   fades,
+  smartCut,
+  beatSync,
 }: {
   projectId: string;
   assets: AssetSummary[];
@@ -50,6 +52,8 @@ export function ProjectEditor({
   transition: string;
   motion: boolean;
   fades: boolean;
+  smartCut: boolean;
+  beatSync: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -259,7 +263,19 @@ export function ProjectEditor({
           </div>
           <div className="space-y-1.5">
             <p className="text-xs text-muted-foreground">Effects</p>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              <TrackChip
+                selected={smartCut}
+                label="✦ Smart cut"
+                onClick={() => runAction(() => setProjectStyle(projectId, { smartCut: !smartCut }), "Could not toggle smart cut.")}
+                disabled={pending}
+              />
+              <TrackChip
+                selected={beatSync}
+                label="♪ Beat sync"
+                onClick={() => runAction(() => setProjectStyle(projectId, { beatSync: !beatSync }), "Could not toggle beat sync.")}
+                disabled={pending}
+              />
               <TrackChip
                 selected={motion}
                 label="Ken Burns"
@@ -273,6 +289,9 @@ export function ProjectEditor({
                 disabled={pending}
               />
             </div>
+            <p className="text-xs text-muted-foreground">
+              Smart cut keeps the liveliest moment of each video; Beat sync times cuts to the music.
+            </p>
           </div>
         </div>
       </section>

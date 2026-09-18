@@ -43,6 +43,8 @@ export const projects = pgTable("projects", {
   transition: text().notNull().default("cut"), // cut | crossfade
   motion: boolean().notNull().default(true), // Ken Burns zoom/pan on photos
   fades: boolean().notNull().default(true), // fade in/out
+  smartCut: boolean().notNull().default(true), // pick the most active window of each video
+  beatSync: boolean().notNull().default(true), // time cuts to the music's beats
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });

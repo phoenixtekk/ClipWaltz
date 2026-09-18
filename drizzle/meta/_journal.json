@@ -36,6 +36,13 @@
       "when": 1789749881227,
       "tag": "0004_silent_the_anarchist",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789752249296,
+      "tag": "0005_bouncy_nighthawk",
+      "breakpoints": true
     }
   ]
 }

@@ -43,6 +43,8 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
         transition={project.transition}
         motion={project.motion}
         fades={project.fades}
+        smartCut={project.smartCut}
+        beatSync={project.beatSync}
       />
 
       <DraftPreview

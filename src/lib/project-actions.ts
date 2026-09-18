@@ -102,6 +102,8 @@ export async function setProjectStyle(
     transition?: string;
     motion?: boolean;
     fades?: boolean;
+    smartCut?: boolean;
+    beatSync?: boolean;
   },
 ): Promise<void> {
   const userId = await requireUserId();
@@ -117,6 +119,8 @@ export async function setProjectStyle(
     set.transition = TRANSITIONS.has(patch.transition) ? patch.transition : "cut";
   if (patch.motion !== undefined) set.motion = !!patch.motion;
   if (patch.fades !== undefined) set.fades = !!patch.fades;
+  if (patch.smartCut !== undefined) set.smartCut = !!patch.smartCut;
+  if (patch.beatSync !== undefined) set.beatSync = !!patch.beatSync;
   await db.update(schema.projects).set(set).where(eq(schema.projects.id, projectId));
   revalidatePath(`/projects/${projectId}/edit`);
 }

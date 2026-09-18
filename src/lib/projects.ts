@@ -22,6 +22,8 @@ export type ProjectDetail = ProjectSummary & {
   transition: string;
   motion: boolean;
   fades: boolean;
+  smartCut: boolean;
+  beatSync: boolean;
 };
 
 /** A single project owned by the current user, or null. */
@@ -45,6 +47,8 @@ export async function getProject(id: string): Promise<ProjectDetail | null> {
     transition: r.transition,
     motion: r.motion,
     fades: r.fades,
+    smartCut: r.smartCut,
+    beatSync: r.beatSync,
     updatedAt: r.updatedAt.toISOString(),
   };
 }
