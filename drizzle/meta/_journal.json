@@ -57,6 +57,13 @@
       "when": 1789761773671,
       "tag": "0007_freezing_proteus",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789765515796,
+      "tag": "0008_adorable_gwen_stacy",
+      "breakpoints": true
     }
   ]
 }

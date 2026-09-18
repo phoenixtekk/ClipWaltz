@@ -115,6 +115,43 @@ async function probe(file) {
   }
 }
 
+// Per-second music energy curve, normalized 0..1 (loud → 1). [] if unavailable.
+async function getEnergyCurve(musicFile) {
+  try {
+    const { stdout, stderr } = await run(
+      "ffmpeg",
+      ["-i", musicFile, "-af", "asetnsamples=n=44100,astats=metadata=1:reset=1,ametadata=print:file=-", "-f", "null", "-"],
+      { maxBuffer: 1024 * 1024 * 16 },
+    );
+    const text = String(stdout) + String(stderr);
+    const times = [...text.matchAll(/pts_time:([\d.]+)/g)].map((m) => +m[1]);
+    const db = [...text.matchAll(/Overall\.RMS_level=(-?[\d.]+)/g)].map((m) => +m[1]);
+    const n = Math.min(times.length, db.length);
+    if (n < 2) return [];
+    const vals = db.slice(0, n).filter((x) => Number.isFinite(x));
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    const range = max - min || 1;
+    const curve = [];
+    for (let i = 0; i < n; i++) {
+      curve.push({ t: times[i], e: Number.isFinite(db[i]) ? Math.max(0, Math.min(1, (db[i] - min) / range)) : 0.5 });
+    }
+    return curve;
+  } catch {
+    return [];
+  }
+}
+
+function energyAt(curve, t) {
+  if (!curve.length) return 0.5;
+  let best = curve[0];
+  for (const c of curve) {
+    if (Math.abs(c.t - t) < Math.abs(best.t - t)) best = c;
+    if (c.t > t + 1) break;
+  }
+  return best.e;
+}
+
 // Beat timestamps (seconds) from aubiotrack; [] if unavailable.
 async function getBeats(musicFile) {
   try {
@@ -241,13 +278,40 @@ async function pickWindow(src, need, srcDur) {
   }
 }
 
+// Beats per cut from energy: louder → faster cuts, calmer → longer holds.
+function waltzSpan(e) {
+  return e >= 0.66 ? 2 : e >= 0.33 ? 3 : 4;
+}
+
 // Build the ordered timeline: [{asset, dur, offset}]. Beat-synced when possible.
-async function buildTimeline(assets, beats, lengthSec, beatSync, smartCut, srcDurs) {
+async function buildTimeline(assets, beats, lengthSec, beatSync, smartCut, srcDurs, waltzToMusic, curve) {
   const slots = [];
   let musicOffset = 0;
   const cap = lengthSec > 0 ? lengthSec : Infinity;
 
-  if (beatSync && beats.length > 5) {
+  // "Waltz to the Music": energy-aware, beat-snapped cadence that ends on a beat.
+  if (waltzToMusic && beats.length > 5) {
+    musicOffset = beats[0];
+    let bi = 0;
+    let total = 0;
+    for (const asset of assets) {
+      if (bi >= beats.length - 1) break;
+      const span = waltzSpan(energyAt(curve, beats[bi]));
+      let endIdx = Math.min(bi + span, beats.length - 1);
+      let dur = beats[endIdx] - beats[bi];
+      if (dur < 0.4 && bi + 1 < beats.length) {
+        endIdx = bi + 1;
+        dur = beats[endIdx] - beats[bi];
+      }
+      if (total + dur > cap) break; // stop on a whole beat span → ending lands on a beat
+      slots.push({ asset, dur });
+      total += dur;
+      bi = endIdx;
+      if (total >= cap) break;
+    }
+  }
+
+  if (slots.length === 0 && beatSync && beats.length > 5) {
     const iv = [];
     for (let i = 1; i < beats.length; i++) iv.push(beats[i] - beats[i - 1]);
     iv.sort((a, b) => a - b);
@@ -310,11 +374,13 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
 
   let musicFile = null;
   let beats = [];
+  let energyCurve = [];
   if (music) {
     const mext = (music.storage_key.split(".").pop() ?? "mp3").replace(/[^a-z0-9]/gi, "") || "mp3";
     musicFile = join(dir, `music.${mext}`);
     await download(music.storage_key, musicFile);
-    if (style.beatSync) beats = await getBeats(musicFile);
+    if (style.beatSync || style.waltzToMusic) beats = await getBeats(musicFile);
+    if (style.waltzToMusic) energyCurve = await getEnergyCurve(musicFile);
   }
 
   const { slots, musicOffset } = await buildTimeline(
@@ -324,6 +390,8 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     style.beatSync,
     style.smartCut,
     srcDurs,
+    style.waltzToMusic,
+    energyCurve,
   );
   if (slots.length === 0) throw new Error("no clips in timeline");
 
@@ -448,13 +516,14 @@ async function processRender(r) {
     fadeOut: project?.fade_out ?? true,
     smartCut: project?.smart_cut ?? true,
     beatSync: project?.beat_sync ?? true,
+    waltzToMusic: project?.waltz_to_music ?? false,
   };
 
   const dir = mkdtempSync(join(tmpdir(), "cw-render-"));
   try {
     console.log(
       `[worker] render ${r.id}: ${assets.length} clips${music ? ` + ${music.title}` : ""}, ${lengthSec}s ${aspect} ` +
-        `${style.transition}${style.smartCut ? " +smart" : ""}${style.beatSync ? " +beat" : ""} ${style.styleFilter}`,
+        `${style.transition}${style.smartCut ? " +smart" : ""}${style.beatSync ? " +beat" : ""}${style.waltzToMusic ? " +waltz" : ""} ${style.styleFilter}`,
     );
     const outFile = await assemble(dir, assets, music ?? null, r.watermark, lengthSec, aspect, style);
     const key = `renders/${r.project_id}/${r.id}.mp4`;
@@ -519,8 +588,32 @@ async function selftest() {
   await sql.end();
 }
 
+// Diagnostic: `--waltztest <music> [lengthSec] [nClips]` prints the energy-aware, beat-snapped
+// timeline (durations) for a track, without touching the DB. Verifies Waltz to the Music.
+async function waltztest() {
+  const i = process.argv.indexOf("--waltztest");
+  const music = process.argv[i + 1];
+  const lengthSec = Number(process.argv[i + 2]) || 30;
+  const nClips = Number(process.argv[i + 3]) || 12;
+  if (!music) {
+    console.error("usage: --waltztest <music> [lengthSec] [nClips]");
+    process.exit(2);
+  }
+  const beats = await getBeats(music);
+  const curve = await getEnergyCurve(music);
+  const es = curve.map((c) => c.e);
+  console.log(`[waltztest] beats=${beats.length} energyWindows=${curve.length} energy[min/max]=${es.length ? Math.min(...es).toFixed(2) + "/" + Math.max(...es).toFixed(2) : "n/a"}`);
+  const assets = Array.from({ length: nClips }, (_, k) => ({ kind: "photo", storage_key: `x${k}` }));
+  const { slots, musicOffset } = await buildTimeline(assets, beats, lengthSec, true, false, new Map(), true, curve);
+  const durs = slots.map((s) => +s.dur.toFixed(2));
+  const total = durs.reduce((a, b) => a + b, 0);
+  console.log(`[waltztest] musicOffset=${musicOffset.toFixed(2)}s clips=${slots.length} total=${total.toFixed(2)}s durations=[${durs.join(", ")}]`);
+  await sql.end();
+}
+
 async function main() {
   if (process.argv.includes("--selftest")) return selftest();
+  if (process.argv.includes("--waltztest")) return waltztest();
   console.log(`[worker] ClipWaltz render worker starting (${ONCE ? "once" : "loop"})`);
   if (ONCE) {
     const did = await tick();

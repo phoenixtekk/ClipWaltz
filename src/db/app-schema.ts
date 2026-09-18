@@ -68,6 +68,7 @@ export const projects = pgTable("projects", {
   fadeOut: boolean().notNull().default(true), // fade OUT to black at the end
   smartCut: boolean().notNull().default(true), // pick the most active window of each video
   beatSync: boolean().notNull().default(true), // time cuts to the music's beats
+  waltzToMusic: boolean().notNull().default(false), // energy-aware beat-driven editing
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });

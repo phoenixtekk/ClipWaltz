@@ -107,6 +107,7 @@ export async function setProjectStyle(
     fadeOut?: boolean;
     smartCut?: boolean;
     beatSync?: boolean;
+    waltzToMusic?: boolean;
   },
 ): Promise<void> {
   const userId = await requireUserId();
@@ -125,6 +126,7 @@ export async function setProjectStyle(
   if (patch.fadeOut !== undefined) set.fadeOut = !!patch.fadeOut;
   if (patch.smartCut !== undefined) set.smartCut = !!patch.smartCut;
   if (patch.beatSync !== undefined) set.beatSync = !!patch.beatSync;
+  if (patch.waltzToMusic !== undefined) set.waltzToMusic = !!patch.waltzToMusic;
   await db.update(schema.projects).set(set).where(eq(schema.projects.id, projectId));
   revalidatePath(`/projects/${projectId}/edit`);
 }

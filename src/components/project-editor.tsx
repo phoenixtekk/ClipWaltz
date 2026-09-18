@@ -47,6 +47,7 @@ export function ProjectEditor({
   fadeOut,
   smartCut,
   beatSync,
+  waltzToMusic,
   hasRender,
 }: {
   projectId: string;
@@ -61,6 +62,7 @@ export function ProjectEditor({
   fadeOut: boolean;
   smartCut: boolean;
   beatSync: boolean;
+  waltzToMusic: boolean;
   hasRender: boolean;
 }) {
   const router = useRouter();
@@ -322,6 +324,12 @@ export function ProjectEditor({
                 disabled={pending}
               />
               <TrackChip
+                selected={waltzToMusic}
+                label="💃 Waltz to the Music"
+                onClick={() => runAction(() => setProjectStyle(projectId, { waltzToMusic: !waltzToMusic }), "Could not toggle Waltz to the Music.")}
+                disabled={pending}
+              />
+              <TrackChip
                 selected={motion}
                 label="Ken Burns"
                 onClick={() => runAction(() => setProjectStyle(projectId, { motion: !motion }), "Could not toggle motion.")}
@@ -341,7 +349,8 @@ export function ProjectEditor({
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              Smart cut keeps the liveliest moment of each video; Beat sync times cuts to the music.
+              Smart cut keeps the liveliest moment of each video; Beat sync times cuts to the music;
+              Waltz to the Music varies the pace with the song&apos;s energy and ends on a beat.
             </p>
           </div>
         </div>

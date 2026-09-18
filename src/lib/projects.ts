@@ -25,6 +25,7 @@ export type ProjectDetail = ProjectSummary & {
   fadeOut: boolean;
   smartCut: boolean;
   beatSync: boolean;
+  waltzToMusic: boolean;
 };
 
 /** A single project owned by the current user, or null. */
@@ -51,6 +52,7 @@ export async function getProject(id: string): Promise<ProjectDetail | null> {
     fadeOut: r.fadeOut,
     smartCut: r.smartCut,
     beatSync: r.beatSync,
+    waltzToMusic: r.waltzToMusic,
     updatedAt: r.updatedAt.toISOString(),
   };
 }

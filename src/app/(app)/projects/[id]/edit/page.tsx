@@ -59,6 +59,7 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
             fadeOut={project.fadeOut}
             smartCut={project.smartCut}
             beatSync={project.beatSync}
+            waltzToMusic={project.waltzToMusic}
             hasRender={!!latestRender?.hasOutput}
           />
 

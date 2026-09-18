@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "waltz_to_music" boolean DEFAULT false NOT NULL;
