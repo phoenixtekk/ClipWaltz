@@ -10,7 +10,8 @@ so no App Store / Play IAP at launch.
 - Keys come from **env**, never hardcoded, never in `NEXT_PUBLIC_*`.
 
 ## Stripe account
-- **Account id:** `acct_1UGiVjCexeLlxm8E` (**ClipWaltz sandbox**, TEST mode). Verify the MCP is bound to this before any write.
+- **Account id:** `acct_1UGiVdER5GAokxDi` (TEST mode) — the account the app's `sk_test_`/`pk_test_` keys belong to. Checkout verified live (`cs_test_` session created). Products carry `tax_code = txcd_10000000` because this account has **Managed Payments** on (required, else checkout errors).
+- ⚠️ An earlier MCP session created products in a *different* sandbox (`acct_1UGiVjCexeLlxm8E`); those are orphaned/unused. The app + env now point at `acct_1UGiVdER…`.
 - ⚠️ The Stripe MCP binds to whichever account was last authorized and drifts between projects.
   **Before any Stripe MCP work: re-auth, then verify the connected account id matches the value
   above** before writing anything. If this file still says TBD, capture the id here first.
@@ -19,8 +20,8 @@ so no App Store / Play IAP at launch.
 | Tier | Env var → price id (test) | Price | What it unlocks |
 |---|---|---|---|
 | Free | — | $0 | Watermark · 1080p · ~30s · 3 videos/mo · 7-day source retention |
-| Plus | `STRIPE_PRICE_PLUS` = `price_1UGrZkCexeLlxm8ERjuUrEEn` | $15/mo | No watermark · 1080p HD · 30 videos/mo · up to 60s · priority queue · 30-day retention |
-| Pro | `STRIPE_PRICE_PRO` = `price_1UGrZsCexeLlxm8ETnBzgmek` | $39/mo | Everything in Plus · fastest render · 100 videos/mo · up to 3 min · Project Vault |
+| Plus | `STRIPE_PRICE_PLUS` = `price_1UH457ER5GAokxDibb6v4Ftu` | $15/mo | No watermark · 1080p HD · 30 videos/mo · up to 60s · priority queue · 30-day retention |
+| Pro | `STRIPE_PRICE_PRO` = `price_1UH458ER5GAokxDidE9Wrdc9` | $39/mo | Everything in Plus · fastest render · 100 videos/mo · up to 3 min · Project Vault |
 
 > **Pricing decided 2026-09-17** ($0 / $15 / $39). Rationale: renders run on owned hardware
 > (AI box + fleet + self-hosted MinIO), so marginal cost is ~pennies — priced on **value**,

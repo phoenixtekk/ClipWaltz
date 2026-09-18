@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
 
@@ -9,6 +9,7 @@ export type ProjectSummary = {
   title: string;
   status: ProjectStatus;
   aspect: string;
+  clips?: number; // uploaded asset count (populated by listProjects)
   updatedAt: string; // ISO — serializable across the RSC boundary
 };
 
@@ -57,11 +58,22 @@ export async function listProjects(): Promise<ProjectSummary[]> {
     .where(eq(schema.projects.ownerId, userId))
     .orderBy(desc(schema.projects.updatedAt));
 
+  const ids = rows.map((r) => r.id);
+  const counts = ids.length
+    ? await db
+        .select({ pid: schema.assets.projectId, n: sql<number>`count(*)::int` })
+        .from(schema.assets)
+        .where(and(inArray(schema.assets.projectId, ids), eq(schema.assets.uploadState, "uploaded")))
+        .groupBy(schema.assets.projectId)
+    : [];
+  const clipMap = new Map(counts.map((c) => [c.pid, c.n]));
+
   return rows.map((r) => ({
     id: r.id,
     title: r.title,
     status: r.status as ProjectStatus,
     aspect: r.aspect,
+    clips: clipMap.get(r.id) ?? 0,
     updatedAt: r.updatedAt.toISOString(),
   }));
 }
