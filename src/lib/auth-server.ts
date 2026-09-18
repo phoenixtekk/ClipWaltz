@@ -73,5 +73,20 @@ export const auth = betterAuth({
   },
   session: { expiresIn: 60 * 60 * 24 * 30, updateAge: 60 * 60 * 24 },
   socialProviders: buildSocialProviders(),
+  databaseHooks: {
+    user: {
+      create: {
+        after: async (u) => {
+          // Redeem any pending admin comp-invite for this email into a live grant.
+          try {
+            const { redeemInviteForEmail } = await import("./invites");
+            await redeemInviteForEmail(u.email, u.id);
+          } catch (e) {
+            console.error("[invite] redeem on signup failed", e);
+          }
+        },
+      },
+    },
+  },
   plugins: [nextCookies()], // nextCookies must be last
 });

@@ -78,6 +78,20 @@ export const renders = pgTable("renders", {
   completedAt: timestamp({ withTimezone: true }),
 });
 
+// Admin-issued comp access invites. When an invited email signs up, the grant is
+// redeemed into a subscriptions row (see auth-server databaseHooks + lib/tier).
+export const invites = pgTable("invites", {
+  id: text().primaryKey(),
+  email: text().notNull(),
+  tier: text().notNull(), // plus | pro
+  expiresAt: timestamp({ withTimezone: true }), // null = lifetime
+  note: text(),
+  createdBy: text().notNull(), // admin user id
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  redeemedAt: timestamp({ withTimezone: true }),
+  redeemedUserId: text(),
+});
+
 // Stripe-backed subscription state (direct Stripe — see billing module).
 export const subscriptions = pgTable("subscriptions", {
   id: text().primaryKey(),

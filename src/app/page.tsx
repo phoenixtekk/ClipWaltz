@@ -89,10 +89,10 @@ function Nav() {
             Log in
           </Link>
           <Link
-            href="/sign-up"
+            href="/projects"
             className="cw-gradient cw-sheen inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/25"
           >
-            Start free <ArrowRight className="size-4" />
+            Let&apos;s Waltz <ArrowRight className="size-4" />
           </Link>
         </div>
       </nav>
@@ -122,10 +122,10 @@ function Hero() {
         </p>
         <div className="mt-8 flex flex-wrap items-center gap-3">
           <Link
-            href="/sign-up"
+            href="/projects"
             className="cw-gradient cw-sheen inline-flex items-center gap-2 rounded-full px-6 py-3.5 text-base font-semibold text-white shadow-xl shadow-fuchsia-500/30"
           >
-            Start free <ArrowRight className="size-5" />
+            Let&apos;s Waltz <ArrowRight className="size-5" />
           </Link>
           <a
             href="#how"
@@ -417,23 +417,32 @@ function Pricing() {
   const tiers = [
     {
       name: "Free",
+      price: "$0",
+      period: "forever",
       tagline: "Make your first video",
-      features: ["Cloud auto-assemble", "Licensed music catalog", "Draft preview", "Watermarked export"],
-      cta: "Start free",
+      features: ["Cloud auto-assemble", "Licensed music catalog", "Draft preview", "3 videos / mo", "Watermarked export"],
+      cta: "Let's Waltz",
+      href: "/projects",
       featured: false,
     },
     {
       name: "Plus",
+      price: "$15",
+      period: "/mo",
       tagline: "For creators who post",
-      features: ["Everything in Free", "No watermark", "HD 1080p render", "Longer videos", "Priority in the queue"],
+      features: ["Everything in Free", "No watermark", "HD 1080p render", "30 videos / mo", "Up to 60s", "Priority in the queue"],
       cta: "Choose Plus",
+      href: "/sign-up",
       featured: true,
     },
     {
       name: "Pro",
+      price: "$39",
+      period: "/mo",
       tagline: "For brands & teams",
-      features: ["Everything in Plus", "Fastest render", "Project vault storage", "More monthly renders"],
+      features: ["Everything in Plus", "Fastest render", "100 videos / mo", "Up to 3 min", "Project Vault storage"],
       cta: "Go Pro",
+      href: "/sign-up",
       featured: false,
     },
   ];
@@ -463,6 +472,10 @@ function Pricing() {
             )}
             <h3 className="text-xl font-semibold">{t.name}</h3>
             <p className="cw-subtle mt-1 text-sm">{t.tagline}</p>
+            <p className="mt-4 flex items-baseline gap-1">
+              <span className="text-4xl font-bold tracking-tight">{t.price}</span>
+              <span className="cw-subtle text-sm">{t.period}</span>
+            </p>
             <ul className="cw-muted mt-6 space-y-2.5 text-sm">
               {t.features.map((f) => (
                 <li key={f} className="flex items-start gap-2">
@@ -472,7 +485,7 @@ function Pricing() {
               ))}
             </ul>
             <Link
-              href="/sign-up"
+              href={t.href}
               className={`cw-sheen mt-7 inline-flex items-center justify-center gap-1.5 rounded-full px-5 py-3 text-sm font-semibold transition-colors ${
                 t.featured
                   ? "cw-gradient text-white shadow-lg shadow-fuchsia-500/25"
@@ -509,10 +522,10 @@ function FinalCta() {
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
             <Link
-              href="/sign-up"
+              href="/projects"
               className="cw-gradient cw-sheen inline-flex items-center gap-2 rounded-full px-7 py-4 text-base font-semibold text-white shadow-xl shadow-fuchsia-500/30"
             >
-              Start free <ArrowRight className="size-5" />
+              Let&apos;s Waltz <ArrowRight className="size-5" />
             </Link>
             <Link
               href="/sign-in"

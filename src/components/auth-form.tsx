@@ -17,7 +17,7 @@ const SOCIAL_LABEL: Record<string, string> = { github: "GitHub", google: "Google
 export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
   const router = useRouter();
   const sp = useSearchParams();
-  const redirect = sp.get("redirect") || "/";
+  const redirect = sp.get("redirect") || "/projects";
   const isSignUp = mode === "sign-up";
 
   const [name, setName] = useState("");

@@ -1,6 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
+import { getEffectiveTier } from "./tier";
 
 export type MyBilling = {
   tier: string; // free | plus | pro
@@ -8,7 +9,7 @@ export type MyBilling = {
   hasCustomer: boolean;
 };
 
-/** Current user's billing state (subscriptions row, falling back to user.plan). */
+/** Current user's billing state (effective tier + latest subscription metadata). */
 export async function getMyBilling(): Promise<MyBilling> {
   const userId = await requireUserId();
   const [sub] = await db
@@ -17,10 +18,10 @@ export async function getMyBilling(): Promise<MyBilling> {
     .where(eq(schema.subscriptions.userId, userId))
     .orderBy(desc(schema.subscriptions.updatedAt))
     .limit(1);
-  if (sub) return { tier: sub.tier, status: sub.status, hasCustomer: !!sub.stripeCustomerId };
-  const [u] = await db
-    .select({ plan: schema.user.plan })
-    .from(schema.user)
-    .where(eq(schema.user.id, userId));
-  return { tier: u?.plan ?? "free", status: "active", hasCustomer: false };
+  const tier = await getEffectiveTier(userId);
+  return {
+    tier,
+    status: sub?.status ?? "active",
+    hasCustomer: !!sub?.stripeCustomerId,
+  };
 }

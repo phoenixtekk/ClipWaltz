@@ -21,11 +21,8 @@ export async function createRender(projectId: string): Promise<string> {
     .where(and(eq(schema.assets.projectId, projectId), eq(schema.assets.uploadState, "uploaded")));
   if (!count) throw new Error("Add at least one clip before rendering");
 
-  const [u] = await db
-    .select({ plan: schema.user.plan })
-    .from(schema.user)
-    .where(eq(schema.user.id, userId));
-  const watermark = (u?.plan ?? "free") === "free";
+  const { getEffectiveTier } = await import("./tier");
+  const watermark = (await getEffectiveTier(userId)) === "free";
 
   const [{ maxv }] = await db
     .select({ maxv: sql<number>`coalesce(max(version),0)::int` })
