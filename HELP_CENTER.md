@@ -20,7 +20,9 @@ ships. It will also surface in-app at `/help`.
 
 ## Editing & music
 - Choosing an occasion template (or "Surprise me").
-- Reordering clips, swapping the soundtrack (licensed, safe to post), setting length.
+- Reordering clips, setting length.
+- **Music side-panel:** browse or search the catalog on the right, tap **▶** to preview any
+  track, and tap a track's name to set it as your soundtrack (all licensed, safe to post).
 
 ## Rendering & export
 - Your draft appears in ~30–60s; the HD render runs in the background.
@@ -29,6 +31,16 @@ ships. It will also surface in-app at `/help`.
 
 ## Billing & plans
 - Free vs Plus vs Pro; how to upgrade (secure Stripe checkout); managing your plan; invoices.
+
+## Community
+- **Share** a finished video as Public and it appears in the Community feed; Unlisted gives a
+  link-only page; Private keeps it to you.
+- **Your creator profile** (`/account/profile`): add a bio and links (website, Instagram, TikTok,
+  YouTube). Your public page at `/u/<you>` lists all your public videos.
+- **Likes & comments:** like any video and leave comments on its watch page.
+- **Community chat:** a live room on the Community page for signed-in creators.
+- **Monthly Theme Challenge:** each month has a theme. Enter one of your Public videos from the
+  editor — likes are votes, and the month's most-liked entry wins **ClipWaltz Pro**.
 
 ## Account
 - Profile, password reset, retention (free sources auto-delete after 7 days; paid "Project Vault"
