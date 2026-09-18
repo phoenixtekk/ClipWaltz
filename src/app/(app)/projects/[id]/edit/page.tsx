@@ -8,6 +8,7 @@ import { getActiveContest, isRenderEntered } from "@/lib/contest";
 import { getAuthUserId } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { ProjectEditor } from "@/components/project-editor";
+import { ProjectTimeline } from "@/components/project-timeline";
 import { OverlayEditor } from "@/components/overlay-editor";
 import { MusicPanel } from "@/components/music-panel";
 import { DraftPreview } from "@/components/draft-preview";
@@ -47,6 +48,8 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
       <div className="grid gap-6 lg:grid-cols-[1fr_20rem] lg:items-start">
         {/* main editor column */}
         <div className="space-y-6">
+          <ProjectTimeline projectId={id} assets={assets} />
+
           <ProjectEditor
             projectId={id}
             assets={assets}
