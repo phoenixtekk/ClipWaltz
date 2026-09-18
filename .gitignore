@@ -45,3 +45,6 @@ scripts/music-manifest.json
 # Next.js 16 auto-generated agent rules (regenerated on dev boot)
 AGENTS.md
 /CLAUDE.md
+
+# Local Insta360 sample(s) for reprojection calibration — do not commit/deploy
+public/insta360/
