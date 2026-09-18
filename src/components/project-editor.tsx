@@ -24,6 +24,16 @@ const FILTERS = [
   { key: "vintage", label: "Vintage" },
 ];
 
+const LENGTH_PRESETS = [
+  { s: 15, label: "15s" },
+  { s: 30, label: "30s" },
+  { s: 60, label: "1m" },
+  { s: 120, label: "2m" },
+  { s: 180, label: "3m" },
+  { s: 240, label: "4m" },
+  { s: 300, label: "5m" },
+];
+
 export function ProjectEditor({
   projectId,
   assets,
@@ -53,6 +63,9 @@ export function ProjectEditor({
   const [pending, start] = useTransition();
   const [title, setTitle] = useState(titleText ?? "");
 
+  const isCustomLength = !LENGTH_PRESETS.some((p) => p.s === lengthSec);
+  const [customMin, setCustomMin] = useState(isCustomLength ? String(Math.round(lengthSec / 60)) : "");
+
   const runAction = (fn: () => Promise<unknown>, err: string) =>
     start(async () => {
       try {
@@ -62,6 +75,17 @@ export function ProjectEditor({
         toast.error((e as Error).message || err);
       }
     });
+
+  const applyCustomLength = () => {
+    const m = Math.round(Number(customMin));
+    if (!Number.isFinite(m) || m < 1) {
+      toast.error("Enter a length of 1–60 minutes.");
+      return;
+    }
+    const minutes = Math.min(60, Math.max(1, m));
+    setCustomMin(String(minutes));
+    runAction(() => setProjectLength(projectId, minutes * 60), "Could not set length.");
+  };
 
   return (
     <div className={cn("space-y-6", pending && "opacity-60")}>
@@ -148,15 +172,47 @@ export function ProjectEditor({
       <section className="cw-glass space-y-2 rounded-xl p-4">
         <h2 className="text-sm font-medium">Length</h2>
         <div className="flex flex-wrap gap-2">
-          {[15, 30, 60].map((s) => (
+          {LENGTH_PRESETS.map(({ s, label }) => (
             <TrackChip
               key={s}
               selected={lengthSec === s}
-              label={`${s}s`}
+              label={label}
               onClick={() => runAction(() => setProjectLength(projectId, s), "Could not set length.")}
               disabled={pending}
             />
           ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <label htmlFor="cw-len" className="text-xs text-muted-foreground">Custom</label>
+          <Input
+            id="cw-len"
+            type="number"
+            min={1}
+            max={60}
+            value={customMin}
+            disabled={pending}
+            onChange={(e) => setCustomMin(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") applyCustomLength();
+            }}
+            placeholder="e.g. 10"
+            className="h-8 w-20"
+          />
+          <span className="text-xs text-muted-foreground">min (max 60)</span>
+          <button
+            type="button"
+            onClick={applyCustomLength}
+            disabled={pending || !customMin.trim()}
+            aria-pressed={isCustomLength}
+            className={cn(
+              "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60",
+              isCustomLength
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border bg-card text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {isCustomLength ? `Set · ${Math.round(lengthSec / 60)}m` : "Set"}
+          </button>
         </div>
       </section>
       </div>

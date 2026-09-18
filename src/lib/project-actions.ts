@@ -79,10 +79,12 @@ export async function renameProject(projectId: string, title: string): Promise<v
   revalidatePath("/projects");
 }
 
+// Length in seconds: 15s minimum up to 60 minutes (3600s). Non-finite → 30s.
 export async function setProjectLength(projectId: string, lengthSec: number): Promise<void> {
   const userId = await requireUserId();
   await assertProjectOwner(userId, projectId);
-  const len = [15, 30, 60].includes(lengthSec) ? lengthSec : 30;
+  const n = Math.round(lengthSec);
+  const len = Number.isFinite(n) ? Math.min(3600, Math.max(15, n)) : 30;
   await db
     .update(schema.projects)
     .set({ lengthSec: len, updatedAt: new Date() })
