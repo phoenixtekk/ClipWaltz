@@ -13,6 +13,7 @@ const PUBLIC_PATHS = [
   /^\/privacy(?:\/|$)/,
   /^\/refund(?:\/|$)/,
   /^\/api\/auth(?:\/|$)/,
+  /^\/api\/billing\/webhook(?:\/|$)/, // Stripe posts here with no cookie
 ];
 
 export default function proxy(req: NextRequest) {
