@@ -3,7 +3,8 @@
 // Claims a queued render, pulls the project's clips from MinIO, and assembles a music
 // video with FFmpeg. Editor Phase 1 (aspect, Ken Burns, filters, fades, crossfade, title)
 // PLUS smart editing: motion-based active-moment selection for videos (skip the dead/
-// static parts) and beat-synced cuts aligned to the music (aubiotrack).
+// static parts), face/scene-aware re-ranking of those windows via the AI-box vision model
+// (Ollama, best-effort), and beat-synced cuts aligned to the music (aubiotrack).
 //
 //   node --env-file=.env.worker worker/render-worker.mjs [--once]
 //
@@ -35,6 +36,15 @@ const s3 = new S3Client({
 });
 const BUCKET = process.env.S3_BUCKET ?? "clipwaltz";
 const fwd = (p) => p.replace(/\\/g, "/");
+
+// Face/scene-aware selection: score candidate frames with the AI-box vision model
+// (Ollama). Empty OLLAMA_URL disables it → falls back to pure motion. (CLAUDE.md AI box.)
+const OLLAMA_URL = (process.env.OLLAMA_URL ?? "").replace(/\/$/, "");
+// Use a NON-reasoning vision model — reasoning ones (e.g. qwen3-vl) emit to a separate
+// `thinking` field and leave `response` empty (CLAUDE.md). qwen2.5vl:7b scores cleanly.
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "qwen2.5vl:7b";
+const VISION_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS ?? 20000);
+const CAND_WINDOWS = 3; // top motion windows to re-rank by subject/faces
 
 function dims(aspect) {
   return aspect === "16:9" ? [1920, 1080] : [1080, 1920];
@@ -95,7 +105,53 @@ async function getBeats(musicFile) {
   }
 }
 
-// Pick the most active `need`-second window of a video (skips dead/static/black parts).
+// Extract one JPEG frame at `at` seconds (for vision scoring).
+async function extractFrame(src, at, out) {
+  await ffmpeg(["-ss", String(Math.max(0, at)), "-i", src, "-frames:v", "1", "-vf", "scale=384:-1", "-q:v", "4", out]);
+}
+
+// Score a frame 0..1 as a highlight (clear people/faces, focus, lighting, subject) via the
+// AI-box vision model. Returns null on any failure so callers fall back to motion.
+async function visionScore(imgPath) {
+  if (!OLLAMA_URL) return null;
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), VISION_TIMEOUT_MS);
+  try {
+    const b64 = readFileSync(imgPath).toString("base64");
+    const res = await fetch(`${OLLAMA_URL}/api/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: OLLAMA_MODEL,
+        prompt:
+          'Rate this video frame as a highlight thumbnail from 0 to 1. Prefer frames with clearly ' +
+          'visible people or faces, sharp focus, good lighting and an obvious subject; penalize blurry, ' +
+          'dark, empty or transitional frames. Respond ONLY as JSON: {"score": <0..1>, "faces": <int>}.',
+        images: [b64],
+        stream: false,
+        format: "json",
+        options: { num_predict: 256, temperature: 0 },
+      }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return null;
+    const j = await res.json();
+    const parsed = JSON.parse(j.response || "{}");
+    let sc = Number(parsed.score);
+    if (!Number.isFinite(sc)) return null;
+    sc = Math.max(0, Math.min(1, sc));
+    const faces = Number(parsed.faces) || 0;
+    return Math.min(1, sc + (faces > 0 ? 0.1 : 0)); // nudge toward frames with faces
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(to);
+  }
+}
+
+// Pick the best `need`-second window of a video. Motion frame-diff finds active windows
+// (skips dead/static/black parts); when vision is enabled, the top motion windows are
+// re-ranked by subject/faces so the cut lands on a moment with people, not just movement.
 async function pickWindow(src, need, srcDur) {
   if (!need || srcDur <= need + 0.3) return 0;
   try {
@@ -109,18 +165,54 @@ async function pickWindow(src, need, srcDur) {
     const n = Math.min(times.length, ys.length);
     if (n < 4) return 0;
     const win = Math.max(1, Math.round(need * 4)); // 4 fps samples
-    let best = 0;
-    let bestSum = -1;
+
+    const windows = [];
     for (let i = 0; i + win <= n; i++) {
       if (times[i] > srcDur - need) break;
       let sum = 0;
       for (let j = i; j < i + win; j++) sum += ys[j];
-      if (sum > bestSum) {
-        bestSum = sum;
-        best = times[i];
+      windows.push({ t: times[i], sum });
+    }
+    if (windows.length === 0) return 0;
+    windows.sort((a, b) => b.sum - a.sum);
+    const motionBest = Math.max(0, Math.min(windows[0].t, srcDur - need));
+    const maxSum = windows[0].sum || 1;
+
+    // Vision re-rank: score the midpoint frame of the top distinct motion windows.
+    if (OLLAMA_URL && windows.length > 1) {
+      const cands = [];
+      for (const w of windows) {
+        if (cands.length >= CAND_WINDOWS) break;
+        if (cands.every((c) => Math.abs(c.t - w.t) >= need)) cands.push(w);
+      }
+      let best = motionBest;
+      let bestScore = -1;
+      let scored = false;
+      for (let k = 0; k < cands.length; k++) {
+        const c = cands[k];
+        const fp = `${src}.cand${k}.jpg`;
+        let vs = null;
+        try {
+          await extractFrame(src, Math.min(srcDur - 0.1, c.t + need / 2), fp);
+          vs = await visionScore(fp);
+        } catch {
+          vs = null;
+        }
+        if (vs != null) {
+          scored = true;
+          const combined = 0.5 * (c.sum / maxSum) + 0.5 * vs;
+          if (combined > bestScore) {
+            bestScore = combined;
+            best = Math.max(0, Math.min(c.t, srcDur - need));
+          }
+        }
+      }
+      if (scored) {
+        console.log(`[worker] scene-aware window ${best.toFixed(1)}s (motion-only was ${motionBest.toFixed(1)}s)`);
+        return best;
       }
     }
-    return Math.max(0, Math.min(best, srcDur - need));
+    return motionBest;
   } catch {
     return 0;
   }
@@ -375,7 +467,25 @@ async function tick() {
   }
   return true;
 }
+// Diagnostic: `--selftest <video> [needSec]` runs window selection (motion + vision) on a
+// file and prints the chosen offset, without touching the DB. Used to verify scene-aware cuts.
+async function selftest() {
+  const i = process.argv.indexOf("--selftest");
+  const src = process.argv[i + 1];
+  const need = Number(process.argv[i + 2]) || 3;
+  if (!src) {
+    console.error("usage: --selftest <video> [needSec]");
+    process.exit(2);
+  }
+  const dur = await probe(src);
+  console.log(`[selftest] ${src} dur=${dur.toFixed(1)}s need=${need}s vision=${OLLAMA_URL ? OLLAMA_MODEL : "off"}`);
+  const off = await pickWindow(src, need, dur);
+  console.log(`[selftest] chosen offset = ${off.toFixed(2)}s`);
+  await sql.end();
+}
+
 async function main() {
+  if (process.argv.includes("--selftest")) return selftest();
   console.log(`[worker] ClipWaltz render worker starting (${ONCE ? "once" : "loop"})`);
   if (ONCE) {
     const did = await tick();
