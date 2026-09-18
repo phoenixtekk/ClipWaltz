@@ -46,6 +46,28 @@ const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "qwen2.5vl:7b";
 const VISION_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS ?? 20000);
 const CAND_WINDOWS = 3; // top motion windows to re-rank by subject/faces
 
+// "Video ready" email: the app (linuxg1) holds the SES creds, so the worker just pings it.
+const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "").replace(/\/$/, "");
+const WORKER_CALLBACK_SECRET = process.env.WORKER_CALLBACK_SECRET ?? "";
+async function notifyReady(renderId) {
+  if (!APP_URL || !WORKER_CALLBACK_SECRET) return;
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const res = await fetch(`${APP_URL}/api/internal/render-ready`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-worker-secret": WORKER_CALLBACK_SECRET },
+      body: JSON.stringify({ renderId }),
+      signal: ctrl.signal,
+    });
+    console.log(`[worker] notify render-ready ${renderId}: ${res.status}`);
+  } catch (e) {
+    console.log(`[worker] notify render-ready ${renderId} failed: ${e.message}`);
+  } finally {
+    clearTimeout(to);
+  }
+}
+
 function dims(aspect) {
   return aspect === "16:9" ? [1920, 1080] : [1080, 1920];
 }
@@ -443,6 +465,7 @@ async function processRender(r) {
     await sql`update renders set status='done', output_key=${key}, cpu_seconds=${secs}, completed_at=now() where id=${r.id}`;
     await sql`update projects set status='ready', updated_at=now() where id=${r.project_id}`;
     console.log(`[worker] render ${r.id} done in ${secs}s → ${key}`);
+    await notifyReady(r.id);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

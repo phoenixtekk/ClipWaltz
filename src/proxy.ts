@@ -19,6 +19,7 @@ const PUBLIC_PATHS = [
   /^\/api\/renders\/[^/]+\/watch(?:\/|$)/, // public shared-render stream
   /^\/api\/auth(?:\/|$)/,
   /^\/api\/billing\/webhook(?:\/|$)/, // Stripe posts here with no cookie
+  /^\/api\/internal\/render-ready(?:\/|$)/, // worker callback (shared-secret gated)
   /^\/api\/oauth\/microsoft\/callback(?:\/|$)/, // OneDrive.js picker redirect (SDK loader)
 ];
 
