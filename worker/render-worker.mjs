@@ -255,6 +255,36 @@ async function getBeats(musicFile) {
   }
 }
 
+// Generate a YouTube-style description via the AI-box text model. null on failure.
+const OLLAMA_TEXT_MODEL = process.env.OLLAMA_TEXT_MODEL ?? "qwen3.8:27b";
+async function generateDescription({ title, musicTitle, clips, lengthSec, aspect }) {
+  if (!OLLAMA_URL) return null;
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), 60000);
+  try {
+    const prompt =
+      `Write a YouTube video description for a short ${aspect} montage video made with ClipWaltz` +
+      `${lengthSec ? ` (about ${lengthSec}s)` : ""}. Title: "${title}". ` +
+      `Soundtrack: "${musicTitle || "original audio"}". It has ${clips} clips. ` +
+      `Write an engaging 2-3 sentence description, then a blank line, then a single line of 5-8 relevant hashtags, ` +
+      `then a final line "Made with ClipWaltz". Plain text only — no markdown, no preamble.`;
+    const res = await fetch(`${OLLAMA_URL}/api/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: OLLAMA_TEXT_MODEL, prompt, stream: false, options: { num_predict: 500, temperature: 0.7 } }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return null;
+    const j = await res.json();
+    const text = String(j.response || "").trim();
+    return text.length > 10 ? text.slice(0, 5000) : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(to);
+  }
+}
+
 // Extract one JPEG frame at `at` seconds (for vision scoring).
 async function extractFrame(src, at, out) {
   await ffmpeg(["-ss", String(Math.max(0, at)), "-i", src, "-frames:v", "1", "-vf", "scale=384:-1", "-q:v", "4", out]);
@@ -755,6 +785,20 @@ async function processRender(r) {
     await sql`update renders set status='done', output_key=${key}, cpu_seconds=${secs}, completed_at=now() where id=${r.id}`;
     await sql`update projects set status='ready', updated_at=now() where id=${r.project_id}`;
     console.log(`[worker] render ${r.id} done in ${secs}s → ${key}`);
+    // YouTube description (best-effort) when the project opted in.
+    if (project?.describe) {
+      const desc = await generateDescription({
+        title: project?.title_text || project?.title || "My ClipWaltz video",
+        musicTitle: music?.title ?? null,
+        clips: assets.length,
+        lengthSec,
+        aspect,
+      });
+      if (desc) {
+        await sql`update renders set description=${desc} where id=${r.id}`;
+        console.log(`[worker] render ${r.id} description generated (${desc.length} chars)`);
+      }
+    }
     // Licensing ledger: snapshot the music license for this render (best-effort).
     if (music) {
       const licenseType =

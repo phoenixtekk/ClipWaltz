@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Download, Sparkles, AlertTriangle, Link as LinkIcon, Check } from "lucide-react";
+import { Loader2, Download, Sparkles, AlertTriangle, Link as LinkIcon, Check, FileText, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { createRender } from "@/lib/render-actions";
 import { shareRender } from "@/lib/feed-actions";
 import { EnterContestButton } from "@/components/enter-contest";
 
-type R = { id: string; status: string; version: number; hasOutput: boolean; visibility: string } | null;
+type R = { id: string; status: string; version: number; hasOutput: boolean; visibility: string; description?: string | null } | null;
 type Contest = { theme: string; entered: boolean } | null;
 
 const VIS = [
@@ -57,7 +57,7 @@ export function RenderPanel({
     start(async () => {
       try {
         const id = await createRender(projectId);
-        setRender({ id, status: "queued", version: (render?.version ?? 0) + 1, hasOutput: false, visibility: "private" });
+        setRender({ id, status: "queued", version: (render?.version ?? 0) + 1, hasOutput: false, visibility: "private", description: null });
       } catch (e) {
         toast.error((e as Error).message || "Could not start the render.");
       }
@@ -142,6 +142,7 @@ export function RenderPanel({
             isPublic={render.visibility === "public"}
           />
         ) : null}
+        {render.description ? <DescriptionBox text={render.description} /> : null}
       </div>
     );
   }
@@ -172,6 +173,42 @@ export function RenderPanel({
       <Button onClick={onRender} disabled={!canRender || pending}>
         {pending ? "Starting…" : "Render HD →"}
       </Button>
+    </div>
+  );
+}
+
+function DescriptionBox({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard?.writeText(text).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      },
+      () => toast.error("Could not copy."),
+    );
+  }
+  return (
+    <div className="space-y-1.5 border-t border-emerald-600/20 pt-3">
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <FileText className="size-3.5" /> YouTube description
+        </span>
+        <button
+          type="button"
+          onClick={copy}
+          className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <textarea
+        readOnly
+        value={text}
+        rows={6}
+        className="w-full resize-y rounded-lg border border-border bg-background p-2.5 text-xs leading-relaxed outline-none"
+      />
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { getSession } from "@/lib/auth";
 import { isAdminEmail } from "@/lib/admin";
 import { LikeButton } from "@/components/like-button";
 import { RenderComments } from "@/components/render-comments";
+import { RemoveFromCommunity } from "@/components/remove-from-community";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -68,7 +69,10 @@ export default async function WatchPage({ params }: { params: Promise<{ id: stri
               {r.creator}
             </Link>
           </p>
-          <LikeButton renderId={r.renderId} initialLiked={r.likedByMe} initialCount={r.likes} />
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <LikeButton renderId={r.renderId} initialLiked={r.likedByMe} initialCount={r.likes} />
+            {currentUserId === r.creatorId ? <RemoveFromCommunity renderId={r.renderId} /> : null}
+          </div>
         </div>
 
         <RenderComments

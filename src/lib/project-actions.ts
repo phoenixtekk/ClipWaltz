@@ -110,6 +110,7 @@ export async function setProjectStyle(
     smartCut?: boolean;
     beatSync?: boolean;
     waltzToMusic?: boolean;
+    describe?: boolean;
   },
 ): Promise<void> {
   const userId = await requireUserId();
@@ -131,6 +132,7 @@ export async function setProjectStyle(
   if (patch.smartCut !== undefined) set.smartCut = !!patch.smartCut;
   if (patch.beatSync !== undefined) set.beatSync = !!patch.beatSync;
   if (patch.waltzToMusic !== undefined) set.waltzToMusic = !!patch.waltzToMusic;
+  if (patch.describe !== undefined) set.describe = !!patch.describe;
   await db.update(schema.projects).set(set).where(eq(schema.projects.id, projectId));
   revalidatePath(`/projects/${projectId}/edit`);
 }

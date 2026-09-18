@@ -28,6 +28,7 @@ export type ProjectDetail = ProjectSummary & {
   smartCut: boolean;
   beatSync: boolean;
   waltzToMusic: boolean;
+  describe: boolean;
   overlays: Overlay[];
 };
 
@@ -57,6 +58,7 @@ export async function getProject(id: string): Promise<ProjectDetail | null> {
     smartCut: r.smartCut,
     beatSync: r.beatSync,
     waltzToMusic: r.waltzToMusic,
+    describe: r.describe,
     overlays: parseOverlays(r.overlays),
     updatedAt: r.updatedAt.toISOString(),
   };

@@ -71,6 +71,7 @@ export const projects = pgTable("projects", {
   smartCut: boolean().notNull().default(true), // pick the most active window of each video
   beatSync: boolean().notNull().default(true), // time cuts to the music's beats
   waltzToMusic: boolean().notNull().default(false), // energy-aware beat-driven editing
+  describe: boolean().notNull().default(false), // generate a YouTube description on render
   overlays: jsonb(), // text + emoji overlays (see lib/overlays.ts); null = none
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -136,6 +137,7 @@ export const renders = pgTable("renders", {
   cpuSeconds: real(), // instrumentation → cost-per-render
   costCents: integer(),
   visibility: text().notNull().default("private"), // private | unlisted | public (community feed)
+  description: text(), // AI-generated YouTube description (when project.describe is on)
   sharedAt: timestamp({ withTimezone: true }),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp({ withTimezone: true }),

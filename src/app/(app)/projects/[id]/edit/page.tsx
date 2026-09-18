@@ -65,6 +65,7 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
             smartCut={project.smartCut}
             beatSync={project.beatSync}
             waltzToMusic={project.waltzToMusic}
+            describe={project.describe}
             hasRender={!!latestRender?.hasOutput}
           />
 

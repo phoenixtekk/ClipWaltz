@@ -8,6 +8,7 @@ export type RenderStatus = {
   version: number;
   hasOutput: boolean;
   visibility: string; // private | unlisted | public
+  description: string | null; // AI YouTube description (when enabled)
 } | null;
 
 /** Latest render for a project the current user owns. */
@@ -32,5 +33,6 @@ export async function getLatestRender(projectId: string): Promise<RenderStatus> 
     version: r.version,
     hasOutput: !!r.outputKey,
     visibility: r.visibility,
+    description: r.description ?? null,
   };
 }

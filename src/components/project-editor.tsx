@@ -58,6 +58,7 @@ export function ProjectEditor({
   smartCut,
   beatSync,
   waltzToMusic,
+  describe,
   hasRender,
 }: {
   projectId: string;
@@ -74,6 +75,7 @@ export function ProjectEditor({
   smartCut: boolean;
   beatSync: boolean;
   waltzToMusic: boolean;
+  describe: boolean;
   hasRender: boolean;
 }) {
   const router = useRouter();
@@ -396,6 +398,12 @@ export function ProjectEditor({
                 selected={fadeOut}
                 label="Fade out ending"
                 onClick={() => runAction(() => setProjectStyle(projectId, { fadeOut: !fadeOut }), "Could not toggle fade out.")}
+                disabled={pending}
+              />
+              <TrackChip
+                selected={describe}
+                label="📝 Describe (YouTube text)"
+                onClick={() => runAction(() => setProjectStyle(projectId, { describe: !describe }), "Could not toggle describe.")}
                 disabled={pending}
               />
             </div>

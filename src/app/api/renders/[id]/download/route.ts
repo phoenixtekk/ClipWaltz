@@ -19,7 +19,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   const [row] = await db
-    .select({ key: schema.renders.outputKey, ownerId: schema.projects.ownerId })
+    .select({
+      key: schema.renders.outputKey,
+      ownerId: schema.projects.ownerId,
+      titleText: schema.projects.titleText,
+      title: schema.projects.title,
+    })
     .from(schema.renders)
     .innerJoin(schema.projects, eq(schema.renders.projectId, schema.projects.id))
     .where(eq(schema.renders.id, id));
@@ -28,11 +33,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     return new NextResponse("not found", { status: 404 });
   }
 
+  // Name the download after the Style Title (falls back to the project title).
+  const base = (row.titleText || row.title || "clipwaltz").trim().replace(/[^a-zA-Z0-9._ -]/g, "_").slice(0, 100) || "clipwaltz";
   const { body, contentType } = await getObject(row.key);
   return new NextResponse(body, {
     headers: {
       "content-type": contentType ?? "video/mp4",
-      "content-disposition": `attachment; filename="clipwaltz-${id}.mp4"`,
+      "content-disposition": `attachment; filename="${base}.mp4"`,
     },
   });
 }
