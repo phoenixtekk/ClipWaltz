@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
+import { parseOverlays, type Overlay } from "./overlays";
 
 export type ProjectStatus = "draft" | "rendering" | "ready" | "failed";
 
@@ -26,6 +27,7 @@ export type ProjectDetail = ProjectSummary & {
   smartCut: boolean;
   beatSync: boolean;
   waltzToMusic: boolean;
+  overlays: Overlay[];
 };
 
 /** A single project owned by the current user, or null. */
@@ -53,6 +55,7 @@ export async function getProject(id: string): Promise<ProjectDetail | null> {
     smartCut: r.smartCut,
     beatSync: r.beatSync,
     waltzToMusic: r.waltzToMusic,
+    overlays: parseOverlays(r.overlays),
     updatedAt: r.updatedAt.toISOString(),
   };
 }

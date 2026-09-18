@@ -6,6 +6,7 @@ import {
   boolean,
   timestamp,
   unique,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth-schema";
 
@@ -69,6 +70,7 @@ export const projects = pgTable("projects", {
   smartCut: boolean().notNull().default(true), // pick the most active window of each video
   beatSync: boolean().notNull().default(true), // time cuts to the music's beats
   waltzToMusic: boolean().notNull().default(false), // energy-aware beat-driven editing
+  overlays: jsonb(), // text + emoji overlays (see lib/overlays.ts); null = none
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });

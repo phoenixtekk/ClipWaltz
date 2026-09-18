@@ -358,6 +358,118 @@ async function buildTimeline(assets, beats, lengthSec, beatSync, smartCut, srcDu
   return { slots, musicOffset };
 }
 
+// --- Text + emoji overlays (second pass) ------------------------------------
+function emojiCodepoints(str) {
+  const cps = [];
+  for (const ch of str) {
+    const c = ch.codePointAt(0);
+    if (c !== 0xfe0f) cps.push(c.toString(16)); // Twemoji drops the FE0F variation selector
+  }
+  return cps;
+}
+async function fetchTwemoji(char, dest) {
+  const name = emojiCodepoints(char).join("-");
+  if (!name) return false;
+  const urls = [
+    `https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/72x72/${name}.png`,
+    `https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/${name}.png`,
+  ];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      writeFileSync(dest, Buffer.from(await res.arrayBuffer()));
+      return true;
+    } catch {
+      /* try next */
+    }
+  }
+  return false;
+}
+function nearestBeat(t, beats) {
+  if (!beats.length) return t;
+  let best = beats[0];
+  for (const b of beats) if (Math.abs(b - t) < Math.abs(best - t)) best = b;
+  return best;
+}
+function overlayTiming(o, beats, totalDur) {
+  let start = o.start != null ? o.start : 0;
+  if (o.beatSnap) start = nearestBeat(start, beats);
+  const end = o.end != null ? o.end : totalDur;
+  return { ts: Math.max(0, start).toFixed(2), te: Math.max(start + 0.1, end).toFixed(2) };
+}
+function textDraw(o, H, beats, totalDur) {
+  const { ts, te } = overlayTiming(o, beats, totalDur);
+  const fs = Math.round(o.size * H);
+  const color = `0x${String(o.color).replace("#", "")}`;
+  const baseX = `w*${o.x}-tw/2`;
+  const x = o.anim === "slide" ? `(${baseX})+(1-min(1,max(0,(t-${ts})/0.5)))*w*0.25` : baseX;
+  const p = [`text='${safeText(o.content)}'`, `fontcolor=${color}`, `fontsize=${fs}`];
+  if (o.box) p.push("box=1", "boxcolor=black@0.45", "boxborderw=10");
+  p.push(`x='${x}'`, `y='h*${o.y}-th/2'`, `enable='between(t,${ts},${te})'`);
+  if (o.anim === "fade") p.push(`alpha='min(1,max(0,(t-${ts})/0.4))'`);
+  else if (o.anim === "pop") p.push(`alpha='min(1,max(0,(t-${ts})/0.15))'`);
+  return `drawtext=${p.join(":")}`;
+}
+
+async function applyOverlays(dir, inFile, overlays, W, H, beats, totalDur) {
+  const texts = overlays.filter((o) => o.type === "text");
+  const emojis = [];
+  let ei = 0;
+  for (const o of overlays) {
+    if (o.type !== "emoji") continue;
+    const f = join(dir, `emoji${ei}.png`);
+    if (await fetchTwemoji(o.content, f)) emojis.push({ o, file: f });
+    ei++;
+  }
+  if (texts.length === 0 && emojis.length === 0) return inFile;
+
+  const args = ["-i", fwd(inFile)];
+  for (const e of emojis) args.push("-i", fwd(e.file));
+
+  let label = "[0:v]";
+  let fc = "";
+  let n = 0;
+  for (const o of texts) {
+    fc += `${label}${textDraw(o, H, beats, totalDur)}[o${n}];`;
+    label = `[o${n}]`;
+    n++;
+  }
+  emojis.forEach((e, i) => {
+    const inIdx = 1 + i;
+    const { ts, te } = overlayTiming(e.o, beats, totalDur);
+    const h = Math.round(e.o.size * H);
+    const fade = e.o.anim === "none" ? "" : `,fade=t=in:st=${ts}:d=0.4:alpha=1`;
+    fc += `[${inIdx}:v]scale=-1:${h},format=rgba${fade}[e${n}];`;
+    fc += `${label}[e${n}]overlay=x='W*${e.o.x}-w/2':y='H*${e.o.y}-h/2':enable='between(t,${ts},${te})'[o${n}];`;
+    label = `[o${n}]`;
+    n++;
+  });
+
+  const out = join(dir, "overlaid.mp4");
+  args.push(
+    "-filter_complex",
+    fc.replace(/;$/, ""),
+    "-map",
+    label,
+    "-map",
+    "0:a?",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-crf",
+    "20",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "copy",
+    fwd(out),
+  );
+  await ffmpeg(args);
+  return out;
+}
+
 async function assemble(dir, assets, music, watermark, lengthSec, aspect, style) {
   const [W, H] = dims(aspect);
   const V = vfStatic(W, H);
@@ -486,6 +598,19 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     console.warn("[worker] styled render failed, retrying simplified:", e.message);
     await render(false, false, true);
   }
+
+  // Overlay pass (text + emoji) — best-effort; falls back to the base render on failure.
+  const overlays = Array.isArray(style.overlays) ? style.overlays : [];
+  if (overlays.length > 0) {
+    try {
+      const totalDur = await probe(out);
+      const finalFile = await applyOverlays(dir, out, overlays, W, H, beats, totalDur || lengthSec);
+      console.log(`[worker] applied ${overlays.length} overlay(s)`);
+      return finalFile;
+    } catch (e) {
+      console.warn("[worker] overlay pass failed, using base render:", e.message);
+    }
+  }
   return out;
 }
 
@@ -517,6 +642,7 @@ async function processRender(r) {
     smartCut: project?.smart_cut ?? true,
     beatSync: project?.beat_sync ?? true,
     waltzToMusic: project?.waltz_to_music ?? false,
+    overlays: Array.isArray(project?.overlays) ? project.overlays : [],
   };
 
   const dir = mkdtempSync(join(tmpdir(), "cw-render-"));
@@ -611,9 +737,26 @@ async function waltztest() {
   await sql.end();
 }
 
+// Diagnostic: `--overlaytest` renders a 4s clip with a sample text + emoji overlay to
+// /tmp/overlaid.mp4, verifying Twemoji fetch + the overlay filtergraph. No DB.
+async function overlaytest() {
+  const dir = mkdtempSync(join(tmpdir(), "cw-ovl-"));
+  const base = join(dir, "base.mp4");
+  await ffmpeg(["-f", "lavfi", "-i", "testsrc=size=1080x1920:duration=4", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", base]);
+  const overlays = [
+    { type: "text", content: "Italy 2026", x: 0.5, y: 0.18, size: 0.08, color: "#ffffff", box: true, start: null, end: null, anim: "fade", beatSnap: false },
+    { type: "emoji", content: "🎉", x: 0.8, y: 0.8, size: 0.18, color: "#fff", box: false, start: null, end: null, anim: "pop", beatSnap: false },
+  ];
+  const outFile = await applyOverlays(dir, base, overlays, 1080, 1920, [], 4);
+  const dur = await probe(outFile);
+  console.log(`[overlaytest] out=${outFile} dur=${dur.toFixed(2)}s (${outFile !== base ? "overlays applied" : "no overlays"})`);
+  await sql.end();
+}
+
 async function main() {
   if (process.argv.includes("--selftest")) return selftest();
   if (process.argv.includes("--waltztest")) return waltztest();
+  if (process.argv.includes("--overlaytest")) return overlaytest();
   console.log(`[worker] ClipWaltz render worker starting (${ONCE ? "once" : "loop"})`);
   if (ONCE) {
     const did = await tick();
