@@ -3,7 +3,7 @@ import { AuthForm } from "@/components/auth-form";
 
 export default function SignInPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center p-6">
+    <div className="cw-app flex min-h-screen items-center justify-center p-6">
       <Suspense>
         <AuthForm mode="sign-in" />
       </Suspense>
