@@ -17,7 +17,8 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 | Object storage — MinIO (linuxg7) | ✅ | `src/lib/storage.ts` (S3 SDK, path-style). Dedicated `clipwaltz` bucket (versioned) + bucket-scoped service account. Upload/list/delete wired |
 | Billing module — Stripe (direct) | 🚧 | Isolated in `src/lib/billing/`; Checkout + webhook verify wired; webhook handler `/api/billing/webhook` stubbed (persist in P2). See [`BILLING.md`](BILLING.md) |
 | Canonical host (apex→www 308) | ✅ | `src/proxy.ts` redirects `clipwaltz.com` → `www.clipwaltz.com` |
-| Landing page | ✅ | `/` — hero + signup CTA |
+| Landing page (marketing home) | ✅ | `/` — full glass-metal marketing site in the brand spectrum (blue→violet→magenta→coral): frosted nav w/ logo, aurora hero + animated 9:16 phone mockup, "One App, Two Vibes" (vacations vs business), how-it-works, feature tiles, occasion templates, pricing teaser, CTA slab, footer. Brand assets `public/logo-2.png` (mark/favicon) + `public/logo-name-1.png` (wordmark). Responsive; `prefers-reduced-motion` aware. Scoped `cw-` `@layer components`. |
+| Light / dark theme toggle | ✅ | Nav toggle (`src/components/theme-toggle.tsx`, `useSyncExternalStore`) flips the `dark` class on `<html>`; theme-aware landing via CSS tokens; no-flash init script in the root layout (stored choice → else system preference); persisted to `localStorage`. Also themes the shadcn app pages. |
 | Agency Agents (repo-local) | ✅ | Installed in `.claude/agents/` (279 agents) |
 
 ## MVP application features (planned — from the Design & Build Plan)
