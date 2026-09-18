@@ -63,6 +63,7 @@ export const projects = pgTable("projects", {
   // Editor Phase 1 styling (applied by the render worker).
   titleText: text(), // optional title/caption overlay
   styleFilter: text().notNull().default("none"), // none|warm|cool|vivid|bw|vintage
+  lightFx: text().notNull().default("none"), // none|vignette|glow|grain|dreamy|noir (atmosphere)
   transition: text().notNull().default("cut"), // cut | crossfade
   motion: boolean().notNull().default(true), // Ken Burns zoom/pan on photos
   fades: boolean().notNull().default(true), // fade IN at the start

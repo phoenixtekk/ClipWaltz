@@ -93,6 +93,7 @@ export async function setProjectLength(projectId: string, lengthSec: number): Pr
 }
 
 const STYLE_FILTERS = new Set(["none", "warm", "cool", "vivid", "bw", "vintage"]);
+const LIGHT_FX = new Set(["none", "vignette", "glow", "grain", "dreamy", "noir"]);
 const TRANSITIONS = new Set(["cut", "crossfade"]);
 
 /** Update Editor Phase-1 styling on a project (owner-checked). Partial patch. */
@@ -101,6 +102,7 @@ export async function setProjectStyle(
   patch: {
     titleText?: string | null;
     styleFilter?: string;
+    lightFx?: string;
     transition?: string;
     motion?: boolean;
     fades?: boolean;
@@ -119,6 +121,8 @@ export async function setProjectStyle(
   }
   if (patch.styleFilter !== undefined)
     set.styleFilter = STYLE_FILTERS.has(patch.styleFilter) ? patch.styleFilter : "none";
+  if (patch.lightFx !== undefined)
+    set.lightFx = LIGHT_FX.has(patch.lightFx) ? patch.lightFx : "none";
   if (patch.transition !== undefined)
     set.transition = TRANSITIONS.has(patch.transition) ? patch.transition : "cut";
   if (patch.motion !== undefined) set.motion = !!patch.motion;

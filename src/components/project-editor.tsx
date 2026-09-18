@@ -24,6 +24,15 @@ const FILTERS = [
   { key: "vintage", label: "Vintage" },
 ];
 
+const LIGHT_FX = [
+  { key: "none", label: "None" },
+  { key: "vignette", label: "Vignette" },
+  { key: "glow", label: "Glow" },
+  { key: "grain", label: "Film grain" },
+  { key: "dreamy", label: "Dreamy" },
+  { key: "noir", label: "Noir" },
+];
+
 const LENGTH_PRESETS = [
   { s: 15, label: "15s" },
   { s: 30, label: "30s" },
@@ -41,6 +50,7 @@ export function ProjectEditor({
   aspect,
   titleText,
   styleFilter,
+  lightFx,
   transition,
   motion,
   fades,
@@ -56,6 +66,7 @@ export function ProjectEditor({
   aspect: string;
   titleText: string | null;
   styleFilter: string;
+  lightFx: string;
   transition: string;
   motion: boolean;
   fades: boolean;
@@ -298,6 +309,21 @@ export function ProjectEditor({
                 selected={styleFilter === f.key}
                 label={f.label}
                 onClick={() => runAction(() => setProjectStyle(projectId, { styleFilter: f.key }), "Could not set filter.")}
+                disabled={pending}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-xs text-muted-foreground">Lighting</p>
+          <div className="flex flex-wrap gap-2">
+            {LIGHT_FX.map((f) => (
+              <TrackChip
+                key={f.key}
+                selected={lightFx === f.key}
+                label={f.label}
+                onClick={() => runAction(() => setProjectStyle(projectId, { lightFx: f.key }), "Could not set lighting.")}
                 disabled={pending}
               />
             ))}

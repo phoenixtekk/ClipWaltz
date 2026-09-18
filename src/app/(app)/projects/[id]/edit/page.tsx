@@ -57,6 +57,7 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
             aspect={project.aspect}
             titleText={project.titleText}
             styleFilter={project.styleFilter}
+            lightFx={project.lightFx}
             transition={project.transition}
             motion={project.motion}
             fades={project.fades}

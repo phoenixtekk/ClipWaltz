@@ -91,6 +91,17 @@ function colorFilter(style) {
     default: return null;
   }
 }
+// Atmospheric "lighting" looks, applied on top of the colour filter. Single-chain safe.
+function lightFilter(fx) {
+  switch (fx) {
+    case "vignette": return "vignette=PI/4.5";
+    case "glow": return "curves=preset=increase_contrast,eq=gamma_r=1.08:gamma_b=0.92:saturation=1.12,vignette=PI/6";
+    case "grain": return "noise=alls=10:allf=t+u,vignette=PI/6";
+    case "dreamy": return "gblur=sigma=1.6,eq=brightness=0.03:saturation=1.06";
+    case "noir": return "hue=s=0,eq=contrast=1.2,vignette=PI/4";
+    default: return null;
+  }
+}
 function safeText(s) {
   return String(s || "").replace(/[^A-Za-z0-9 .,!?&#@()\-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
 }
@@ -543,6 +554,8 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     const parts = [];
     const cf = colorFilter(style.styleFilter);
     if (cf) parts.push(cf);
+    const lf = lightFilter(style.lightFx);
+    if (lf) parts.push(lf);
     if (useTitle && titleT) {
       const fs = Math.round(H * 0.055);
       parts.push(
@@ -635,6 +648,7 @@ async function processRender(r) {
   const style = {
     titleText: project?.title_text ?? null,
     styleFilter: project?.style_filter ?? "none",
+    lightFx: project?.light_fx ?? "none",
     transition: project?.transition ?? "cut",
     motion: project?.motion ?? true,
     fades: project?.fades ?? true,

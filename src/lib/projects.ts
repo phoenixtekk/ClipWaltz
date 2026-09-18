@@ -20,6 +20,7 @@ export type ProjectDetail = ProjectSummary & {
   musicTrackId: string | null;
   titleText: string | null;
   styleFilter: string;
+  lightFx: string;
   transition: string;
   motion: boolean;
   fades: boolean;
@@ -48,6 +49,7 @@ export async function getProject(id: string): Promise<ProjectDetail | null> {
     musicTrackId: r.musicTrackId,
     titleText: r.titleText,
     styleFilter: r.styleFilter,
+    lightFx: r.lightFx,
     transition: r.transition,
     motion: r.motion,
     fades: r.fades,

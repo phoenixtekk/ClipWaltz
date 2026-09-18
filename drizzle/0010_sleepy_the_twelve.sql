@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "light_fx" text DEFAULT 'none' NOT NULL;
