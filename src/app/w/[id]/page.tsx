@@ -3,7 +3,11 @@ import Image from "next/image";
 import { notFound } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { getSharedRender } from "@/lib/feed";
+import { getRenderComments } from "@/lib/comments";
+import { getSession } from "@/lib/auth";
+import { isAdminEmail } from "@/lib/admin";
 import { LikeButton } from "@/components/like-button";
+import { RenderComments } from "@/components/render-comments";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -19,6 +23,9 @@ export default async function WatchPage({ params }: { params: Promise<{ id: stri
   const r = await getSharedRender(id);
   if (!r) notFound();
   const wide = r.aspect === "16:9";
+  const [comments, session] = await Promise.all([getRenderComments(id), getSession()]);
+  const currentUserId = session?.user?.id ?? null;
+  const isAdmin = session ? isAdminEmail(session.user.email) : false;
 
   return (
     <div className="cw-landing flex min-h-screen flex-col">
@@ -55,9 +62,21 @@ export default async function WatchPage({ params }: { params: Promise<{ id: stri
 
         <div className="mt-6 flex w-full max-w-3xl flex-col items-center gap-3 text-center">
           <h1 className="text-2xl font-semibold tracking-tight">{r.title}</h1>
-          <p className="cw-subtle text-sm">by {r.creator}</p>
+          <p className="cw-subtle text-sm">
+            by{" "}
+            <Link href={`/u/${r.creatorId}`} className="font-medium hover:underline">
+              {r.creator}
+            </Link>
+          </p>
           <LikeButton renderId={r.renderId} initialLiked={r.likedByMe} initialCount={r.likes} />
         </div>
+
+        <RenderComments
+          renderId={r.renderId}
+          initialComments={comments}
+          currentUserId={currentUserId}
+          isAdmin={isAdmin}
+        />
 
         <div className="cw-glass mt-10 flex w-full max-w-2xl flex-col items-center gap-3 rounded-2xl p-6 text-center sm:flex-row sm:justify-between sm:text-left">
           <p className="cw-muted text-sm">

@@ -7,6 +7,7 @@ export type FeedItem = {
   title: string;
   aspect: string;
   creator: string;
+  creatorId: string;
   likes: number;
   sharedAt: string;
 };
@@ -22,6 +23,7 @@ export async function getPublicFeed(limit = 60): Promise<FeedItem[]> {
       sharedAt: schema.renders.sharedAt,
       title: schema.projects.title,
       creator: schema.user.name,
+      creatorId: schema.user.id,
       likes: likeCount,
     })
     .from(schema.renders)
@@ -35,6 +37,7 @@ export async function getPublicFeed(limit = 60): Promise<FeedItem[]> {
     title: r.title,
     aspect: r.aspect,
     creator: r.creator || "Someone",
+    creatorId: r.creatorId,
     likes: r.likes,
     sharedAt: (r.sharedAt ?? new Date()).toISOString(),
   }));
@@ -45,6 +48,7 @@ export type SharedRender = {
   title: string;
   aspect: string;
   creator: string;
+  creatorId: string;
   likes: number;
   likedByMe: boolean;
 } | null;
@@ -59,6 +63,7 @@ export async function getSharedRender(renderId: string): Promise<SharedRender> {
       outputKey: schema.renders.outputKey,
       title: schema.projects.title,
       creator: schema.user.name,
+      creatorId: schema.user.id,
       likes: likeCount,
     })
     .from(schema.renders)
@@ -81,6 +86,7 @@ export async function getSharedRender(renderId: string): Promise<SharedRender> {
     title: r.title,
     aspect: r.aspect,
     creator: r.creator || "Someone",
+    creatorId: r.creatorId,
     likes: r.likes,
     likedByMe,
   };

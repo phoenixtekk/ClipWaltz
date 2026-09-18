@@ -15,6 +15,7 @@ const PUBLIC_PATHS = [
   /^\/community(?:\/|$)/, // public community feed
   /^\/feed(?:\/|$)/, // legacy → redirects to /community
   /^\/w\/[^/]+$/, // public watch page
+  /^\/u\/[^/]+$/, // public creator profile
   /^\/api\/renders\/[^/]+\/watch(?:\/|$)/, // public shared-render stream
   /^\/api\/auth(?:\/|$)/,
   /^\/api\/billing\/webhook(?:\/|$)/, // Stripe posts here with no cookie

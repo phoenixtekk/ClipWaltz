@@ -5,6 +5,7 @@ import {
   real,
   boolean,
   timestamp,
+  unique,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth-schema";
 
@@ -114,6 +115,63 @@ export const renderLikes = pgTable("render_likes", {
     .references(() => user.id, { onDelete: "cascade" }),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
+
+// Comments on a shared render (community — per-video conversation).
+export const renderComments = pgTable("render_comments", {
+  id: text().primaryKey(),
+  renderId: text()
+    .notNull()
+    .references(() => renders.id, { onDelete: "cascade" }),
+  userId: text()
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  body: text().notNull(),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+// Global community chat room (lightweight — polled, no realtime infra).
+export const chatMessages = pgTable("chat_messages", {
+  id: text().primaryKey(),
+  userId: text()
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  body: text().notNull(),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+// Monthly Theme Challenge contests. Likes on entered renders = votes; the admin
+// closes a contest and the likes-leader is auto-granted Pro (see contest-actions).
+export const contests = pgTable("contests", {
+  id: text().primaryKey(),
+  theme: text().notNull(),
+  description: text(),
+  status: text().notNull().default("active"), // active | closed
+  winnerRenderId: text(), // set on close
+  winnerUserId: text(), // set on close
+  createdBy: text().notNull(), // admin user id
+  startsAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  closedAt: timestamp({ withTimezone: true }),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+// A public render entered into a contest. One entry per render per contest.
+export const contestEntries = pgTable(
+  "contest_entries",
+  {
+    id: text().primaryKey(),
+    contestId: text()
+      .notNull()
+      .references(() => contests.id, { onDelete: "cascade" }),
+    renderId: text()
+      .notNull()
+      .references(() => renders.id, { onDelete: "cascade" }),
+    userId: text()
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.contestId, t.renderId)],
+);
 
 // Admin-issued comp access invites. When an invited email signs up, the grant is
 // redeemed into a subscriptions row (see auth-server databaseHooks + lib/tier).

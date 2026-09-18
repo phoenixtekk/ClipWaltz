@@ -13,6 +13,12 @@ export const user = pgTable("user", {
   emailVerified: boolean().notNull().default(false),
   image: text(),
   plan: text().notNull().default("free"), // optional custom field; remove if unused
+  // Public creator profile (community). All optional; edited in /account/profile.
+  bio: text(),
+  website: text(),
+  instagram: text(),
+  tiktok: text(),
+  youtube: text(),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });

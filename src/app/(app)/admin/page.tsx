@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import { getAdminSession } from "@/lib/admin";
 import { listUsersAdmin, listInvitesAdmin } from "@/lib/admin-actions";
+import { getContestsAdmin, getActiveContest, getContestBoard } from "@/lib/contest";
 import { AdminGrantForm, RevokeButton } from "@/components/admin-grant-form";
+import { AdminContest } from "@/components/admin-contest";
 
 export const metadata = { title: "Admin" };
 
@@ -15,8 +17,14 @@ export default async function AdminPage() {
   const admin = await getAdminSession();
   if (!admin) redirect("/projects");
 
-  const [users, invites] = await Promise.all([listUsersAdmin(), listInvitesAdmin()]);
+  const [users, invites, contests, active] = await Promise.all([
+    listUsersAdmin(),
+    listInvitesAdmin(),
+    getContestsAdmin(),
+    getActiveContest(),
+  ]);
   const pending = invites.filter((i) => !i.redeemedAt);
+  const activeEntries = active ? await getContestBoard(active.id) : [];
 
   return (
     <div className="mx-auto max-w-4xl space-y-8">
@@ -30,6 +38,11 @@ export default async function AdminPage() {
       <section className="space-y-3">
         <h2 className="text-sm font-medium">Grant / invite access</h2>
         <AdminGrantForm />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-medium">Monthly Theme Challenge</h2>
+        <AdminContest contests={contests} activeEntries={activeEntries} />
       </section>
 
       <section className="space-y-3">

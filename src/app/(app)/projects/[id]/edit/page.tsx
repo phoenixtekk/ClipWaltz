@@ -4,6 +4,7 @@ import { getProject } from "@/lib/projects";
 import { listAssets } from "@/lib/assets";
 import { getMusicTracks } from "@/lib/music";
 import { getLatestRender } from "@/lib/render";
+import { getActiveContest, isRenderEntered } from "@/lib/contest";
 import { Button } from "@/components/ui/button";
 import { ProjectEditor } from "@/components/project-editor";
 import { MusicPanel } from "@/components/music-panel";
@@ -16,11 +17,18 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const project = await getProject(id);
   if (!project) notFound();
-  const [assets, tracks, latestRender] = await Promise.all([
+  const [assets, tracks, latestRender, activeContest] = await Promise.all([
     listAssets(id),
     getMusicTracks(),
     getLatestRender(id),
+    getActiveContest(),
   ]);
+
+  // Contest entry state for the current render (only when a finished render exists).
+  const contest =
+    activeContest && latestRender && latestRender.hasOutput
+      ? { theme: activeContest.theme, entered: await isRenderEntered(activeContest.id, latestRender.id) }
+      : null;
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -58,7 +66,7 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
             aspect={project.aspect}
           />
 
-          <RenderPanel projectId={id} initial={latestRender} canRender={assets.length > 0} />
+          <RenderPanel projectId={id} initial={latestRender} canRender={assets.length > 0} contest={contest} />
 
           <p className="text-xs text-muted-foreground">
             Reorder clips, pick a soundtrack, set the length — the draft preview updates instantly.

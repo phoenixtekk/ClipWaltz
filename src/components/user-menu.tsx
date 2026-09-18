@@ -44,6 +44,9 @@ export function UserMenu() {
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => router.push("/account/profile")}>
+          <UserIcon className="size-4" /> Profile
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => router.push("/account/billing")}>
           <CreditCard className="size-4" /> Billing
         </DropdownMenuItem>

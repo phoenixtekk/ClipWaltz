@@ -7,8 +7,10 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { createRender } from "@/lib/render-actions";
 import { shareRender } from "@/lib/feed-actions";
+import { EnterContestButton } from "@/components/enter-contest";
 
 type R = { id: string; status: string; version: number; hasOutput: boolean; visibility: string } | null;
+type Contest = { theme: string; entered: boolean } | null;
 
 const VIS = [
   ["private", "Private"],
@@ -20,10 +22,12 @@ export function RenderPanel({
   projectId,
   initial,
   canRender,
+  contest,
 }: {
   projectId: string;
   initial: R;
   canRender: boolean;
+  contest?: Contest;
 }) {
   const router = useRouter();
   const [render, setRender] = useState<R>(initial);
@@ -130,6 +134,14 @@ export function RenderPanel({
             </button>
           ) : null}
         </div>
+        {contest ? (
+          <EnterContestButton
+            renderId={render.id}
+            theme={contest.theme}
+            initialEntered={contest.entered}
+            isPublic={render.visibility === "public"}
+          />
+        ) : null}
       </div>
     );
   }
