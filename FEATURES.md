@@ -40,8 +40,9 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 | Export / share (watermark on free) | 🚧 | Download ✅ (proxied). Watermark drawtext in worker (font-fallback safe); public share link still to come |
 | Music catalog | ✅ | **83 licensed Pixabay tracks** live in prod (manifest-driven `scripts/seed-music.mjs`, Pixabay Content License, 0 placeholders). Editor picker has **search + scroll** for the large catalog. Playback via proxied `GET /api/music/[trackId]`. Sourcing/licensing in `MUSIC_CATALOG.md`. |
 | Account / billing (Free/Plus/Pro) | ✅ | `/account/billing` + Stripe hosted Checkout + portal + webhook. Live in **acct_1UGiVdER…** (test): Plus $15 / Pro $39 prices, tax code set, webhook public + verified (checkout session creates). Comp/admin grants bypass Stripe. See `BILLING.md`. |
-| Community feed | ✅ | Renders share as private/unlisted/public (share control in the render panel); public `/feed` grid + `/w/[id]` watch pages (video, creator, likes, CTA); `render_likes`. Public stream `GET /api/renders/[id]/watch`. |
-| Cloud import — Google Photos | ✅ | OAuth (`/api/oauth/google/*`, tokens in `oauth_accounts`) + Google **Photos Picker** flow (`/api/import/google/*`): connect → pick in Google's UI → import selected media into MinIO as assets. On the import screen. **iCloud = file-picker only** (no web API). OneDrive + Dropbox next. |
+| Community feed | ✅ | At **`/community`** ("Community" in nav; `/feed` 307→/community). Renders share as private/unlisted/public (share control in the render panel); public grid + `/w/[id]` watch pages (video, creator, likes, CTA); `render_likes`. Public stream `GET /api/renders/[id]/watch`. |
+| Cloud import — Google / Dropbox / OneDrive | ✅ | **Google Photos** via server OAuth + Photos Picker (`/api/oauth/google/*`, `/api/import/google/*`, tokens in `oauth_accounts`). **Dropbox** (Chooser) + **OneDrive** (OneDrive.js) via client pickers → shared SSRF-allowlisted `/api/import/urls` → MinIO. All on the import screen. **iCloud = file-picker only** (no web API). |
+| Canonical host apex→www | ✅ | `clipwaltz.com` 308→`www.clipwaltz.com` (middleware, keyed off `x-forwarded-host` behind the tunnel). |
 | Help Center | ⬜ | Categories mirror features |
 | Retention: 7-day auto-delete (free) | ⬜ | Paid "Project Vault" keeps longer |
 
