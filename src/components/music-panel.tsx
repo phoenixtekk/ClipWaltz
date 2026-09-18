@@ -1,13 +1,14 @@
 "use client";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Music, Play, Pause, Check, VolumeX, Heart, Sparkles, Star } from "lucide-react";
+import { Music, Play, Pause, Check, VolumeX, Heart, Sparkles, Star, Shuffle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Input } from "@/components/ui/input";
 import type { Track } from "@/lib/music";
 import { setProjectMusic } from "@/lib/project-actions";
 import { toggleFavorite } from "@/lib/music-actions";
+import { getWaltzRecommendations } from "@/lib/waltzmatch-actions";
 
 type TabKey = "foryou" | "browse" | "premium" | "mymusic";
 const TABS: { key: TabKey; label: string }[] = [
@@ -40,6 +41,33 @@ export function MusicPanel({
   const [auditionId, setAuditionId] = useState<string | null>(null);
   const [favorites, setFavorites] = useState<Set<string>>(new Set(initialFavorites));
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // WaltzMatch (For You) state — cached for the session once run.
+  const [waltz, setWaltz] = useState<{ label: string; source: string; recs: { trackId: string; matchPct: number }[] } | null>(null);
+  const [waltzLoading, setWaltzLoading] = useState(false);
+  const trackById = useMemo(() => new Map(tracks.map((t) => [t.id, t])), [tracks]);
+
+  async function runWaltzMatch() {
+    setWaltzLoading(true);
+    try {
+      setWaltz(await getWaltzRecommendations(projectId));
+    } catch (e) {
+      toast.error((e as Error).message || "Could not analyze your media.");
+    } finally {
+      setWaltzLoading(false);
+    }
+  }
+
+  function surpriseMe() {
+    const recs = waltz?.recs ?? [];
+    if (recs.length === 0) return;
+    // Weight toward the top matches.
+    const pool = recs.slice(0, Math.min(4, recs.length));
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    select(pick.trackId);
+    const t = trackById.get(pick.trackId);
+    if (t) toast.success(`WaltzMatch picked “${t.title}”`);
+  }
 
   const shown = useMemo(() => {
     let list = tracks;
@@ -123,12 +151,64 @@ export function MusicPanel({
       ) : null}
 
       {tab === "foryou" ? (
-        <div className="rounded-lg border border-dashed border-border p-4 text-center">
-          <Sparkles className="mx-auto size-5 text-[color:var(--cw-violet)]" />
-          <p className="mt-1 text-sm font-medium">WaltzMatch</p>
-          <p className="text-xs text-muted-foreground">
-            Smart soundtrack picks from your photos &amp; videos — coming soon.
-          </p>
+        <div className="space-y-2">
+          {!waltz ? (
+            <div className="rounded-lg border border-dashed border-border p-4 text-center">
+              <Sparkles className="mx-auto size-5 text-[color:var(--cw-violet)]" />
+              <p className="mt-1 text-sm font-medium">WaltzMatch</p>
+              <p className="mb-3 text-xs text-muted-foreground">
+                We&apos;ll read your photos &amp; videos and recommend soundtracks that fit.
+              </p>
+              <button
+                type="button"
+                onClick={runWaltzMatch}
+                disabled={waltzLoading}
+                className="cw-gradient inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {waltzLoading ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+                {waltzLoading ? "Analyzing your media…" : "Find my soundtrack"}
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">
+                  For your video: <span className="font-medium text-foreground">{waltz.label}</span>
+                </p>
+                <button type="button" onClick={runWaltzMatch} disabled={waltzLoading} className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-60">
+                  {waltzLoading ? "…" : "Re-scan"}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={surpriseMe}
+                disabled={pending}
+                className="flex w-full items-center justify-center gap-1.5 rounded-full border border-[color:var(--cw-violet)]/40 bg-[color:var(--cw-violet)]/10 px-4 py-2 text-sm font-semibold text-[color:var(--cw-violet)] disabled:opacity-60"
+              >
+                <Shuffle className="size-4" /> Surprise Me
+              </button>
+              <div className="flex max-h-[22rem] flex-col gap-1.5 overflow-y-auto pr-1">
+                {waltz.recs.map((rec) => {
+                  const t = trackById.get(rec.trackId);
+                  if (!t) return null;
+                  return (
+                    <TrackRow
+                      key={rec.trackId}
+                      track={t}
+                      badge={`${rec.matchPct}%`}
+                      selected={musicTrackId === rec.trackId}
+                      playing={auditionId === rec.trackId}
+                      favorited={favorites.has(rec.trackId)}
+                      onAudition={() => audition(rec.trackId)}
+                      onSelect={() => select(rec.trackId)}
+                      onFavorite={() => favorite(rec.trackId)}
+                      disabled={pending}
+                    />
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
       ) : (
         <div className="flex max-h-[26rem] flex-col gap-1.5 overflow-y-auto pr-1 lg:max-h-[calc(100vh-15rem)]">
@@ -179,6 +259,7 @@ function TrackRow({
   selected,
   playing,
   favorited,
+  badge,
   onAudition,
   onSelect,
   onFavorite,
@@ -189,6 +270,7 @@ function TrackRow({
   selected: boolean;
   playing?: boolean;
   favorited?: boolean;
+  badge?: string;
   onAudition?: () => void;
   onSelect: () => void;
   onFavorite?: () => void;
@@ -241,6 +323,11 @@ function TrackRow({
         </span>
         <span className="block truncate text-xs text-muted-foreground">{sub}</span>
       </button>
+      {badge ? (
+        <span className="shrink-0 rounded-full bg-[color:var(--cw-violet)]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[color:var(--cw-violet)]">
+          {badge}
+        </span>
+      ) : null}
       <button
         type="button"
         onClick={onFavorite}

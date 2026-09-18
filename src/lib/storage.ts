@@ -89,6 +89,12 @@ export async function presignGet(key: string, expiresIn = 3600): Promise<string>
   return getSignedUrl(s3(), new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }), { expiresIn });
 }
 
+/** Fetch an object's raw bytes (small objects only — e.g. a photo for WaltzMatch analysis). */
+export async function getObjectBytes(key: string): Promise<Uint8Array> {
+  const out = await s3().send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }));
+  return (out.Body as unknown as { transformToByteArray: () => Promise<Uint8Array> }).transformToByteArray();
+}
+
 /** Fetch an object as a web stream (for proxied downloads through the app). */
 export async function getObject(
   key: string,
