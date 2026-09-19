@@ -8,6 +8,7 @@ export type MediaItem = {
   sourceFormat: string | null;
   conversionState: string;
   reframeMode: string;
+  driveBacked: boolean;
   sizeBytes: number | null;
   durationSec: number | null;
   createdAt: string;
@@ -26,6 +27,7 @@ export async function getUserMedia(userId: string): Promise<MediaItem[]> {
       sourceFormat: schema.media.sourceFormat,
       conversionState: schema.media.conversionState,
       reframeMode: schema.media.reframeMode,
+      driveFileId: schema.media.driveFileId,
       sizeBytes: schema.media.sizeBytes,
       durationSec: schema.media.durationSec,
       createdAt: schema.media.createdAt,
@@ -43,6 +45,7 @@ export async function getUserMedia(userId: string): Promise<MediaItem[]> {
     sourceFormat: r.sourceFormat,
     conversionState: r.conversionState,
     reframeMode: r.reframeMode,
+    driveBacked: !!r.driveFileId,
     sizeBytes: r.sizeBytes,
     durationSec: r.durationSec,
     createdAt: r.createdAt.toISOString(),

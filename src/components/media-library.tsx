@@ -1,11 +1,12 @@
 "use client";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Download, Trash2, Film, Image as ImageIcon, Loader2, Pencil, FolderPlus } from "lucide-react";
+import { Download, Trash2, Film, Image as ImageIcon, Loader2, Pencil, FolderPlus, Cloud, CloudUpload, Check } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import type { MediaItem } from "@/lib/media";
 import { addMediaToProject, deleteMedia, renameMedia, setReframeMode } from "@/lib/media-actions";
+import { backupMediaToDrive, backupAllToDrive } from "@/lib/drive-actions";
 
 const REFRAME_LABELS: Record<string, string> = { flat: "Front", follow: "Auto-follow", tiny: "Tiny Planet" };
 
@@ -29,13 +30,30 @@ function fmtDate(iso: string) {
 export function MediaLibrary({
   media,
   projects,
+  driveConnected,
+  driveAvailable,
 }: {
   media: MediaItem[];
   projects: { id: string; title: string }[];
+  driveConnected: boolean;
+  driveAvailable: boolean;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("all");
   const [pending, start] = useTransition();
+  const backedUp = media.filter((m) => m.driveBacked).length;
+
+  function backupAll() {
+    start(async () => {
+      try {
+        const { count } = await backupAllToDrive();
+        toast.success(count ? `Backed up ${count} file${count === 1 ? "" : "s"} to Drive.` : "Everything's already backed up.");
+        router.refresh();
+      } catch (e) {
+        toast.error((e as Error).message || "Backup failed.");
+      }
+    });
+  }
 
   const shown = useMemo(() => {
     switch (tab) {
@@ -60,6 +78,40 @@ export function MediaLibrary({
 
   return (
     <div className="space-y-4">
+      {driveAvailable ? (
+        <div className="cw-glass flex flex-wrap items-center justify-between gap-3 rounded-xl p-3">
+          <div className="flex items-center gap-2 text-sm">
+            <Cloud className="size-4 text-[color:var(--cw-violet)]" />
+            {driveConnected ? (
+              <span>
+                <span className="font-medium">Google Drive connected</span>
+                <span className="text-muted-foreground"> · {backedUp}/{media.length} backed up</span>
+              </span>
+            ) : (
+              <span className="text-muted-foreground">Back up your memories to your own Google Drive.</span>
+            )}
+          </div>
+          {driveConnected ? (
+            <button
+              type="button"
+              onClick={backupAll}
+              disabled={pending || backedUp >= media.length}
+              className="cw-gradient inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              {pending ? <Loader2 className="size-4 animate-spin" /> : <CloudUpload className="size-4" />}
+              Back up all
+            </button>
+          ) : (
+            <a
+              href="/api/oauth/google/drive/start"
+              className="cw-gradient inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold text-white"
+            >
+              <Cloud className="size-4" /> Connect Google Drive
+            </a>
+          )}
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap gap-1 rounded-lg bg-muted/50 p-0.5 text-sm">
         {TABS.map((t) => (
           <button
@@ -134,6 +186,27 @@ export function MediaLibrary({
                     >
                       <Download className="size-3.5" />
                     </a>
+                    {driveConnected ? (
+                      m.driveBacked ? (
+                        <span
+                          className="grid size-7 place-items-center rounded-md border border-emerald-600/40 bg-emerald-600/10 text-emerald-600 dark:text-emerald-400"
+                          title="Backed up to Google Drive"
+                        >
+                          <Check className="size-3.5" />
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => act(() => backupMediaToDrive(m.id), "Backup failed.")}
+                          disabled={pending}
+                          className="grid size-7 place-items-center rounded-md border border-border text-muted-foreground hover:text-foreground disabled:opacity-60"
+                          aria-label={`Back up ${m.name} to Drive`}
+                          title="Back up to Google Drive"
+                        >
+                          <CloudUpload className="size-3.5" />
+                        </button>
+                      )
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => {

@@ -92,6 +92,8 @@ export const media = pgTable("media", {
   sourceFormat: text(), // insv | lrv | insp | null
   conversionState: text().notNull().default("ready"), // ready | pending | converting | failed
   reframeMode: text().notNull().default("flat"), // 360 reframe: flat | follow | tiny
+  driveFileId: text(), // Google Drive file id once backed up (null = not backed up)
+  driveBackedAt: timestamp({ withTimezone: true }),
   sizeBytes: integer(),
   durationSec: real(),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(), // imported at
