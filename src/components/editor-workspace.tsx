@@ -1,0 +1,163 @@
+"use client";
+import { useState } from "react";
+import Link from "next/link";
+import { ListVideo, Film, Ratio, Sparkles, Layers, Music } from "lucide-react";
+import { cn } from "cn";
+import { Button } from "@/components/ui/button";
+import type { ProjectDetail } from "@/lib/projects";
+import type { AssetSummary } from "@/lib/assets";
+import type { Track } from "@/lib/music";
+import type { RenderStatus } from "@/lib/render";
+import { ProjectEditor } from "@/components/project-editor";
+import { ProjectTimeline } from "@/components/project-timeline";
+import { OverlayEditor } from "@/components/overlay-editor";
+import { DraftPreview } from "@/components/draft-preview";
+import { RenderPanel } from "@/components/render-panel";
+import { MusicPanel } from "@/components/music-panel";
+
+type Tab = "timeline" | "clips" | "format" | "style" | "overlays";
+const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
+  { key: "timeline", label: "Timeline", icon: <ListVideo className="size-4" /> },
+  { key: "clips", label: "Clips", icon: <Film className="size-4" /> },
+  { key: "format", label: "Format", icon: <Ratio className="size-4" /> },
+  { key: "style", label: "Style", icon: <Sparkles className="size-4" /> },
+  { key: "overlays", label: "Overlays", icon: <Layers className="size-4" /> },
+];
+
+export function EditorWorkspace({
+  projectId,
+  project,
+  assets,
+  tracks,
+  favorites,
+  latestRender,
+  contest,
+  musicTrackTitle,
+  backdropAssetId,
+}: {
+  projectId: string;
+  project: ProjectDetail;
+  assets: AssetSummary[];
+  tracks: Track[];
+  favorites: string[];
+  latestRender: RenderStatus;
+  contest: { theme: string; entered: boolean } | null;
+  musicTrackTitle: string | null;
+  backdropAssetId: string | null;
+}) {
+  const [tab, setTab] = useState<Tab>("timeline");
+
+  const editorProps = {
+    projectId,
+    assets,
+    lengthSec: project.lengthSec,
+    aspect: project.aspect,
+    titleText: project.titleText,
+    styleFilter: project.styleFilter,
+    lightFx: project.lightFx,
+    transition: project.transition,
+    motion: project.motion,
+    fades: project.fades,
+    fadeOut: project.fadeOut,
+    smartCut: project.smartCut,
+    beatSync: project.beatSync,
+    waltzToMusic: project.waltzToMusic,
+    describe: project.describe,
+    hasRender: !!latestRender?.hasOutput,
+  };
+
+  return (
+    <div className="mx-auto w-full max-w-[110rem] space-y-6">
+      <div>
+        <h1 className="cw-gradient-text text-2xl font-semibold tracking-tight">{project.title}</h1>
+        <p className="text-sm text-muted-foreground">
+          {assets.length} clip{assets.length === 1 ? "" : "s"} · template: {project.template} · {project.aspect}
+        </p>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_23rem] xl:items-start">
+        {/* main column */}
+        <div className="space-y-6">
+          {/* draft preview — always in view */}
+          <div className="cw-glass rounded-2xl p-4 xl:sticky xl:top-4 xl:z-20">
+            <DraftPreview
+              projectId={projectId}
+              assets={assets}
+              musicTrackId={project.musicTrackId}
+              musicTrackTitle={musicTrackTitle}
+              lengthSec={project.lengthSec}
+              aspect={project.aspect}
+            />
+          </div>
+
+          {/* tabbed workspace */}
+          <div className="cw-glass rounded-2xl p-3">
+            <div className="mb-3 flex flex-wrap gap-1 rounded-xl bg-muted/40 p-1">
+              {TABS.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setTab(t.key)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                    tab === t.key
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {t.icon}
+                  <span className="hidden sm:inline">{t.label}</span>
+                </button>
+              ))}
+            </div>
+
+            <div>
+              {tab === "timeline" ? <ProjectTimeline projectId={projectId} assets={assets} /> : null}
+              {tab === "clips" ? <ProjectEditor section="clips" {...editorProps} /> : null}
+              {tab === "format" ? <ProjectEditor section="format" {...editorProps} /> : null}
+              {tab === "style" ? <ProjectEditor section="style" {...editorProps} /> : null}
+              {tab === "overlays" ? (
+                <OverlayEditor
+                  projectId={projectId}
+                  initialOverlays={project.overlays}
+                  aspect={project.aspect}
+                  backdropAssetId={backdropAssetId}
+                  lengthSec={project.lengthSec}
+                />
+              ) : null}
+            </div>
+          </div>
+
+          <RenderPanel projectId={projectId} initial={latestRender} canRender={assets.length > 0} contest={contest} />
+
+          <div className="flex items-center gap-2 border-t border-border pt-4">
+            <Button variant="ghost" render={<Link href={`/projects/${projectId}/import`} />}>
+              ← Back to import
+            </Button>
+            <Button variant="outline" render={<Link href="/projects" />}>
+              Save &amp; exit
+            </Button>
+          </div>
+        </div>
+
+        {/* studio column: tabbed audio container */}
+        <div className="xl:sticky xl:top-4 xl:self-start">
+          <div className="cw-glass rounded-2xl p-3">
+            <div className="mb-3 flex gap-1 rounded-xl bg-muted/40 p-1">
+              <span className="inline-flex items-center gap-1.5 rounded-lg bg-background px-3 py-1.5 text-sm font-medium shadow-sm">
+                <Music className="size-4 text-primary" /> Music
+              </span>
+            </div>
+            <MusicPanel
+              projectId={projectId}
+              tracks={tracks}
+              musicTrackId={project.musicTrackId}
+              favorites={favorites}
+              embedded
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

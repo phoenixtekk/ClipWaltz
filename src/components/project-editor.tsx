@@ -60,6 +60,7 @@ export function ProjectEditor({
   waltzToMusic,
   describe,
   hasRender,
+  section,
 }: {
   projectId: string;
   assets: AssetSummary[];
@@ -77,6 +78,7 @@ export function ProjectEditor({
   waltzToMusic: boolean;
   describe: boolean;
   hasRender: boolean;
+  section?: "clips" | "format" | "style";
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -85,6 +87,7 @@ export function ProjectEditor({
   const isCustomLength = !LENGTH_PRESETS.some((p) => p.s === lengthSec);
   const [customMin, setCustomMin] = useState(isCustomLength ? String(Math.round(lengthSec / 60)) : "");
   const [preview, setPreview] = useState<{ id: string; kind: string; name: string } | null>(null);
+  const show = (s: "clips" | "format" | "style") => !section || section === s;
 
   const runAction = (fn: () => Promise<unknown>, err: string) =>
     start(async () => {
@@ -109,7 +112,7 @@ export function ProjectEditor({
 
   return (
     <div className={cn("space-y-6", pending && "opacity-60")}>
-      {/* clips */}
+      {show("clips") ? (
       <section className="cw-glass space-y-3 rounded-xl p-4">
         <h2 className="flex items-center gap-1.5 text-sm font-medium">
           <Film className="size-4 text-[color:var(--cw-violet)]" /> Clips · in order
@@ -213,7 +216,9 @@ export function ProjectEditor({
           </ul>
         )}
       </section>
+      ) : null}
 
+      {show("format") ? (
       <div className="grid gap-6 sm:grid-cols-2">
       {/* aspect */}
       <section className="cw-glass space-y-2 rounded-xl p-4">
@@ -288,8 +293,9 @@ export function ProjectEditor({
         </div>
       </section>
       </div>
+      ) : null}
 
-      {/* style */}
+      {show("style") ? (
       <section className="cw-glass space-y-4 rounded-xl p-4">
         <h2 className="flex items-center gap-1.5 text-sm font-medium">
           <Sparkles className="size-4 text-[color:var(--cw-violet)]" /> Style
@@ -414,6 +420,7 @@ export function ProjectEditor({
           </div>
         </div>
       </section>
+      ) : null}
 
       {preview ? (
         <div

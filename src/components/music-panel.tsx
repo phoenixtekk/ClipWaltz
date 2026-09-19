@@ -28,11 +28,13 @@ export function MusicPanel({
   tracks,
   musicTrackId,
   favorites: initialFavorites,
+  embedded = false,
 }: {
   projectId: string;
   tracks: Track[];
   musicTrackId: string | null;
   favorites: string[];
+  embedded?: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -124,10 +126,12 @@ export function MusicPanel({
   }
 
   return (
-    <section className="cw-glass space-y-3 rounded-xl p-3 lg:sticky lg:top-6 lg:self-start">
-      <h2 className="flex items-center gap-1.5 text-sm font-medium">
-        <Music className="size-4 text-primary" /> Music
-      </h2>
+    <section className={embedded ? "space-y-3" : "cw-glass space-y-3 rounded-xl p-3 lg:sticky lg:top-6 lg:self-start"}>
+      {embedded ? null : (
+        <h2 className="flex items-center gap-1.5 text-sm font-medium">
+          <Music className="size-4 text-primary" /> Music
+        </h2>
+      )}
 
       {/* tabs */}
       <div className="flex gap-1 rounded-lg bg-muted/50 p-0.5 text-xs">

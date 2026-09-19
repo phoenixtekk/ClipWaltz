@@ -34,7 +34,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         {/* Set theme before paint (no flash): stored choice, else system preference. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('cw-theme');if(!t){t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}document.documentElement.classList.toggle('dark',t==='dark');}catch(e){}})();`,
+            __html: `(function(){try{var t=localStorage.getItem('cw-theme')||'dark';document.documentElement.classList.toggle('dark',t==='dark');}catch(e){document.documentElement.classList.add('dark');}})();`,
           }}
         />
       </head>
