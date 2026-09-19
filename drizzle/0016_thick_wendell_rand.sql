@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "loop_to_fill" boolean DEFAULT false NOT NULL;

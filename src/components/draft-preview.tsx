@@ -24,6 +24,7 @@ export function DraftPreview({
   musicTrackTitle,
   lengthSec,
   aspect = "9:16",
+  loopToFill = false,
 }: {
   projectId: string;
   assets: AssetSummary[];
@@ -31,6 +32,7 @@ export function DraftPreview({
   musicTrackTitle: string | null;
   lengthSec: number;
   aspect?: string;
+  loopToFill?: boolean;
 }) {
   const wide = aspect === "16:9";
   const uploaded = useMemo(
@@ -41,8 +43,8 @@ export function DraftPreview({
     [assets],
   );
   const { clips, totalSec } = useMemo(
-    () => buildDraftTimeline(uploaded, lengthSec),
-    [uploaded, lengthSec],
+    () => buildDraftTimeline(uploaded, lengthSec, loopToFill),
+    [uploaded, lengthSec, loopToFill],
   );
   // Stable signature of the timeline — changing it (reorder/length/music) resets playback.
   const sig = useMemo(

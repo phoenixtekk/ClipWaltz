@@ -72,6 +72,7 @@ export const projects = pgTable("projects", {
   beatSync: boolean().notNull().default(true), // time cuts to the music's beats
   waltzToMusic: boolean().notNull().default(false), // energy-aware beat-driven editing
   describe: boolean().notNull().default(false), // generate a YouTube description on render
+  loopToFill: boolean().notNull().default(false), // repeat footage to reach the target length
   overlays: jsonb(), // text + emoji overlays (see lib/overlays.ts); null = none
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),

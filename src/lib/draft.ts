@@ -16,6 +16,7 @@ export type DraftClip = {
 export function buildDraftTimeline(
   assets: { id: string; kind: string; name: string }[],
   lengthSec: number,
+  loopToFill = false,
 ): { clips: DraftClip[]; totalSec: number } {
   const clips: DraftClip[] = [];
   let total = 0;
@@ -27,11 +28,12 @@ export function buildDraftTimeline(
     clips.push({ id: a.id, kind: a.kind, name: a.name, durationSec });
     total += durationSec;
   }
-  // Fill toward the target length by cycling the clips (the worker tiles video windows; the
-  // low-res draft just replays clips so the length/pacing preview matches the final render).
+  // Loop-to-fill only: repeat the clips to reach the target length. (Without it the video is
+  // just as long as the footage allows — the worker still tiles videos into more windows, which
+  // the low-res draft can't show without per-clip durations.)
   const MAX_CLIPS = 400;
   let i = 0;
-  while (cap !== Infinity && total < cap - 0.4 && assets.length > 0 && clips.length < MAX_CLIPS) {
+  while (loopToFill && cap !== Infinity && total < cap - 0.4 && assets.length > 0 && clips.length < MAX_CLIPS) {
     const a = assets[i % assets.length];
     i++;
     const full = a.kind === "video" ? DRAFT_PER_VIDEO_SEC : DRAFT_PER_IMAGE_SEC;

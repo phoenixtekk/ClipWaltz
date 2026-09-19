@@ -468,7 +468,7 @@ function waltzSpan(e) {
 }
 
 // Build the ordered timeline: [{asset, dur, offset}]. Beat-synced when possible.
-async function buildTimeline(assets, beats, lengthSec, beatSync, smartCut, srcDurs, waltzToMusic, curve) {
+async function buildTimeline(assets, beats, lengthSec, beatSync, smartCut, srcDurs, waltzToMusic, curve, loopToFill) {
   const slots = [];
   let musicOffset = 0;
   const cap = lengthSec > 0 ? lengthSec : Infinity;
@@ -538,8 +538,10 @@ async function buildTimeline(assets, beats, lengthSec, beatSync, smartCut, srcDu
   if (cap !== Infinity && assets.length > 0 && total < cap - 0.4) {
     const fillDur = Math.max(1.5, Math.min(4, slots.length ? total / slots.length : PER_VIDEO));
     const MAX_SLOTS = 400;
-    const vcur = new Map(); // per-video tiling cursor (window index)
+    const vUsed = new Map(); // per-video fill windows used
+    const photoUsed = new Set(); // photos used in fill (no-loop: at most once)
     let i = 0;
+    let skips = 0;
     while (total < cap - 0.4 && slots.length < MAX_SLOTS) {
       const a = assets[i % assets.length];
       i++;
@@ -548,13 +550,24 @@ async function buildTimeline(assets, beats, lengthSec, beatSync, smartCut, srcDu
       let offset = 0;
       if (a.kind === "video") {
         const D = srcDurs.get(a.storage_key) ?? 0;
-        if (D > dur) {
-          const nWin = Math.max(1, Math.floor(D / dur));
-          const w = vcur.get(a.storage_key) ?? 0;
-          offset = Math.min(D - dur, w * dur);
-          vcur.set(a.storage_key, (w + 1) % nWin);
+        const nWin = Math.max(1, Math.floor(D / dur));
+        const used = vUsed.get(a.storage_key) ?? 0;
+        // Default: cover the clip's own windows once (no repeats). Loop mode: wrap and reuse.
+        if (!loopToFill && used >= nWin) {
+          if (++skips >= assets.length) break;
+          continue;
         }
+        offset = Math.min(Math.max(0, D - dur), (used % nWin) * dur);
+        vUsed.set(a.storage_key, used + 1);
+      } else {
+        // Default: don't repeat a photo (it already showed once). Loop mode: allow repeats.
+        if (!loopToFill && photoUsed.has(a.id)) {
+          if (++skips >= assets.length) break;
+          continue;
+        }
+        photoUsed.add(a.id);
       }
+      skips = 0;
       slots.push({ asset: a, dur, offset }); // offset preset → skipped by the resolver below
       total += dur;
     }
@@ -719,6 +732,7 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     srcDurs,
     style.waltzToMusic,
     energyCurve,
+    style.loopToFill,
   );
   if (slots.length === 0) throw new Error("no clips in timeline");
 
@@ -861,6 +875,7 @@ async function processRender(r) {
     smartCut: project?.smart_cut ?? true,
     beatSync: project?.beat_sync ?? true,
     waltzToMusic: project?.waltz_to_music ?? false,
+    loopToFill: project?.loop_to_fill ?? false,
     overlays: Array.isArray(project?.overlays) ? project.overlays : [],
   };
 
@@ -963,7 +978,7 @@ async function waltztest() {
   const es = curve.map((c) => c.e);
   console.log(`[waltztest] beats=${beats.length} energyWindows=${curve.length} energy[min/max]=${es.length ? Math.min(...es).toFixed(2) + "/" + Math.max(...es).toFixed(2) : "n/a"}`);
   const assets = Array.from({ length: nClips }, (_, k) => ({ kind: "photo", storage_key: `x${k}` }));
-  const { slots, musicOffset } = await buildTimeline(assets, beats, lengthSec, true, false, new Map(), true, curve);
+  const { slots, musicOffset } = await buildTimeline(assets, beats, lengthSec, true, false, new Map(), true, curve, true);
   const durs = slots.map((s) => +s.dur.toFixed(2));
   const total = durs.reduce((a, b) => a + b, 0);
   console.log(`[waltztest] musicOffset=${musicOffset.toFixed(2)}s clips=${slots.length} total=${total.toFixed(2)}s durations=[${durs.join(", ")}]`);

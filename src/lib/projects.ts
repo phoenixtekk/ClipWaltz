@@ -29,6 +29,7 @@ export type ProjectDetail = ProjectSummary & {
   beatSync: boolean;
   waltzToMusic: boolean;
   describe: boolean;
+  loopToFill: boolean;
   overlays: Overlay[];
 };
 
@@ -59,6 +60,7 @@ export async function getProject(id: string): Promise<ProjectDetail | null> {
     beatSync: r.beatSync,
     waltzToMusic: r.waltzToMusic,
     describe: r.describe,
+    loopToFill: r.loopToFill,
     overlays: parseOverlays(r.overlays),
     updatedAt: r.updatedAt.toISOString(),
   };

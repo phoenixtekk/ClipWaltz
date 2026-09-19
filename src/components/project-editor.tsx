@@ -59,6 +59,7 @@ export function ProjectEditor({
   beatSync,
   waltzToMusic,
   describe,
+  loopToFill,
   hasRender,
   section,
 }: {
@@ -77,6 +78,7 @@ export function ProjectEditor({
   beatSync: boolean;
   waltzToMusic: boolean;
   describe: boolean;
+  loopToFill: boolean;
   hasRender: boolean;
   section?: "clips" | "format" | "style";
 }) {
@@ -290,6 +292,19 @@ export function ProjectEditor({
           >
             {isCustomLength ? `Set · ${Math.round(lengthSec / 60)}m` : "Set"}
           </button>
+        </div>
+        <div className="border-t border-border/60 pt-2">
+          <TrackChip
+            selected={loopToFill}
+            label="🔁 Loop to fill length"
+            onClick={() => runAction(() => setProjectStyle(projectId, { loopToFill: !loopToFill }), "Could not toggle loop.")}
+            disabled={pending}
+          />
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            {loopToFill
+              ? "Repeats your footage to reach the full length above."
+              : "Makes the video as long as your footage allows (up to the length above) — no repeats."}
+          </p>
         </div>
       </section>
       </div>

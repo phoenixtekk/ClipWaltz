@@ -63,6 +63,7 @@ export function EditorWorkspace({
     beatSync: project.beatSync,
     waltzToMusic: project.waltzToMusic,
     describe: project.describe,
+    loopToFill: project.loopToFill,
     hasRender: !!latestRender?.hasOutput,
   };
 
@@ -87,6 +88,7 @@ export function EditorWorkspace({
               musicTrackTitle={musicTrackTitle}
               lengthSec={project.lengthSec}
               aspect={project.aspect}
+              loopToFill={project.loopToFill}
             />
           </div>
 
