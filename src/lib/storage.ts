@@ -95,13 +95,33 @@ export async function getObjectBytes(key: string): Promise<Uint8Array> {
   return (out.Body as unknown as { transformToByteArray: () => Promise<Uint8Array> }).transformToByteArray();
 }
 
-/** Fetch an object as a web stream (for proxied downloads through the app). */
+/**
+ * Fetch an object as a web stream (for proxied downloads through the app). Pass the request's
+ * AbortSignal so a client disconnect cancels the S3 read; the returned stream is wrapped so a
+ * client abort can't throw "Controller is already closed" up as an uncaught exception.
+ */
 export async function getObject(
   key: string,
+  signal?: AbortSignal,
 ): Promise<{ body: ReadableStream; contentType?: string; size?: number }> {
-  const out = await s3().send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }));
-  const body = (
-    out.Body as unknown as { transformToWebStream: () => ReadableStream }
+  const out = await s3().send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }), { abortSignal: signal });
+  const src = (
+    out.Body as unknown as { transformToWebStream: () => ReadableStream<Uint8Array> }
   ).transformToWebStream();
+  const reader = src.getReader();
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) controller.close();
+        else controller.enqueue(value);
+      } catch {
+        try { controller.close(); } catch { /* already closed on abort */ }
+      }
+    },
+    cancel(reason) {
+      reader.cancel(reason).catch(() => {});
+    },
+  });
   return { body, contentType: out.ContentType, size: out.ContentLength };
 }

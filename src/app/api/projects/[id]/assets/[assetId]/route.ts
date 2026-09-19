@@ -38,7 +38,7 @@ export async function GET(
   }
 
   // Serve the reprojected flat clip for 360 files; the raw .insv isn't browser-playable.
-  const { body, contentType } = await getObject(row.convertedKey ?? row.key);
+  const { body, contentType } = await getObject(row.convertedKey ?? row.key, _req.signal);
   return new NextResponse(body, {
     headers: {
       "content-type": contentType ?? "application/octet-stream",

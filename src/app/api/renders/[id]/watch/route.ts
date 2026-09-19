@@ -18,7 +18,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     return new NextResponse("not found", { status: 404 });
   }
 
-  const { body, contentType } = await getObject(row.key);
+  const { body, contentType } = await getObject(row.key, _req.signal);
   return new NextResponse(body, {
     headers: {
       "content-type": contentType ?? "video/mp4",

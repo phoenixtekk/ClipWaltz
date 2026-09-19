@@ -35,7 +35,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   // Name the download after the Style Title (falls back to the project title).
   const base = (row.titleText || row.title || "clipwaltz").trim().replace(/[^a-zA-Z0-9._ -]/g, "_").slice(0, 100) || "clipwaltz";
-  const { body, contentType } = await getObject(row.key);
+  const { body, contentType } = await getObject(row.key, _req.signal);
   return new NextResponse(body, {
     headers: {
       "content-type": contentType ?? "video/mp4",

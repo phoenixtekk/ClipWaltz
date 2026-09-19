@@ -25,7 +25,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ trackId: strin
 
   if (!track) return new NextResponse("not found", { status: 404 });
 
-  const { body, contentType } = await getObject(track.key);
+  const { body, contentType } = await getObject(track.key, _req.signal);
   return new NextResponse(body, {
     headers: {
       "content-type": contentType ?? "audio/mpeg",

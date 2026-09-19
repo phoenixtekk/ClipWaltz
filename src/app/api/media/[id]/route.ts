@@ -35,7 +35,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   if (!m) return new NextResponse("not found", { status: 404 });
 
   const converted = !!m.convertedKey;
-  const { body, contentType } = await getObject(m.convertedKey ?? m.key);
+  const { body, contentType } = await getObject(m.convertedKey ?? m.key, _req.signal);
   const headers: Record<string, string> = {
     "content-type": contentType ?? "application/octet-stream",
     "cache-control": "private, max-age=3600",
