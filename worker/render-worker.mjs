@@ -249,7 +249,9 @@ async function convertMedia(m) {
       if (path.length) {
         const cmds = path.map((p) => `${p.t.toFixed(2)} v360@rf yaw ${p.yaw.toFixed(1)};`).join("\n");
         writeFileSync(join(dir, "cmds.txt"), cmds);
-        vf = `${hstack}sendcmd=f=${fwd(join(dir, "cmds.txt"))},v360@rf=input=${proj.replace(":", ":output=flat:")}:h_fov=110:v_fov=100:w=1920:h=1080`;
+        // Two-stage: level the equirect first (roll only levels at yaw=0), then reframe by yaw.
+        const level = `v360=${proj.replace(":", ":e:")}`; // e.g. dfisheye:e:...:roll=90
+        vf = `${hstack}${level},sendcmd=f=${fwd(join(dir, "cmds.txt"))},v360@rf=input=e:output=flat:h_fov=110:v_fov=100:w=1920:h=1080`;
       }
     }
     if (!vf) vf = `${hstack}v360=${proj.replace(":", ":flat:")}:h_fov=110:v_fov=100:w=1920:h=1080`;
@@ -985,9 +987,9 @@ async function followtest() {
   const cmds = path.filter((p) => p.t <= secs).map((p) => `${p.t.toFixed(2)} v360@rf yaw ${p.yaw.toFixed(1)};`).join("\n");
   writeFileSync(join(dir, "cmds.txt"), cmds);
   const hstack = streams >= 2 ? "[0:v:0][0:v:1]hstack=inputs=2," : "[0:v:0]";
-  const projIn = streams >= 2 ? "input=dfisheye:output=flat:ih_fov=200:iv_fov=200:roll=90" : "input=fisheye:output=flat:ih_fov=200:iv_fov=200";
+  const level = streams >= 2 ? "v360=dfisheye:e:ih_fov=200:iv_fov=200:roll=90" : "v360=fisheye:e:ih_fov=200:iv_fov=200";
   const out = "/tmp/followtest.mp4";
-  await ffmpeg(["-t", String(secs), "-i", src, "-filter_complex", `${hstack}sendcmd=f=${fwd(join(dir, "cmds.txt"))},v360@rf=${projIn}:h_fov=110:v_fov=100:w=1280:h=720,format=yuv420p[v]`, "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p", "-c:a", "aac", out]);
+  await ffmpeg(["-t", String(secs), "-i", src, "-filter_complex", `${hstack}${level},sendcmd=f=${fwd(join(dir, "cmds.txt"))},v360@rf=input=e:output=flat:h_fov=110:v_fov=100:w=1280:h=720,format=yuv420p[v]`, "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p", "-c:a", "aac", out]);
   console.log(`[followtest] → ${out} dur=${(await probe(out)).toFixed(1)}s`);
   rmSync(dir, { recursive: true, force: true });
   await sql.end();
