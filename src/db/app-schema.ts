@@ -91,6 +91,7 @@ export const media = pgTable("media", {
   convertedKey: text(), // flat mp4/jpg for 360 sources
   sourceFormat: text(), // insv | lrv | insp | null
   conversionState: text().notNull().default("ready"), // ready | pending | converting | failed
+  reframeMode: text().notNull().default("flat"), // 360 reframe: flat | follow | tiny
   sizeBytes: integer(),
   durationSec: real(),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(), // imported at

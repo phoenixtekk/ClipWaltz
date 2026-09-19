@@ -1,0 +1,1 @@
+ALTER TABLE "media" ADD COLUMN "reframe_mode" text DEFAULT 'flat' NOT NULL;

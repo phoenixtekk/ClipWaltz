@@ -177,46 +177,107 @@ async function probeVideoStreams(file) {
   }
 }
 
-// Reproject a 360 file (Insta360 .insv/.lrv/.insp) to a flat clip/photo using ffmpeg v360.
-// Dual-fisheye (2 streams) → hstack → dfisheye; single fisheye → fisheye. No Insta360 Studio.
-async function convertAsset(a) {
+// Motion-driven yaw path (deg over time) for AutoReframe "follow": sample small equirect
+// frames, track the busiest horizontal region, smooth + rate-limit into a pan. [] on failure.
+async function computeYawPath(src, streams) {
+  const W = 64, H = 32, FPS = 2;
+  const hstack = streams >= 2 ? "[0:v:0][0:v:1]hstack=inputs=2," : "[0:v:0]";
+  const proj = streams >= 2 ? "v360=dfisheye:e:ih_fov=200:iv_fov=200:roll=90" : "v360=fisheye:e:ih_fov=200:iv_fov=200";
+  try {
+    const { stdout } = await run(
+      "ffmpeg",
+      ["-i", src, "-filter_complex", `${hstack}${proj},scale=${W}:${H},format=gray,fps=${FPS}`, "-f", "rawvideo", "-"],
+      { maxBuffer: 1024 * 1024 * 512, encoding: "buffer" },
+    );
+    const buf = Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout, "binary");
+    const frameSize = W * H;
+    const nFrames = Math.floor(buf.length / frameSize);
+    if (nFrames < 2) return [];
+    const raw = [];
+    for (let f = 1; f < nFrames; f++) {
+      const off = f * frameSize;
+      const prev = (f - 1) * frameSize;
+      const col = new Array(W).fill(0);
+      for (let y = 0; y < H; y++) {
+        const row = off + y * W;
+        const prow = prev + y * W;
+        for (let x = 0; x < W; x++) col[x] += Math.abs(buf[row + x] - buf[prow + x]);
+      }
+      let peak = 0;
+      for (let x = 1; x < W; x++) if (col[x] > col[peak]) peak = x; // argmax column
+      raw.push({ t: f / FPS, yaw: (peak / W) * 360 - 180 });
+    }
+    // smooth (moving average) + rate-limit for a natural pan
+    const out = [];
+    const win = 4;
+    const maxStep = 20 / FPS;
+    for (let i = 0; i < raw.length; i++) {
+      let s = 0, c = 0;
+      for (let j = Math.max(0, i - win); j <= Math.min(raw.length - 1, i + win); j++) { s += raw[j].yaw; c++; }
+      let yaw = s / c;
+      if (out.length) {
+        const p = out[out.length - 1].yaw;
+        yaw = Math.max(p - maxStep, Math.min(p + maxStep, yaw));
+      }
+      out.push({ t: raw[i].t, yaw });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+// Reproject a library media file (Insta360 .insv/.lrv/.insp) to a flat clip/photo per its
+// reframeMode (flat | follow | tiny) using ffmpeg v360. Convert once, reuse across projects.
+async function convertMedia(m) {
   const dir = mkdtempSync(join(tmpdir(), "cw-conv-"));
   try {
-    const inExt = (a.original_name?.split(".").pop() ?? "bin").replace(/[^a-z0-9]/gi, "") || "bin";
+    const inExt = (m.original_name?.split(".").pop() ?? "bin").replace(/[^a-z0-9]/gi, "") || "bin";
     const src = join(dir, `src.${inExt}`);
-    await download(a.storage_key, src);
-    const isPhoto = a.source_format === "insp" || a.kind === "photo";
+    await download(m.storage_key, src);
+    const isPhoto = m.source_format === "insp" || m.kind === "photo";
     const streams = await probeVideoStreams(src);
-    // roll=90 levels typical Insta360 dual-fisheye footage (no gyro/auto-level in ffmpeg).
-    const proj =
-      streams >= 2
-        ? "[0:v:0][0:v:1]hstack=inputs=2,v360=dfisheye:flat:ih_fov=200:iv_fov=200:h_fov=110:v_fov=100:roll=90:w=1920:h=1080"
-        : "[0:v:0]v360=fisheye:flat:ih_fov=200:iv_fov=200:h_fov=110:v_fov=100:w=1920:h=1080";
+    const mode = m.reframe_mode || "flat";
+    const hstack = streams >= 2 ? "[0:v:0][0:v:1]hstack=inputs=2," : "[0:v:0]";
+    const proj = streams >= 2 ? "dfisheye:ih_fov=200:iv_fov=200:roll=90" : "fisheye:ih_fov=200:iv_fov=200";
+
+    let vf;
+    if (mode === "tiny") {
+      vf = `${hstack}v360=${proj.replace(":", ":ball:")}:w=1080:h=1080`; // little-planet
+    } else if (mode === "follow" && !isPhoto) {
+      const path = await computeYawPath(src, streams);
+      if (path.length) {
+        const cmds = path.map((p) => `${p.t.toFixed(2)} v360@rf yaw ${p.yaw.toFixed(1)};`).join("\n");
+        writeFileSync(join(dir, "cmds.txt"), cmds);
+        vf = `${hstack}sendcmd=f=${fwd(join(dir, "cmds.txt"))},v360@rf=input=${proj.replace(":", ":output=flat:")}:h_fov=110:v_fov=100:w=1920:h=1080`;
+      }
+    }
+    if (!vf) vf = `${hstack}v360=${proj.replace(":", ":flat:")}:h_fov=110:v_fov=100:w=1920:h=1080`;
 
     let outKey;
     if (isPhoto) {
       const out = join(dir, "flat.jpg");
-      await ffmpeg(["-i", src, "-filter_complex", `${proj},format=yuvj420p`, "-frames:v", "1", "-q:v", "3", out]);
-      outKey = `projects/${a.project_id}/${a.id}-flat.jpg`;
+      await ffmpeg(["-i", src, "-filter_complex", `${vf},format=yuvj420p`, "-frames:v", "1", "-q:v", "3", out]);
+      outKey = `media/${m.id}-flat.jpg`;
       await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: outKey, Body: readFileSync(out), ContentType: "image/jpeg" }));
-      await sql`update assets set converted_key=${outKey}, conversion_state='ready', kind='photo' where id=${a.id}`;
-      if (a.media_id) await sql`update media set converted_key=${outKey}, conversion_state='ready', kind='photo' where id=${a.media_id}`;
+      await sql`update media set converted_key=${outKey}, conversion_state='ready', kind='photo' where id=${m.id}`;
+      await sql`update assets set converted_key=${outKey}, conversion_state='ready', kind='photo' where media_id=${m.id}`;
     } else {
       const out = join(dir, "flat.mp4");
       await ffmpeg([
         "-i", src,
-        "-filter_complex", `${proj},format=yuv420p[v]`,
+        "-filter_complex", `${vf},format=yuv420p[v]`,
         "-map", "[v]", "-map", "0:a?",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "192k",
         out,
       ]);
-      outKey = `projects/${a.project_id}/${a.id}-flat.mp4`;
+      outKey = `media/${m.id}-flat.mp4`;
       await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: outKey, Body: readFileSync(out), ContentType: "video/mp4" }));
-      await sql`update assets set converted_key=${outKey}, conversion_state='ready', kind='video' where id=${a.id}`;
-      if (a.media_id) await sql`update media set converted_key=${outKey}, conversion_state='ready', kind='video' where id=${a.media_id}`;
+      await sql`update media set converted_key=${outKey}, conversion_state='ready', kind='video' where id=${m.id}`;
+      await sql`update assets set converted_key=${outKey}, conversion_state='ready', kind='video' where media_id=${m.id}`;
     }
-    console.log(`[worker] converted 360 asset ${a.id} (${streams} lens) → ${outKey}`);
+    console.log(`[worker] converted 360 media ${m.id} (${streams} lens, ${mode}) → ${outKey}`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -224,20 +285,21 @@ async function convertAsset(a) {
 
 async function claimConversion() {
   const rows = await sql`
-    update assets set conversion_state='converting'
-    where id = (select id from assets where conversion_state='pending' and upload_state='uploaded'
+    update media set conversion_state='converting'
+    where id = (select id from media where conversion_state='pending'
                 order by created_at asc limit 1 for update skip locked)
     returning *`;
   return rows[0] ?? null;
 }
 async function convTick() {
-  const a = await claimConversion();
-  if (!a) return false;
+  const m = await claimConversion();
+  if (!m) return false;
   try {
-    await convertAsset(a);
+    await convertMedia(m);
   } catch (e) {
-    console.error(`[worker] convert ${a.id} FAILED:`, e.message);
-    await sql`update assets set conversion_state='failed' where id=${a.id}`;
+    console.error(`[worker] convert media ${m.id} FAILED:`, e.message);
+    await sql`update media set conversion_state='failed' where id=${m.id}`;
+    await sql`update assets set conversion_state='failed' where media_id=${m.id}`;
   }
   return true;
 }
@@ -908,7 +970,31 @@ async function convtest() {
   await sql.end();
 }
 
+// Diagnostic: `--followtest <insv> [seconds]` computes the auto-follow yaw path and renders
+// a short follow-reframed clip to /tmp/followtest.mp4 (no DB).
+async function followtest() {
+  const i = process.argv.indexOf("--followtest");
+  const src = process.argv[i + 1];
+  const secs = Number(process.argv[i + 2]) || 20;
+  if (!src) { console.error("usage: --followtest <insv> [seconds]"); process.exit(2); }
+  const streams = await probeVideoStreams(src);
+  const path = await computeYawPath(src, streams);
+  const yaws = path.map((p) => p.yaw);
+  console.log(`[followtest] streams=${streams} path=${path.length} yaw[min/max]=${yaws.length ? Math.min(...yaws).toFixed(0) + "/" + Math.max(...yaws).toFixed(0) : "n/a"}`);
+  const dir = mkdtempSync(join(tmpdir(), "cw-ft-"));
+  const cmds = path.filter((p) => p.t <= secs).map((p) => `${p.t.toFixed(2)} v360@rf yaw ${p.yaw.toFixed(1)};`).join("\n");
+  writeFileSync(join(dir, "cmds.txt"), cmds);
+  const hstack = streams >= 2 ? "[0:v:0][0:v:1]hstack=inputs=2," : "[0:v:0]";
+  const projIn = streams >= 2 ? "input=dfisheye:output=flat:ih_fov=200:iv_fov=200:roll=90" : "input=fisheye:output=flat:ih_fov=200:iv_fov=200";
+  const out = "/tmp/followtest.mp4";
+  await ffmpeg(["-t", String(secs), "-i", src, "-filter_complex", `${hstack}sendcmd=f=${fwd(join(dir, "cmds.txt"))},v360@rf=${projIn}:h_fov=110:v_fov=100:w=1280:h=720,format=yuv420p[v]`, "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p", "-c:a", "aac", out]);
+  console.log(`[followtest] → ${out} dur=${(await probe(out)).toFixed(1)}s`);
+  rmSync(dir, { recursive: true, force: true });
+  await sql.end();
+}
+
 async function main() {
+  if (process.argv.includes("--followtest")) return followtest();
   if (process.argv.includes("--selftest")) return selftest();
   if (process.argv.includes("--waltztest")) return waltztest();
   if (process.argv.includes("--overlaytest")) return overlaytest();

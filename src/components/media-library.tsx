@@ -5,7 +5,9 @@ import { Download, Trash2, Film, Image as ImageIcon, Loader2, Pencil, FolderPlus
 import { toast } from "sonner";
 import { cn } from "cn";
 import type { MediaItem } from "@/lib/media";
-import { addMediaToProject, deleteMedia, renameMedia } from "@/lib/media-actions";
+import { addMediaToProject, deleteMedia, renameMedia, setReframeMode } from "@/lib/media-actions";
+
+const REFRAME_LABELS: Record<string, string> = { flat: "Front", follow: "Auto-follow", tiny: "Tiny Planet" };
 
 type Tab = "all" | "video" | "photo" | "360" | "unused";
 const TABS: { key: Tab; label: string }[] = [
@@ -108,6 +110,22 @@ export function MediaLibrary({
                   <p className="text-[11px] text-muted-foreground">
                     {fmtDate(m.createdAt)}{m.sizeBytes ? ` · ${fmtSize(m.sizeBytes)}` : ""} · used in {m.usedIn}
                   </p>
+                  {m.sourceFormat ? (
+                    <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                      360:
+                      <select
+                        aria-label="360 reframe mode"
+                        value={m.reframeMode}
+                        disabled={pending || !!converting}
+                        onChange={(e) => act(() => setReframeMode(m.id, e.target.value), "Could not change reframe.")}
+                        className="h-6 flex-1 rounded border border-border bg-background px-1 text-[11px] outline-none focus:border-primary disabled:opacity-60"
+                      >
+                        {Object.entries(REFRAME_LABELS).map(([k, v]) => (
+                          <option key={k} value={k}>{v}</option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
                   <div className="mt-auto flex items-center gap-1 pt-1.5">
                     <a
                       href={`/api/media/${m.id}?download=1`}

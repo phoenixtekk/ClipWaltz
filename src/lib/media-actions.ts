@@ -60,6 +60,25 @@ export async function renameMedia(mediaId: string, name: string): Promise<void> 
   revalidatePath("/library");
 }
 
+const REFRAME_MODES = new Set(["flat", "follow", "tiny"]);
+
+/** Change the 360 reframe mode of a file and re-convert it (worker picks it up). */
+export async function setReframeMode(mediaId: string, mode: string): Promise<void> {
+  const userId = await requireUserId();
+  const m = await ownedMedia(userId, mediaId);
+  if (!m) throw new Error("File not found");
+  if (!m.sourceFormat) throw new Error("Not a 360 file");
+  if (!REFRAME_MODES.has(mode)) throw new Error("Unknown mode");
+  if (m.reframeMode === mode) return;
+  await db
+    .update(schema.media)
+    .set({ reframeMode: mode, conversionState: "pending" })
+    .where(eq(schema.media.id, m.id));
+  // Exclude its placements from renders until the re-conversion completes.
+  await db.update(schema.assets).set({ conversionState: "pending" }).where(eq(schema.assets.mediaId, m.id));
+  revalidatePath("/library");
+}
+
 /** Delete a library file: removes the object(s) and every project placement (cascade). */
 export async function deleteMedia(mediaId: string): Promise<void> {
   const userId = await requireUserId();
