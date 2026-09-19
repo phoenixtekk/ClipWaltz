@@ -150,7 +150,7 @@ export function DraftPreview({
             </div>
           ) : current?.kind === "video" ? (
             <video
-              key={current.id}
+              key={index}
               ref={videoRef}
               src={`/api/projects/${projectId}/assets/${current.id}`}
               muted
@@ -161,7 +161,7 @@ export function DraftPreview({
           ) : current ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              key={current.id}
+              key={index}
               src={`/api/projects/${projectId}/assets/${current.id}`}
               alt={current.name}
               className="h-full w-full object-cover"
@@ -180,7 +180,7 @@ export function DraftPreview({
             <div className="absolute inset-x-2 top-2 flex gap-1">
               {clips.map((c, i) => (
                 <div
-                  key={c.id}
+                  key={i}
                   className="h-0.5 flex-1 overflow-hidden rounded-full bg-white/30"
                 >
                   <div

@@ -19,11 +19,24 @@ export function buildDraftTimeline(
 ): { clips: DraftClip[]; totalSec: number } {
   const clips: DraftClip[] = [];
   let total = 0;
+  const cap = lengthSec > 0 ? lengthSec : Infinity;
   for (const a of assets) {
-    const remaining = lengthSec > 0 ? lengthSec - total : Infinity;
-    if (remaining <= 0) break;
+    if (cap - total <= 0) break;
     const full = a.kind === "video" ? DRAFT_PER_VIDEO_SEC : DRAFT_PER_IMAGE_SEC;
-    const durationSec = Math.min(full, remaining);
+    const durationSec = Math.min(full, cap - total);
+    clips.push({ id: a.id, kind: a.kind, name: a.name, durationSec });
+    total += durationSec;
+  }
+  // Fill toward the target length by cycling the clips (the worker tiles video windows; the
+  // low-res draft just replays clips so the length/pacing preview matches the final render).
+  const MAX_CLIPS = 400;
+  let i = 0;
+  while (cap !== Infinity && total < cap - 0.4 && assets.length > 0 && clips.length < MAX_CLIPS) {
+    const a = assets[i % assets.length];
+    i++;
+    const full = a.kind === "video" ? DRAFT_PER_VIDEO_SEC : DRAFT_PER_IMAGE_SEC;
+    const durationSec = Math.min(full, cap - total);
+    if (durationSec < 0.4) break;
     clips.push({ id: a.id, kind: a.kind, name: a.name, durationSec });
     total += durationSec;
   }

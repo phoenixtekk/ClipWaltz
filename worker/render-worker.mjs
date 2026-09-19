@@ -531,8 +531,38 @@ async function buildTimeline(assets, beats, lengthSec, beatSync, smartCut, srcDu
     }
   }
 
-  // Resolve active-moment offsets for video slots.
+  // Fill toward the target length. When there isn't enough content to reach `cap` (e.g. one
+  // short clip), keep adding segments by cycling the assets and — for videos — walking DIFFERENT
+  // windows across the clip (tiling), so a single video becomes a montage of its own moments.
+  let total = slots.reduce((s, x) => s + x.dur, 0);
+  if (cap !== Infinity && assets.length > 0 && total < cap - 0.4) {
+    const fillDur = Math.max(1.5, Math.min(4, slots.length ? total / slots.length : PER_VIDEO));
+    const MAX_SLOTS = 400;
+    const vcur = new Map(); // per-video tiling cursor (window index)
+    let i = 0;
+    while (total < cap - 0.4 && slots.length < MAX_SLOTS) {
+      const a = assets[i % assets.length];
+      i++;
+      let dur = Math.min(fillDur, cap - total);
+      if (dur < 0.4) break;
+      let offset = 0;
+      if (a.kind === "video") {
+        const D = srcDurs.get(a.storage_key) ?? 0;
+        if (D > dur) {
+          const nWin = Math.max(1, Math.floor(D / dur));
+          const w = vcur.get(a.storage_key) ?? 0;
+          offset = Math.min(D - dur, w * dur);
+          vcur.set(a.storage_key, (w + 1) % nWin);
+        }
+      }
+      slots.push({ asset: a, dur, offset }); // offset preset → skipped by the resolver below
+      total += dur;
+    }
+  }
+
+  // Resolve active-moment offsets for video slots that don't already have a (tiled) offset.
   for (const s of slots) {
+    if (s.offset !== undefined) continue;
     if (s.asset.kind === "video" && smartCut) {
       s.offset = await pickWindow(s.asset._src, s.dur, srcDurs.get(s.asset.storage_key) ?? 0);
     } else {
