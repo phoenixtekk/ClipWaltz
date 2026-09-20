@@ -63,7 +63,7 @@ export function OverlayEditor({
   }
 
   function addText() {
-    const o: Overlay = { id: uid(), type: "text", content: "Your text", x: 0.5, y: 0.5, size: 0.09, color: "#ffffff", box: true, start: null, end: null, anim: "fade", beatSnap: false };
+    const o: Overlay = { id: uid(), type: "text", content: "Your text", x: 0.5, y: 0.15, size: 0.09, color: "#ffffff", box: true, start: null, end: null, anim: "fade", beatSnap: false };
     update([...overlays, o]);
     setSelected(o.id);
   }

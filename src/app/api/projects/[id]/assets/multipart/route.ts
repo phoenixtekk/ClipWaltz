@@ -81,6 +81,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     try {
       await completeMultipart(asset.key, body.uploadId, body.parts);
     } catch (err) {
+      console.error(`[multipart] complete failed key=${asset.key} parts=${body.parts.length}:`, (err as Error).message);
       return NextResponse.json({ error: `storage error: ${(err as Error).message}` }, { status: 502 });
     }
     const conv = asset.sourceFormat ? "pending" : "ready";

@@ -8,6 +8,7 @@ export type ProjectStatus = "draft" | "rendering" | "ready" | "failed";
 export type ProjectSummary = {
   id: string;
   title: string;
+  titleText: string | null; // the Style Title / caption — shown on cards to tell projects apart
   status: ProjectStatus;
   aspect: string;
   clips?: number; // uploaded asset count (populated by listProjects)
@@ -88,6 +89,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
   return rows.map((r) => ({
     id: r.id,
     title: r.title,
+    titleText: r.titleText,
     status: r.status as ProjectStatus,
     aspect: r.aspect,
     clips: clipMap.get(r.id) ?? 0,

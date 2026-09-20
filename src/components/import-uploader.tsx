@@ -21,7 +21,8 @@ type Tab = "drop" | "pick" | "phone";
 // smaller ones use a single POST. S3/MinIO requires parts ≥ 5MB (except the last).
 const MULTIPART_THRESHOLD = 8 * 1024 * 1024;
 const PART_SIZE = 8 * 1024 * 1024;
-const PART_RETRIES = 3;
+const PART_RETRIES = 5; // survive transient tunnel/network hiccups on long uploads
+const PART_TIMEOUT_MS = 120000; // a stalled part aborts and retries instead of hanging forever
 
 type ResumeState = { assetId: string; uploadId: string; parts: Record<number, string> };
 function lsGet(key: string): ResumeState | null {
@@ -90,12 +91,15 @@ export function ImportUploader({
     xhr.onload = () => {
       const ok = xhr.status >= 200 && xhr.status < 300;
       setStatus(localId, ok ? "done" : "error", ok ? 100 : undefined);
-      if (!ok) toast.error(`Upload failed: ${file.name}`);
-      else router.refresh();
+      if (!ok) {
+        const reason = `HTTP ${xhr.status} ${(xhr.responseText || "").slice(0, 160)}`;
+        console.error(`[upload] ${file.name} failed:`, reason);
+        toast.error(`Upload failed: ${file.name} — ${reason}`);
+      } else router.refresh();
     };
     xhr.onerror = () => {
       setStatus(localId, "error");
-      toast.error(`Upload failed: ${file.name}`);
+      toast.error(`Upload failed: ${file.name} — network error`);
     };
     xhr.send(file);
   }
@@ -113,6 +117,7 @@ export function ImportUploader({
         const q = new URLSearchParams({ uploadId, partNumber: String(partNumber) });
         const xhr = new XMLHttpRequest();
         xhr.open("PUT", `/api/projects/${projectId}/assets/${assetId}/part?${q.toString()}`);
+        xhr.timeout = PART_TIMEOUT_MS;
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable) onProgress(e.loaded);
         };
@@ -124,13 +129,18 @@ export function ImportUploader({
               reject(new Error("bad part response"));
             }
           } else {
-            reject(new Error(`part ${partNumber} http ${xhr.status}`));
+            // include the server's message (e.g. "storage error: …") so the cause is visible
+            reject(new Error(`part ${partNumber}: HTTP ${xhr.status} ${(xhr.responseText || "").slice(0, 160)}`));
           }
         };
-        xhr.onerror = () => reject(new Error(`part ${partNumber} network error`));
+        xhr.onerror = () => reject(new Error(`part ${partNumber}: network error`));
+        xhr.ontimeout = () => reject(new Error(`part ${partNumber}: timed out`));
         xhr.send(chunk);
       }).catch((err) => {
-        if (tryNo < PART_RETRIES) return new Promise<string>((r) => setTimeout(r, 800 * tryNo)).then(() => attempt(tryNo + 1));
+        if (tryNo < PART_RETRIES) {
+          const backoff = Math.min(8000, 800 * 2 ** (tryNo - 1)) + Math.random() * 400; // exp backoff + jitter
+          return new Promise<string>((r) => setTimeout(r, backoff)).then(() => attempt(tryNo + 1));
+        }
         throw err;
       });
     return attempt(1);
@@ -147,7 +157,7 @@ export function ImportUploader({
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ action: "init", name: file.name, type }),
         });
-        if (!res.ok) throw new Error("init failed");
+        if (!res.ok) throw new Error(`init: HTTP ${res.status} ${(await res.text().catch(() => "")).slice(0, 160)}`);
         const j = (await res.json()) as { assetId: string; uploadId: string };
         state = { assetId: j.assetId, uploadId: j.uploadId, parts: {} };
         lsSet(lsKey, state);
@@ -181,13 +191,15 @@ export function ImportUploader({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "complete", assetId: state.assetId, uploadId: state.uploadId, parts }),
       });
-      if (!cres.ok) throw new Error("complete failed");
+      if (!cres.ok) throw new Error(`complete: HTTP ${cres.status} ${(await cres.text().catch(() => "")).slice(0, 160)}`);
       lsDel(lsKey);
       setStatus(localId, "done", 100);
       router.refresh();
-    } catch {
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : "unknown error";
+      console.error(`[upload] ${file.name} failed:`, reason);
       setStatus(localId, "error");
-      toast.error(`Upload failed: ${file.name} — retry to resume`);
+      toast.error(`Upload failed: ${file.name} — ${reason}. Re-add the file to resume.`);
     }
   }
 

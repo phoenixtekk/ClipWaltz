@@ -1,11 +1,14 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, X, Film, Image as ImageIcon, GripVertical, ListVideo, Loader2 } from "lucide-react";
+import { Plus, X, Film, Image as ImageIcon, GripVertical, ListVideo, Loader2, CheckCircle2, AlertCircle, UploadCloud } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import type { AssetSummary } from "@/lib/assets";
 import { reorderAssets, deleteAsset } from "@/lib/asset-actions";
+import { uploadProjectFile, isSupported } from "@/lib/upload-client";
+
+type InsertStatus = "uploading" | "done" | "error";
 
 const PX_PER_SEC = 34;
 const PHOTO_SEC = 2;
@@ -30,7 +33,10 @@ export function ProjectTimeline({
   const [overIdx, setOverIdx] = useState<number | null>(null);
   const [insertAt, setInsertAt] = useState<number | null>(null);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
+  const [status, setStatus] = useState<InsertStatus | null>(null);
+  const [statusName, setStatusName] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // keep local order in sync if the server list changes length (add/remove elsewhere)
   const [sig, setSig] = useState(assets.map((a) => a.id).join(","));
@@ -84,50 +90,55 @@ export function ProjectTimeline({
     fileRef.current?.click();
   }
 
-  function onFilePicked(file: File | undefined) {
+  async function onFilePicked(file: File | undefined) {
     if (!file || insertAt == null) return;
     const idx = insertAt;
-    const type = file.type || "application/octet-stream";
-    if (!type.startsWith("image/") && !type.startsWith("video/")) {
-      toast.error("Choose an image or video.");
+    if (!isSupported(file)) {
+      toast.error("Choose an image, video, or Insta360 file (.insv/.lrv/.insp).");
+      setInsertAt(null);
       return;
     }
-    const q = new URLSearchParams({ name: file.name, type });
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", `/api/projects/${projectId}/assets?${q.toString()}`);
+    if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+    setStatusName(file.name);
+    setStatus("uploading");
     setUploadPct(0);
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) setUploadPct(Math.round((e.loaded / e.total) * 100));
-    };
-    xhr.onload = () => {
+    try {
+      const res = await uploadProjectFile(projectId, file, (pct) => setUploadPct(pct));
+      const inserted: AssetSummary = {
+        id: res.id,
+        name: file.name,
+        kind: res.kind,
+        uploadState: "uploaded",
+        orderIndex: idx,
+        sourceFormat: res.sourceFormat ?? null,
+        conversionState: res.conversionState ?? "ready",
+      };
+      const next = [...order];
+      next.splice(idx, 0, inserted);
+      commit(next);
+      setUploadPct(100);
+      setStatus("done");
+      toast.success(`Inserted ${file.name}`);
+      // auto-dismiss the success banner after a few seconds
+      clearTimerRef.current = setTimeout(() => {
+        setStatus(null);
+        setStatusName(null);
+        setUploadPct(null);
+      }, 4000);
+    } catch (err) {
+      setStatus("error");
       setUploadPct(null);
+      toast.error(`Insert failed: ${file.name}${err instanceof Error ? ` — ${err.message}` : ""}`);
+    } finally {
       setInsertAt(null);
-      if (xhr.status < 200 || xhr.status >= 300) {
-        toast.error(`Upload failed: ${file.name}`);
-        return;
-      }
-      try {
-        const { id, kind, sourceFormat, conversionState } = JSON.parse(xhr.responseText) as {
-          id: string; kind: string; sourceFormat: string | null; conversionState: string;
-        };
-        const inserted: AssetSummary = {
-          id, name: file.name, kind, uploadState: "uploaded", orderIndex: idx,
-          sourceFormat: sourceFormat ?? null, conversionState: conversionState ?? "ready",
-        };
-        const next = [...order];
-        next.splice(idx, 0, inserted);
-        commit(next);
-        toast.success(`Inserted ${file.name}`);
-      } catch {
-        router.refresh();
-      }
-    };
-    xhr.onerror = () => {
-      setUploadPct(null);
-      setInsertAt(null);
-      toast.error(`Upload failed: ${file.name}`);
-    };
-    xhr.send(file);
+    }
+  }
+
+  function dismissStatus() {
+    if (clearTimerRef.current) clearTimeout(clearTimerRef.current);
+    setStatus(null);
+    setStatusName(null);
+    setUploadPct(null);
   }
 
   return (
@@ -144,7 +155,7 @@ export function ProjectTimeline({
       <input
         ref={fileRef}
         type="file"
-        accept="image/*,video/*"
+        accept="image/*,video/*,.insv,.lrv,.insp"
         hidden
         onChange={(e) => {
           onFilePicked(e.target.files?.[0]);
@@ -152,14 +163,67 @@ export function ProjectTimeline({
         }}
       />
 
+      {status && (
+        <div
+          className={cn(
+            "flex items-center gap-3 rounded-lg border px-3 py-2 text-sm",
+            status === "uploading" && "border-[color:var(--cw-violet)]/40 bg-[color:var(--cw-violet)]/10",
+            status === "done" && "border-emerald-500/40 bg-emerald-500/10",
+            status === "error" && "border-destructive/40 bg-destructive/10",
+          )}
+          role="status"
+          aria-live="polite"
+        >
+          {status === "uploading" ? (
+            <UploadCloud className="size-4 shrink-0 animate-pulse text-[color:var(--cw-violet)]" />
+          ) : status === "done" ? (
+            <CheckCircle2 className="size-4 shrink-0 text-emerald-500" />
+          ) : (
+            <AlertCircle className="size-4 shrink-0 text-destructive" />
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate font-medium">
+                {status === "uploading"
+                  ? `Inserting ${statusName ?? "clip"}…`
+                  : status === "done"
+                    ? `Inserted ${statusName ?? "clip"} ✓`
+                    : `Insert failed${statusName ? `: ${statusName}` : ""}`}
+              </span>
+              <span className="shrink-0 tabular-nums text-xs text-muted-foreground">
+                {status === "uploading" && uploadPct != null ? `${uploadPct}%` : status === "error" ? "Tap + to retry" : ""}
+              </span>
+            </div>
+            {status === "uploading" && (
+              <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-[color:var(--cw-violet)] transition-[width] duration-200"
+                  style={{ width: `${uploadPct ?? 0}%` }}
+                />
+              </div>
+            )}
+          </div>
+          {status !== "uploading" && (
+            <button
+              type="button"
+              onClick={dismissStatus}
+              aria-label="Dismiss"
+              className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
+      )}
+
       {order.length === 0 ? (
         <div className="flex items-center gap-2 rounded-lg border border-dashed border-border p-4">
-          <InsertButton onClick={() => openInsert(0)} busy={uploadPct != null} pct={uploadPct} />
+          <InsertButton onClick={() => openInsert(0)} busy={status === "uploading"} pct={uploadPct} />
           <span className="text-sm text-muted-foreground">Insert your first clip.</span>
         </div>
       ) : (
         <div className="flex items-stretch gap-1 overflow-x-auto pb-2">
-          <Insert idx={0} overIdx={overIdx} setOverIdx={setOverIdx} onDropClip={onDrop} onInsert={openInsert} busy={uploadPct != null} pct={uploadPct} />
+          <Insert idx={0} overIdx={overIdx} setOverIdx={setOverIdx} onDropClip={onDrop} onInsert={openInsert} busy={status === "uploading"} pct={uploadPct} />
           {order.map((a, i) => (
             <div key={a.id} className="flex items-stretch gap-1">
               <div
@@ -205,12 +269,12 @@ export function ProjectTimeline({
                   <X className="size-3" />
                 </button>
               </div>
-              <Insert idx={i + 1} overIdx={overIdx} setOverIdx={setOverIdx} onDropClip={onDrop} onInsert={openInsert} busy={uploadPct != null} pct={uploadPct} />
+              <Insert idx={i + 1} overIdx={overIdx} setOverIdx={setOverIdx} onDropClip={onDrop} onInsert={openInsert} busy={status === "uploading"} pct={uploadPct} />
             </div>
           ))}
         </div>
       )}
-      <p className="text-xs text-muted-foreground">Drag a clip to reorder · tap + to insert an image or video at that spot.</p>
+      <p className="text-xs text-muted-foreground">Drag a clip to reorder · tap + to insert a photo, video, or Insta360 clip at that spot.</p>
     </section>
   );
 }

@@ -10,6 +10,7 @@ import type { Track } from "@/lib/music";
 import type { RenderStatus } from "@/lib/render";
 import { ProjectEditor } from "@/components/project-editor";
 import { ProjectTimeline } from "@/components/project-timeline";
+import { TitleCaptionField } from "@/components/title-caption-field";
 import { OverlayEditor } from "@/components/overlay-editor";
 import { DraftPreview } from "@/components/draft-preview";
 import { RenderPanel } from "@/components/render-panel";
@@ -52,7 +53,6 @@ export function EditorWorkspace({
     assets,
     lengthSec: project.lengthSec,
     aspect: project.aspect,
-    titleText: project.titleText,
     styleFilter: project.styleFilter,
     lightFx: project.lightFx,
     transition: project.transition,
@@ -114,7 +114,12 @@ export function EditorWorkspace({
             </div>
 
             <div>
-              {tab === "timeline" ? <ProjectTimeline projectId={projectId} assets={assets} /> : null}
+              {tab === "timeline" ? (
+                <div className="space-y-4">
+                  <TitleCaptionField projectId={projectId} initialTitle={project.titleText} />
+                  <ProjectTimeline projectId={projectId} assets={assets} />
+                </div>
+              ) : null}
               {tab === "clips" ? <ProjectEditor section="clips" {...editorProps} /> : null}
               {tab === "format" ? <ProjectEditor section="format" {...editorProps} /> : null}
               {tab === "style" ? <ProjectEditor section="style" {...editorProps} /> : null}

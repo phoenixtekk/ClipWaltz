@@ -46,6 +46,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   try {
     await putObject(key, buf, sourceFormat ? "application/octet-stream" : type);
   } catch (err) {
+    console.error(`[assets] putObject failed key=${key} bytes=${buf.byteLength}:`, (err as Error).message);
     return NextResponse.json(
       { error: `storage error: ${(err as Error).message}` },
       { status: 502 },

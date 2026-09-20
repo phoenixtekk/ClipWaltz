@@ -7,6 +7,7 @@ import { ImportUploader } from "@/components/import-uploader";
 import { GoogleImport } from "@/components/google-import";
 import { DropboxImport } from "@/components/dropbox-import";
 import { OneDriveImport } from "@/components/onedrive-import";
+import { ICloudImport } from "@/components/icloud-import";
 
 export const metadata = { title: "Import media" };
 
@@ -49,10 +50,11 @@ export default async function ImportPage({
           ) : null}
           <DropboxImport projectId={id} />
           <OneDriveImport projectId={id} />
+          <ICloudImport />
         </div>
         <p className="text-xs text-muted-foreground">
-          Pick from Google Photos, Dropbox, or OneDrive. On iPhone, use the file picker below —
-          iCloud Photos has no web import, but Safari&rsquo;s picker reaches your library.
+          Pick from Google Photos, Dropbox, or OneDrive. iCloud Photos has no third-party web API —
+          tap <b>iCloud Photos</b> for how to import it via the picker below.
         </p>
       </section>
 

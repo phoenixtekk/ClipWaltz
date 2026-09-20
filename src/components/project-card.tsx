@@ -49,6 +49,7 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
   const wide = project.aspect === "16:9";
   const editHref = `/projects/${project.id}/edit`;
   const clips = project.clips ?? 0;
+  const displayName = project.titleText?.trim() || project.title;
 
   function run(fn: () => Promise<unknown>, errMsg: string) {
     start(async () => {
@@ -82,15 +83,15 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
       )}
     >
       {/* clickable aspect-aware thumbnail */}
-      <Link href={editHref} className="block" aria-label={`Open ${project.title}`}>
+      <Link href={editHref} className="block" aria-label={`Open ${displayName}`}>
         <div
           className={cn(
             "relative flex items-center justify-center overflow-hidden bg-gradient-to-br from-[color:var(--cw-blue)]/20 via-[color:var(--cw-magenta)]/15 to-[color:var(--cw-coral)]/15",
             wide ? "aspect-[16/9]" : "aspect-[9/16]",
           )}
         >
-          <div className="flex size-11 items-center justify-center rounded-full bg-background/70 backdrop-blur-sm transition-transform group-hover:scale-110">
-            <Play className="size-4 translate-x-0.5 fill-foreground text-foreground" />
+          <div className="flex size-8 items-center justify-center rounded-full bg-background/70 backdrop-blur-sm transition-transform group-hover:scale-110">
+            <Play className="size-3.5 translate-x-0.5 fill-foreground text-foreground" />
           </div>
           <span
             className={cn(
@@ -106,10 +107,13 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
         </div>
       </Link>
 
-      <div className="flex items-center justify-between gap-2 p-3">
+      <div className="flex items-center justify-between gap-1 p-2">
         <Link href={editHref} className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium hover:text-primary">{project.title}</p>
-          <p className="text-xs text-muted-foreground">{relativeTime(project.updatedAt)}</p>
+          <p className="truncate text-xs font-medium hover:text-primary">{displayName}</p>
+          <p className="truncate text-[10px] text-muted-foreground">
+            {project.titleText?.trim() ? `${project.title} · ` : ""}
+            {relativeTime(project.updatedAt)}
+          </p>
         </Link>
         <DropdownMenu>
           <DropdownMenuTrigger

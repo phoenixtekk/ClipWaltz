@@ -1,13 +1,14 @@
 "use client";
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Download, Sparkles, AlertTriangle, Link as LinkIcon, Check, FileText, Copy } from "lucide-react";
+import { Loader2, Sparkles, AlertTriangle, Link as LinkIcon, Check, FileText, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { createRender } from "@/lib/render-actions";
 import { shareRender } from "@/lib/feed-actions";
 import { EnterContestButton } from "@/components/enter-contest";
+import { DownloadButton, DownloadFolderChip } from "@/components/download-controls";
 
 type R = { id: string; status: string; version: number; hasOutput: boolean; visibility: string; description?: string | null } | null;
 type Contest = { theme: string; entered: boolean } | null;
@@ -96,14 +97,14 @@ export function RenderPanel({
             <span className="font-medium">Your video is ready.</span>
           </div>
           <div className="flex items-center gap-2">
-            <Button render={<a href={`/api/renders/${render.id}/download`} />}>
-              <Download className="size-4" /> Download
-            </Button>
+            <DownloadButton url={`/api/renders/${render.id}/download`} fallbackName="clipwaltz-video.mp4" />
+            {render.description ? <CopyPostButton text={render.description} /> : null}
             <Button variant="outline" onClick={onRender} disabled={pending}>
               Re-render
             </Button>
           </div>
         </div>
+        <DownloadFolderChip />
         <div className="flex flex-wrap items-center gap-2 border-t border-emerald-600/20 pt-3 text-xs">
           <span className="text-muted-foreground">Share to the community:</span>
           {VIS.map(([k, l]) => (
@@ -177,6 +178,26 @@ export function RenderPanel({
   );
 }
 
+/** Copy the ready-to-post description; sits next to the Download button. */
+function CopyPostButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard?.writeText(text).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      },
+      () => toast.error("Could not copy the post text."),
+    );
+  }
+  return (
+    <Button variant="outline" onClick={copy} title="Copy the ready-to-post description">
+      {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+      {copied ? "Copied" : "Copy post"}
+    </Button>
+  );
+}
+
 function DescriptionBox({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   function copy() {
@@ -192,7 +213,7 @@ function DescriptionBox({ text }: { text: string }) {
     <div className="space-y-1.5 border-t border-emerald-600/20 pt-3">
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <FileText className="size-3.5" /> YouTube description
+          <FileText className="size-3.5" /> Ready-to-post description
         </span>
         <button
           type="button"
@@ -206,7 +227,7 @@ function DescriptionBox({ text }: { text: string }) {
       <textarea
         readOnly
         value={text}
-        rows={6}
+        rows={10}
         className="w-full resize-y rounded-lg border border-border bg-background p-2.5 text-xs leading-relaxed outline-none"
       />
     </div>

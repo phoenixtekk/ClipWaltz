@@ -48,6 +48,7 @@ export async function PUT(
     const etag = await uploadPart(row.key, uploadId, partNumber, buf);
     return NextResponse.json({ partNumber, etag });
   } catch (err) {
+    console.error(`[part] upload failed key=${row.key} part=${partNumber} bytes=${buf.byteLength}:`, (err as Error).message);
     return NextResponse.json({ error: `storage error: ${(err as Error).message}` }, { status: 502 });
   }
 }
