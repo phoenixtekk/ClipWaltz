@@ -75,6 +75,37 @@ Admin-run community contest; likes on entered public renders are votes.
 - **Close & crown:** `/admin` → **Close & crown winner**. The likes-leader is auto-granted **Pro for 30 days** (comp via `applyGrant`, same system as manual grants — visible in the Users table) and emailed. Closing with zero entries just closes it. Then start the next month's theme.
 - **Data:** `contests` + `contest_entries` (migration 0006). Winner is stored on the contest row (`winner_render_id`/`winner_user_id`). No cron — closing is manual by design.
 
+## Announcements & promos (admin content area)
+In-app marketing surface. `/admin` → **Announcements & promos** → **New announcement**.
+- **Fields:** title (required), body, image URL, CTA label + URL, **placement**
+  (`dashboard_banner` | `dashboard_card` | `community`), **audience** (`all` | `free` | `paid`),
+  **accent** (violet/blue/magenta/coral), and optional **starts/ends** scheduling window.
+- **Targeting:** `free` shows only to free-tier users (upsell), `paid` to any subscriber, `all` to
+  everyone. Filtering is by effective tier (`lib/tier.getEffectiveTier`).
+- **Lifecycle:** rows are **Live/Paused** (eye toggle) and deletable. Viewers can dismiss a card
+  (stored in their browser `localStorage`, key `cw-dismissed-announcements`).
+- **Rendered by:** dashboard banner + cards (`AnnouncementsView`). CTA URLs may be internal
+  (`/account/billing`) or external (`https://…`).
+- **Data:** `announcements` table (migration 0017). `lib/announcements.ts` (reads),
+  `lib/announcement-actions.ts` (admin CRUD, `requireAdmin`-gated).
+
+## Presets (Format + Style + overlays)
+- **User presets:** saved from the editor "Presets" bar (**Save as preset**) — a snapshot of the
+  project's aspect, length/max-footage, style filter, lighting, transition, effects toggles, and
+  overlays. Apply to any project from the same bar.
+- **Default preset:** one user preset can be flagged default (`presets.isDefault`) and is
+  auto-applied to every newly-created project (`createProject`).
+- **Global/featured presets:** admin-published, visible to all users (`presets.isGlobal`,
+  `ownerId` null). Server actions `publishGlobalPreset` / `deleteGlobalPreset` (`requireAdmin`).
+  Built-in starters (TikTok Punchy / Cinematic / Vlog) live in code (`lib/presets.ts`).
+- **Data:** `presets` table (migration 0017).
+
+## Max footage / longest video
+`projects.maxFootage` (migration 0017). When true the worker treats length as 0 → `buildTimeline`
+lays every clip at its full length (videos) or a slot (images) end-to-end, **no repeats**, bounded
+by `MAX_FOOTAGE_CEIL` (600s / 10 min). Mutually exclusive with `loopToFill`. Editor shows a live
+projected-length estimate (mirrors the same PER_IMAGE=2 / PER_VIDEO fallback the worker uses).
+
 ## Render worker
 `worker/render-worker.mjs` claims queued rows from `renders` (FOR UPDATE SKIP LOCKED), pulls the
 project's clips from MinIO, FFmpeg-assembles a 1080p 9:16 video (photos 2s, videos ≤4s, optional

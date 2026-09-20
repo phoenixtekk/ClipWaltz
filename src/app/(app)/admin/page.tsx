@@ -2,8 +2,10 @@ import { redirect } from "next/navigation";
 import { getAdminSession } from "@/lib/admin";
 import { listUsersAdmin, listInvitesAdmin } from "@/lib/admin-actions";
 import { getContestsAdmin, getActiveContest, getContestBoard } from "@/lib/contest";
+import { listAllAnnouncements } from "@/lib/announcements";
 import { AdminGrantForm, RevokeButton } from "@/components/admin-grant-form";
 import { AdminContest } from "@/components/admin-contest";
+import { AdminAnnouncements } from "@/components/admin-announcements";
 
 export const metadata = { title: "Admin" };
 
@@ -17,11 +19,12 @@ export default async function AdminPage() {
   const admin = await getAdminSession();
   if (!admin) redirect("/projects");
 
-  const [users, invites, contests, active] = await Promise.all([
+  const [users, invites, contests, active, announcements] = await Promise.all([
     listUsersAdmin(),
     listInvitesAdmin(),
     getContestsAdmin(),
     getActiveContest(),
+    listAllAnnouncements(),
   ]);
   const pending = invites.filter((i) => !i.redeemedAt);
   const activeEntries = active ? await getContestBoard(active.id) : [];
@@ -43,6 +46,17 @@ export default async function AdminPage() {
       <section className="space-y-3">
         <h2 className="text-sm font-medium">Monthly Theme Challenge</h2>
         <AdminContest contests={contests} activeEntries={activeEntries} />
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-sm font-medium">Announcements &amp; promos</h2>
+          <p className="text-xs text-muted-foreground">
+            In-app content on the dashboard &amp; community — upgrade promos (target Free users),
+            feature drops, contest banners, cross-promo. Scheduled &amp; dismissible.
+          </p>
+        </div>
+        <AdminAnnouncements announcements={announcements} />
       </section>
 
       <section className="space-y-3">

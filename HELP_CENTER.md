@@ -7,6 +7,10 @@ ships. It will also surface in-app at `/help`.
 ## Getting started
 - What ClipWaltz does: drop in your phone photos & videos, get a polished music video back.
 - Creating an account · signing in.
+- **Your dashboard** is the first thing you see after signing in: your stats (projects, videos
+  made, minutes, likes, comments), how many renders you've used this month vs your plan, a
+  **Jump back in** row of recent projects, and a **community feed** on the right — tap any of it
+  to explore what others are making.
 
 ## Importing your media
 - **Drag & drop** files, or use the **file/folder picker**.
@@ -21,6 +25,13 @@ ships. It will also surface in-app at `/help`.
 ## Editing & music
 - Choosing an occasion template (or "Surprise me").
 - Reordering clips, setting length.
+- **Presets:** the **Presets** bar at the top of the editor. Pick a starter look (TikTok Punchy,
+  Cinematic, Vlog), a look you saved, or a Featured one — it sets the aspect, length, style,
+  effects and overlays in one tap. **Save as preset** snapshots your current look to reuse later;
+  star one on your dashboard to make it the default for new projects.
+- **Length & "Max footage":** choose a target length, or turn on **♾️ Max — use all footage** to
+  make the longest possible video from your clips (every clip at its full length, no repeats). The
+  editor shows the projected length, e.g. "~2m 40s from 18 clips."
 - **Music side-panel:** browse or search the catalog on the right, tap **▶** to preview any
   track, and tap a track's name to set it as your soundtrack (all licensed, safe to post).
 

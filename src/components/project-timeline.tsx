@@ -112,6 +112,7 @@ export function ProjectTimeline({
         orderIndex: idx,
         sourceFormat: res.sourceFormat ?? null,
         conversionState: res.conversionState ?? "ready",
+        durationSec: null,
       };
       const next = [...order];
       next.splice(idx, 0, inserted);

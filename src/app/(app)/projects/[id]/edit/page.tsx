@@ -5,6 +5,7 @@ import { getMusicTracks, getFavoriteTrackIds } from "@/lib/music";
 import { getLatestRender } from "@/lib/render";
 import { getActiveContest, isRenderEntered } from "@/lib/contest";
 import { getAuthUserId } from "@/lib/auth";
+import { listPresets } from "@/lib/presets";
 import { EditorWorkspace } from "@/components/editor-workspace";
 
 export const metadata = { title: "Editor" };
@@ -14,12 +15,13 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
   const project = await getProject(id);
   if (!project) notFound();
   const userId = await getAuthUserId();
-  const [assets, tracks, latestRender, activeContest, favorites] = await Promise.all([
+  const [assets, tracks, latestRender, activeContest, favorites, presets] = await Promise.all([
     listAssets(id),
     getMusicTracks(),
     getLatestRender(id),
     getActiveContest(),
     getFavoriteTrackIds(userId),
+    listPresets(),
   ]);
 
   const contest =
@@ -31,6 +33,7 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
     <EditorWorkspace
       projectId={id}
       project={project}
+      presets={presets}
       assets={assets}
       tracks={tracks}
       favorites={[...favorites]}

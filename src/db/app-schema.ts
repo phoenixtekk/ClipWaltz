@@ -73,7 +73,64 @@ export const projects = pgTable("projects", {
   waltzToMusic: boolean().notNull().default(false), // energy-aware beat-driven editing
   describe: boolean().notNull().default(false), // generate a YouTube description on render
   loopToFill: boolean().notNull().default(false), // repeat footage to reach the target length
+  // "Max footage": ignore the lengthSec cap and build the longest coherent video the footage
+  // supports (each video its full length, each image a slot), bounded by a soft ceiling in the
+  // worker. Inverse of loopToFill — never repeats. When true the worker treats length as 0.
+  maxFootage: boolean().notNull().default(false),
   overlays: jsonb(), // text + emoji overlays (see lib/overlays.ts); null = none
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+// Saved Format + Style + overlays presets. A snapshot of a project's look that can be applied
+// to any project in one click. Scope:
+//   • ownerId set, isGlobal false → a personal preset owned by that user.
+//   • isDefault true → auto-applied to that owner's newly-created projects.
+//   • isGlobal true (ownerId null) → an admin-published preset visible to everyone (ties to the
+//     admin content area). Built-in "starter" presets live in code (lib/presets.ts), not here.
+export const presets = pgTable("presets", {
+  id: text().primaryKey(),
+  ownerId: text().references(() => user.id, { onDelete: "cascade" }), // null = global/admin preset
+  name: text().notNull(),
+  isDefault: boolean().notNull().default(false), // owner's new projects start from this
+  isGlobal: boolean().notNull().default(false), // admin-published to all users
+  // snapshot — mirrors the project style/format fields
+  aspect: text().notNull().default("9:16"),
+  lengthSec: integer().notNull().default(30),
+  maxFootage: boolean().notNull().default(false),
+  styleFilter: text().notNull().default("none"),
+  lightFx: text().notNull().default("none"),
+  transition: text().notNull().default("cut"),
+  motion: boolean().notNull().default(true),
+  fades: boolean().notNull().default(true),
+  fadeOut: boolean().notNull().default(true),
+  smartCut: boolean().notNull().default(true),
+  beatSync: boolean().notNull().default(true),
+  waltzToMusic: boolean().notNull().default(false),
+  loopToFill: boolean().notNull().default(false),
+  overlays: jsonb(), // snapshotted overlays (null = none)
+  createdBy: text(), // admin user id for global presets
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+// Admin-authored in-app content: promos, feature announcements, contest banners, cross-promo.
+// Rendered on the dashboard (banner + cards) and optionally the community page. Targetable by
+// audience (all | free | paid) and schedulable (startsAt/endsAt). A lightweight marketing engine.
+export const announcements = pgTable("announcements", {
+  id: text().primaryKey(),
+  title: text().notNull(),
+  body: text(), // short supporting copy
+  imageUrl: text(), // optional hero/thumbnail
+  ctaLabel: text(), // e.g. "Upgrade to Pro"
+  ctaUrl: text(), // where the CTA points
+  placement: text().notNull().default("dashboard_card"), // dashboard_banner | dashboard_card | community
+  audience: text().notNull().default("all"), // all | free | paid
+  accent: text().notNull().default("violet"), // brand accent: violet | blue | magenta | coral
+  active: boolean().notNull().default(true),
+  startsAt: timestamp({ withTimezone: true }), // null = live now
+  endsAt: timestamp({ withTimezone: true }), // null = no end
+  createdBy: text().notNull(), // admin user id
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });

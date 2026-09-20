@@ -75,6 +75,30 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 | Help Center | ⬜ | Categories mirror features |
 | Retention: 7-day auto-delete (free) | ⬜ | Paid "Project Vault" keeps longer |
 
+## Dashboard, presets & content batch (2026-09-20)
+
+- **Style presets** — save the current project's Format + Style + overlays as a named preset and
+  apply it to any project in one click. Three built-in starters (TikTok Punchy, Cinematic, Vlog),
+  personal presets, and admin-published **global/featured** presets. A per-account **default
+  preset** is auto-applied to every newly-created project. Editor: the "Presets" bar above the
+  workspace. Data: `presets` table (`src/lib/presets.ts`, `src/lib/preset-actions.ts`).
+- **Max footage / longest video** — a **♾️ Max** length option that removes the length cap and
+  builds the longest coherent video the footage supports (every clip at its full length, no
+  repeats), bounded by a 10-minute soft ceiling. Live projected-length readout ("~2m 40s from 18
+  clips"). Inverse of Loop-to-fill; the two are mutually exclusive. `projects.maxFootage` column;
+  worker honours it in `buildTimeline` (`worker/render-worker.mjs`).
+- **Dashboard** (`/dashboard`) — the post-login landing page. Analytics tiles (projects, videos
+  made, minutes, likes, comments), a plan usage-vs-quota meter with an upgrade nudge, a "Jump back
+  in" recent-projects grid, and a right rail showing a live community feed where any click opens
+  `/community`. `src/lib/dashboard.ts`, `src/app/(app)/dashboard/page.tsx`.
+- **Admin announcements / promos** — an admin content area (`/admin`) to publish in-app cards &
+  banners: upgrade promos targeted at Free users, feature drops, contest banners, cross-promo.
+  Placement (dashboard banner/card, community), audience (all/free/paid), brand accent, optional
+  image + CTA, and start/end scheduling. Dismissible per-viewer. `announcements` table
+  (`src/lib/announcements.ts`, `src/lib/announcement-actions.ts`).
+- **Nav** — top header now reads **Dashboard · Projects · Library · Community · Admin**; the logo
+  and post-login redirect point at `/dashboard`.
+
 ## Later
 Native mobile apps · collaboration/shared reels · auto-captions · face/scene-aware
 selection · 4K · multi-aspect · brand kits · web B-roll · partner API.

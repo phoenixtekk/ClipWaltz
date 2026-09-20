@@ -46,6 +46,32 @@ export async function createProject(template?: string, aspect?: string): Promise
     aspect: a,
     title: DEFAULT_TITLE[t] ?? "Untitled project",
   });
+
+  // If the user has a default preset, start the new project from it (Format + Style + overlays).
+  // The explicit template/aspect above are the project's identity; the preset fills the look.
+  const { getDefaultPresetShape } = await import("./presets");
+  const preset = await getDefaultPresetShape(userId);
+  if (preset) {
+    await db
+      .update(schema.projects)
+      .set({
+        lengthSec: preset.lengthSec,
+        maxFootage: preset.maxFootage,
+        styleFilter: preset.styleFilter,
+        lightFx: preset.lightFx,
+        transition: preset.transition,
+        motion: preset.motion,
+        fades: preset.fades,
+        fadeOut: preset.fadeOut,
+        smartCut: preset.smartCut,
+        beatSync: preset.beatSync,
+        waltzToMusic: preset.waltzToMusic,
+        loopToFill: preset.loopToFill,
+        overlays: preset.overlays.length ? preset.overlays : null,
+      })
+      .where(eq(schema.projects.id, id));
+  }
+
   revalidatePath("/projects");
   return id;
 }
@@ -112,6 +138,7 @@ export async function setProjectStyle(
     waltzToMusic?: boolean;
     describe?: boolean;
     loopToFill?: boolean;
+    maxFootage?: boolean;
   },
 ): Promise<void> {
   const userId = await requireUserId();
@@ -135,6 +162,11 @@ export async function setProjectStyle(
   if (patch.waltzToMusic !== undefined) set.waltzToMusic = !!patch.waltzToMusic;
   if (patch.describe !== undefined) set.describe = !!patch.describe;
   if (patch.loopToFill !== undefined) set.loopToFill = !!patch.loopToFill;
+  if (patch.maxFootage !== undefined) set.maxFootage = !!patch.maxFootage;
+  // "Max footage" and "loop to fill" are mutually exclusive intents (use everything vs repeat to
+  // fill) — turning one on clears the other so the worker gets a coherent instruction.
+  if (patch.maxFootage === true) set.loopToFill = false;
+  if (patch.loopToFill === true) set.maxFootage = false;
   await db.update(schema.projects).set(set).where(eq(schema.projects.id, projectId));
   revalidatePath(`/projects/${projectId}/edit`);
 }

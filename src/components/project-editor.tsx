@@ -59,6 +59,7 @@ export function ProjectEditor({
   waltzToMusic,
   describe,
   loopToFill,
+  maxFootage,
   hasRender,
   section,
 }: {
@@ -77,6 +78,7 @@ export function ProjectEditor({
   waltzToMusic: boolean;
   describe: boolean;
   loopToFill: boolean;
+  maxFootage: boolean;
   hasRender: boolean;
   section?: "clips" | "format" | "style";
 }) {
@@ -87,6 +89,25 @@ export function ProjectEditor({
   const [customMin, setCustomMin] = useState(isCustomLength ? String(Math.round(lengthSec / 60)) : "");
   const [preview, setPreview] = useState<{ id: string; kind: string; name: string } | null>(null);
   const show = (s: "clips" | "format" | "style") => !section || section === s;
+
+  // Projected "Max footage" length: every video at its full length, every image a slot, bounded
+  // by the worker's 10-minute ceiling (mirrors worker/render-worker.mjs MAX_FOOTAGE_CEIL).
+  const uploaded = assets.filter((a) => a.uploadState === "uploaded");
+  const projectedMaxSec = Math.min(
+    600,
+    uploaded.reduce((s, a) => s + (a.kind === "video" ? a.durationSec ?? 4 : 2), 0),
+  );
+  const fmtLen = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = Math.round(sec % 60);
+    return m ? `${m}m ${s}s` : `${s}s`;
+  };
+  // Setting a fixed length turns Max footage off (they're opposing intents).
+  const setLen = (s: number) =>
+    runAction(async () => {
+      await setProjectLength(projectId, s);
+      if (maxFootage) await setProjectStyle(projectId, { maxFootage: false });
+    }, "Could not set length.");
 
   const runAction = (fn: () => Promise<unknown>, err: string) =>
     start(async () => {
@@ -106,7 +127,7 @@ export function ProjectEditor({
     }
     const minutes = Math.min(60, Math.max(1, m));
     setCustomMin(String(minutes));
-    runAction(() => setProjectLength(projectId, minutes * 60), "Could not set length.");
+    setLen(minutes * 60);
   };
 
   return (
@@ -247,13 +268,13 @@ export function ProjectEditor({
       {/* length */}
       <section className="cw-glass space-y-2 rounded-xl p-4">
         <h2 className="text-sm font-medium">Length</h2>
-        <div className="flex flex-wrap gap-2">
+        <div className={cn("flex flex-wrap gap-2", maxFootage && "opacity-50")}>
           {LENGTH_PRESETS.map(({ s, label }) => (
             <TrackChip
               key={s}
-              selected={lengthSec === s}
+              selected={!maxFootage && lengthSec === s}
               label={label}
-              onClick={() => runAction(() => setProjectLength(projectId, s), "Could not set length.")}
+              onClick={() => setLen(s)}
               disabled={pending}
             />
           ))}
@@ -290,17 +311,35 @@ export function ProjectEditor({
             {isCustomLength ? `Set · ${Math.round(lengthSec / 60)}m` : "Set"}
           </button>
         </div>
-        <div className="border-t border-border/60 pt-2">
-          <TrackChip
-            selected={loopToFill}
-            label="🔁 Loop to fill length"
-            onClick={() => runAction(() => setProjectStyle(projectId, { loopToFill: !loopToFill }), "Could not toggle loop.")}
-            disabled={pending}
-          />
-          <p className="mt-1.5 text-xs text-muted-foreground">
-            {loopToFill
-              ? "Repeats your footage to reach the full length above."
-              : "Makes the video as long as your footage allows (up to the length above) — no repeats."}
+        <div className="space-y-2 border-t border-border/60 pt-2">
+          <div className="flex flex-wrap gap-2">
+            <TrackChip
+              selected={maxFootage}
+              label="♾️ Max — use all footage"
+              onClick={() => runAction(() => setProjectStyle(projectId, { maxFootage: !maxFootage }), "Could not toggle Max footage.")}
+              disabled={pending}
+            />
+            <TrackChip
+              selected={loopToFill}
+              label="🔁 Loop to fill length"
+              onClick={() => runAction(() => setProjectStyle(projectId, { loopToFill: !loopToFill }), "Could not toggle loop.")}
+              disabled={pending}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {maxFootage ? (
+              <>
+                <b className="text-foreground">Longest possible video</b> — every clip at its full
+                length, no repeats.{" "}
+                {uploaded.length
+                  ? `~${fmtLen(projectedMaxSec)} from ${uploaded.length} clip${uploaded.length === 1 ? "" : "s"}${projectedMaxSec >= 600 ? " (10 min cap)" : ""}.`
+                  : "Add clips to see the projected length."}
+              </>
+            ) : loopToFill ? (
+              "Repeats your footage to reach the full length above."
+            ) : (
+              "Makes the video as long as your footage allows (up to the length above) — no repeats. Turn on Max to remove the length cap entirely."
+            )}
           </p>
         </div>
       </section>

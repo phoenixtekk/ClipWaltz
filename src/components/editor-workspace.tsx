@@ -8,6 +8,8 @@ import type { ProjectDetail } from "@/lib/projects";
 import type { AssetSummary } from "@/lib/assets";
 import type { Track } from "@/lib/music";
 import type { RenderStatus } from "@/lib/render";
+import type { Preset } from "@/lib/presets";
+import { PresetBar } from "@/components/preset-bar";
 import { ProjectEditor } from "@/components/project-editor";
 import { ProjectTimeline } from "@/components/project-timeline";
 import { TitleCaptionField } from "@/components/title-caption-field";
@@ -28,6 +30,7 @@ const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
 export function EditorWorkspace({
   projectId,
   project,
+  presets,
   assets,
   tracks,
   favorites,
@@ -38,6 +41,7 @@ export function EditorWorkspace({
 }: {
   projectId: string;
   project: ProjectDetail;
+  presets: Preset[];
   assets: AssetSummary[];
   tracks: Track[];
   favorites: string[];
@@ -64,6 +68,7 @@ export function EditorWorkspace({
     waltzToMusic: project.waltzToMusic,
     describe: project.describe,
     loopToFill: project.loopToFill,
+    maxFootage: project.maxFootage,
     hasRender: !!latestRender?.hasOutput,
   };
 
@@ -75,6 +80,8 @@ export function EditorWorkspace({
           {assets.length} clip{assets.length === 1 ? "" : "s"} · template: {project.template} · {project.aspect}
         </p>
       </div>
+
+      <PresetBar projectId={projectId} presets={presets} />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_23rem] xl:items-start">
         {/* main column */}

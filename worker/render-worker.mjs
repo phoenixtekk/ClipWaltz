@@ -622,10 +622,30 @@ function waltzSpan(e) {
 }
 
 // Build the ordered timeline: [{asset, dur, offset}]. Beat-synced when possible.
-async function buildTimeline(assets, beats, lengthSec, beatSync, smartCut, srcDurs, waltzToMusic, curve, loopToFill) {
+async function buildTimeline(assets, beats, lengthSec, beatSync, smartCut, srcDurs, waltzToMusic, curve, loopToFill, maxFootage) {
   const slots = [];
   let musicOffset = 0;
   const cap = lengthSec > 0 ? lengthSec : Infinity;
+
+  // "Max footage": build the LONGEST coherent video the footage supports — every video at its
+  // full length, every image a slot — laid end to end, never repeating. Bounded by a soft ceiling
+  // so a huge upload can't produce a runaway render. Runs first so the beat/waltz/fill branches
+  // below (all guarded by slots.length === 0) are skipped. lengthSec is passed as 0 for this mode,
+  // so `cap` is Infinity and neither auto-loop nor the fill-to-target block engages.
+  const MAX_FOOTAGE_CEIL = 600; // 10 minutes
+  if (maxFootage) {
+    let total = 0;
+    for (const a of assets) {
+      if (total >= MAX_FOOTAGE_CEIL) break;
+      const full = a.kind === "video" ? (srcDurs.get(a.storage_key) ?? PER_VIDEO) : PER_IMAGE;
+      const dur = Math.min(full, MAX_FOOTAGE_CEIL - total);
+      if (dur < 0.3) break;
+      slots.push({ asset: a, dur, offset: 0 });
+      total += dur;
+    }
+    musicOffset = beats.length ? beats[0] : 0;
+    if (slots.length) console.log(`[worker] max-footage: ${slots.length} clips → ${total.toFixed(0)}s`);
+  }
 
   // Auto-loop: if the user didn't force looping but the footage is SHORT and can't fill the
   // chosen length on its own, repeat it to reach the target (rather than a stub video). The
@@ -946,6 +966,7 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     style.waltzToMusic,
     energyCurve,
     style.loopToFill,
+    style.maxFootage,
   );
   if (slots.length === 0) throw new Error("no clips in timeline");
 
@@ -1075,7 +1096,9 @@ async function processRender(r) {
   if (!music) {
     [music] = await sql`select * from music_tracks where active = true order by created_at asc limit 1`;
   }
-  const lengthSec = project?.length_sec ?? 30;
+  // Max-footage mode ignores the length cap → pass length 0 so buildTimeline runs uncapped.
+  const maxFootage = project?.max_footage ?? false;
+  const lengthSec = maxFootage ? 0 : (project?.length_sec ?? 30);
   const aspect = r.aspect ?? project?.aspect ?? "9:16";
   const style = {
     titleText: project?.title_text ?? null,
@@ -1089,6 +1112,7 @@ async function processRender(r) {
     beatSync: project?.beat_sync ?? true,
     waltzToMusic: project?.waltz_to_music ?? false,
     loopToFill: project?.loop_to_fill ?? false,
+    maxFootage,
     overlays: Array.isArray(project?.overlays) ? project.overlays : [],
   };
 

@@ -120,6 +120,13 @@
       "when": 1789855863857,
       "tag": "0016_thick_wendell_rand",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1789923597644,
+      "tag": "0017_skinny_corsair",
+      "breakpoints": true
     }
   ]
 }
