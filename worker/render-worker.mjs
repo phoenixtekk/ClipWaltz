@@ -13,9 +13,11 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, createWriteStream } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import postgres from "postgres";
 import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 
@@ -45,7 +47,6 @@ const OLLAMA_URL = (process.env.OLLAMA_URL ?? "").replace(/\/$/, "");
 // `thinking` field and leave `response` empty (CLAUDE.md). qwen2.5vl:7b scores cleanly.
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "qwen2.5vl:7b";
 const VISION_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS ?? 20000);
-const CAND_WINDOWS = 3; // top motion windows to re-rank by subject/faces
 
 // "Video ready" email: the app (linuxg1) holds the SES creds, so the worker just pings it.
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "").replace(/\/$/, "");
@@ -108,7 +109,11 @@ function safeText(s) {
 
 async function download(key, file) {
   const out = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
-  writeFileSync(file, Buffer.from(await out.Body.transformToByteArray()));
+  // Stream straight to disk — never buffer the whole object. Multi-GB clips overflow
+  // Buffer/ArrayBuffer (max 2^31-1 bytes) and throw "length out of range".
+  const body = out.Body;
+  const readable = body instanceof Readable ? body : Readable.fromWeb(body);
+  await pipeline(readable, createWriteStream(file));
 }
 async function ffmpeg(args) {
   await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", ...args], { maxBuffer: 1024 * 1024 * 32 });
@@ -177,12 +182,66 @@ async function probeVideoStreams(file) {
   }
 }
 
+// Auto-level a 360 sphere. "Up" (sky / main light) is the brightest hemisphere, so the
+// brightness²-weighted mean direction over the equirect approximates true up. Returns the
+// v360 rotation ({yaw:φ, pitch:-β}) that brings that direction to the zenith — verified to
+// null the tilt on real Insta360 footage. null → caller falls back to the fixed base roll.
+async function estimateLevel(src, streams, srcDur) {
+  const W = 320, H = 160;
+  const hstack = streams >= 2 ? "[0:v:0][0:v:1]hstack=inputs=2," : "[0:v:0]";
+  const proj = streams >= 2 ? "v360=dfisheye:e:ih_fov=200:iv_fov=200" : "v360=fisheye:e:ih_fov=200:iv_fov=200";
+  const dur = srcDur > 0 ? srcDur : 8;
+  const fracs = [0.1, 0.25, 0.4, 0.55, 0.7, 0.85];
+  const acc = new Float64Array(W * H);
+  let cnt = 0;
+  for (const fr of fracs) {
+    try {
+      const { stdout } = await run(
+        "ffmpeg",
+        ["-ss", String(Math.max(0, fr * dur)), "-i", src, "-frames:v", "1", "-filter_complex", `${hstack}${proj},scale=${W}:${H},format=gray`, "-f", "rawvideo", "-"],
+        { maxBuffer: 1024 * 1024 * 8, encoding: "buffer" },
+      );
+      const buf = Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout, "binary");
+      if (buf.length < W * H) continue;
+      for (let i = 0; i < W * H; i++) acc[i] += buf[i];
+      cnt++;
+    } catch { /* skip this sample */ }
+  }
+  if (!cnt) return null;
+  let Ux = 0, Uy = 0, Uz = 0;
+  for (let y = 0; y < H; y++) {
+    const elev = Math.PI / 2 - (y + 0.5) * (Math.PI / H);
+    const ce = Math.cos(elev), se = Math.sin(elev);
+    for (let x = 0; x < W; x++) {
+      const az = (x + 0.5) * (2 * Math.PI / W) - Math.PI;
+      const b = acc[y * W + x] / cnt / 255;
+      const w = b * b * ce; // brightness² emphasizes sky/light; cos(elev) = equirect area weight
+      Ux += w * ce * Math.cos(az); Uy += w * ce * Math.sin(az); Uz += w * se;
+    }
+  }
+  const norm = Math.hypot(Ux, Uy, Uz);
+  if (!(norm > 1e-6)) return null;
+  Uz /= norm; Uy /= norm; Ux /= norm;
+  const beta = (Math.acos(Math.max(-1, Math.min(1, Uz))) * 180) / Math.PI;
+  const phi = (Math.atan2(Uy, Ux) * 180) / Math.PI;
+  return { yaw: phi, pitch: -beta, beta };
+}
+
+// v360 filter that reprojects the source to a LEVELED equirect. Uses the estimated horizon
+// when available; otherwise the legacy fixed base roll so behaviour never regresses.
+function levelEquirect(streams, lvl) {
+  const base = streams >= 2 ? "dfisheye" : "fisheye";
+  const rot = lvl ? `:yaw=${lvl.yaw.toFixed(2)}:pitch=${lvl.pitch.toFixed(2)}` : ":roll=90";
+  return `v360=${base}:e:ih_fov=200:iv_fov=200${rot}`;
+}
+
 // Motion-driven yaw path (deg over time) for AutoReframe "follow": sample small equirect
 // frames, track the busiest horizontal region, smooth + rate-limit into a pan. [] on failure.
-async function computeYawPath(src, streams) {
+// `level` is the leveled-equirect filter so yaw values match the reframe stage's frame.
+async function computeYawPath(src, streams, level) {
   const W = 64, H = 32, FPS = 2;
   const hstack = streams >= 2 ? "[0:v:0][0:v:1]hstack=inputs=2," : "[0:v:0]";
-  const proj = streams >= 2 ? "v360=dfisheye:e:ih_fov=200:iv_fov=200:roll=90" : "v360=fisheye:e:ih_fov=200:iv_fov=200";
+  const proj = level || (streams >= 2 ? "v360=dfisheye:e:ih_fov=200:iv_fov=200:roll=90" : "v360=fisheye:e:ih_fov=200:iv_fov=200");
   try {
     const { stdout } = await run(
       "ffmpeg",
@@ -239,22 +298,25 @@ async function convertMedia(m) {
     const streams = await probeVideoStreams(src);
     const mode = m.reframe_mode || "flat";
     const hstack = streams >= 2 ? "[0:v:0][0:v:1]hstack=inputs=2," : "[0:v:0]";
-    const proj = streams >= 2 ? "dfisheye:ih_fov=200:iv_fov=200:roll=90" : "fisheye:ih_fov=200:iv_fov=200";
+    // Auto-level the sphere (horizon upright) instead of a fixed roll, then reframe in a 2nd
+    // stage. Leveling and view-direction are different rotations, so keep them separate.
+    const dur = await probe(src);
+    const lvl = await estimateLevel(src, streams, dur);
+    const level = levelEquirect(streams, lvl);
+    console.log(`[worker] 360 level ${lvl ? `yaw=${lvl.yaw.toFixed(1)} pitch=${lvl.pitch.toFixed(1)} (tilt ${lvl.beta.toFixed(0)}°)` : "estimate failed → base roll=90"}`);
 
     let vf;
     if (mode === "tiny") {
-      vf = `${hstack}v360=${proj.replace(":", ":ball:")}:w=1080:h=1080`; // little-planet
+      vf = `${hstack}${level},v360=e:ball:w=1080:h=1080`; // little-planet
     } else if (mode === "follow" && !isPhoto) {
-      const path = await computeYawPath(src, streams);
+      const path = await computeYawPath(src, streams, level);
       if (path.length) {
         const cmds = path.map((p) => `${p.t.toFixed(2)} v360@rf yaw ${p.yaw.toFixed(1)};`).join("\n");
         writeFileSync(join(dir, "cmds.txt"), cmds);
-        // Two-stage: level the equirect first (roll only levels at yaw=0), then reframe by yaw.
-        const level = `v360=${proj.replace(":", ":e:")}`; // e.g. dfisheye:e:...:roll=90
         vf = `${hstack}${level},sendcmd=f=${fwd(join(dir, "cmds.txt"))},v360@rf=input=e:output=flat:h_fov=110:v_fov=100:w=1920:h=1080`;
       }
     }
-    if (!vf) vf = `${hstack}v360=${proj.replace(":", ":flat:")}:h_fov=110:v_fov=100:w=1920:h=1080`;
+    if (!vf) vf = `${hstack}${level},v360=e:flat:h_fov=110:v_fov=100:w=1920:h=1080`;
 
     let outKey;
     if (isPhoto) {
@@ -319,33 +381,102 @@ async function getBeats(musicFile) {
   }
 }
 
-// Generate a YouTube-style description via the AI-box text model. null on failure.
-const OLLAMA_TEXT_MODEL = process.env.OLLAMA_TEXT_MODEL ?? "qwen3.8:27b";
-async function generateDescription({ title, musicTitle, clips, lengthSec, aspect }) {
-  if (!OLLAMA_URL) return null;
-  const ctrl = new AbortController();
-  const to = setTimeout(() => ctrl.abort(), 60000);
+// Ready-to-post video description. The AI writes ONLY the video-specific top block (an opening
+// description + the three "In this video:" bullets) from the actual footage; everything below is
+// the owner's fixed channel template, used verbatim. Stored on the render for the Copy button.
+const POST_TEMPLATE_SUFFIX = `If you enjoy jet skiing, personal watercraft, racing, riding, repairs, events, or just being out on the water, subscribe and follow the journey.
+---
+
+ABOUT THE CHANNEL
+This channel follows my real-world experience with jet skis and personal watercraft — from recreational riding and group rides to races, events, repairs, upgrades, testing, road trips, mistakes, and everything that happens along the way.
+
+I've accumulated years of footage, and I'm now documenting and sharing the journey — including older footage, current rides, lessons learned, and what comes next.
+
+The goal is simple: share the experience, support the PWC community, connect with other riders, and hopefully encourage more people to get involved in the sport.
+---
+
+WHAT YOU'LL SEE HERE
+• Jet ski and PWC riding
+• Race and event footage
+• Lake and river adventures
+• Group rides
+• Repairs and maintenance
+• Modifications and upgrades
+• Equipment and gear
+• Behind-the-scenes footage
+• Lessons learned from owning and riding PWCs
+• Older footage from the archive
+• New adventures as they happen
+---
+
+CONNECT WITH US
+Ride with us. Race with us. Share your experience.
+
+If you're a rider, racer, PWC enthusiast, manufacturer, shop, event organizer, or just someone interested in the sport, leave a comment and connect with us.
+
+Have a location, event, product, jet ski, modification, or story you think we should feature? Let us know.
+---
+
+DISCLAIMER
+The activities shown on this channel may involve inherent risks. Always ride responsibly, wear appropriate safety equipment, follow local laws and waterway regulations, and operate within your experience and ability level.
+
+#JetSki #PWC #PersonalWatercraft #JetSkiLife #PWCLife #JetSkiRiding #WaterSports #JetSkiAdventure #PWCCommunity #JetSkiCommunity #LakeLife #RidePWC`;
+
+function assemblePost(description, bullets) {
+  const b = [bullets[0], bullets[1], bullets[2]].map((x) => String(x || "").trim());
+  return `${String(description || "").trim()}\n\nIn this video:\n• ${b[0]}\n• ${b[1]}\n• ${b[2]}\n\n${POST_TEMPLATE_SUFFIX}`;
+}
+
+// Build the full post: sample frames from the finished video, have the vision model write the
+// video-specific block from what it actually sees, then append the fixed template. Always returns
+// a complete post (falls back to a generic PWC block) so the Copy button is never empty.
+async function generatePostContent(videoFile, title) {
+  const generic = assemblePost(
+    `${title ? `${title}. ` : ""}Another day out on the water riding personal watercraft.`,
+    ["Out on the water riding jet skis", "Good conditions and good rides with the crew", "Riding, wake, and time on the water"],
+  );
+  if (!OLLAMA_URL) return generic;
+  const dir = mkdtempSync(join(tmpdir(), "cw-post-"));
   try {
-    const prompt =
-      `Write a YouTube video description for a short ${aspect} montage video made with ClipWaltz` +
-      `${lengthSec ? ` (about ${lengthSec}s)` : ""}. Title: "${title}". ` +
-      `Soundtrack: "${musicTitle || "original audio"}". It has ${clips} clips. ` +
-      `Write an engaging 2-3 sentence description, then a blank line, then a single line of 5-8 relevant hashtags, ` +
-      `then a final line "Made with ClipWaltz". Plain text only — no markdown, no preamble.`;
-    const res = await fetch(`${OLLAMA_URL}/api/generate`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model: OLLAMA_TEXT_MODEL, prompt, stream: false, options: { num_predict: 500, temperature: 0.7 } }),
-      signal: ctrl.signal,
-    });
-    if (!res.ok) return null;
-    const j = await res.json();
-    const text = String(j.response || "").trim();
-    return text.length > 10 ? text.slice(0, 5000) : null;
+    const dur = await probe(videoFile);
+    const images = [];
+    for (const f of [0.12, 0.38, 0.62, 0.88]) {
+      const fp = join(dir, `p${images.length}.jpg`);
+      try {
+        await extractFrame(videoFile, Math.max(0, f * (dur || 1)), fp);
+        images.push(readFileSync(fp).toString("base64"));
+      } catch { /* skip frame */ }
+    }
+    if (!images.length) return generic;
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 60000);
+    try {
+      const prompt =
+        `These frames are from a jet ski / personal watercraft (PWC) video${title ? ` titled "${title}"` : ""}. ` +
+        `Write a first-person YouTube description for it. Respond ONLY as JSON: ` +
+        `{"description":"2-3 engaging first-person sentences about this specific ride or video",` +
+        `"bullets":["what happened and where","what makes this ride or moment interesting","what viewers should watch for"]}. ` +
+        `Be specific to what you actually see — water, riders, jet skis, marina, launch ramp, group ride, racing, wake, scenery. Plain text values, no markdown.`;
+      const res = await fetch(`${OLLAMA_URL}/api/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: OLLAMA_MODEL, prompt, images, stream: false, format: "json", options: { num_predict: 500, temperature: 0.6 } }),
+        signal: ctrl.signal,
+      });
+      if (!res.ok) return generic;
+      const j = await res.json();
+      const parsed = JSON.parse(j.response || "{}");
+      const desc = String(parsed.description || "").trim();
+      const bullets = Array.isArray(parsed.bullets) ? parsed.bullets.map((x) => String(x).trim()).filter(Boolean) : [];
+      if (desc.length < 8 || bullets.length < 3) return generic;
+      return assemblePost(desc, bullets).slice(0, 8000);
+    } finally {
+      clearTimeout(to);
+    }
   } catch {
-    return null;
+    return generic;
   } finally {
-    clearTimeout(to);
+    rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -393,21 +524,27 @@ async function visionScore(imgPath) {
   }
 }
 
-// Pick the best `need`-second window of a video. Motion frame-diff finds active windows
-// (skips dead/static/black parts); when vision is enabled, the top motion windows are
-// re-ranked by subject/faces so the cut lands on a moment with people, not just movement.
-async function pickWindow(src, need, srcDur) {
-  if (!need || srcDur <= need + 0.3) return 0;
+const RANK_MOTION_CANDS = 12; // top motion windows fed into the vision re-rank
+const RANK_EVEN = 8; // evenly-spaced probes so vision catches subjects motion misses (or over-scores water)
+const RANK_VISION_MAX = 16; // cap vision calls per clip (bounds render time on long sources)
+
+// Rank a video's best `need`-second windows, best-first and non-overlapping. Motion frame-diff
+// finds candidate windows across the WHOLE clip; a broad candidate set (top motion + evenly
+// spaced) is then re-scored by the vision model so windows with people/faces/action beat empty
+// scenery or choppy-water frames (which read as high motion but make dull footage). Falls back
+// to motion-only when vision is off. Returns up to `k` offsets ([0] when the clip is too short).
+async function rankWindows(src, need, srcDur, k = 1) {
+  if (!need || srcDur <= need + 0.3) return [0];
   try {
     const { stdout } = await run(
       "ffmpeg",
       ["-i", src, "-vf", "fps=4,scale=160:-1,tblend=all_mode=difference,signalstats,metadata=print:file=-", "-an", "-f", "null", "-"],
-      { maxBuffer: 1024 * 1024 * 32 },
+      { maxBuffer: 1024 * 1024 * 64 },
     );
     const times = [...String(stdout).matchAll(/pts_time:([\d.]+)/g)].map((m) => +m[1]);
     const ys = [...String(stdout).matchAll(/YAVG=([\d.]+)/g)].map((m) => +m[1]);
     const n = Math.min(times.length, ys.length);
-    if (n < 4) return 0;
+    if (n < 4) return [0];
     const win = Math.max(1, Math.round(need * 4)); // 4 fps samples
 
     const windows = [];
@@ -417,49 +554,66 @@ async function pickWindow(src, need, srcDur) {
       for (let j = i; j < i + win; j++) sum += ys[j];
       windows.push({ t: times[i], sum });
     }
-    if (windows.length === 0) return 0;
-    windows.sort((a, b) => b.sum - a.sum);
-    const motionBest = Math.max(0, Math.min(windows[0].t, srcDur - need));
-    const maxSum = windows[0].sum || 1;
+    if (windows.length === 0) return [0];
+    const byMotion = [...windows].sort((a, b) => b.sum - a.sum);
+    const maxSum = byMotion[0].sum || 1;
+    const motionNorm = (t) => {
+      let best = 0, bd = Infinity;
+      for (const w of windows) { const d = Math.abs(w.t - t); if (d < bd) { bd = d; best = w.sum; } }
+      return best / maxSum;
+    };
+    const clamp = (t) => Math.max(0, Math.min(srcDur - need, t));
 
-    // Vision re-rank: score the midpoint frame of the top distinct motion windows.
-    if (OLLAMA_URL && windows.length > 1) {
-      const cands = [];
-      for (const w of windows) {
-        if (cands.length >= CAND_WINDOWS) break;
-        if (cands.every((c) => Math.abs(c.t - w.t) >= need)) cands.push(w);
-      }
-      let best = motionBest;
-      let bestScore = -1;
-      let scored = false;
-      for (let k = 0; k < cands.length; k++) {
-        const c = cands[k];
-        const fp = `${src}.cand${k}.jpg`;
+    // Candidate windows: top motion + evenly spaced across the whole clip, deduped by `need`.
+    const cand = [];
+    const addDistinct = (t) => { t = clamp(t); if (cand.every((c) => Math.abs(c - t) >= need)) cand.push(t); };
+    byMotion.slice(0, RANK_MOTION_CANDS).forEach((w) => addDistinct(w.t));
+    const span = Math.max(0, srcDur - need);
+    for (let i = 0; i < RANK_EVEN; i++) addDistinct((RANK_EVEN === 1 ? 0 : i / (RANK_EVEN - 1)) * span);
+
+    // Score candidates. Vision (people/faces/subject) dominates; motion breaks ties and ranks
+    // any windows the vision pass didn't reach (kept below scored ones).
+    let scored;
+    if (OLLAMA_URL) {
+      const list = cand.slice(0, RANK_VISION_MAX);
+      const rest = cand.slice(RANK_VISION_MAX);
+      scored = [];
+      let anyVision = false;
+      for (let idx = 0; idx < list.length; idx++) {
+        const t = list[idx];
+        const fp = `${src}.rk${idx}.jpg`;
         let vs = null;
-        try {
-          await extractFrame(src, Math.min(srcDur - 0.1, c.t + need / 2), fp);
-          vs = await visionScore(fp);
-        } catch {
-          vs = null;
-        }
-        if (vs != null) {
-          scored = true;
-          const combined = 0.5 * (c.sum / maxSum) + 0.5 * vs;
-          if (combined > bestScore) {
-            bestScore = combined;
-            best = Math.max(0, Math.min(c.t, srcDur - need));
-          }
-        }
+        try { await extractFrame(src, Math.min(srcDur - 0.1, t + need / 2), fp); vs = await visionScore(fp); } catch { vs = null; }
+        try { rmSync(fp, { force: true }); } catch { /* ignore */ }
+        if (vs != null) anyVision = true;
+        const m = motionNorm(t);
+        scored.push({ t, score: vs != null ? 0.7 * vs + 0.3 * m : 0.4 * m });
       }
-      if (scored) {
-        console.log(`[worker] scene-aware window ${best.toFixed(1)}s (motion-only was ${motionBest.toFixed(1)}s)`);
-        return best;
-      }
+      for (const t of rest) scored.push({ t, score: 0.4 * motionNorm(t) });
+      if (!anyVision) scored = cand.map((t) => ({ t, score: motionNorm(t) }));
+    } else {
+      scored = cand.map((t) => ({ t, score: motionNorm(t) }));
     }
-    return motionBest;
+    scored.sort((a, b) => b.score - a.score);
+
+    const picked = [];
+    for (const s of scored) {
+      if (picked.every((p) => Math.abs(p - s.t) >= need)) picked.push(s.t);
+      if (picked.length >= k) break;
+    }
+    if (picked.length && OLLAMA_URL) {
+      console.log(`[worker] ranked ${picked.length} window(s), best ${picked[0].toFixed(1)}s (motion-only best ${clamp(byMotion[0].t).toFixed(1)}s)`);
+    }
+    return picked.length ? picked : [clamp(byMotion[0].t)];
   } catch {
-    return 0;
+    return [0];
   }
+}
+
+// Best single `need`-second window (thin wrapper over rankWindows; used by --selftest).
+async function pickWindow(src, need, srcDur) {
+  const r = await rankWindows(src, need, srcDur, 1);
+  return r[0] ?? 0;
 }
 
 // Beats per cut from energy: louder → faster cuts, calmer → longer holds.
@@ -472,6 +626,20 @@ async function buildTimeline(assets, beats, lengthSec, beatSync, smartCut, srcDu
   const slots = [];
   let musicOffset = 0;
   const cap = lengthSec > 0 ? lengthSec : Infinity;
+
+  // Auto-loop: if the user didn't force looping but the footage is SHORT and can't fill the
+  // chosen length on its own, repeat it to reach the target (rather than a stub video). The
+  // "short" guard (≤ AUTO_LOOP_MAX_FOOTAGE) means a genuinely long clip is NOT silently looped —
+  // it just fills to its own length, as before.
+  const AUTO_LOOP_MAX_FOOTAGE = 150; // seconds — only auto-loop clearly-short footage
+  const footageSec = assets.reduce(
+    (s, a) => s + (srcDurs.get(a.storage_key) ?? (a.kind === "video" ? PER_VIDEO : PER_IMAGE)),
+    0,
+  );
+  const autoLoop =
+    !loopToFill && cap !== Infinity && footageSec > 0 && footageSec < cap - 0.5 && footageSec <= AUTO_LOOP_MAX_FOOTAGE;
+  const effLoop = loopToFill || autoLoop;
+  if (autoLoop) console.log(`[worker] auto-loop: ${footageSec.toFixed(0)}s footage → filling ${cap}s target`);
 
   // "Waltz to the Music": energy-aware, beat-snapped cadence that ends on a beat.
   if (waltzToMusic && beats.length > 5) {
@@ -531,9 +699,57 @@ async function buildTimeline(assets, beats, lengthSec, beatSync, smartCut, srcDu
     }
   }
 
+  // Rank each video's best moments ONCE (motion + vision), so both the montage fill and the
+  // normal slots draw from a best-first queue of DISTINCT windows — landing cuts on people/
+  // action rather than the first seconds of a long clip. Cached per source; short clips → [0].
+  const RANK_NEED = 3; // nominal window length (s) used only for ranking granularity
+  const RANK_MAX = 24; // most distinct windows to keep per video
+  const ranked = new Map(); // storage_key -> number[] (offsets, best-first)
+  if (smartCut) {
+    for (const a of assets) {
+      if (a.kind === "video" && a._src && !ranked.has(a.storage_key)) {
+        const list = await rankWindows(a._src, RANK_NEED, srcDurs.get(a.storage_key) ?? 0, RANK_MAX);
+        ranked.set(a.storage_key, list && list.length ? list : [0]);
+      }
+    }
+  }
+  const rankIdx = new Map(); // storage_key -> next window index
+  const QSEG = 2.5; // nominal window size (s) for building the full-coverage queue
+  const queues = new Map(); // storage_key -> ordered offsets that cover the WHOLE clip
+  // Ordered window queue for a video. Looping (short clip → long target): walk the whole clip in
+  // TIME order (best window as the opener) so every part is used and repeats evenly — fixes the
+  // "only the first bit gets looped" problem. Not looping (long clip → short montage): best
+  // moments first, then broader coverage.
+  const windowQueue = (a) => {
+    const cached = queues.get(a.storage_key);
+    if (cached) return cached;
+    const D = srcDurs.get(a.storage_key) ?? 0;
+    const nWin = Math.max(1, Math.floor(D / QSEG));
+    const timeWins = Array.from({ length: nWin }, (_, k) => k * QSEG); // 0 … end, in order
+    const rankedList = ranked.get(a.storage_key) || [];
+    let order;
+    if (effLoop) {
+      const best = rankedList.length ? rankedList[0] : 0;
+      order = [best, ...timeWins.filter((t) => Math.abs(t - best) >= QSEG)];
+    } else {
+      order = [...rankedList];
+      for (const t of timeWins) if (order.every((o) => Math.abs(o - t) >= QSEG)) order.push(t);
+    }
+    const q = order.length ? order : [0];
+    queues.set(a.storage_key, q);
+    return q;
+  };
+  const nextOffset = (a, dur) => {
+    const q = windowQueue(a);
+    const D = srcDurs.get(a.storage_key) ?? 0;
+    const i = rankIdx.get(a.storage_key) ?? 0;
+    rankIdx.set(a.storage_key, i + 1);
+    return Math.max(0, Math.min(q[i % q.length], Math.max(0, D - dur)));
+  };
+
   // Fill toward the target length. When there isn't enough content to reach `cap` (e.g. one
-  // short clip), keep adding segments by cycling the assets and — for videos — walking DIFFERENT
-  // windows across the clip (tiling), so a single video becomes a montage of its own moments.
+  // short clip), keep adding segments by cycling the assets and — for videos — using the NEXT
+  // best-ranked window (montage of the clip's best moments). Non-smart mode tiles sequentially.
   let total = slots.reduce((s, x) => s + x.dur, 0);
   if (cap !== Infinity && assets.length > 0 && total < cap - 0.4) {
     const fillDur = Math.max(1.5, Math.min(4, slots.length ? total / slots.length : PER_VIDEO));
@@ -547,40 +763,37 @@ async function buildTimeline(assets, beats, lengthSec, beatSync, smartCut, srcDu
       i++;
       let dur = Math.min(fillDur, cap - total);
       if (dur < 0.4) break;
-      let offset = 0;
+      let offset; // undefined → resolver assigns a ranked window; set here only for non-smart tiling
       if (a.kind === "video") {
         const D = srcDurs.get(a.storage_key) ?? 0;
-        const nWin = Math.max(1, Math.floor(D / dur));
+        const nWin = Math.max(1, Math.floor(D / dur)); // distinct windows the clip supports
         const used = vUsed.get(a.storage_key) ?? 0;
-        // Default: cover the clip's own windows once (no repeats). Loop mode: wrap and reuse.
-        if (!loopToFill && used >= nWin) {
+        // Default: cover the clip's distinct windows once (no repeats). Loop mode: wrap and reuse.
+        if (!effLoop && used >= nWin) {
           if (++skips >= assets.length) break;
           continue;
         }
-        offset = Math.min(Math.max(0, D - dur), (used % nWin) * dur);
+        if (!smartCut) offset = Math.min(Math.max(0, D - dur), (used % nWin) * dur);
         vUsed.set(a.storage_key, used + 1);
       } else {
         // Default: don't repeat a photo (it already showed once). Loop mode: allow repeats.
-        if (!loopToFill && photoUsed.has(a.id)) {
+        if (!effLoop && photoUsed.has(a.id)) {
           if (++skips >= assets.length) break;
           continue;
         }
         photoUsed.add(a.id);
+        offset = 0;
       }
       skips = 0;
-      slots.push({ asset: a, dur, offset }); // offset preset → skipped by the resolver below
+      slots.push({ asset: a, dur, offset });
       total += dur;
     }
   }
 
-  // Resolve active-moment offsets for video slots that don't already have a (tiled) offset.
+  // Resolve offsets: smart video slots pull the next best window (ranked, then sequential); others 0.
   for (const s of slots) {
     if (s.offset !== undefined) continue;
-    if (s.asset.kind === "video" && smartCut) {
-      s.offset = await pickWindow(s.asset._src, s.dur, srcDurs.get(s.asset.storage_key) ?? 0);
-    } else {
-      s.offset = 0;
-    }
+    s.offset = s.asset.kind === "video" && smartCut ? nextOffset(s.asset, s.dur) : 0;
   }
   return { slots, musicOffset };
 }
@@ -890,24 +1103,17 @@ async function processRender(r) {
     await s3.send(
       new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: readFileSync(outFile), ContentType: "video/mp4" }),
     );
+    // Ready-to-post description (best-effort) when the project opted in. Generated BEFORE marking
+    // 'done' and folded into the same update, so it's present the moment the client sees "ready".
+    let postText = null;
+    if (project?.describe) {
+      postText = await generatePostContent(outFile, project?.title_text || project?.title || "").catch(() => null);
+      if (postText) console.log(`[worker] render ${r.id} post text generated (${postText.length} chars)`);
+    }
     const secs = Math.round((Date.now() - started) / 1000);
-    await sql`update renders set status='done', output_key=${key}, cpu_seconds=${secs}, completed_at=now() where id=${r.id}`;
+    await sql`update renders set status='done', output_key=${key}, cpu_seconds=${secs}, completed_at=now(), description=${postText} where id=${r.id}`;
     await sql`update projects set status='ready', updated_at=now() where id=${r.project_id}`;
     console.log(`[worker] render ${r.id} done in ${secs}s → ${key}`);
-    // YouTube description (best-effort) when the project opted in.
-    if (project?.describe) {
-      const desc = await generateDescription({
-        title: project?.title_text || project?.title || "My ClipWaltz video",
-        musicTitle: music?.title ?? null,
-        clips: assets.length,
-        lengthSec,
-        aspect,
-      });
-      if (desc) {
-        await sql`update renders set description=${desc} where id=${r.id}`;
-        console.log(`[worker] render ${r.id} description generated (${desc.length} chars)`);
-      }
-    }
     // Licensing ledger: snapshot the music license for this render (best-effort).
     if (music) {
       const licenseType =
@@ -1007,10 +1213,11 @@ async function convtest() {
   const src = process.argv[i + 1];
   if (!src) { console.error("usage: --convtest <insv>"); process.exit(2); }
   const streams = await probeVideoStreams(src);
-  const proj =
-    streams >= 2
-      ? "[0:v:0][0:v:1]hstack=inputs=2,v360=dfisheye:flat:ih_fov=200:iv_fov=200:h_fov=110:v_fov=100:roll=90:w=1920:h=1080"
-      : "[0:v:0]v360=fisheye:flat:ih_fov=200:iv_fov=200:h_fov=110:v_fov=100:w=1920:h=1080";
+  const hstack = streams >= 2 ? "[0:v:0][0:v:1]hstack=inputs=2," : "[0:v:0]";
+  const lvl = await estimateLevel(src, streams, await probe(src));
+  const level = levelEquirect(streams, lvl);
+  console.log(`[convtest] level ${lvl ? `yaw=${lvl.yaw.toFixed(1)} pitch=${lvl.pitch.toFixed(1)} tilt=${lvl.beta.toFixed(0)}°` : "failed → roll=90"}`);
+  const proj = `${hstack}${level},v360=e:flat:h_fov=110:v_fov=100:w=1920:h=1080`;
   const out = "/tmp/convtest.mp4";
   await ffmpeg(["-i", src, "-filter_complex", `${proj},format=yuv420p[v]`, "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", out]);
   console.log(`[convtest] ${streams} lens → ${out} dur=${(await probe(out)).toFixed(2)}s`);
@@ -1025,14 +1232,15 @@ async function followtest() {
   const secs = Number(process.argv[i + 2]) || 20;
   if (!src) { console.error("usage: --followtest <insv> [seconds]"); process.exit(2); }
   const streams = await probeVideoStreams(src);
-  const path = await computeYawPath(src, streams);
+  const hstack = streams >= 2 ? "[0:v:0][0:v:1]hstack=inputs=2," : "[0:v:0]";
+  const lvl = await estimateLevel(src, streams, await probe(src));
+  const level = levelEquirect(streams, lvl);
+  const path = await computeYawPath(src, streams, level);
   const yaws = path.map((p) => p.yaw);
-  console.log(`[followtest] streams=${streams} path=${path.length} yaw[min/max]=${yaws.length ? Math.min(...yaws).toFixed(0) + "/" + Math.max(...yaws).toFixed(0) : "n/a"}`);
+  console.log(`[followtest] streams=${streams} level=${lvl ? `${lvl.yaw.toFixed(1)}/${lvl.pitch.toFixed(1)}` : "roll90"} path=${path.length} yaw[min/max]=${yaws.length ? Math.min(...yaws).toFixed(0) + "/" + Math.max(...yaws).toFixed(0) : "n/a"}`);
   const dir = mkdtempSync(join(tmpdir(), "cw-ft-"));
   const cmds = path.filter((p) => p.t <= secs).map((p) => `${p.t.toFixed(2)} v360@rf yaw ${p.yaw.toFixed(1)};`).join("\n");
   writeFileSync(join(dir, "cmds.txt"), cmds);
-  const hstack = streams >= 2 ? "[0:v:0][0:v:1]hstack=inputs=2," : "[0:v:0]";
-  const level = streams >= 2 ? "v360=dfisheye:e:ih_fov=200:iv_fov=200:roll=90" : "v360=fisheye:e:ih_fov=200:iv_fov=200";
   const out = "/tmp/followtest.mp4";
   await ffmpeg(["-t", String(secs), "-i", src, "-filter_complex", `${hstack}${level},sendcmd=f=${fwd(join(dir, "cmds.txt"))},v360@rf=input=e:output=flat:h_fov=110:v_fov=100:w=1280:h=720,format=yuv420p[v]`, "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p", "-c:a", "aac", out]);
   console.log(`[followtest] → ${out} dur=${(await probe(out)).toFixed(1)}s`);
@@ -1040,9 +1248,74 @@ async function followtest() {
   await sql.end();
 }
 
+// Diagnostic: `--ranktest <video> [need] [k]` ranks a clip's best moments (motion + vision)
+// and stitches a montage of them to /tmp/ranktest.mp4 (no DB). Verifies best-moment selection.
+async function ranktest() {
+  const i = process.argv.indexOf("--ranktest");
+  const src = process.argv[i + 1];
+  const need = Number(process.argv[i + 2]) || 4;
+  const k = Number(process.argv[i + 3]) || 7;
+  if (!src) { console.error("usage: --ranktest <video> [need] [k]"); process.exit(2); }
+  const dur = await probe(src);
+  const offs = await rankWindows(src, need, dur, k);
+  console.log(`[ranktest] dur=${dur.toFixed(1)}s need=${need}s vision=${OLLAMA_URL ? OLLAMA_MODEL : "off"}`);
+  console.log(`[ranktest] ranked offsets: ${offs.map((o) => o.toFixed(1)).join(", ")}`);
+  const dir = mkdtempSync(join(tmpdir(), "cw-rank-"));
+  const parts = [];
+  for (let j = 0; j < offs.length; j++) {
+    const p = join(dir, `p${j}.mp4`);
+    await ffmpeg(["-ss", String(offs[j]), "-i", src, "-t", String(need), "-vf", "scale=640:-2,fps=30", "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p", p]);
+    parts.push(p);
+  }
+  const listFile = join(dir, "list.txt");
+  writeFileSync(listFile, parts.map((p) => `file '${p}'`).join("\n"));
+  await ffmpeg(["-f", "concat", "-safe", "0", "-i", listFile, "-c", "copy", "/tmp/ranktest.mp4"]);
+  console.log(`[ranktest] → /tmp/ranktest.mp4 (${offs.length} clips)`);
+  rmSync(dir, { recursive: true, force: true });
+  await sql.end();
+}
+
+// Diagnostic: `--filltest <video> <lengthSec> [loop]` builds the real timeline for one clip and
+// prints slot count, total, and a coverage histogram (how offsets spread across the clip) — so we
+// can confirm the whole clip is used, not just the start. No DB, no render.
+async function filltest() {
+  const i = process.argv.indexOf("--filltest");
+  const src = process.argv[i + 1];
+  const lengthSec = Number(process.argv[i + 2]) || 60;
+  const forceLoop = process.argv[i + 3] === "loop";
+  if (!src) { console.error("usage: --filltest <video> <lengthSec> [loop]"); process.exit(2); }
+  const dur = await probe(src);
+  const asset = { id: "a1", storage_key: "k1", kind: "video", _src: src };
+  const srcDurs = new Map([["k1", dur]]);
+  const { slots } = await buildTimeline([asset], [], lengthSec, false, true, srcDurs, false, [], forceLoop);
+  const total = slots.reduce((s, x) => s + x.dur, 0);
+  const B = 10;
+  const hist = new Array(B).fill(0);
+  for (const s of slots) hist[Math.min(B - 1, Math.floor((s.offset / Math.max(1, dur)) * B))]++;
+  console.log(`[filltest] clip=${dur.toFixed(0)}s target=${lengthSec}s loop=${forceLoop} → ${slots.length} slots, total=${total.toFixed(0)}s`);
+  console.log(`[filltest] offset spread over clip (deciles 0→end): ${hist.join(" ")}`);
+  console.log(`[filltest] offsets: ${slots.map((s) => s.offset.toFixed(0)).join(",")}`);
+  await sql.end();
+}
+
+// Diagnostic: `--posttest <video> [title]` builds the full ready-to-post description from a video
+// (vision block + fixed template) and prints it. No DB.
+async function posttest() {
+  const i = process.argv.indexOf("--posttest");
+  const src = process.argv[i + 1];
+  const title = process.argv[i + 2] || "";
+  if (!src) { console.error("usage: --posttest <video> [title]"); process.exit(2); }
+  const post = await generatePostContent(src, title);
+  console.log("=== POST CONTENT ===\n" + post + "\n=== END ===");
+  await sql.end();
+}
+
 async function main() {
   if (process.argv.includes("--followtest")) return followtest();
   if (process.argv.includes("--selftest")) return selftest();
+  if (process.argv.includes("--posttest")) return posttest();
+  if (process.argv.includes("--filltest")) return filltest();
+  if (process.argv.includes("--ranktest")) return ranktest();
   if (process.argv.includes("--waltztest")) return waltztest();
   if (process.argv.includes("--overlaytest")) return overlaytest();
   if (process.argv.includes("--convtest")) return convtest();
