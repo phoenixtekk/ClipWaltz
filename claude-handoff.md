@@ -14,6 +14,25 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
+## Working state (2026-09-21) — v5 in progress
+
+- **`3e0dde0` fix(storage): stream large media instead of buffering (DEPLOYED + VERIFIED).**
+  `serveObject()` buffered the whole object on any no-Range / `bytes=0-` GET; one large download
+  (an 8 GB `.insv`, a big render) pulled **~21 GB RSS** into the app → event loop pegged, every
+  route (even static `/`) timed out = **full outage** (this was the real cause of the repeated
+  "This page couldn't load", not just the menu bug). Fix: HEAD for size, buffer ≤16 MB, **stream
+  larger responses with an explicit `Content-Length`** (that header is what unblocks Next 16
+  streaming — the old "streaming hangs" was a Content-Length-less body). **Verified on prod:** 147 MB
+  render → TTFB 0.33s, +38 MB RSS; 8 concurrent 147 MB streams → peak +13 MB. App RSS back to ~140 MB.
+  Runbook updated (ADMIN_DOCS "Proxied media"). Deployed build `pg4IL8Lp…`.
+- **Notifications:** account-menu crash fixed & live; **Browser (in-tab) toggle works**. **Windows
+  (Web Push) fails on the owner's network** — `pushManager.subscribe()` → "Registration failed -
+  push service error" in BOTH Chrome & Edge, VAPID keys verified valid + inlined + SW serves. Root
+  cause = corporate network blocks Google's push endpoint (`fcmregistrations.googleapis.com`);
+  needs an IT firewall allowlist. Not a code bug (subscribe fails before our server is contacted).
+- **Still pending (owner):** worker restart to activate OOM-safe crossfade + clear stuck render
+  `34d1db72` (`ssh ai "sudo -n systemctl restart clipwaltz-worker"`).
+
 ## Working state (2026-09-20) — v5 in progress ⚠️ DEPLOY PENDING (owner-gated)
 
 - **`99ec815` fix(ui): account menu crashed on open (Base UI error #31).** `DropdownMenuLabel`

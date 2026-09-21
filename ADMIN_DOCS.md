@@ -67,13 +67,20 @@ See [`env.example`](env.example) for the full list. Groups:
 ## Runbooks (to expand as features land)
 - **Object storage:** MinIO on linuxg7 at `192.168.166.169:9000` (LAN), bucket `clipwaltz` (versioning on), accessed via a **bucket-scoped service account** (least privilege; not the root key). Keys in `.env.local`/`_keys`. Never recursive-delete the bucket (documented incident on the fleet). Uploads are proxied through `/api/projects/[id]/assets` (MinIO stays off the public internet).
 - **Render pool:** FFmpeg on the AI box; keep renders off the shared linuxg web hosts (they throttle transcoding).
-- **Proxied media (music preview, video watch, downloads):** all media is streamed **through the
+- **Proxied media (music preview, video watch, downloads):** all media is served **through the
   app** from MinIO (`/api/music/*`, `/api/renders/*/watch|download`, `/api/media/*`,
-  `/api/projects/*/assets/*`) so MinIO stays off the public internet. **Do not return a web
-  `ReadableStream` body from these route handlers** — on Next 16 the response hangs and never
-  flushes (symptom: `curl` gets code 000 / no headers; music preview + video just silently fail,
-  while the S3 fetch works standalone). Serve buffered bytes with `storage.serveObject()`
-  (Content-Length + `Accept-Ranges` + 206 for Range requests) instead. Fixed 2026-09-20.
+  `/api/projects/*/assets/*`) so MinIO stays off the public internet, via `storage.serveObject()`.
+  **The Content-Length gotcha:** a streamed web `ReadableStream` body **without** a `Content-Length`
+  hangs on Next 16 (response never flushes; `curl` gets code 000). The earlier fix "solved" this by
+  buffering the whole object — which then let one large download (an 8 GB `.insv`, a big render, or
+  any `Range: bytes=0-`) pull **multi-GB into the app** (observed ~**21 GB RSS**, event loop pegged,
+  every route — even static `/` — timing out = full outage). **Current design (2026-09-21):**
+  `serveObject()` HEADs for size, **buffers only responses ≤16 MB** (fast, hang-free) and **streams
+  larger ones straight from the ranged S3 body WITH an explicit `Content-Length`** — that header is
+  what makes Next flush the stream. Verified on prod: a 147 MB render streams with TTFB 0.33s and
+  ~38 MB RSS growth; **8 concurrent** 147 MB downloads peaked at **+13 MB** RSS (buffered would be
+  ~1.2 GB). Rule: keep the `Content-Length` on any streamed body, and never buffer an unbounded
+  object. `Accept-Ranges` + 206 give `<audio>`/`<video>` seeking; 416 on a bad range.
 - **DB migrations:** `drizzle-kit` does **not** auto-load `.env.local`, so it silently falls back to `postgres://localhost:5432/clipwaltz` and hangs/exit-1 if run bare. Always run **`node --env-file=.env.local ./node_modules/drizzle-kit/bin.cjs migrate`** (never pipe to `tail` — it SIGPIPEs mid-apply). Locally the dev DB (`clipwaltz_dev`) needs the linuxg1 SSH tunnel up.
 
 ## Monthly Theme Challenge (contests)
