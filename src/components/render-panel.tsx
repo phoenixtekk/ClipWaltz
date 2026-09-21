@@ -5,10 +5,12 @@ import { Loader2, Sparkles, AlertTriangle, Link as LinkIcon, Check, FileText, Co
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
-import { createRender } from "@/lib/render-actions";
+import { createRender, getRenderCheckpoint } from "@/lib/render-actions";
+import type { RenderCheckpoint } from "@/lib/render";
 import { shareRender } from "@/lib/feed-actions";
 import { EnterContestButton } from "@/components/enter-contest";
 import { DownloadButton, DownloadFolderChip } from "@/components/download-controls";
+import { RenderCheckpointModal, SKIP_KEY } from "@/components/render-checkpoint-modal";
 
 type R = { id: string; status: string; version: number; hasOutput: boolean; visibility: string; description?: string | null } | null;
 type Contest = { theme: string; entered: boolean } | null;
@@ -34,7 +36,10 @@ export function RenderPanel({
   const [render, setRender] = useState<R>(initial);
   const [pending, start] = useTransition();
   const [copied, setCopied] = useState(false);
+  const [checkpoint, setCheckpoint] = useState<RenderCheckpoint | null>(null);
+  const [checking, setChecking] = useState(false);
   const active = !!render && (render.status === "queued" || render.status === "rendering");
+  const isRerender = !!render?.hasOutput;
 
   useEffect(() => {
     if (!active) return;
@@ -54,16 +59,53 @@ export function RenderPanel({
     return () => clearInterval(t);
   }, [active, projectId, router]);
 
-  function onRender() {
+  // Step 1: build the checkpoint (fresh settings read from the server, so what we show is exactly
+  // what will render). Skip straight to rendering only when the user opted out AND nothing needs
+  // their attention.
+  function requestRender() {
+    setChecking(true);
+    (async () => {
+      try {
+        const cp = await getRenderCheckpoint(projectId);
+        const needsAttention = cp.hasBlocking || cp.warnings.some((w) => w.level !== "info");
+        let skip = false;
+        try {
+          skip = localStorage.getItem(SKIP_KEY) === "1";
+        } catch {
+          /* storage blocked — always show */
+        }
+        if (skip && !needsAttention) doCreate();
+        else setCheckpoint(cp);
+      } catch (e) {
+        toast.error((e as Error).message || "Could not prepare the render.");
+      } finally {
+        setChecking(false);
+      }
+    })();
+  }
+
+  // Step 2: actually queue the render.
+  function doCreate() {
     start(async () => {
       try {
         const id = await createRender(projectId);
+        setCheckpoint(null);
         setRender({ id, status: "queued", version: (render?.version ?? 0) + 1, hasOutput: false, visibility: "private", description: null });
       } catch (e) {
         toast.error((e as Error).message || "Could not start the render.");
       }
     });
   }
+
+  const checkpointModal = checkpoint ? (
+    <RenderCheckpointModal
+      checkpoint={checkpoint}
+      isRerender={isRerender}
+      pending={pending}
+      onConfirm={doCreate}
+      onCancel={() => setCheckpoint(null)}
+    />
+  ) : null;
 
   function doShare(v: string) {
     if (!render) return;
@@ -99,8 +141,8 @@ export function RenderPanel({
           <div className="flex items-center gap-2">
             <DownloadButton url={`/api/renders/${render.id}/download`} fallbackName="clipwaltz-video.mp4" />
             {render.description ? <CopyPostButton text={render.description} /> : null}
-            <Button variant="outline" onClick={onRender} disabled={pending}>
-              Re-render
+            <Button variant="outline" onClick={requestRender} disabled={pending || checking}>
+              {checking ? "Checking…" : "Re-render"}
             </Button>
           </div>
         </div>
@@ -144,6 +186,7 @@ export function RenderPanel({
           />
         ) : null}
         {render.description ? <DescriptionBox text={render.description} /> : null}
+        {checkpointModal}
       </div>
     );
   }
@@ -171,9 +214,10 @@ export function RenderPanel({
           <span className="text-muted-foreground">Assemble your clips into a music video.</span>
         )}
       </div>
-      <Button onClick={onRender} disabled={!canRender || pending}>
-        {pending ? "Starting…" : "Render HD →"}
+      <Button onClick={requestRender} disabled={!canRender || pending || checking}>
+        {pending ? "Starting…" : checking ? "Checking…" : "Render HD →"}
       </Button>
+      {checkpointModal}
     </div>
   );
 }

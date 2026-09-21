@@ -118,6 +118,10 @@ export async function setProjectLength(projectId: string, lengthSec: number): Pr
   revalidatePath(`/projects/${projectId}/edit`);
 }
 
+// The auto-assigned names a project can carry before the user has explicitly named it. While the
+// title is still one of these, the Style Title (titleText) drives the project name (see below).
+const DEFAULT_TITLES = new Set(Object.values(DEFAULT_TITLE));
+
 const STYLE_FILTERS = new Set(["none", "warm", "cool", "vivid", "bw", "vintage"]);
 const LIGHT_FX = new Set(["none", "vignette", "glow", "grain", "dreamy", "noir"]);
 const TRANSITIONS = new Set(["cut", "crossfade"]);
@@ -144,9 +148,24 @@ export async function setProjectStyle(
   const userId = await requireUserId();
   await assertProjectOwner(userId, projectId);
   const set: Record<string, unknown> = { updatedAt: new Date() };
+  let titleFollowed = false;
   if (patch.titleText !== undefined) {
     const t = (patch.titleText ?? "").trim().slice(0, 80);
     set.titleText = t.length ? t : null;
+    // If the project has never been explicitly named (still an auto default like "Untitled
+    // project"), let the Title drive the project name so it doesn't linger as "Untitled" in the
+    // projects list. Once the user renames it explicitly, the title is no longer a default and
+    // this stops overriding it.
+    if (t.length) {
+      const [row] = await db
+        .select({ title: schema.projects.title })
+        .from(schema.projects)
+        .where(eq(schema.projects.id, projectId));
+      if (row && DEFAULT_TITLES.has(row.title)) {
+        set.title = t.slice(0, 120);
+        titleFollowed = true;
+      }
+    }
   }
   if (patch.styleFilter !== undefined)
     set.styleFilter = STYLE_FILTERS.has(patch.styleFilter) ? patch.styleFilter : "none";
@@ -169,6 +188,10 @@ export async function setProjectStyle(
   if (patch.loopToFill === true) set.maxFootage = false;
   await db.update(schema.projects).set(set).where(eq(schema.projects.id, projectId));
   revalidatePath(`/projects/${projectId}/edit`);
+  if (titleFollowed) {
+    revalidatePath("/projects");
+    revalidatePath("/dashboard");
+  }
 }
 
 export async function setProjectMusic(projectId: string, trackId: string | null): Promise<void> {

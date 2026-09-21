@@ -198,6 +198,7 @@ export const renders = pgTable("renders", {
   cpuSeconds: real(), // instrumentation → cost-per-render
   costCents: integer(),
   visibility: text().notNull().default("private"), // private | unlisted | public (community feed)
+  settings: jsonb(), // snapshot of the effective Format+Style settings at render time (audit + "what changed")
   description: text(), // AI-generated YouTube description (when project.describe is on)
   sharedAt: timestamp({ withTimezone: true }),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),

@@ -11,6 +11,43 @@ export type RenderStatus = {
   description: string | null; // AI YouTube description (when enabled)
 } | null;
 
+// Snapshot of the effective Format + Style settings a render used — stored on the render row so
+// we can show "what changed since last render" and keep an audit of each output.
+export type RenderSettings = {
+  aspect: string;
+  lengthSec: number;
+  maxFootage: boolean;
+  styleFilter: string;
+  lightFx: string;
+  transition: string;
+  motion: boolean;
+  fades: boolean;
+  fadeOut: boolean;
+  smartCut: boolean;
+  beatSync: boolean;
+  waltzToMusic: boolean;
+  loopToFill: boolean;
+  titleText: string | null;
+  musicTrackId: string | null;
+  clips: number;
+};
+
+export type CheckLevel = "red" | "yellow" | "info";
+export type CheckWarning = { level: CheckLevel; text: string };
+
+// Everything the render confirmation checkpoint shows the user before spending a render.
+export type RenderCheckpoint = {
+  clips: number;
+  musicTitle: string | null;
+  lengthLabel: string; // "Max footage" or "30s"
+  projectedSec: number; // estimated output length
+  aspect: string;
+  summary: { label: string; value: string }[];
+  warnings: CheckWarning[];
+  changes: string[]; // human-readable diffs vs the previous render
+  hasBlocking: boolean; // a 🔴 issue is present
+};
+
 /** Latest render for a project the current user owns. */
 export async function getLatestRender(projectId: string): Promise<RenderStatus> {
   const userId = await requireUserId();
