@@ -41,6 +41,11 @@ ships. It will also surface in-app at `/help`.
   the last render, and any heads-up (e.g. no music picked, or clips that don't match the aspect).
   Tap **Confirm** to build it, or **Back to edit** to tweak. You can opt out for quick renders
   (we'll still warn you when something looks off).
+- **Ready-to-post text:** turn on **📝 Generate post text** and, when you render, ClipWaltz writes
+  a full description you can paste straight to YouTube. Set a **Topic / subject** (what the video is
+  about — this guides the AI) and paste your **Channel template** (your standard footer, links and
+  hashtags) — both are saved per project, so each project can have its own voice. Leave them blank
+  to use the built-in default. Grab it with **Copy post** next to Download after the render.
 - Your draft appears in ~30–60s; the HD render runs in the background.
 - We'll notify you (in the app and by email) when your video is ready — and, if you turn it on,
   with a desktop notification (see **Account → Notifications** below).

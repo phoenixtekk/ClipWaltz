@@ -67,6 +67,8 @@ export function EditorWorkspace({
     beatSync: project.beatSync,
     waltzToMusic: project.waltzToMusic,
     describe: project.describe,
+    postTopic: project.postTopic,
+    postTemplate: project.postTemplate,
     loopToFill: project.loopToFill,
     maxFootage: project.maxFootage,
     hasRender: !!latestRender?.hasOutput,

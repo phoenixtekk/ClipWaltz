@@ -58,6 +58,8 @@ export function ProjectEditor({
   beatSync,
   waltzToMusic,
   describe,
+  postTopic,
+  postTemplate,
   loopToFill,
   maxFootage,
   hasRender,
@@ -77,6 +79,8 @@ export function ProjectEditor({
   beatSync: boolean;
   waltzToMusic: boolean;
   describe: boolean;
+  postTopic: string | null;
+  postTemplate: string | null;
   loopToFill: boolean;
   maxFootage: boolean;
   hasRender: boolean;
@@ -443,6 +447,13 @@ export function ProjectEditor({
                 disabled={pending}
               />
             </div>
+            {describe ? (
+              <PostTextSettings
+                projectId={projectId}
+                initialTopic={postTopic ?? ""}
+                initialTemplate={postTemplate ?? ""}
+              />
+            ) : null}
             <p className="text-xs text-muted-foreground">
               Smart cut keeps the liveliest moment of each video; Beat sync times cuts to the music;
               Waltz to the Music varies the pace with the song&apos;s energy and ends on a beat.
@@ -489,6 +500,72 @@ export function ProjectEditor({
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Per-project "ready-to-post" text config, shown under the 📝 toggle. Topic steers the AI's
+ * description; Template is the fixed boilerplate appended after it. Left blank, the worker uses
+ * its built-in defaults. Saved together via setProjectStyle.
+ */
+function PostTextSettings({
+  projectId,
+  initialTopic,
+  initialTemplate,
+}: {
+  projectId: string;
+  initialTopic: string;
+  initialTemplate: string;
+}) {
+  const [topic, setTopic] = useState(initialTopic);
+  const [template, setTemplate] = useState(initialTemplate);
+  const [pending, start] = useTransition();
+  const dirty = topic !== initialTopic || template !== initialTemplate;
+
+  function save() {
+    start(async () => {
+      try {
+        await setProjectStyle(projectId, { postTopic: topic, postTemplate: template });
+        toast.success("Post-text settings saved.");
+      } catch (e) {
+        toast.error((e as Error).message || "Could not save post-text settings.");
+      }
+    });
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border bg-card/60 p-3">
+      <div className="space-y-1.5">
+        <label htmlFor="pt-topic" className="text-xs font-medium text-muted-foreground">
+          Topic / subject <span className="font-normal">— what the video is about (guides the AI)</span>
+        </label>
+        <Input
+          id="pt-topic"
+          value={topic}
+          maxLength={200}
+          onChange={(e) => setTopic(e.target.value)}
+          placeholder="e.g. European travel vlog, home cooking, jet ski riding"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <label htmlFor="pt-template" className="text-xs font-medium text-muted-foreground">
+          Channel template <span className="font-normal">— appended verbatim after the generated description (About, links, hashtags…)</span>
+        </label>
+        <textarea
+          id="pt-template"
+          value={template}
+          maxLength={6000}
+          onChange={(e) => setTemplate(e.target.value)}
+          rows={6}
+          placeholder="Leave blank to use the built-in default. Paste your channel's standard footer, CTAs and hashtags here."
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs leading-relaxed outline-none focus:border-primary"
+        />
+        <p className="text-right text-[11px] text-muted-foreground">{template.length}/6000</p>
+      </div>
+      <Button size="sm" onClick={save} disabled={pending || !dirty}>
+        {pending ? "Saving…" : "Save post-text settings"}
+      </Button>
     </div>
   );
 }

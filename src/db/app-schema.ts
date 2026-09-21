@@ -72,6 +72,12 @@ export const projects = pgTable("projects", {
   beatSync: boolean().notNull().default(true), // time cuts to the music's beats
   waltzToMusic: boolean().notNull().default(false), // energy-aware beat-driven editing
   describe: boolean().notNull().default(false), // generate a YouTube description on render
+  // Per-project "ready-to-post" text config (used when `describe` is on). `postTopic` is a short
+  // subject hint that steers the vision model (e.g. "European travel vlog", "home cooking");
+  // `postTemplate` is the fixed channel boilerplate appended verbatim after the AI-written block.
+  // NULL on either → the worker falls back to its built-in defaults (see DEFAULT_POST_* there).
+  postTopic: text(),
+  postTemplate: text(),
   loopToFill: boolean().notNull().default(false), // repeat footage to reach the target length
   // "Max footage": ignore the lengthSec cap and build the longest coherent video the footage
   // supports (each video its full length, each image a slot), bounded by a soft ceiling in the

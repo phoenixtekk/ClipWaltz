@@ -387,9 +387,12 @@ async function getBeats(musicFile) {
 }
 
 // Ready-to-post video description. The AI writes ONLY the video-specific top block (an opening
-// description + the three "In this video:" bullets) from the actual footage; everything below is
-// the owner's fixed channel template, used verbatim. Stored on the render for the Copy button.
-const POST_TEMPLATE_SUFFIX = `If you enjoy jet skiing, personal watercraft, racing, riding, repairs, events, or just being out on the water, subscribe and follow the journey.
+// description + the three "In this video:" bullets) from the actual footage, guided by the
+// project's post_topic; everything below is the project's channel template (post_template), used
+// verbatim. Both fall back to these built-in defaults when a project hasn't set them, so existing
+// projects keep their current output. Stored on the render for the Copy button.
+const DEFAULT_POST_TOPIC = "jet ski / personal watercraft (PWC)";
+const DEFAULT_POST_TEMPLATE = `If you enjoy jet skiing, personal watercraft, racing, riding, repairs, events, or just being out on the water, subscribe and follow the journey.
 ---
 
 ABOUT THE CHANNEL
@@ -427,18 +430,23 @@ The activities shown on this channel may involve inherent risks. Always ride res
 
 #JetSki #PWC #PersonalWatercraft #JetSkiLife #PWCLife #JetSkiRiding #WaterSports #JetSkiAdventure #PWCCommunity #JetSkiCommunity #LakeLife #RidePWC`;
 
-function assemblePost(description, bullets) {
+function assemblePost(description, bullets, template) {
   const b = [bullets[0], bullets[1], bullets[2]].map((x) => String(x || "").trim());
-  return `${String(description || "").trim()}\n\nIn this video:\n• ${b[0]}\n• ${b[1]}\n• ${b[2]}\n\n${POST_TEMPLATE_SUFFIX}`;
+  const head = `${String(description || "").trim()}\n\nIn this video:\n• ${b[0]}\n• ${b[1]}\n• ${b[2]}`;
+  const suffix = (template ?? DEFAULT_POST_TEMPLATE).trim();
+  return suffix ? `${head}\n\n${suffix}` : head;
 }
 
 // Build the full post: sample frames from the finished video, have the vision model write the
-// video-specific block from what it actually sees, then append the fixed template. Always returns
-// a complete post (falls back to a generic PWC block) so the Copy button is never empty.
-async function generatePostContent(videoFile, title) {
+// video-specific block from what it actually sees (steered by `topic`), then append the project's
+// channel `template`. Always returns a complete post (falls back to a generic block) so the Copy
+// button is never empty. `topic`/`template` come from the project; empty → built-in defaults.
+async function generatePostContent(videoFile, title, topic, template) {
+  const subject = (topic ?? "").trim() || DEFAULT_POST_TOPIC;
   const generic = assemblePost(
-    `${title ? `${title}. ` : ""}Another day out on the water riding personal watercraft.`,
-    ["Out on the water riding jet skis", "Good conditions and good rides with the crew", "Riding, wake, and time on the water"],
+    `${title ? `${title}. ` : ""}A new ${subject} video.`,
+    [`A look at this ${subject} video`, "The moments and highlights captured here", "What viewers should watch for"],
+    template,
   );
   if (!OLLAMA_URL) return generic;
   const dir = mkdtempSync(join(tmpdir(), "cw-post-"));
@@ -457,11 +465,11 @@ async function generatePostContent(videoFile, title) {
     const to = setTimeout(() => ctrl.abort(), 60000);
     try {
       const prompt =
-        `These frames are from a jet ski / personal watercraft (PWC) video${title ? ` titled "${title}"` : ""}. ` +
+        `These frames are from a ${subject} video${title ? ` titled "${title}"` : ""}. ` +
         `Write a first-person YouTube description for it. Respond ONLY as JSON: ` +
-        `{"description":"2-3 engaging first-person sentences about this specific ride or video",` +
-        `"bullets":["what happened and where","what makes this ride or moment interesting","what viewers should watch for"]}. ` +
-        `Be specific to what you actually see — water, riders, jet skis, marina, launch ramp, group ride, racing, wake, scenery. Plain text values, no markdown.`;
+        `{"description":"2-3 engaging first-person sentences about this specific video",` +
+        `"bullets":["what happened and where","what makes this moment interesting","what viewers should watch for"]}. ` +
+        `Be specific to what you actually see in the frames. Plain text values, no markdown.`;
       const res = await fetch(`${OLLAMA_URL}/api/generate`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -474,7 +482,7 @@ async function generatePostContent(videoFile, title) {
       const desc = String(parsed.description || "").trim();
       const bullets = Array.isArray(parsed.bullets) ? parsed.bullets.map((x) => String(x).trim()).filter(Boolean) : [];
       if (desc.length < 8 || bullets.length < 3) return generic;
-      return assemblePost(desc, bullets).slice(0, 8000);
+      return assemblePost(desc, bullets, template).slice(0, 8000);
     } finally {
       clearTimeout(to);
     }
@@ -1166,7 +1174,12 @@ async function processRender(r) {
     // 'done' and folded into the same update, so it's present the moment the client sees "ready".
     let postText = null;
     if (project?.describe) {
-      postText = await generatePostContent(outFile, project?.title_text || project?.title || "").catch(() => null);
+      postText = await generatePostContent(
+        outFile,
+        project?.title_text || project?.title || "",
+        project?.post_topic ?? null,
+        project?.post_template ?? null,
+      ).catch(() => null);
       if (postText) console.log(`[worker] render ${r.id} post text generated (${postText.length} chars)`);
     }
     const secs = Math.round((Date.now() - started) / 1000);
@@ -1372,14 +1385,16 @@ async function filltest() {
   await sql.end();
 }
 
-// Diagnostic: `--posttest <video> [title]` builds the full ready-to-post description from a video
-// (vision block + fixed template) and prints it. No DB.
+// Diagnostic: `--posttest <video> [title] [topic] [template]` builds the full ready-to-post
+// description from a video (vision block steered by topic + channel template) and prints it. No DB.
 async function posttest() {
   const i = process.argv.indexOf("--posttest");
   const src = process.argv[i + 1];
   const title = process.argv[i + 2] || "";
-  if (!src) { console.error("usage: --posttest <video> [title]"); process.exit(2); }
-  const post = await generatePostContent(src, title);
+  const topic = process.argv[i + 3] || null;
+  const template = process.argv[i + 4] || null;
+  if (!src) { console.error("usage: --posttest <video> [title] [topic] [template]"); process.exit(2); }
+  const post = await generatePostContent(src, title, topic, template);
   console.log("=== POST CONTENT ===\n" + post + "\n=== END ===");
   await sql.end();
 }

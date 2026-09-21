@@ -141,6 +141,8 @@ export async function setProjectStyle(
     beatSync?: boolean;
     waltzToMusic?: boolean;
     describe?: boolean;
+    postTopic?: string | null;
+    postTemplate?: string | null;
     loopToFill?: boolean;
     maxFootage?: boolean;
   },
@@ -180,6 +182,14 @@ export async function setProjectStyle(
   if (patch.beatSync !== undefined) set.beatSync = !!patch.beatSync;
   if (patch.waltzToMusic !== undefined) set.waltzToMusic = !!patch.waltzToMusic;
   if (patch.describe !== undefined) set.describe = !!patch.describe;
+  if (patch.postTopic !== undefined) {
+    const t = (patch.postTopic ?? "").trim().slice(0, 200);
+    set.postTopic = t.length ? t : null;
+  }
+  if (patch.postTemplate !== undefined) {
+    const t = (patch.postTemplate ?? "").trim().slice(0, 6000);
+    set.postTemplate = t.length ? t : null;
+  }
   if (patch.loopToFill !== undefined) set.loopToFill = !!patch.loopToFill;
   if (patch.maxFootage !== undefined) set.maxFootage = !!patch.maxFootage;
   // "Max footage" and "loop to fill" are mutually exclusive intents (use everything vs repeat to
