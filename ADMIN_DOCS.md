@@ -66,6 +66,13 @@ See [`env.example`](env.example) for the full list. Groups:
 ## Runbooks (to expand as features land)
 - **Object storage:** MinIO on linuxg7 at `192.168.166.169:9000` (LAN), bucket `clipwaltz` (versioning on), accessed via a **bucket-scoped service account** (least privilege; not the root key). Keys in `.env.local`/`_keys`. Never recursive-delete the bucket (documented incident on the fleet). Uploads are proxied through `/api/projects/[id]/assets` (MinIO stays off the public internet).
 - **Render pool:** FFmpeg on the AI box; keep renders off the shared linuxg web hosts (they throttle transcoding).
+- **Proxied media (music preview, video watch, downloads):** all media is streamed **through the
+  app** from MinIO (`/api/music/*`, `/api/renders/*/watch|download`, `/api/media/*`,
+  `/api/projects/*/assets/*`) so MinIO stays off the public internet. **Do not return a web
+  `ReadableStream` body from these route handlers** — on Next 16 the response hangs and never
+  flushes (symptom: `curl` gets code 000 / no headers; music preview + video just silently fail,
+  while the S3 fetch works standalone). Serve buffered bytes with `storage.serveObject()`
+  (Content-Length + `Accept-Ranges` + 206 for Range requests) instead. Fixed 2026-09-20.
 - **DB migrations:** `drizzle-kit` does **not** auto-load `.env.local`, so it silently falls back to `postgres://localhost:5432/clipwaltz` and hangs/exit-1 if run bare. Always run **`node --env-file=.env.local ./node_modules/drizzle-kit/bin.cjs migrate`** (never pipe to `tail` — it SIGPIPEs mid-apply). Locally the dev DB (`clipwaltz_dev`) needs the linuxg1 SSH tunnel up.
 
 ## Monthly Theme Challenge (contests)
