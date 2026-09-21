@@ -780,43 +780,40 @@ async function buildTimeline(assets, beats, lengthSec, beatSync, smartCut, srcDu
     return Math.max(0, Math.min(q[i % q.length], Math.max(0, D - dur)));
   };
 
-  // Fill toward the target length. When there isn't enough content to reach `cap` (e.g. one
-  // short clip), keep adding segments by cycling the assets and — for videos — using the NEXT
-  // best-ranked window (montage of the clip's best moments). Non-smart mode tiles sequentially.
+  // Fill toward the target length with a HARD CAP of MAX_APP appearances per source clip, so the
+  // same image/video is never shown more than twice — even in loop-to-fill mode. Each extra video
+  // appearance draws a DIFFERENT window (montage of distinct moments), and photos aren't repeated
+  // past the cap. Any void left after the cap is filled by stretching (below), not more repeats.
+  const MAX_APP = 2;
+  const appear = new Map(); // asset.id -> times it appears so far (incl. the initial slots above)
+  for (const s of slots) appear.set(s.asset.id, (appear.get(s.asset.id) ?? 0) + 1);
   let total = slots.reduce((s, x) => s + x.dur, 0);
   if (cap !== Infinity && assets.length > 0 && total < cap - 0.4) {
     const fillDur = Math.max(1.5, Math.min(4, slots.length ? total / slots.length : PER_VIDEO));
     const MAX_SLOTS = 400;
-    const vUsed = new Map(); // per-video fill windows used
-    const photoUsed = new Set(); // photos used in fill (no-loop: at most once)
+    const vUsed = new Map(); // per-video fill windows used (for non-smart tiling offsets)
     let i = 0;
     let skips = 0;
     while (total < cap - 0.4 && slots.length < MAX_SLOTS) {
       const a = assets[i % assets.length];
       i++;
+      if ((appear.get(a.id) ?? 0) >= MAX_APP) {
+        if (++skips >= assets.length) break; // every clip has hit the 2× cap → stop repeating
+        continue;
+      }
       let dur = Math.min(fillDur, cap - total);
       if (dur < 0.4) break;
       let offset; // undefined → resolver assigns a ranked window; set here only for non-smart tiling
       if (a.kind === "video") {
         const D = srcDurs.get(a.storage_key) ?? 0;
-        const nWin = Math.max(1, Math.floor(D / dur)); // distinct windows the clip supports
+        const nWin = Math.max(1, Math.floor(D / dur));
         const used = vUsed.get(a.storage_key) ?? 0;
-        // Default: cover the clip's distinct windows once (no repeats). Loop mode: wrap and reuse.
-        if (!effLoop && used >= nWin) {
-          if (++skips >= assets.length) break;
-          continue;
-        }
         if (!smartCut) offset = Math.min(Math.max(0, D - dur), (used % nWin) * dur);
         vUsed.set(a.storage_key, used + 1);
       } else {
-        // Default: don't repeat a photo (it already showed once). Loop mode: allow repeats.
-        if (!effLoop && photoUsed.has(a.id)) {
-          if (++skips >= assets.length) break;
-          continue;
-        }
-        photoUsed.add(a.id);
         offset = 0;
       }
+      appear.set(a.id, (appear.get(a.id) ?? 0) + 1);
       skips = 0;
       slots.push({ asset: a, dur, offset });
       total += dur;
@@ -827,6 +824,38 @@ async function buildTimeline(assets, beats, lengthSec, beatSync, smartCut, srcDu
   for (const s of slots) {
     if (s.offset !== undefined) continue;
     s.offset = s.asset.kind === "video" && smartCut ? nextOffset(s.asset, s.dur) : 0;
+  }
+
+  // Stretch to absorb any leftover void (target not reachable within the 2× cap) — rather than
+  // repeating a clip a 3rd time. Hold IMAGES longer first (up to MAX_IMG_HOLD), then lengthen VIDEO
+  // slots to use MORE of their own footage (bounded by each clip's remaining length from its
+  // offset). Distributes evenly in small rounds so no single slot balloons. If it still can't fill,
+  // the video is simply a bit shorter than the target — better than showing something 3+ times.
+  if (cap !== Infinity && total < cap - 0.4 && slots.length > 0) {
+    const MAX_IMG_HOLD = 12;
+    const grow = (eligible, maxFor) => {
+      let guard = 0;
+      while (total < cap - 0.4 && guard++ < 4000) {
+        const room = eligible.filter((s) => s.dur < maxFor(s) - 0.05);
+        if (room.length === 0) break;
+        const step = Math.max(0.05, Math.min((cap - total) / room.length, 0.5));
+        for (const s of room) {
+          const add = Math.min(step, maxFor(s) - s.dur, cap - total);
+          if (add <= 0) continue;
+          s.dur += add;
+          total += add;
+          if (total >= cap - 0.4) break;
+        }
+      }
+    };
+    grow(slots.filter((s) => s.asset.kind !== "video"), () => MAX_IMG_HOLD);
+    if (total < cap - 0.4) {
+      grow(
+        slots.filter((s) => s.asset.kind === "video"),
+        (s) => Math.max(s.dur, (srcDurs.get(s.asset.storage_key) ?? 0) - s.offset),
+      );
+    }
+    console.log(`[worker] fill: capped at ${MAX_APP}× per clip; stretched to ${total.toFixed(0)}s / ${cap}s target`);
   }
   return { slots, musicOffset };
 }
@@ -1091,8 +1120,13 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     const args = ["-f", "concat", "-safe", "0", "-i", fwd(srcList)];
     const musicIdx = 1;
     if (musicFile) args.push("-ss", musicOffset.toFixed(3), "-stream_loop", "-1", "-i", fwd(musicFile));
-    args.push("-filter_complex", `[0:v]${pf}[vout]`, "-map", "[vout]");
-    if (musicFile) args.push("-map", `${musicIdx}:a:0`, "-shortest");
+    // Audio fades out with the picture at the very end (matches the video fade-out) so the music
+    // never hard-cuts — gated on the same `fadeOut` setting as the visual fade for a clean ending.
+    const aFade = style.fadeOut && !!musicFile && outDur > 1.6;
+    let fc = `[0:v]${pf}[vout]`;
+    if (aFade) fc += `;[${musicIdx}:a]afade=t=out:st=${(outDur - 0.7).toFixed(2)}:d=0.7[aout]`;
+    args.push("-filter_complex", fc, "-map", "[vout]");
+    if (musicFile) args.push("-map", aFade ? "[aout]" : `${musicIdx}:a:0`, "-shortest");
     args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p");
     if (musicFile) args.push("-c:a", "aac", "-b:a", "192k");
     if (lengthSec > 0) args.push("-t", String(lengthSec));
@@ -1431,7 +1465,32 @@ async function xfadetest() {
   }
 }
 
+// Diagnostic: `--captest [nVideos] [nImages] [lengthSec]` builds a synthetic project and prints
+// the max times any single clip appears (must be ≤ 2) + how close the fill got to the target.
+// Pure slot math (no ffmpeg/DB) — verifies the ≤2×-appearances cap and the stretch-to-fill.
+async function captest() {
+  const i = process.argv.indexOf("--captest");
+  const nV = Number(process.argv[i + 1]) || 5;
+  const nI = Number(process.argv[i + 2]) || 5;
+  const lengthSec = Number(process.argv[i + 3]) || 300;
+  const vLen = Number(process.argv[i + 4]) || 20;
+  const assets = [];
+  const srcDurs = new Map();
+  for (let k = 0; k < nV; k++) { const key = "v" + k; assets.push({ id: "v" + k, storage_key: key, kind: "video" }); srcDurs.set(key, vLen); }
+  for (let k = 0; k < nI; k++) assets.push({ id: "i" + k, storage_key: "i" + k, kind: "photo" });
+  const { slots } = await buildTimeline(assets, [], lengthSec, false, false, srcDurs, false, [], false, false);
+  const total = slots.reduce((s, x) => s + x.dur, 0);
+  const counts = new Map();
+  for (const s of slots) counts.set(s.asset.id, (counts.get(s.asset.id) ?? 0) + 1);
+  const vals = [...counts.values()];
+  const over2 = [...counts.entries()].filter(([, c]) => c > 2).map(([id]) => id);
+  console.log(`[captest] ${nV} videos(${vLen}s) + ${nI} images, target ${lengthSec}s → ${slots.length} slots, total ${total.toFixed(0)}s`);
+  console.log(`[captest] max appearances of any clip = ${Math.max(...vals)} (cap is 2); clips over 2× = ${over2.length ? over2.join(",") : "NONE"}`);
+  await sql.end();
+}
+
 async function main() {
+  if (process.argv.includes("--captest")) return captest();
   if (process.argv.includes("--xfadetest")) return xfadetest();
   if (process.argv.includes("--followtest")) return followtest();
   if (process.argv.includes("--selftest")) return selftest();
