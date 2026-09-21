@@ -14,6 +14,35 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
+## Working state (2026-09-20) — v5 in progress ⚠️ DEPLOY PENDING (owner-gated)
+
+- **Committed `a3ab99a`** — "Render-complete notifications: in-tab + Web Push (two toggles)".
+  Type-check ✓ · lint ✓ · prod build ✓. Migration **0019** (`push_subscriptions`) generated,
+  **NOT yet applied to prod**.
+- **What shipped (code):** Account → Notifications (`/account/notifications`, avatar menu) with two
+  per-browser toggles — (1) in-tab browser notification (localStorage pref; fired from
+  `render-panel.tsx`→`notifyRenderDone`); (2) OS/Windows push via Web Push (`public/sw.js` +
+  `push_subscriptions` + VAPID). `render-ready` callback now also `sendPushToUser` (`lib/push.ts`,
+  prunes dead subs). SW suppresses OS toast when a tab is focused (de-dupe). Docs updated +
+  **mirrored to wiki** (features/admin-docs/help-center).
+- **Done on prod already (pre-deploy):** VAPID env appended to linuxg1 `.env.local` (4 vars);
+  deploy tarball staged at `linuxg1:/tmp/clipwaltz-deploy.tar.gz`. Keys saved to
+  `_keys/clipwaltz.txt`.
+- **⚠️ REMAINING (owner runs — auto-mode blocks prod deploy here):** on linuxg1 `cd ~/clipwaltz` →
+  `tar xzf /tmp/clipwaltz-deploy.tar.gz` → `npm ci` → `node --env-file=.env.local
+  ./node_modules/drizzle-kit/bin.cjs migrate` (applies 0019; NEVER pipe to tail) → `npm run build`
+  → `pm2 restart clipwaltz`. Worker unchanged (no redeploy needed).
+- **Bugs found this session (NOT yet fixed):** (1) **crossfade OOMs** on many-segment renders —
+  the crossfade path opens every segment as a simultaneous ffmpeg input (`render-worker.mjs:1034`);
+  a 78-clip/600s/all-effects render hit **78 GB** and the OOM killer killed the worker. (2) **No
+  crash recovery** — a hard crash skips the `catch` that marks `failed`, so the render is orphaned
+  in `rendering` forever (worker only re-claims `queued`, `render-worker.mjs:1162`). The owner's
+  stuck render `34d1db72` is orphaned; clear with `update renders set status='failed' where
+  id='34d1db72-560b-4893-9556-a4d2f4e09b4b'`. **Recommended next work:** chunked/2-stage crossfade
+  (or cap segments when crossfade on) + a stale-`rendering` reaper.
+
+---
+
 ## Working state (2026-09-20) — v4 shipped; tree CLEAN + all deployed
 
 - **Tree:** clean. **Type-check + build green.** Prod DB migrated through **`0018`**.
