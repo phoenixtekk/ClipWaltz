@@ -25,11 +25,15 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
   streaming — the old "streaming hangs" was a Content-Length-less body). **Verified on prod:** 147 MB
   render → TTFB 0.33s, +38 MB RSS; 8 concurrent 147 MB streams → peak +13 MB. App RSS back to ~140 MB.
   Runbook updated (ADMIN_DOCS "Proxied media"). Deployed build `pg4IL8Lp…`.
-- **Notifications:** account-menu crash fixed & live; **Browser (in-tab) toggle works**. **Windows
-  (Web Push) fails on the owner's network** — `pushManager.subscribe()` → "Registration failed -
-  push service error" in BOTH Chrome & Edge, VAPID keys verified valid + inlined + SW serves. Root
-  cause = corporate network blocks Google's push endpoint (`fcmregistrations.googleapis.com`);
-  needs an IT firewall allowlist. Not a code bug (subscribe fails before our server is contacted).
+- **Notifications: BOTH toggles work (in-tab + Windows Web Push), verified live.** The earlier
+  push failure was NOT a network block (that was a wrong guess — verified from the workstation that
+  FCM is fully reachable: `fcmregistrations.googleapis.com:443` → 404, cert = Google Trust Services
+  (no MITM), `mtalk.google.com:5228` open, no proxy). The real cause was that push was tested WHILE
+  the app was in the 21 GB hung state, so `/sw.js` timed out → subscribe failed with "push service
+  error". Once the media-streaming fix restored the app, push subscribed and delivered fine.
+  **Notification click URL fixed** (`VOUmKJuUGrF3qLq__eoHZ`): pointed at `/projects/<id>` which has
+  no page (only `/projects/[id]/edit`) → 404 on click; both the push (`render-ready/route.ts`) and
+  in-tab (`render-panel.tsx`) now use `/projects/<id>/edit`. UCG/UniFi gateway needs no changes.
 - **Still pending (owner):** worker restart to activate OOM-safe crossfade + clear stuck render
   `34d1db72` (`ssh ai "sudo -n systemctl restart clipwaltz-worker"`).
 
