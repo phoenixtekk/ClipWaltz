@@ -98,6 +98,15 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
   (`src/lib/announcements.ts`, `src/lib/announcement-actions.ts`).
 - **Nav** — top header now reads **Dashboard · Projects · Library · Community · Admin**; the logo
   and post-login redirect point at `/dashboard`.
+- **Render checkpoint** — clicking Render / Re-render first shows a confirmation modal with the
+  effective settings (read fresh from the server, so it's exactly what will render), a projected
+  length, tiered warnings (🔴 no clips · 🟡 1 clip / no music / clip-orientation vs aspect · 🟢
+  footage shorter than target), and **what changed since the last render**. A per-user "don't show
+  again for quick renders" opt-out is honoured unless a warning is present. Each render also
+  snapshots its settings (`renders.settings`) for audit + the diff.
+- **Title follows the caption** — a project still on its auto name ("Untitled project", "Trip
+  video", "Event video") takes the Style Title as its project name, so it stops showing as
+  "Untitled" in the list. An explicit rename is preserved.
 
 ## Later
 Native mobile apps · collaboration/shared reels · auto-captions · face/scene-aware

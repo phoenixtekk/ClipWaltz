@@ -36,6 +36,11 @@ ships. It will also surface in-app at `/help`.
   track, and tap a track's name to set it as your soundtrack (all licensed, safe to post).
 
 ## Rendering & export
+- **Render checkpoint:** when you tap **Render HD** or **Re-render**, a quick confirmation shows
+  exactly what will be made — projected length, your Format/Style settings, what you changed since
+  the last render, and any heads-up (e.g. no music picked, or clips that don't match the aspect).
+  Tap **Confirm** to build it, or **Back to edit** to tweak. You can opt out for quick renders
+  (we'll still warn you when something looks off).
 - Your draft appears in ~30–60s; the HD render runs in the background.
 - We'll notify you (in the app and by email) when your video is ready.
 - Downloading and sharing. Free videos include a watermark.

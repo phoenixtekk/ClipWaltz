@@ -106,6 +106,25 @@ lays every clip at its full length (videos) or a slot (images) end-to-end, **no 
 by `MAX_FOOTAGE_CEIL` (600s / 10 min). Mutually exclusive with `loopToFill`. Editor shows a live
 projected-length estimate (mirrors the same PER_IMAGE=2 / PER_VIDEO fallback the worker uses).
 
+## Render checkpoint & settings snapshot
+- **Checkpoint:** the client calls `getRenderCheckpoint(projectId)` (`lib/render-actions.ts`) on
+  Render/Re-render — it reads the **live** project row (so the shown settings equal what will
+  render), computes a projected length, tiered warnings, and a diff vs the previous render, then
+  the modal (`components/render-checkpoint-modal.tsx`) confirms before `createRender`. Per-user
+  opt-out via `localStorage` key `cw-skip-render-checkpoint` (ignored when a warning is present).
+- **Snapshot:** `createRender` writes the effective settings to `renders.settings` (jsonb,
+  migration 0018) for audit and the "what changed" diff. The worker still reads the live project
+  row (identical to the snapshot at create time), so no worker change was needed.
+- **Re-render note (investigated):** re-render uses current saved settings (worker
+  `select * from projects`); a traced same-project re-render applied the changed filter correctly.
+  The only residual risk was a client race (async setting writes vs an immediate render click),
+  which the checkpoint's fresh read removes.
+
+## Title follows the Style Title
+`setProjectStyle` — when `titleText` is set and the project name is still an auto default
+(`DEFAULT_TITLES`: "Untitled project"/"Trip video"/"Event video"), the project `title` follows the
+caption. An explicit `renameProject` makes the title non-default, which stops the auto-follow.
+
 ## Render worker
 `worker/render-worker.mjs` claims queued rows from `renders` (FOR UPDATE SKIP LOCKED), pulls the
 project's clips from MinIO, FFmpeg-assembles a 1080p 9:16 video (photos 2s, videos ≤4s, optional
