@@ -1,5 +1,5 @@
-<!-- session-version: 4 -->
-<!-- pending-session-title: ClipWaltz v4 -->
+<!-- session-version: 5 -->
+<!-- pending-session-title: ClipWaltz v5 -->
 
 # ClipWaltz — session handoff
 
@@ -12,6 +12,26 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 **MVP is a desktop web app.** Name locked, domain **clipwaltz.com** purchased. Canonical
 `https://www.clipwaltz.com` (apex→www 308). Planning docs: `PRODUCT_PLAN.md`,
 `DESIGN_BUILD_PLAN.md` (settled decisions in §7); features in `FEATURES.md`.
+
+---
+
+## Working state (2026-09-20) — v4 shipped; tree CLEAN + all deployed
+
+- **Tree:** clean. **Type-check + build green.** Prod DB migrated through **`0018`**.
+- **Recent commits:** `254a09d` docs media-streaming gotcha · `3c717d7` fix proxied media streaming · `0a907e1` docs A/B/C · `48df603` title-follows-caption + settings snapshot + checkpoint · `7e74943` presets/max-footage/dashboard/announcements.
+- **Deploy (verified this session):** app → `git archive HEAD` tarball → scp linuxg1 → (`npm ci` only if `package-lock` changed) → `node --env-file=.env.local ./node_modules/drizzle-kit/bin.cjs migrate` (NEVER pipe to tail) → `npm run build` → `pm2 restart clipwaltz`. Worker unchanged this session (only 5c… earlier). Migrations run with the `--env-file` form — bare `npm run db:migrate` falls back to localhost and hangs.
+- **Shipped this session (v4), all deployed + verified live:**
+  - **Presets** (#1) — save/apply Format+Style+overlays; 3 built-in starters + personal + admin **global** presets; per-account **default** auto-applied to new projects. `presets` table. Editor "Presets" bar; `lib/presets.ts`, `lib/preset-actions.ts`.
+  - **Max footage** (#2) — ♾️ Max length removes the cap; worker `buildTimeline` lays every clip full-length, no repeats, 10-min ceiling; live projected-length readout. `projects.max_footage`.
+  - **Dashboard** (#4) `/dashboard` — analytics tiles, plan usage meter, Jump-back-in, community-feed rail (click → `/community`); **post-login landing**; nav = Dashboard·Projects·Library·Community·Admin. `lib/dashboard.ts`.
+  - **Admin announcements** (#5) — in-app promos/banners/cards, placement + audience (all/free/paid) + scheduling + accent + CTA, dismissible. `announcements` table; `/admin` CRUD; rendered on dashboard.
+  - **A** — "Untitled project" now follows the Style Title (`setProjectStyle`; default titles only).
+  - **B** — investigated re-render "ignored settings": render path reads settings **live** (worker `select * from projects`); a traced same-project re-render applied the change correctly → no stale bug. Only residual was a client race, removed by the checkpoint's fresh read. Now also snapshot settings onto `renders.settings` (migration 0018) for audit + diff.
+  - **C** — render **checkpoint modal**: effective settings + projected length + tiered warnings + "what changed since last render" + per-user "don't show again for quick renders" opt-out.
+  - **BUGFIX (media streaming)** — proxied media routes returned a web `ReadableStream` body, which **hangs on Next 16** (code 000 / no headers) → **music preview, video watch, downloads all silently failed**. Fixed with `storage.serveObject()` = buffered bytes + `Content-Length`/`Accept-Ranges`/206 Range. Applied to music, watch, download, media, asset routes. See ADMIN_DOCS "Proxied media" runbook.
+  - Migrations **0017** (presets, announcements, projects.max_footage) + **0018** (renders.settings) applied on prod.
+- **Owner action still pending (carried from v3):** add Google **Drive** redirect URI `https://www.clipwaltz.com/api/oauth/google/drive/callback` in the Google Cloud OAuth client (fixes `redirect_uri_mismatch`); see `ADMIN_DOCS.md`.
+- **Next focus / open:** (1) authenticated click-through of music preview + the checkpoint modal in-browser (verified server-side, not via a logged-in UI this session). (2) Per-project post-text template (currently hardcoded jet-ski). Nothing blocking.
 
 ---
 
