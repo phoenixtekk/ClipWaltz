@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireUserId } from "@/lib/auth";
-import { getObject } from "@/lib/storage";
+import { serveObject } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -35,11 +35,5 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   // Name the download after the Style Title (falls back to the project title).
   const base = (row.titleText || row.title || "clipwaltz").trim().replace(/[^a-zA-Z0-9._ -]/g, "_").slice(0, 100) || "clipwaltz";
-  const { body, contentType } = await getObject(row.key, _req.signal);
-  return new NextResponse(body, {
-    headers: {
-      "content-type": contentType ?? "video/mp4",
-      "content-disposition": `attachment; filename="${base}.mp4"`,
-    },
-  });
+  return serveObject(_req, row.key, "video/mp4", { download: `${base}.mp4` });
 }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireUserId } from "@/lib/auth";
-import { getObject } from "@/lib/storage";
+import { serveObject } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -38,11 +38,5 @@ export async function GET(
   }
 
   // Serve the reprojected flat clip for 360 files; the raw .insv isn't browser-playable.
-  const { body, contentType } = await getObject(row.convertedKey ?? row.key, _req.signal);
-  return new NextResponse(body, {
-    headers: {
-      "content-type": contentType ?? "application/octet-stream",
-      "cache-control": "private, max-age=3600",
-    },
-  });
+  return serveObject(_req, row.convertedKey ?? row.key, "application/octet-stream");
 }

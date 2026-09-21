@@ -125,3 +125,52 @@ export async function getObject(
   });
   return { body, contentType: out.ContentType, size: out.ContentLength };
 }
+
+/**
+ * Serve a MinIO object as an HTTP response with **buffered** bytes and HTTP Range support.
+ *
+ * Why buffered and not a streamed `ReadableStream` body: returning a web ReadableStream body from a
+ * Next.js route handler here hangs — the response never flushes (verified on prod: every proxied
+ * media route returned code 000 / no headers, while the underlying S3 fetch + stream worked fine
+ * standalone). Buffering the (ranged) bytes and returning them with `Content-Length` sidesteps that
+ * and, with `Accept-Ranges` + 206, gives `<audio>`/`<video>` proper seeking. Media elements fetch
+ * in ranges, so each request only buffers the requested chunk.
+ */
+export async function serveObject(
+  req: Request,
+  key: string,
+  fallbackType: string,
+  opts: { download?: string; cacheControl?: string } = {},
+): Promise<Response> {
+  const cacheControl = opts.cacheControl ?? "private, max-age=3600";
+  const range = req.headers.get("range");
+  const m = range ? /bytes=(\d+)-(\d*)/.exec(range) : null;
+
+  const command = new GetObjectCommand(
+    m
+      ? { Bucket: S3_BUCKET, Key: key, Range: `bytes=${m[1]}-${m[2] ?? ""}` }
+      : { Bucket: S3_BUCKET, Key: key },
+  );
+  const out = await s3().send(command);
+  const bytes = await (
+    out.Body as unknown as { transformToByteArray: () => Promise<Uint8Array> }
+  ).transformToByteArray();
+
+  const headers: Record<string, string> = {
+    "content-type": out.ContentType ?? fallbackType,
+    "content-length": String(bytes.length),
+    "accept-ranges": "bytes",
+    "cache-control": cacheControl,
+  };
+  if (opts.download) headers["content-disposition"] = `attachment; filename="${opts.download}"`;
+
+  if (m) {
+    const start = Number(m[1]);
+    const total = out.ContentRange
+      ? Number(out.ContentRange.split("/")[1])
+      : start + bytes.length;
+    headers["content-range"] = out.ContentRange ?? `bytes ${start}-${start + bytes.length - 1}/${total}`;
+    return new Response(bytes as unknown as BodyInit, { status: 206, headers });
+  }
+  return new Response(bytes as unknown as BodyInit, { status: 200, headers });
+}

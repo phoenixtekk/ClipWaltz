@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireUserId } from "@/lib/auth";
-import { getObject } from "@/lib/storage";
+import { serveObject } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -35,13 +35,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   if (!m) return new NextResponse("not found", { status: 404 });
 
   const converted = !!m.convertedKey;
-  const { body, contentType } = await getObject(m.convertedKey ?? m.key, _req.signal);
-  const headers: Record<string, string> = {
-    "content-type": contentType ?? "application/octet-stream",
-    "cache-control": "private, max-age=3600",
-  };
-  if (new URL(_req.url).searchParams.get("download") === "1") {
-    headers["content-disposition"] = `attachment; filename="${safeFilename(m.name ?? "clip", m.kind, converted)}"`;
-  }
-  return new NextResponse(body, { headers });
+  const download =
+    new URL(_req.url).searchParams.get("download") === "1"
+      ? safeFilename(m.name ?? "clip", m.kind, converted)
+      : undefined;
+  return serveObject(_req, m.convertedKey ?? m.key, "application/octet-stream", { download });
 }

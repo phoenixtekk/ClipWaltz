@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireUserId } from "@/lib/auth";
-import { getObject } from "@/lib/storage";
+import { serveObject } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -25,11 +25,5 @@ export async function GET(_req: Request, ctx: { params: Promise<{ trackId: strin
 
   if (!track) return new NextResponse("not found", { status: 404 });
 
-  const { body, contentType } = await getObject(track.key, _req.signal);
-  return new NextResponse(body, {
-    headers: {
-      "content-type": contentType ?? "audio/mpeg",
-      "cache-control": "private, max-age=3600",
-    },
-  });
+  return serveObject(_req, track.key, "audio/mpeg");
 }
