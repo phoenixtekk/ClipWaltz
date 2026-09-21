@@ -32,14 +32,14 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
   `tar xzf /tmp/clipwaltz-deploy.tar.gz` → `npm ci` → `node --env-file=.env.local
   ./node_modules/drizzle-kit/bin.cjs migrate` (applies 0019; NEVER pipe to tail) → `npm run build`
   → `pm2 restart clipwaltz`. Worker unchanged (no redeploy needed).
-- **Bugs found this session (NOT yet fixed):** (1) **crossfade OOMs** on many-segment renders —
-  the crossfade path opens every segment as a simultaneous ffmpeg input (`render-worker.mjs:1034`);
-  a 78-clip/600s/all-effects render hit **78 GB** and the OOM killer killed the worker. (2) **No
-  crash recovery** — a hard crash skips the `catch` that marks `failed`, so the render is orphaned
-  in `rendering` forever (worker only re-claims `queued`, `render-worker.mjs:1162`). The owner's
-  stuck render `34d1db72` is orphaned; clear with `update renders set status='failed' where
-  id='34d1db72-560b-4893-9556-a4d2f4e09b4b'`. **Recommended next work:** chunked/2-stage crossfade
-  (or cap segments when crossfade on) + a stale-`rendering` reaper.
+- **Worker bugs — FIXED this session (committed, ⚠️ worker NOT yet redeployed):**
+  (1) **crossfade OOM** → `crossfadeChunks()` xfades in bounded chunks of `XFADE_CHUNK` (default 10,
+  env-tunable) then hard-concats; ffmpeg now sees ≤10 inputs, not 78. Verified on the AI box:
+  `--xfadetest 30 10` → 3 chunks, 51.90s = expected. (2) **orphaned renders** → `reapStaleRenders()`
+  runs on loop startup and fails any render stuck in `rendering` (single-worker: they're all orphans
+  from a prior crash). **Deploying the worker also auto-clears the owner's stuck `34d1db72`** via the
+  reaper. Deploy: `scp worker/render-worker.mjs ai:/home/lacy/clipwaltz/worker/ && ssh ai 'sudo -n
+  systemctl restart clipwaltz-worker'`. Diagnostic: `--xfadetest [N] [K]`.
 
 ---
 

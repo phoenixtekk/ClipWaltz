@@ -147,6 +147,23 @@ node --env-file=.env.local worker/render-worker.mjs          # loop (polls every
 It needs `DATABASE_URL` reachable and the `S3_*` env. Verified end-to-end from the dev workstation
 (FFmpeg local + Postgres via the SSH tunnel + MinIO on the LAN).
 
+**Crossfade is OOM-safe (chunked).** A single `xfade` filtergraph over *all* segments makes ffmpeg
+buffer decoded frames for every not-yet-reached input (offsets stagger to the full runtime) — a
+78-clip/10-min render peaked at **78 GB** and was OOM-killed. `crossfadeChunks()` now xfades in
+bounded chunks of **`XFADE_CHUNK`** segments (default 10; env-tunable) and hard-concats the chunks,
+so ffmpeg sees ≤`XFADE_CHUNK` inputs at once. Every within-chunk transition still crossfades; only
+the few chunk seams are hard cuts. Verify with `node worker/render-worker.mjs --xfadetest [N] [K]`
+(builds N synthetic segments, prints chunk count + duration; no DB). Lower `XFADE_CHUNK` on a
+smaller box, raise it for more crossfade coverage.
+
+**Crash recovery (orphan reaper).** A hard crash (OOM/SIGKILL/deploy restart) skips the `tick()`
+catch that marks a render `failed`, and `claimOne()` only picks up `queued`, so a crashed render
+was stuck in `rendering` forever (eternal spinner, no retry). On **loop startup** the worker now
+runs `reapStaleRenders()`: since it's the only writer of `rendering`, any such row at boot is an
+orphan from a prior run → marked `failed` (+ project `failed`) so the UI shows "try again". Not run
+in `--once` (a manual one-shot must not nuke a render the live service is mid-way through). A
+multi-worker deployment would need a per-render heartbeat/lease instead.
+
 **Prod deployment (pending owner approval):** run it as a systemd service on the **AI box**
 (32-core, FFmpeg, reaches MinIO directly). The AI box currently **cannot** reach linuxg1's
 `localhost`-only Postgres — deploying requires **authorizing the AI box's SSH key on linuxg1** so it

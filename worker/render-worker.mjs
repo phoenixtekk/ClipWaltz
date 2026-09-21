@@ -26,6 +26,11 @@ const ONCE = process.argv.includes("--once");
 const POLL_MS = 5000;
 const PER_IMAGE = 2;
 const PER_VIDEO = 4;
+// Max segments fed to a single xfade filtergraph. A single graph over ALL segments makes
+// ffmpeg buffer decoded frames for every not-yet-reached input (offsets stagger to the full
+// runtime) — a 78-clip render peaked at ~78 GB and was OOM-killed. We crossfade in bounded
+// chunks of this many segments instead; tune with XFADE_CHUNK if the box has more/less RAM.
+const XFADE_CHUNK = Math.max(2, Number(process.env.XFADE_CHUNK ?? 10));
 
 const sql = postgres(process.env.DATABASE_URL, { prepare: false });
 const s3 = new S3Client({
@@ -930,6 +935,46 @@ async function applyOverlays(dir, inFile, overlays, W, H, beats, totalDur) {
   return out;
 }
 
+// Crossfade many segments without OOM. Rather than one xfade filtergraph over all N inputs
+// (which buffers frames for every staggered input → ~78 GB on a big render), xfade in bounded
+// chunks of `chunkSize` (peak memory ~ chunkSize decoders), then hard-concat the chunk files.
+// Every within-chunk transition still crossfades; only the few chunk seams are hard cuts.
+// Returns { files, listFile, total } for the caller's concat + music + post pipeline.
+async function crossfadeChunks(dir, segments, durations, T, chunkSize = XFADE_CHUNK) {
+  const K = Math.max(2, chunkSize);
+  const files = [];
+  for (let start = 0; start < segments.length; start += K) {
+    const grp = segments.slice(start, start + K);
+    const gdur = durations.slice(start, start + K);
+    if (grp.length === 1) {
+      files.push(grp[0]); // lone trailing segment — nothing to crossfade it with
+      continue;
+    }
+    const chunk = join(dir, `xchunk${start}.mp4`);
+    const a = [];
+    for (const s of grp) a.push("-i", fwd(s));
+    let label = "[0:v]";
+    let acc = gdur[0] || PER_IMAGE;
+    let chain = "";
+    for (let j = 1; j < grp.length; j++) {
+      chain += `${label}[${j}:v]xfade=transition=fade:duration=${T.toFixed(3)}:offset=${(acc - T).toFixed(3)}[cx${j}];`;
+      label = `[cx${j}]`;
+      acc = acc + (gdur[j] || PER_IMAGE) - T;
+    }
+    a.push(
+      "-filter_complex", `${chain}${label}null[v]`, "-map", "[v]",
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", fwd(chunk),
+    );
+    await ffmpeg(a);
+    files.push(chunk);
+  }
+  let total = 0;
+  for (const f of files) total += (await probe(f)) || 0;
+  const listFile = join(dir, "xchunks.txt");
+  writeFileSync(listFile, files.map((s) => `file '${fwd(s)}'`).join("\n"));
+  return { files, listFile, total };
+}
+
 async function assemble(dir, assets, music, watermark, lengthSec, aspect, style) {
   const [W, H] = dims(aspect);
   const V = vfStatic(W, H);
@@ -1024,31 +1069,21 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
 
   async function render(useTitle, useWatermark, forceCut) {
     const cross = wantCross && !forceCut;
-    const finalDur = cross ? total - (segments.length - 1) * T : total;
-    const outDur = lengthSec > 0 ? Math.min(finalDur, lengthSec) : finalDur;
-    const pf = post(useTitle, useWatermark, outDur);
-    const args = [];
-    let musicIdx;
-    let fc;
+    // Crossfade path: pre-build bounded, chunked crossfaded files (no OOM), then run the
+    // SAME concat + music + post pipeline as the cut path over those files.
+    let srcList = listFile;
+    let effTotal = total;
     if (cross) {
-      for (const s of segments) args.push("-i", fwd(s));
-      let label = "[0:v]";
-      let acc = durations[0] || PER_IMAGE;
-      let chain = "";
-      for (let j = 1; j < segments.length; j++) {
-        chain += `${label}[${j}:v]xfade=transition=fade:duration=${T.toFixed(3)}:offset=${(acc - T).toFixed(3)}[vx${j}];`;
-        label = `[vx${j}]`;
-        acc = acc + (durations[j] || PER_IMAGE) - T;
-      }
-      fc = `${chain}${label}${pf}[vout]`;
-      musicIdx = segments.length;
-    } else {
-      args.push("-f", "concat", "-safe", "0", "-i", fwd(listFile));
-      fc = `[0:v]${pf}[vout]`;
-      musicIdx = 1;
+      const cc = await crossfadeChunks(dir, segments, durations, T);
+      srcList = cc.listFile;
+      effTotal = cc.total || total;
     }
+    const outDur = lengthSec > 0 ? Math.min(effTotal, lengthSec) : effTotal;
+    const pf = post(useTitle, useWatermark, outDur);
+    const args = ["-f", "concat", "-safe", "0", "-i", fwd(srcList)];
+    const musicIdx = 1;
     if (musicFile) args.push("-ss", musicOffset.toFixed(3), "-stream_loop", "-1", "-i", fwd(musicFile));
-    args.push("-filter_complex", fc, "-map", "[vout]");
+    args.push("-filter_complex", `[0:v]${pf}[vout]`, "-map", "[vout]");
     if (musicFile) args.push("-map", `${musicIdx}:a:0`, "-shortest");
     args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p");
     if (musicFile) args.push("-c:a", "aac", "-b:a", "192k");
@@ -1162,6 +1197,21 @@ async function claimOne() {
     where id = (select id from renders where status='queued' order by created_at asc limit 1 for update skip locked)
     returning *`;
   return rows[0] ?? null;
+}
+
+// Crash recovery. A hard crash (OOM/SIGKILL/deploy restart) skips the tick() catch that marks a
+// render 'failed', so it's orphaned in 'rendering' forever — and claimOne() only picks up 'queued',
+// so it never retries and the user's spinner never stops. This worker is the ONLY writer of the
+// 'rendering' status, so at startup any row still 'rendering' is an orphan from a previous run.
+// Fail them (+ their projects) so the UI shows "try again". (A multi-worker deployment would need
+// a per-render heartbeat/lease instead of a blanket startup sweep.)
+async function reapStaleRenders() {
+  const rows = await sql`update renders set status='failed' where status='rendering' returning id, project_id`;
+  if (rows.length === 0) return;
+  for (const row of rows) {
+    await sql`update projects set status='failed', updated_at=now() where id=${row.project_id}`.catch(() => {});
+  }
+  console.log(`[worker] reaped ${rows.length} orphaned render(s) stuck in 'rendering': ${rows.map((r) => r.id).join(", ")}`);
 }
 async function tick() {
   const r = await claimOne();
@@ -1334,7 +1384,40 @@ async function posttest() {
   await sql.end();
 }
 
+// Diagnostic: `--xfadetest [N] [chunkSize]` builds N synthetic 2s segments, runs the chunked
+// crossfade, concats the chunks, and prints chunk count + duration vs. expected. Verifies the
+// OOM-safe crossfade path end-to-end without the DB. Memory is bounded by construction (each
+// ffmpeg sees at most `chunkSize` inputs).
+async function xfadetest() {
+  const i = process.argv.indexOf("--xfadetest");
+  const N = Number(process.argv[i + 1]) || 20;
+  const K = Number(process.argv[i + 2]) || XFADE_CHUNK;
+  const dir = mkdtempSync(join(tmpdir(), "cw-xf-"));
+  try {
+    const segs = [];
+    const durs = [];
+    for (let k = 0; k < N; k++) {
+      const s = join(dir, `s${k}.mp4`);
+      await ffmpeg(["-f", "lavfi", "-i", "testsrc=size=640x360:duration=2:rate=30", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", "-pix_fmt", "yuv420p", fwd(s)]);
+      segs.push(s);
+      durs.push(2);
+    }
+    const T = 0.3;
+    const cc = await crossfadeChunks(dir, segs, durs, T, K);
+    const out = join(dir, "xout.mp4");
+    await ffmpeg(["-f", "concat", "-safe", "0", "-i", fwd(cc.listFile), "-c", "copy", fwd(out)]);
+    const dur = await probe(out);
+    const crossfades = N - cc.files.length; // one lost per chunk seam
+    const expected = N * 2 - crossfades * T;
+    console.log(`[xfadetest] N=${N} chunkSize=${K} → chunks=${cc.files.length} out=${dur.toFixed(2)}s expected≈${expected.toFixed(2)}s`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    await sql.end();
+  }
+}
+
 async function main() {
+  if (process.argv.includes("--xfadetest")) return xfadetest();
   if (process.argv.includes("--followtest")) return followtest();
   if (process.argv.includes("--selftest")) return selftest();
   if (process.argv.includes("--posttest")) return posttest();
@@ -1345,11 +1428,13 @@ async function main() {
   if (process.argv.includes("--convtest")) return convtest();
   console.log(`[worker] ClipWaltz render worker starting (${ONCE ? "once" : "loop"})`);
   if (ONCE) {
+    // Don't reap in --once (a manual one-shot could nuke a render the loop service is running).
     const did = await tick();
     if (!did) console.log("[worker] no queued renders");
     await sql.end();
     return;
   }
+  await reapStaleRenders().catch((e) => console.error("[worker] reap error:", e.message));
   for (;;) {
     let worked = false;
     try {
