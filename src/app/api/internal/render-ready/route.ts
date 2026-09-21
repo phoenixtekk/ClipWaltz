@@ -49,7 +49,7 @@ export async function POST(req: Request) {
   await sendPushToUser(row.ownerId, {
     title: "Your ClipWaltz video is ready 🎬",
     body: `“${row.title}” has finished rendering in HD.`,
-    url: `${base}/projects/${row.projectId}`,
+    url: `${base}/projects/${row.projectId}/edit`,
     tag: `render-${renderId}`,
   }).catch((e) => console.error("[render-ready] push failed:", (e as Error).message));
 

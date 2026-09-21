@@ -60,7 +60,7 @@ export function RenderPanel({
             notifyRenderDone(
               "Your ClipWaltz video is ready 🎬",
               title ? `“${title}” has finished rendering.` : "Your video has finished rendering.",
-              `/projects/${projectId}`,
+              `/projects/${projectId}/edit`,
             );
           }
           router.refresh();
