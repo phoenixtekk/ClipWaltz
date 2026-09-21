@@ -16,6 +16,17 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ## Working state (2026-09-20) — v5 in progress ⚠️ DEPLOY PENDING (owner-gated)
 
+- **`99ec815` fix(ui): account menu crashed on open (Base UI error #31).** `DropdownMenuLabel`
+  (Base UI `Menu.GroupLabel`) was rendered outside a `Menu.Group`; `GroupLabel` →
+  `useMenuGroupRootContext()` throws "MenuGroupContext is missing" (prod code #31) → the whole page
+  showed "This page couldn't load" the instant the avatar menu opened. **Pre-existing** latent bug
+  (verified: lockfile drift was only web-push's own deps, Base UI untouched); surfaced because
+  Account → Notifications now lives in that menu. Fix: wrap the label in `DropdownMenuGroup`
+  (`user-menu.tsx`). Only that dropdown used `DropdownMenuLabel`. Build green. **Redeploy app** with
+  the staged tarball (below) to pick it up. Base UI error codes → text:
+  `gh api repos/mui/base-ui/contents/docs/src/error-codes.json`.
+
+
 - **Committed `a3ab99a`** — "Render-complete notifications: in-tab + Web Push (two toggles)".
   Type-check ✓ · lint ✓ · prod build ✓. Migration **0019** (`push_subscriptions`) generated,
   **NOT yet applied to prod**.
