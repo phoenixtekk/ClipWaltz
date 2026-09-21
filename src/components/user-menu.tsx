@@ -6,6 +6,7 @@ import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -37,12 +38,15 @@ export function UserMenu() {
         </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel>
-          <div className="flex items-center gap-2">
-            <UserIcon className="size-4" />
-            <span className="truncate">{name || email || "Account"}</span>
-          </div>
-        </DropdownMenuLabel>
+        <DropdownMenuGroup>
+          {/* GroupLabel must live inside a Group (Base UI throws error #31 otherwise). */}
+          <DropdownMenuLabel>
+            <div className="flex items-center gap-2">
+              <UserIcon className="size-4" />
+              <span className="truncate">{name || email || "Account"}</span>
+            </div>
+          </DropdownMenuLabel>
+        </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => router.push("/account/profile")}>
           <UserIcon className="size-4" /> Profile
