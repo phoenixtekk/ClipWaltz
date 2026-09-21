@@ -3,6 +3,7 @@ import {
   PutObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   CreateMultipartUploadCommand,
   UploadPartCommand,
   CompleteMultipartUploadCommand,
@@ -126,15 +127,22 @@ export async function getObject(
   return { body, contentType: out.ContentType, size: out.ContentLength };
 }
 
+// Above this response size we STREAM from S3 instead of buffering the whole thing into memory.
+// Buffering the full object (the old behaviour) let a single large download — e.g. a `.insv`
+// original or a big render, or any request with `Range: bytes=0-` — pull multi-GB into the app
+// process (observed: ~21 GB RSS, event loop pegged, every route timing out). 16 MB comfortably
+// covers thumbnails, short audio, and typical media range chunks via the fast buffered path.
+const STREAM_THRESHOLD = 16 * 1024 * 1024;
+
 /**
- * Serve a MinIO object as an HTTP response with **buffered** bytes and HTTP Range support.
+ * Serve a MinIO object over HTTP with Range support, WITHOUT ever buffering a whole large object.
  *
- * Why buffered and not a streamed `ReadableStream` body: returning a web ReadableStream body from a
- * Next.js route handler here hangs — the response never flushes (verified on prod: every proxied
- * media route returned code 000 / no headers, while the underlying S3 fetch + stream worked fine
- * standalone). Buffering the (ranged) bytes and returning them with `Content-Length` sidesteps that
- * and, with `Accept-Ranges` + 206, gives `<audio>`/`<video>` proper seeking. Media elements fetch
- * in ranges, so each request only buffers the requested chunk.
+ * - Learns size + type with a cheap HEAD (no body).
+ * - Responses ≤ STREAM_THRESHOLD are buffered (fast, and the historically hang-free path).
+ * - Larger responses are streamed straight from the ranged S3 body (bounded memory). We set an
+ *   explicit `Content-Length`, which is what lets Next flush the stream instead of stalling
+ *   (the earlier "streamed body hangs / code 000" was a Content-Length-less stream).
+ * - `Accept-Ranges` + 206 give `<audio>`/`<video>` proper seeking; `bytes=0-` no longer OOMs.
  */
 export async function serveObject(
   req: Request,
@@ -143,34 +151,55 @@ export async function serveObject(
   opts: { download?: string; cacheControl?: string } = {},
 ): Promise<Response> {
   const cacheControl = opts.cacheControl ?? "private, max-age=3600";
-  const range = req.headers.get("range");
-  const m = range ? /bytes=(\d+)-(\d*)/.exec(range) : null;
+  const rangeHeader = req.headers.get("range");
+  const m = rangeHeader ? /bytes=(\d+)-(\d*)/.exec(rangeHeader) : null;
 
-  const command = new GetObjectCommand(
-    m
-      ? { Bucket: S3_BUCKET, Key: key, Range: `bytes=${m[1]}-${m[2] ?? ""}` }
-      : { Bucket: S3_BUCKET, Key: key },
-  );
-  const out = await s3().send(command);
-  const bytes = await (
-    out.Body as unknown as { transformToByteArray: () => Promise<Uint8Array> }
-  ).transformToByteArray();
+  const head = await s3().send(new HeadObjectCommand({ Bucket: S3_BUCKET, Key: key }));
+  const totalSize = Number(head.ContentLength ?? 0);
+  const contentType = head.ContentType ?? fallbackType;
+
+  let start = 0;
+  let end = totalSize > 0 ? totalSize - 1 : 0;
+  let status = 200;
+  if (m) {
+    start = Number(m[1]);
+    end = m[2] ? Math.min(Number(m[2]), totalSize - 1) : totalSize - 1;
+    if (totalSize > 0 && (start >= totalSize || start > end)) {
+      return new Response(null, {
+        status: 416,
+        headers: { "accept-ranges": "bytes", "content-range": `bytes */${totalSize}` },
+      });
+    }
+    status = 206;
+  }
+  const length = totalSize > 0 ? end - start + 1 : 0;
+  const rangeSpec = status === 206 && totalSize > 0 ? `bytes=${start}-${end}` : undefined;
 
   const headers: Record<string, string> = {
-    "content-type": out.ContentType ?? fallbackType,
-    "content-length": String(bytes.length),
+    "content-type": contentType,
     "accept-ranges": "bytes",
     "cache-control": cacheControl,
   };
+  if (totalSize > 0) headers["content-length"] = String(length);
   if (opts.download) headers["content-disposition"] = `attachment; filename="${opts.download}"`;
+  if (status === 206) headers["content-range"] = `bytes ${start}-${end}/${totalSize}`;
 
-  if (m) {
-    const start = Number(m[1]);
-    const total = out.ContentRange
-      ? Number(out.ContentRange.split("/")[1])
-      : start + bytes.length;
-    headers["content-range"] = out.ContentRange ?? `bytes ${start}-${start + bytes.length - 1}/${total}`;
-    return new Response(bytes as unknown as BodyInit, { status: 206, headers });
+  const out = await s3().send(
+    new GetObjectCommand({ Bucket: S3_BUCKET, Key: key, Range: rangeSpec }),
+    { abortSignal: req.signal },
+  );
+
+  // Small enough → buffer (fast, hang-free).
+  if (totalSize > 0 && length <= STREAM_THRESHOLD) {
+    const bytes = await (
+      out.Body as unknown as { transformToByteArray: () => Promise<Uint8Array> }
+    ).transformToByteArray();
+    return new Response(bytes as unknown as BodyInit, { status, headers });
   }
-  return new Response(bytes as unknown as BodyInit, { status: 200, headers });
+
+  // Large (or unknown size) → stream the ranged body; memory stays bounded to in-flight chunks.
+  const webStream = (
+    out.Body as unknown as { transformToWebStream: () => ReadableStream<Uint8Array> }
+  ).transformToWebStream();
+  return new Response(webStream as unknown as BodyInit, { status, headers });
 }
