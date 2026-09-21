@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { sendEmail, simpleEmail } from "@/lib/email";
+import { sendPushToUser } from "@/lib/push";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,8 @@ export async function POST(req: Request) {
       status: schema.renders.status,
       outputKey: schema.renders.outputKey,
       title: schema.projects.title,
+      projectId: schema.projects.id,
+      ownerId: schema.projects.ownerId,
       email: schema.user.email,
     })
     .from(schema.renders)
@@ -41,6 +44,15 @@ export async function POST(req: Request) {
   }
 
   const base = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.clipwaltz.com";
+
+  // OS push to every browser the owner opted in on (never throws; prunes dead subs).
+  await sendPushToUser(row.ownerId, {
+    title: "Your ClipWaltz video is ready 🎬",
+    body: `“${row.title}” has finished rendering in HD.`,
+    url: `${base}/projects/${row.projectId}`,
+    tag: `render-${renderId}`,
+  }).catch((e) => console.error("[render-ready] push failed:", (e as Error).message));
+
   await sendEmail({
     to: row.email,
     subject: "Your ClipWaltz video is ready 🎬",

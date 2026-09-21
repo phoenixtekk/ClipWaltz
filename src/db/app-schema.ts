@@ -339,3 +339,19 @@ export const subscriptions = pgTable("subscriptions", {
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
+
+// Web Push subscriptions for render-complete notifications. One row per browser/device
+// that opted in ("Notify me even when ClipWaltz is closed"). The render-ready callback
+// sends a push to every subscription the owner has; expired ones (410/404) are pruned
+// on send. `endpoint` is the browser's push service URL and is unique per subscription.
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: text().primaryKey(),
+  userId: text()
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  endpoint: text().notNull().unique(),
+  p256dh: text().notNull(), // client public key (base64url)
+  auth: text().notNull(), // client auth secret (base64url)
+  userAgent: text(),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});

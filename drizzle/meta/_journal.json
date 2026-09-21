@@ -134,6 +134,13 @@
       "when": 1789949829766,
       "tag": "0018_big_scorpion",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1789956390357,
+      "tag": "0019_damp_may_parker",
+      "breakpoints": true
     }
   ]
 }

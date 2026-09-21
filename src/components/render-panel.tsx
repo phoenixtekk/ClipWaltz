@@ -1,10 +1,11 @@
 "use client";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Sparkles, AlertTriangle, Link as LinkIcon, Check, FileText, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
+import { notifyRenderDone } from "@/lib/notify-client";
 import { createRender, getRenderCheckpoint } from "@/lib/render-actions";
 import type { RenderCheckpoint } from "@/lib/render";
 import { shareRender } from "@/lib/feed-actions";
@@ -26,11 +27,13 @@ export function RenderPanel({
   initial,
   canRender,
   contest,
+  title,
 }: {
   projectId: string;
   initial: R;
   canRender: boolean;
   contest?: Contest;
+  title?: string;
 }) {
   const router = useRouter();
   const [render, setRender] = useState<R>(initial);
@@ -38,6 +41,7 @@ export function RenderPanel({
   const [copied, setCopied] = useState(false);
   const [checkpoint, setCheckpoint] = useState<RenderCheckpoint | null>(null);
   const [checking, setChecking] = useState(false);
+  const notifiedRef = useRef<string | null>(null);
   const active = !!render && (render.status === "queued" || render.status === "rendering");
   const isRerender = !!render?.hasOutput;
 
@@ -50,6 +54,15 @@ export function RenderPanel({
         const j = (await res.json()) as { render: R };
         setRender(j.render);
         if (j.render && (j.render.status === "done" || j.render.status === "failed")) {
+          // In-tab (per-browser) notification — fire once per render id.
+          if (j.render.status === "done" && notifiedRef.current !== j.render.id) {
+            notifiedRef.current = j.render.id;
+            notifyRenderDone(
+              "Your ClipWaltz video is ready 🎬",
+              title ? `“${title}” has finished rendering.` : "Your video has finished rendering.",
+              `/projects/${projectId}`,
+            );
+          }
           router.refresh();
         }
       } catch {
@@ -57,7 +70,7 @@ export function RenderPanel({
       }
     }, 3000);
     return () => clearInterval(t);
-  }, [active, projectId, router]);
+  }, [active, projectId, router, title]);
 
   // Step 1: build the checkpoint (fresh settings read from the server, so what we show is exactly
   // what will render). Skip straight to rendering only when the user opted out AND nothing needs

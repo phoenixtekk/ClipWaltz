@@ -1,5 +1,4 @@
 <!-- session-version: 5 -->
-<!-- pending-session-title: ClipWaltz v5 -->
 
 # ClipWaltz — session handoff
 

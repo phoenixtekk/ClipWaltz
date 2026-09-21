@@ -39,6 +39,7 @@ See [`env.example`](env.example) for the full list. Groups:
   (For any non-prod environment, substitute that env's `NEXT_PUBLIC_APP_URL` for the host.) Drive backup also needs the **Drive API enabled** and the **`drive.file`** scope on the OAuth consent screen. While the consent screen is in Testing, each user's Google account must be a **test user**; public use needs Google verification of the `drive.file` scope. Connections stored in `oauth_accounts` (providers `google` / `google_drive`).
   - **Troubleshooting — `Error 400: redirect_uri_mismatch`:** the callback URL the app sent isn't in the client's Authorized redirect URIs. Add the exact URL above (the Drive one was the cause on 2026-09-19: Photos was registered, Drive was not), Save, wait a few minutes for propagation, retry. It matches character-for-character.
 - **Worker vision (face/scene):** `OLLAMA_URL` (e.g. `http://192.168.166.182:11434`), `OLLAMA_MODEL` (default `qwen2.5vl:7b`, a non-reasoning VL model), optional `OLLAMA_TIMEOUT_MS`. Worker-only; empty `OLLAMA_URL` = motion-only.
+- **Web Push (render-complete OS notifications):** `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (a `mailto:` for the push service to contact), and `NEXT_PUBLIC_VAPID_PUBLIC_KEY` (**same value** as `VAPID_PUBLIC_KEY` — exposed to the browser to build subscriptions). **App-only** (linuxg1 `.env.local`); the worker does not need them. Generate a keypair with `node -e "console.log(require('web-push').generateVAPIDKeys())"`. If unset, push is a no-op and the "Windows notification" toggle disables itself; the in-tab toggle and email still work. Keys stored in `_keys/clipwaltz.txt`. The private key is a secret — never in `NEXT_PUBLIC_*` or git.
 
 > **Never** commit `.env*`, log secrets, or put secrets in `NEXT_PUBLIC_*`.
 
@@ -153,3 +154,27 @@ can hold an SSH tunnel to `:5432` (a security change on a production host — ge
 first). Then: copy `worker/`, `npm i postgres @aws-sdk/client-s3`, set env, and run under systemd.
 *(v1.1: move the queue to Redis/BullMQ; beat-synced cuts; SES "video ready" email.)*
 - **Cost instrumentation:** record `cpuSeconds`/`costCents` on each `renders` row → cost-per-render.
+
+## Render-complete notifications (Web Push)
+Two per-browser toggles at `/account/notifications`:
+- **Browser notification** — the open tab fires it from the render poll (`render-panel.tsx` →
+  `notifyRenderDone`). Pure client; preference in `localStorage` (`cw-notify-intab`). No server state.
+- **Windows notification (OS push)** — Web Push. Enabling subscribes the browser via
+  `public/sw.js`; the subscription is stored in `push_subscriptions` (one row per browser/device).
+  On completion the worker's `/api/internal/render-ready` callback calls `sendPushToUser`
+  (`src/lib/push.ts`), which pushes to every subscription and prunes dead endpoints (404/410).
+
+**Setup:** set the four VAPID env vars on the **app** (linuxg1 `.env.local`) — see Environment
+variables. The worker needs nothing new. **De-dupe:** the service worker suppresses its OS toast
+when a ClipWaltz tab is focused (the in-tab notification covers that case).
+
+**Troubleshooting:**
+- *"Windows notification" toggle disabled / "not configured on the server":* VAPID env not set (or
+  `NEXT_PUBLIC_VAPID_PUBLIC_KEY` ≠ `VAPID_PUBLIC_KEY`). Set them and rebuild (the public key is
+  inlined at build time).
+- *Toggle won't turn on:* the browser blocked notifications for the site — the user must re-allow
+  in site settings. `Notification.permission === "denied"` can't be re-prompted programmatically.
+- *No OS toast when tab open:* by design (de-dupe) — only fires when no ClipWaltz tab is focused.
+- *Subscriptions not sending:* check `push_subscriptions` has rows for the user; server logs
+  `[push] send failed (<code>)`. 404/410 rows self-prune; a 403 means a VAPID key mismatch (the
+  keys the subscription was created with differ from the server's — re-subscribe after a key change).

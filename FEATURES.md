@@ -108,6 +108,25 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
   video", "Event video") takes the Style Title as its project name, so it stops showing as
   "Untitled" in the list. An explicit rename is preserved.
 
+## Render-complete notifications (2026-09-20)
+
+- **Two independent, per-browser toggles** at **Account → Notifications** (`/account/notifications`;
+  also linked from the avatar menu) that tell you the moment a video finishes rendering:
+  1. **Browser notification (while ClipWaltz is open)** — the open tab fires a notification when
+     your render finishes. Preference stored per-browser (`localStorage`); fired from the render
+     poll in `render-panel.tsx` via `notifyRenderDone` (`src/lib/notify-client.ts`).
+  2. **Windows notification (even when ClipWaltz is closed)** — a real OS toast via **Web Push**,
+     delivered by the service worker (`public/sw.js`) even with the tab closed. Turning it on
+     subscribes this browser; turning it off unsubscribes it. Backed by the `push_subscriptions`
+     table (one row per browser/device) and VAPID keys.
+- The render worker's existing completion callback (`/api/internal/render-ready`) now also sends a
+  Web Push to every browser the owner opted in on (`sendPushToUser`, `src/lib/push.ts`), alongside
+  the "video ready" email. Expired subscriptions are pruned automatically on send.
+- **De-dupe:** when a ClipWaltz tab is focused, the service worker suppresses its OS toast and lets
+  the in-tab notification handle it, so you don't get notified twice.
+- Requires browser notification permission (requested on first enable). Fully degrades: no
+  permission, unsupported browser, or unconfigured server → the toggles disable gracefully.
+
 ## Later
 Native mobile apps · collaboration/shared reels · auto-captions · face/scene-aware
 selection · 4K · multi-aspect · brand kits · web B-roll · partner API.

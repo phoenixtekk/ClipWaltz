@@ -142,7 +142,7 @@ export function EditorWorkspace({
             </div>
           </div>
 
-          <RenderPanel projectId={projectId} initial={latestRender} canRender={assets.length > 0} contest={contest} />
+          <RenderPanel projectId={projectId} initial={latestRender} canRender={assets.length > 0} contest={contest} title={project.title} />
 
           <div className="flex items-center gap-2 border-t border-border pt-4">
             <Button variant="ghost" render={<Link href={`/projects/${projectId}/import`} />}>

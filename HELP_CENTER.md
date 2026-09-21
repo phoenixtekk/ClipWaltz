@@ -42,8 +42,23 @@ ships. It will also surface in-app at `/help`.
   Tap **Confirm** to build it, or **Back to edit** to tweak. You can opt out for quick renders
   (we'll still warn you when something looks off).
 - Your draft appears in ~30–60s; the HD render runs in the background.
-- We'll notify you (in the app and by email) when your video is ready.
+- We'll notify you (in the app and by email) when your video is ready — and, if you turn it on,
+  with a desktop notification (see **Account → Notifications** below).
 - Downloading and sharing. Free videos include a watermark.
+
+## Notifications
+Renders run in the background, so ClipWaltz can pop a notification the moment yours is done. Open
+the avatar menu → **Notifications** (`/account/notifications`) and flip on either or both:
+- **Browser notification (while ClipWaltz is open)** — a notification appears whenever you have
+  ClipWaltz open in a tab and a render finishes.
+- **Windows notification (even when ClipWaltz is closed)** — a desktop toast even if you've closed
+  the tab or switched apps. Great for long renders — start it, go do something else, and Windows
+  taps you on the shoulder when it's ready.
+
+Your browser will ask permission the first time you enable a notification — choose **Allow**. Both
+switches are remembered **per browser and device**, so set them on each computer you use. If a
+switch won't turn on, notifications are blocked for the site in your browser settings — re-enable
+them there, then come back. (These are in addition to the "video ready" email, which always sends.)
 
 ## Billing & plans
 - Free vs Plus vs Pro; how to upgrade (secure Stripe checkout); managing your plan; invoices.
