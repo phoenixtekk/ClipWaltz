@@ -194,6 +194,10 @@ export const assets = pgTable("assets", {
   // Manual per-clip screen time (seconds). null = auto (beat/fill decides). When set, the worker
   // holds this clip for exactly this long (photos: any; videos: clamped to the source length).
   durationOverride: real(),
+  // Per-video trim: render only the [trimStart, trimEnd] portion of the source (seconds). null =
+  // use the whole clip / auto window. Takes precedence over smart-cut windowing + durationOverride.
+  trimStart: real(),
+  trimEnd: real(),
   width: integer(),
   height: integer(),
   qualityScore: real(), // blur/brightness heuristic for smart trim/selection

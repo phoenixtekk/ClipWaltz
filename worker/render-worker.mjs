@@ -845,17 +845,25 @@ async function buildTimeline(assets, beats, lengthSec, beatSync, smartCut, srcDu
     s.offset = s.asset.kind === "video" && smartCut ? nextOffset(s.asset, s.dur) : 0;
   }
 
-  // Manual per-clip screen time wins over the computed duration (photos: any; videos: clamped to
-  // the footage available from the chosen window). Overridden slots are pinned — the stretch pass
-  // below won't lengthen them.
+  // Per-clip manual controls, highest precedence first, and pinned so the stretch pass won't touch:
+  //   1. Video TRIM [trimStart,trimEnd] — render exactly that part of the source (overrides the
+  //      smart-cut window AND the duration override).
+  //   2. Manual screen time (durationOverride) — hold the clip for exactly this long.
   for (const s of slots) {
-    const o = s.asset.duration_override;
+    const a = s.asset;
+    const D = a.kind === "video" ? (srcDurs.get(a.storage_key) ?? 0) : 0;
+    if (a.kind === "video" && a.trim_start != null && a.trim_end != null && a.trim_end > a.trim_start) {
+      const start = Math.max(0, D > 0 ? Math.min(a.trim_start, D) : a.trim_start);
+      const end = D > 0 ? Math.min(a.trim_end, D) : a.trim_end;
+      s.offset = start;
+      s.dur = Math.max(0.4, end - start);
+      s._fixed = true;
+      continue;
+    }
+    const o = a.duration_override;
     if (o == null || !(o > 0)) continue;
     let d = o;
-    if (s.asset.kind === "video") {
-      const D = srcDurs.get(s.asset.storage_key) ?? 0;
-      if (D > 0) d = Math.min(d, Math.max(0.4, D - s.offset));
-    }
+    if (a.kind === "video" && D > 0) d = Math.min(d, Math.max(0.4, D - s.offset));
     s.dur = d;
     s._fixed = true;
   }

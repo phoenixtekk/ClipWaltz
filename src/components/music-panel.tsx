@@ -48,8 +48,9 @@ export function MusicPanel({
   const [uploading, setUploading] = useState(false);
 
   async function uploadMp3(file: File) {
-    if (!/\.mp3$/i.test(file.name) && file.type !== "audio/mpeg") {
-      toast.error("Please choose an MP3 file.");
+    const okExt = /\.(mp3|mpa|mp2|m4a|aac|wav|ogg|oga|opus|flac)$/i.test(file.name);
+    if (!okExt && !file.type.startsWith("audio/")) {
+      toast.error("Please choose an audio file (MP3, MPA, M4A, WAV, OGG, FLAC…).");
       return;
     }
     setUploading(true);
@@ -196,7 +197,7 @@ export function MusicPanel({
           <input
             ref={fileRef}
             type="file"
-            accept="audio/mpeg,.mp3"
+            accept="audio/*,.mp3,.mpa,.mp2,.m4a,.aac,.wav,.ogg,.oga,.opus,.flac"
             className="hidden"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMp3(f); e.currentTarget.value = ""; }}
           />
@@ -207,8 +208,8 @@ export function MusicPanel({
             className="flex w-full flex-col items-center gap-1 rounded-lg border border-dashed border-border px-4 py-5 text-center transition-colors hover:border-primary disabled:opacity-60"
           >
             {uploading ? <Loader2 className="size-5 animate-spin text-[color:var(--cw-violet)]" /> : <UploadCloud className="size-5 text-[color:var(--cw-violet)]" />}
-            <span className="text-sm font-medium">{uploading ? "Uploading…" : "Upload an MP3"}</span>
-            <span className="text-xs text-muted-foreground">Your own music — up to 30 MB. Only you can use it.</span>
+            <span className="text-sm font-medium">{uploading ? "Uploading…" : "Upload music"}</span>
+            <span className="text-xs text-muted-foreground">MP3, MPA, M4A, AAC, WAV, OGG, OPUS or FLAC — up to 50 MB. Only you can use it.</span>
           </button>
         </div>
       ) : null}

@@ -50,6 +50,39 @@ export async function setAssetDuration(
 }
 
 /**
+ * Set (or clear, with nulls) a video's trim in/out points in seconds — only [start,end] renders.
+ * Owner-checked. Clamped to the source length; enforces a ≥0.4s window. Takes precedence over the
+ * smart-cut window and the manual duration for that clip.
+ */
+export async function setAssetTrim(
+  projectId: string,
+  assetId: string,
+  start: number | null,
+  end: number | null,
+): Promise<void> {
+  const userId = await requireUserId();
+  const [row] = await db
+    .select({ ownerId: schema.projects.ownerId, kind: schema.assets.kind, durationSec: schema.assets.durationSec })
+    .from(schema.assets)
+    .innerJoin(schema.projects, eq(schema.assets.projectId, schema.projects.id))
+    .where(and(eq(schema.assets.id, assetId), eq(schema.assets.projectId, projectId)));
+  if (!row || row.ownerId !== userId) throw new Error("Asset not found");
+  if (row.kind !== "video") throw new Error("Only videos can be trimmed");
+
+  let s: number | null = null;
+  let e: number | null = null;
+  if (start != null && end != null && Number.isFinite(start) && Number.isFinite(end)) {
+    const max = row.durationSec ?? end;
+    s = Math.max(0, Math.min(start, max));
+    e = Math.max(s + 0.4, Math.min(end, max));
+    s = Math.round(s * 10) / 10;
+    e = Math.round(e * 10) / 10;
+  }
+  await db.update(schema.assets).set({ trimStart: s, trimEnd: e }).where(eq(schema.assets.id, assetId));
+  revalidatePath(`/projects/${projectId}/edit`);
+}
+
+/**
  * Set the full clip order for a project (timeline drag-reorder + insert). Owner-checked;
  * only assets that belong to the project are (re)numbered, any omitted keep a stable tail.
  */

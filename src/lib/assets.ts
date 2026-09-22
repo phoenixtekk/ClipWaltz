@@ -12,6 +12,8 @@ export type AssetSummary = {
   conversionState: string; // ready | pending | converting | failed
   durationSec: number | null; // video length (null for photos / unknown)
   durationOverride: number | null; // manual per-clip screen time (seconds); null = auto
+  trimStart: number | null; // video in-point (seconds); null = from start
+  trimEnd: number | null; // video out-point (seconds); null = to end
 };
 
 /** Assets for a project the current user owns (empty if not owner). */
@@ -39,5 +41,7 @@ export async function listAssets(projectId: string): Promise<AssetSummary[]> {
     conversionState: r.conversionState,
     durationSec: r.durationSec,
     durationOverride: r.durationOverride,
+    trimStart: r.trimStart,
+    trimEnd: r.trimEnd,
   }));
 }

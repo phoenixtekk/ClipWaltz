@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import type { AssetSummary } from "@/lib/assets";
-import { reorderAssets, deleteAsset, setAssetDuration } from "@/lib/asset-actions";
+import { reorderAssets, deleteAsset, setAssetDuration, setAssetTrim } from "@/lib/asset-actions";
 import { uploadProjectFile, isSupported } from "@/lib/upload-client";
 
 type InsertStatus = "uploading" | "done" | "error";
@@ -15,8 +15,11 @@ const PX_PER_SEC = 34;
 const PHOTO_SEC = 2;
 const VIDEO_SEC = 4;
 const autoSec = (a: AssetSummary) => (a.kind === "video" ? VIDEO_SEC : PHOTO_SEC);
-// Effective screen time = manual override, else the default cadence. Drives the timeline widths.
-const clipSec = (a: AssetSummary) => a.durationOverride ?? autoSec(a);
+const isTrimmed = (a: AssetSummary) => a.kind === "video" && a.trimStart != null && a.trimEnd != null;
+const isManualTimed = (a: AssetSummary) => a.durationOverride != null || isTrimmed(a);
+// Effective screen time: video trim length, else manual override, else the default cadence.
+const clipSec = (a: AssetSummary) =>
+  isTrimmed(a) ? (a.trimEnd as number) - (a.trimStart as number) : (a.durationOverride ?? autoSec(a));
 
 /**
  * Full-video timeline (#4): clips laid out left→right, widths scaled by their draft duration.
@@ -118,6 +121,8 @@ export function ProjectTimeline({
         conversionState: res.conversionState ?? "ready",
         durationSec: null,
         durationOverride: null,
+        trimStart: null,
+        trimEnd: null,
       };
       const next = [...order];
       next.splice(idx, 0, inserted);
@@ -263,11 +268,11 @@ export function ProjectTimeline({
                 <span
                   className={cn(
                     "absolute bottom-1 left-1 rounded px-1 text-[10px] text-white",
-                    a.durationOverride != null ? "bg-[color:var(--cw-violet)]/90 font-semibold" : "bg-black/60",
+                    isManualTimed(a) ? "bg-[color:var(--cw-violet)]/90 font-semibold" : "bg-black/60",
                   )}
-                  title={a.durationOverride != null ? "Manual screen time" : "Auto screen time"}
+                  title={isTrimmed(a) ? "Trimmed" : a.durationOverride != null ? "Manual screen time" : "Auto screen time"}
                 >
-                  {clipSec(a)}s
+                  {clipSec(a).toFixed(clipSec(a) % 1 ? 1 : 0)}s{isTrimmed(a) ? " ✂" : ""}
                 </span>
                 {/* Preview this specific clip + set its duration */}
                 <button
@@ -311,7 +316,8 @@ export function ProjectTimeline({
   );
 }
 
-/** Preview one specific clip (play/scrub) and set its manual screen time. */
+/** Preview one specific clip (play/scrub) and either TRIM a video (choose the part to render) or
+ *  set an image's manual screen time. */
 function ClipModal({
   projectId,
   asset,
@@ -324,20 +330,35 @@ function ClipModal({
   onSaved: () => void;
 }) {
   const isVideo = asset.kind === "video";
-  const srcMax = isVideo && asset.durationSec ? Math.min(60, asset.durationSec) : 60;
-  const [manual, setManual] = useState(asset.durationOverride != null);
-  const [secs, setSecs] = useState(asset.durationOverride ?? autoSec(asset));
+  const dur = asset.durationSec ?? 0;
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const [saving, setSaving] = useState(false);
   const src = `/api/projects/${projectId}/assets/${asset.id}`;
+
+  // Image: manual screen time.
+  const [manual, setManual] = useState(asset.durationOverride != null);
+  const [secs, setSecs] = useState(asset.durationOverride ?? autoSec(asset));
+
+  // Video: trim in/out.
+  const [trimmed, setTrimmed] = useState(asset.trimStart != null && asset.trimEnd != null);
+  const [start, setStart] = useState(asset.trimStart ?? 0);
+  const [end, setEnd] = useState(asset.trimEnd ?? (dur || 0));
+  const clampStart = (v: number) => Math.max(0, Math.min(v, (end || dur) - 0.4));
+  const clampEnd = (v: number) => Math.min(dur || v, Math.max(v, start + 0.4));
+  const seek = (t: number) => { if (videoRef.current) { videoRef.current.currentTime = t; videoRef.current.pause(); } };
 
   async function save() {
     setSaving(true);
     try {
-      await setAssetDuration(projectId, asset.id, manual ? secs : null);
+      if (isVideo) {
+        await setAssetTrim(projectId, asset.id, trimmed ? start : null, trimmed ? end : null);
+      } else {
+        await setAssetDuration(projectId, asset.id, manual ? secs : null);
+      }
       onSaved();
       onClose();
     } catch (e) {
-      toast.error((e as Error).message || "Could not save the clip time.");
+      toast.error((e as Error).message || "Could not save the clip.");
       setSaving(false);
     }
   }
@@ -351,30 +372,61 @@ function ClipModal({
         </div>
         <div className="overflow-hidden rounded-lg bg-black">
           {isVideo ? (
-            <video src={src} controls autoPlay playsInline className="max-h-[55vh] w-full" />
+            <video ref={videoRef} src={src} controls autoPlay playsInline className="max-h-[50vh] w-full" />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={src} alt={asset.name} className="max-h-[55vh] w-full object-contain" />
+            <img src={src} alt={asset.name} className="max-h-[50vh] w-full object-contain" />
           )}
         </div>
-        {isVideo && asset.durationSec ? (
-          <p className="text-xs text-muted-foreground">Source clip is {asset.durationSec.toFixed(1)}s long.</p>
-        ) : null}
-        <div className="space-y-2 rounded-lg border border-border bg-background/50 p-3">
-          <label className="flex items-center gap-2 text-sm font-medium">
-            <input type="checkbox" checked={manual} onChange={(e) => setManual(e.target.checked)} />
-            <Clock className="size-4 text-[color:var(--cw-violet)]" /> Set screen time manually
-          </label>
-          {manual ? (
-            <div className="flex items-center gap-3">
-              <input type="range" min={0.4} max={srcMax} step={0.1} value={Math.min(secs, srcMax)} onChange={(e) => setSecs(Number(e.target.value))} className="flex-1" />
-              <input type="number" min={0.4} max={srcMax} step={0.1} value={secs} onChange={(e) => setSecs(Number(e.target.value))} className="h-8 w-20 rounded-md border border-border bg-background px-2 text-center text-sm" />
-              <span className="text-xs text-muted-foreground">sec</span>
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">Auto — ClipWaltz picks the time from the beat/length ({autoSec(asset)}s baseline).</p>
-          )}
-        </div>
+
+        {isVideo ? (
+          <div className="space-y-3 rounded-lg border border-border bg-background/50 p-3">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input type="checkbox" checked={trimmed} onChange={(e) => setTrimmed(e.target.checked)} />
+              <Clock className="size-4 text-[color:var(--cw-violet)]" /> Trim — render only part of this video
+            </label>
+            {trimmed && dur > 0 ? (
+              <>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="w-10">Start</span>
+                    <input type="range" min={0} max={dur} step={0.1} value={start} onChange={(e) => { const v = clampStart(Number(e.target.value)); setStart(v); seek(v); }} className="flex-1" />
+                    <span className="w-12 text-right tabular-nums">{start.toFixed(1)}s</span>
+                    <button type="button" onClick={() => setStart(clampStart(videoRef.current?.currentTime ?? start))} className="rounded border border-border px-1.5 py-0.5 text-[11px] hover:border-primary hover:text-primary">Set ⏱</button>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="w-10">End</span>
+                    <input type="range" min={0} max={dur} step={0.1} value={end} onChange={(e) => { const v = clampEnd(Number(e.target.value)); setEnd(v); seek(v); }} className="flex-1" />
+                    <span className="w-12 text-right tabular-nums">{end.toFixed(1)}s</span>
+                    <button type="button" onClick={() => setEnd(clampEnd(videoRef.current?.currentTime ?? end))} className="rounded border border-border px-1.5 py-0.5 text-[11px] hover:border-primary hover:text-primary">Set ⏱</button>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Rendering <span className="font-medium text-foreground">{start.toFixed(1)}s–{end.toFixed(1)}s</span> ({(end - start).toFixed(1)}s of the {dur.toFixed(1)}s clip). Play the video, pause at a spot, then <span className="font-medium">Set ⏱</span>.
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">Off — ClipWaltz auto-picks the liveliest part{dur > 0 ? ` of this ${dur.toFixed(1)}s clip` : ""}.</p>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-2 rounded-lg border border-border bg-background/50 p-3">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input type="checkbox" checked={manual} onChange={(e) => setManual(e.target.checked)} />
+              <Clock className="size-4 text-[color:var(--cw-violet)]" /> Set screen time manually
+            </label>
+            {manual ? (
+              <div className="flex items-center gap-3">
+                <input type="range" min={0.4} max={60} step={0.1} value={secs} onChange={(e) => setSecs(Number(e.target.value))} className="flex-1" />
+                <input type="number" min={0.4} max={60} step={0.1} value={secs} onChange={(e) => setSecs(Number(e.target.value))} className="h-8 w-20 rounded-md border border-border bg-background px-2 text-center text-sm" />
+                <span className="text-xs text-muted-foreground">sec</span>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">Auto — ClipWaltz picks the time from the beat/length ({autoSec(asset)}s baseline).</p>
+            )}
+          </div>
+        )}
+
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
