@@ -14,6 +14,23 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
+## Working state (2026-09-22) — v5 wave 2 (all deployed + verified)
+
+Migrations **0023–0025** applied on prod; app + worker redeployed; FEATURES mirrored to wiki.
+- **Server-side categories** (0023, `project_categories`) — per-account, ordered, colour; header
+  rename/move/colour/delete; `category-actions.ts`, `listCategories`. Board reads them (no more
+  localStorage). Renames re-point projects; delete → Uncategorized.
+- **Per-clip screen time** (0024, `assets.duration_override`) — Timeline clip modal previews that
+  specific clip + manual duration slider (0.4–60s, videos clamped to source) or Auto. Worker pins
+  overridden slots (verbatim, excluded from stretch). `setAssetDuration`; `--captest` unaffected.
+- **Render history** — editor `RenderHistory` lists every finished render; download/delete any
+  version. `listRenders`, `deleteRender` (row + MinIO object).
+- **Custom MP3 upload** (0025, `music_tracks.owner_id`) — Music card **Upload** tab; owner-scoped
+  rows (provider `upload`), `/api/music/upload`, `deleteMusicTrack`, owner-checked streaming;
+  `getMusicTracks(userId)` merges catalog + uploads.
+- **⚠ Not browser-verified (auth-gated):** category management UI, clip modal, render-history
+  delete, MP3 upload+audition. Build/type/lint/migrations/health all green — owner to eyeball.
+
 ## Working state (2026-09-22) — v5 feature wave (all deployed + verified)
 
 Migrations **0020–0022** applied on prod; app + worker redeployed; FEATURES mirrored to wiki.
