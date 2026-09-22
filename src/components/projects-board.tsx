@@ -75,6 +75,7 @@ export function ProjectsBoard({ projects, categories }: { projects: ProjectSumma
 
   return (
     <div className="space-y-5">
+      <div className="cw-glass space-y-3 rounded-2xl p-3">
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-56 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -100,6 +101,7 @@ export function ProjectsBoard({ projects, categories }: { projects: ProjectSumma
           {activeTags.length ? <button type="button" onClick={() => setActiveTags([])} className="text-xs text-muted-foreground underline hover:text-foreground">clear</button> : null}
         </div>
       ) : null}
+      </div>
 
       {sections.map((sec, secIdx) => {
         const list = byCat(sec.name);
@@ -110,8 +112,8 @@ export function ProjectsBoard({ projects, categories }: { projects: ProjectSumma
             onDragOver={(e) => { if (dragId) { e.preventDefault(); setOverCat(sec.name); } }}
             onDragLeave={() => setOverCat((c) => (c === sec.name ? null : c))}
             onDrop={() => drop(sec.name)}
-            className={cn("rounded-2xl border p-3 transition-colors", overCat === sec.name ? "border-primary bg-primary/5" : "border-transparent")}
-            style={sec.color ? { borderColor: overCat === sec.name ? undefined : `${sec.color}55` } : undefined}
+            className={cn("cw-glass rounded-2xl p-4 transition-shadow", overCat === sec.name && "ring-2 ring-primary")}
+            style={sec.color ? { borderColor: `${sec.color}66` } : undefined}
           >
             <div className="mb-2 flex items-center gap-2 px-1">
               {sec.color ? <span className="size-2.5 rounded-full" style={{ background: sec.color }} /> : null}
