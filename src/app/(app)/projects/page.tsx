@@ -13,7 +13,7 @@ export default async function ProjectsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
+      <div className="cw-glass flex items-center justify-between gap-4 rounded-2xl p-4">
         <div>
           <h1 className="cw-gradient-text text-2xl font-semibold tracking-tight">Your projects</h1>
           <p className="text-sm text-muted-foreground">
