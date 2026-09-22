@@ -44,6 +44,11 @@ const s3 = new S3Client({
 });
 const BUCKET = process.env.S3_BUCKET ?? "clipwaltz";
 const fwd = (p) => p.replace(/\\/g, "/");
+// Audio level: clamp to [0, 1.5] (allows a small boost); null/invalid → the given default.
+function clampVol(v, dflt = 1) {
+  const n = v == null ? dflt : Number(v);
+  return Number.isFinite(n) ? Math.max(0, Math.min(1.5, n)) : dflt;
+}
 
 // Face/scene-aware selection: score candidate frames with the AI-box vision model
 // (Ollama). Empty OLLAMA_URL disables it → falls back to pure motion. (CLAUDE.md AI box.)
@@ -171,6 +176,20 @@ function energyAt(curve, t) {
     if (c.t > t + 1) break;
   }
   return best.e;
+}
+
+// True if the file has at least one audio stream (used for "use original audio" mixing).
+async function probeHasAudio(file) {
+  try {
+    const { stdout } = await run(
+      "ffprobe",
+      ["-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", file],
+      { maxBuffer: 1024 * 1024 },
+    );
+    return String(stdout).trim().length > 0;
+  } catch {
+    return false;
+  }
 }
 
 // Count video streams in a file (Insta360 dual-fisheye = 2, single = 1).
@@ -1018,13 +1037,17 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
 
   // Download sources first (need durations for smart windowing + timeline).
   const srcDurs = new Map();
+  const srcHasAudio = new Map(); // storage_key -> bool (only probed when using original audio)
   for (let i = 0; i < assets.length; i++) {
     const a = assets[i];
     const srcKey = a.converted_key ?? a.storage_key; // reprojected flat clip for 360 sources
     const ext = a.converted_key ? "mp4" : (a.original_name?.split(".").pop() ?? "bin").replace(/[^a-z0-9]/gi, "") || "bin";
     a._src = join(dir, `src${i}.${ext}`);
     await download(srcKey, a._src);
-    if (a.kind === "video") srcDurs.set(a.storage_key, await probe(a._src));
+    if (a.kind === "video") {
+      srcDurs.set(a.storage_key, await probe(a._src));
+      if (style.originalAudio) srcHasAudio.set(a.storage_key, await probeHasAudio(a._src));
+    }
   }
 
   let musicFile = null;
@@ -1075,11 +1098,37 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
   const listFile = join(dir, "concat.txt");
   writeFileSync(listFile, segments.map((s) => `file '${fwd(s)}'`).join("\n"));
 
+  // "Use original audio": build a single audio track matching the timeline — each video slot's own
+  // audio (from its window), silence for images and audio-less videos — so it can be mixed with (or
+  // replace) the music. Segments stay video-only, so this is independent of the video/crossfade
+  // pipeline; crossfade is forced OFF below when original audio is on so the two stay in sync.
+  let origAudioFile = null;
+  if (style.originalAudio) {
+    const auds = [];
+    for (let i = 0; i < slots.length; i++) {
+      const { asset: a, dur, offset } = slots[i];
+      const af = join(dir, `aud${i}.m4a`);
+      const hasAud = a.kind === "video" && srcHasAudio.get(a.storage_key);
+      if (hasAud) {
+        await ffmpeg(["-ss", offset.toFixed(3), "-t", dur.toFixed(3), "-i", a._src, "-vn", "-ac", "2", "-ar", "44100", "-c:a", "aac", "-b:a", "192k", af]);
+      } else {
+        await ffmpeg(["-f", "lavfi", "-t", dur.toFixed(3), "-i", "anullsrc=channel_layout=stereo:sample_rate=44100", "-c:a", "aac", "-b:a", "192k", af]);
+      }
+      auds.push(af);
+    }
+    const audList = join(dir, "audio.txt");
+    writeFileSync(audList, auds.map((s) => `file '${fwd(s)}'`).join("\n"));
+    origAudioFile = join(dir, "origaudio.m4a");
+    await ffmpeg(["-f", "concat", "-safe", "0", "-i", fwd(audList), "-c:a", "aac", "-b:a", "192k", fwd(origAudioFile)]);
+  }
+
   const out = join(dir, "out.mp4");
   const total = durations.reduce((s, d) => s + (d || PER_IMAGE), 0);
   const minDur = Math.min(...durations.map((d) => d || PER_IMAGE));
   const T = Math.max(0.2, Math.min(0.4, minDur * 0.35));
-  const wantCross = style.transition === "crossfade" && segments.length > 1;
+  // Crossfade overlaps segments (shortens the video); original audio is a straight concat matching
+  // the CUT timeline, so the two would drift. When original audio is on, force cut transitions.
+  const wantCross = style.transition === "crossfade" && segments.length > 1 && !style.originalAudio;
   const WM =
     "drawtext=text='ClipWaltz':fontcolor=white@0.85:fontsize=44:x=w-tw-32:y=h-th-44:box=1:boxcolor=black@0.35:boxborderw=12";
   const titleT = safeText(style.titleText);
@@ -1118,17 +1167,33 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     const outDur = lengthSec > 0 ? Math.min(effTotal, lengthSec) : effTotal;
     const pf = post(useTitle, useWatermark, outDur);
     const args = ["-f", "concat", "-safe", "0", "-i", fwd(srcList)];
-    const musicIdx = 1;
-    if (musicFile) args.push("-ss", musicOffset.toFixed(3), "-stream_loop", "-1", "-i", fwd(musicFile));
-    // Audio fades out with the picture at the very end (matches the video fade-out) so the music
-    // never hard-cuts — gated on the same `fadeOut` setting as the visual fade for a clean ending.
-    const aFade = style.fadeOut && !!musicFile && outDur > 1.6;
+    // Inputs after the video concat [0]: music (if any), then the original-audio track (if any).
+    let idx = 1;
+    let musicIdx = -1;
+    let origIdx = -1;
+    if (musicFile) { args.push("-ss", musicOffset.toFixed(3), "-stream_loop", "-1", "-i", fwd(musicFile)); musicIdx = idx++; }
+    if (origAudioFile) { args.push("-i", fwd(origAudioFile)); origIdx = idx++; }
+
+    // Levels (0–1); default 1. Music dips a touch by default when mixed with original audio so the
+    // clip's own sound stays intelligible; the user can override both with the level sliders.
+    const musicVol = musicIdx >= 0 ? clampVol(style.musicVolume, origIdx >= 0 ? 0.65 : 1) : 0;
+    const origVol = origIdx >= 0 ? clampVol(style.originalVolume, 1) : 0;
+    const endFade = style.fadeOut && outDur > 1.6; // fade audio out with the picture
+
+    // Assemble the audio graph from whichever sources are present.
     let fc = `[0:v]${pf}[vout]`;
-    if (aFade) fc += `;[${musicIdx}:a]afade=t=out:st=${(outDur - 0.7).toFixed(2)}:d=0.7[aout]`;
+    const stems = [];
+    if (musicIdx >= 0 && musicVol > 0) { fc += `;[${musicIdx}:a]volume=${musicVol.toFixed(3)}[ma]`; stems.push("[ma]"); }
+    if (origIdx >= 0 && origVol > 0) { fc += `;[${origIdx}:a]volume=${origVol.toFixed(3)}[oa]`; stems.push("[oa]"); }
+    let aLabel = null;
+    if (stems.length === 2) { fc += `;${stems.join("")}amix=inputs=2:duration=first:dropout_transition=0:normalize=0[amx]`; aLabel = "[amx]"; }
+    else if (stems.length === 1) { aLabel = stems[0]; }
+    if (aLabel && endFade) { fc += `;${aLabel}afade=t=out:st=${(outDur - 0.7).toFixed(2)}:d=0.7[aout]`; aLabel = "[aout]"; }
+
     args.push("-filter_complex", fc, "-map", "[vout]");
-    if (musicFile) args.push("-map", aFade ? "[aout]" : `${musicIdx}:a:0`, "-shortest");
+    if (aLabel) args.push("-map", aLabel, "-shortest");
     args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p");
-    if (musicFile) args.push("-c:a", "aac", "-b:a", "192k");
+    if (aLabel) args.push("-c:a", "aac", "-b:a", "192k");
     if (lengthSec > 0) args.push("-t", String(lengthSec));
     args.push(fwd(out));
     await ffmpeg(args);
@@ -1190,6 +1255,9 @@ async function processRender(r) {
     waltzToMusic: project?.waltz_to_music ?? false,
     loopToFill: project?.loop_to_fill ?? false,
     maxFootage,
+    originalAudio: project?.original_audio ?? false,
+    musicVolume: project?.music_volume ?? null,
+    originalVolume: project?.original_volume ?? null,
     overlays: Array.isArray(project?.overlays) ? project.overlays : [],
   };
 

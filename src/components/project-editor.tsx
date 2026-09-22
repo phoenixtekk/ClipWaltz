@@ -1,5 +1,5 @@
 "use client";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronUp, ChevronDown, Trash2, Film, Image as ImageIcon, Sparkles, Eye, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -60,6 +60,9 @@ export function ProjectEditor({
   describe,
   postTopic,
   postTemplate,
+  originalAudio,
+  musicVolume,
+  originalVolume,
   loopToFill,
   maxFootage,
   hasRender,
@@ -81,6 +84,9 @@ export function ProjectEditor({
   describe: boolean;
   postTopic: string | null;
   postTemplate: string | null;
+  originalAudio: boolean;
+  musicVolume: number | null;
+  originalVolume: number | null;
   loopToFill: boolean;
   maxFootage: boolean;
   hasRender: boolean;
@@ -454,6 +460,21 @@ export function ProjectEditor({
                 initialTemplate={postTemplate ?? ""}
               />
             ) : null}
+            <div className="flex flex-wrap items-center gap-2">
+              <TrackChip
+                selected={originalAudio}
+                label="🔊 Use original video audio"
+                onClick={() => runAction(() => setProjectStyle(projectId, { originalAudio: !originalAudio }), "Could not toggle original audio.")}
+                disabled={pending}
+              />
+            </div>
+            {originalAudio ? (
+              <AudioMixSettings
+                projectId={projectId}
+                initialMusic={musicVolume}
+                initialOriginal={originalVolume}
+              />
+            ) : null}
             <p className="text-xs text-muted-foreground">
               Smart cut keeps the liveliest moment of each video; Beat sync times cuts to the music;
               Waltz to the Music varies the pace with the song&apos;s energy and ends on a beat.
@@ -566,6 +587,60 @@ function PostTextSettings({
       <Button size="sm" onClick={save} disabled={pending || !dirty}>
         {pending ? "Saving…" : "Save post-text settings"}
       </Button>
+    </div>
+  );
+}
+
+/**
+ * Level controls shown under "Use original video audio". Music defaults a touch lower (65%) when
+ * mixed so the clip's own sound stays clear; set music to 0 for original-audio-only. Values are
+ * 0–150%. Saved (debounced) via setProjectStyle.
+ */
+function AudioMixSettings({
+  projectId,
+  initialMusic,
+  initialOriginal,
+}: {
+  projectId: string;
+  initialMusic: number | null;
+  initialOriginal: number | null;
+}) {
+  const [music, setMusic] = useState(initialMusic ?? 0.65);
+  const [orig, setOrig] = useState(initialOriginal ?? 1);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const save = (m: number, o: number) => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      setProjectStyle(projectId, { musicVolume: m, originalVolume: o }).catch(() =>
+        toast.error("Could not save audio levels."),
+      );
+    }, 500);
+  };
+  const pct = (v: number) => `${Math.round(v * 100)}%`;
+  return (
+    <div className="space-y-3 rounded-lg border border-border bg-card/60 p-3">
+      <p className="text-xs text-muted-foreground">
+        Each clip&apos;s own sound plays with the music. Drag the music down (or to 0) to let the
+        original audio lead. Transitions render as cuts while original audio is on.
+      </p>
+      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span className="w-16 shrink-0">🎵 Music</span>
+        <input
+          type="range" min={0} max={1.5} step={0.05} value={music}
+          onChange={(e) => { const v = Number(e.target.value); setMusic(v); save(v, orig); }}
+          className="flex-1"
+        />
+        <span className="w-10 shrink-0 text-right tabular-nums">{pct(music)}</span>
+      </label>
+      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span className="w-16 shrink-0">🔊 Clips</span>
+        <input
+          type="range" min={0} max={1.5} step={0.05} value={orig}
+          onChange={(e) => { const v = Number(e.target.value); setOrig(v); save(music, v); }}
+          className="flex-1"
+        />
+        <span className="w-10 shrink-0 text-right tabular-nums">{pct(orig)}</span>
+      </label>
     </div>
   );
 }

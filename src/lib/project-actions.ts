@@ -143,6 +143,9 @@ export async function setProjectStyle(
     describe?: boolean;
     postTopic?: string | null;
     postTemplate?: string | null;
+    originalAudio?: boolean;
+    musicVolume?: number | null;
+    originalVolume?: number | null;
     loopToFill?: boolean;
     maxFootage?: boolean;
   },
@@ -182,6 +185,12 @@ export async function setProjectStyle(
   if (patch.beatSync !== undefined) set.beatSync = !!patch.beatSync;
   if (patch.waltzToMusic !== undefined) set.waltzToMusic = !!patch.waltzToMusic;
   if (patch.describe !== undefined) set.describe = !!patch.describe;
+  if (patch.originalAudio !== undefined) set.originalAudio = !!patch.originalAudio;
+  const clampVol = (v: number) => Math.max(0, Math.min(1.5, v));
+  if (patch.musicVolume !== undefined)
+    set.musicVolume = patch.musicVolume == null ? null : clampVol(patch.musicVolume);
+  if (patch.originalVolume !== undefined)
+    set.originalVolume = patch.originalVolume == null ? null : clampVol(patch.originalVolume);
   if (patch.postTopic !== undefined) {
     const t = (patch.postTopic ?? "").trim().slice(0, 200);
     set.postTopic = t.length ? t : null;

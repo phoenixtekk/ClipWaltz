@@ -32,6 +32,9 @@ export type ProjectDetail = ProjectSummary & {
   describe: boolean;
   postTopic: string | null;
   postTemplate: string | null;
+  originalAudio: boolean;
+  musicVolume: number | null;
+  originalVolume: number | null;
   loopToFill: boolean;
   maxFootage: boolean;
   overlays: Overlay[];
@@ -66,6 +69,9 @@ export async function getProject(id: string): Promise<ProjectDetail | null> {
     describe: r.describe,
     postTopic: r.postTopic,
     postTemplate: r.postTemplate,
+    originalAudio: r.originalAudio,
+    musicVolume: r.musicVolume,
+    originalVolume: r.originalVolume,
     loopToFill: r.loopToFill,
     maxFootage: r.maxFootage,
     overlays: parseOverlays(r.overlays),

@@ -83,6 +83,12 @@ export const projects = pgTable("projects", {
   // supports (each video its full length, each image a slot), bounded by a soft ceiling in the
   // worker. Inverse of loopToFill — never repeats. When true the worker treats length as 0.
   maxFootage: boolean().notNull().default(false),
+  // Audio: keep each clip's ORIGINAL sound (`originalAudio`) and mix it with the in-app music at
+  // adjustable levels (`musicVolume`/`originalVolume`, 0–1.5; null → worker default). With original
+  // audio on, transitions render as cuts (crossfade would drift the audio).
+  originalAudio: boolean().notNull().default(false),
+  musicVolume: real(),
+  originalVolume: real(),
   overlays: jsonb(), // text + emoji overlays (see lib/overlays.ts); null = none
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
