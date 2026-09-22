@@ -1604,14 +1604,16 @@ function moveInto(src, destDir) {
   }
   return dest;
 }
-// Next unit of work from the inbox, or null if empty. Returns { name, files, srcPath }.
-function batchNextGroup(b) {
+// Next unit of work from the inbox, or null if empty. Returns { name, files, srcPath }. `skip` holds
+// source_names already attempted (done/failed) so a stuck/failed group is never reprocessed.
+function batchNextGroup(b, skip = new Set()) {
   const inbox = b.inbox_path;
   if (!existsSync(inbox)) return null;
   const entries = readdirSync(inbox, { withFileTypes: true });
   if (b.grouping === "subfolder") {
     const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
     for (const d of dirs) {
+      if (skip.has(d)) continue;
       const dir = join(inbox, d);
       const files = readdirSync(dir).filter(isBatchMedia).sort().map((f) => join(dir, f));
       if (files.length) return { name: d, files, srcPath: dir };
@@ -1619,7 +1621,7 @@ function batchNextGroup(b) {
     return null;
   }
   if (b.grouping === "file") {
-    const f = entries.filter((e) => e.isFile() && isBatchMedia(e.name)).map((e) => e.name).sort()[0];
+    const f = entries.filter((e) => e.isFile() && isBatchMedia(e.name)).map((e) => e.name).sort().find((n) => !skip.has(n.replace(/\.[^.]+$/, "")));
     if (!f) return null;
     return { name: f.replace(/\.[^.]+$/, ""), files: [join(inbox, f)], srcPath: join(inbox, f) };
   }
@@ -1666,8 +1668,9 @@ async function batchTick() {
     const [inflight] = await sql`select count(*)::int as n from batch_items where batch_id=${b.id} and status in ('queued','rendering')`;
     if (inflight.n > 0) continue; // one item at a time; wait for finalize
     if (b.schedule_minutes > 0 && b.last_run_at && Date.now() - new Date(b.last_run_at).getTime() < b.schedule_minutes * 60000) continue;
+    const attempted = new Set((await sql`select source_name from batch_items where batch_id=${b.id} and status in ('done','failed')`).map((r) => r.source_name));
     let group;
-    try { group = batchNextGroup(b); } catch (e) { console.error(`[batch] ${b.name} scan failed:`, e.message); continue; }
+    try { group = batchNextGroup(b, attempted); } catch (e) { console.error(`[batch] ${b.name} scan failed:`, e.message); continue; }
     if (!group) { await sql`update batch_jobs set status='done' where id=${b.id}`; console.log(`[batch] ${b.name}: inbox empty → done`); continue; }
     try { await startBatchItem(b, group); worked = true; } catch (e) { console.error(`[batch] ${b.name} start failed:`, e.message); }
   }
@@ -1691,6 +1694,8 @@ async function finalizeBatchItem(renderId, outFile, postText) {
     console.log(`[batch] ${b.name}: "${item.source_name}" → ${outMp4}; sources moved to done`);
   } catch (e) {
     await sql`update batch_items set status='failed', error=${String(e.message).slice(0, 500)} where id=${item.id}`.catch(() => {});
+    // Best-effort: get the source out of the inbox so it isn't rescanned (skip-set also guards this).
+    try { const sp = join(b.inbox_path, item.source_name); if (existsSync(sp)) moveInto(sp, join(b.done_path, "_failed")); } catch { /* leave */ }
     console.error(`[batch] finalize failed for ${renderId}:`, e.message);
   }
 }

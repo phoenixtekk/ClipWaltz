@@ -152,7 +152,12 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 - One item in flight per batch (so the schedule paces output). UI shows per-batch status + done/in-
   progress/failed counts; pause/resume/rescan/delete (delete leaves files untouched). Admin-gated
   because it reads/writes arbitrary server paths. **V1 scope:** standard video/image formats (360
-  `.insv` excluded); no auto-posting yet (render + move only).
+  `.insv` excluded); no auto-posting yet (render + move only). **Verified E2E** on the AI box (queue →
+  render → output MP4 + `.txt` → source moved to done → auto-stop).
+- ⚠️ **The three folders must be owned/writable by the worker's user (`lacy` on the AI box)** — the
+  worker runs as `lacy`, so root-owned folders fail with EACCES. A group that already has a done/failed
+  `batch_item` is never reprocessed (skip-set), so a bad folder can't spin an infinite retry loop;
+  finalize failures move the source to `done/_failed`.
 
 ## Later
 Native mobile apps · collaboration/shared reels · auto-captions · face/scene-aware
