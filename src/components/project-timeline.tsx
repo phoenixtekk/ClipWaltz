@@ -44,6 +44,53 @@ export function ProjectTimeline({
   const fileRef = useRef<HTMLInputElement>(null);
   const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [clip, setClip] = useState<AssetSummary | null>(null); // clip open in the preview/duration modal
+  const [trim, setTrim] = useState<{ id: string; side: "start" | "end" } | null>(null);
+
+  // Drag-to-trim on a video block. Video blocks are sized by SOURCE duration (below), so the
+  // handle X maps linearly to a source second. Commit on release; a full-range trim clears it.
+  function onTrimDown(e: React.PointerEvent, a: AssetSummary, side: "start" | "end") {
+    e.stopPropagation();
+    e.preventDefault();
+    try { (e.target as HTMLElement).setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    setTrim({ id: a.id, side });
+  }
+  function onTrimMove(e: React.PointerEvent, a: AssetSummary, side: "start" | "end") {
+    if (!trim || trim.id !== a.id) return;
+    const dur = a.durationSec ?? 0;
+    if (!dur) return;
+    const block = (e.currentTarget as HTMLElement).parentElement;
+    if (!block) return;
+    const rect = block.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const t = frac * dur;
+    const x = order.find((o) => o.id === a.id);
+    const cs = x?.trimStart ?? 0;
+    const ce = x?.trimEnd ?? dur;
+    const start = side === "start" ? Math.max(0, Math.min(t, ce - 0.4)) : cs;
+    const end = side === "end" ? Math.min(dur, Math.max(t, cs + 0.4)) : ce;
+    setOrder((cur) => cur.map((o) => (o.id === a.id ? { ...o, trimStart: start, trimEnd: end } : o)));
+  }
+  function onTrimUp(a: AssetSummary) {
+    if (!trim || trim.id !== a.id) { setTrim(null); return; }
+    setTrim(null);
+    const dur = a.durationSec ?? 0;
+    const x = order.find((o) => o.id === a.id); // holds the latest dragged values (setOrder above)
+    const s = x?.trimStart ?? 0;
+    const en = x?.trimEnd ?? dur;
+    const full = s <= 0.05 && en >= dur - 0.05;
+    setAssetTrim(projectId, a.id, full ? null : s, full ? null : en)
+      .then(() => router.refresh())
+      .catch(() => toast.error("Could not trim the clip."));
+  }
+
+  // Video blocks are scaled by SOURCE length (so trim handles map to seconds); others by output time.
+  const SRC_PX = 9;
+  const blockWidth = (a: AssetSummary) =>
+    a.kind === "video" && a.durationSec
+      ? Math.max(110, Math.min(280, a.durationSec * SRC_PX))
+      : Math.max(56, clipSec(a) * PX_PER_SEC);
+  const trimmable = (a: AssetSummary) =>
+    a.kind === "video" && a.uploadState === "uploaded" && !!a.durationSec && (!a.sourceFormat || a.conversionState === "ready");
 
   // keep local order in sync if the server list changes length (add/remove elsewhere)
   const [sig, setSig] = useState(assets.map((a) => a.id).join(","));
@@ -238,10 +285,10 @@ export function ProjectTimeline({
           {order.map((a, i) => (
             <div key={a.id} className="flex items-stretch gap-1">
               <div
-                draggable
-                onDragStart={() => setDragId(a.id)}
+                draggable={trim?.id !== a.id}
+                onDragStart={(e) => { if (trim) { e.preventDefault(); return; } setDragId(a.id); }}
                 onDragEnd={() => { setDragId(null); setOverIdx(null); }}
-                style={{ width: Math.max(56, clipSec(a) * PX_PER_SEC) }}
+                style={{ width: blockWidth(a) }}
                 className={cn(
                   "group relative h-20 shrink-0 cursor-grab overflow-hidden rounded-md border border-border bg-muted active:cursor-grabbing",
                   dragId === a.id && "opacity-40",
@@ -285,6 +332,38 @@ export function ProjectTimeline({
                     <Play className="size-3.5 translate-x-0.5 fill-foreground text-foreground" />
                   </span>
                 </button>
+                {/* Drag-to-trim handles (videos): dim the trimmed-off ends, drag the violet bars. */}
+                {trimmable(a) ? (() => {
+                  const dur = a.durationSec as number;
+                  const sPct = ((a.trimStart ?? 0) / dur) * 100;
+                  const ePct = ((a.trimEnd ?? dur) / dur) * 100;
+                  const handle = (side: "start" | "end", leftPct: number) => (
+                    <div
+                      role="slider"
+                      aria-label={side === "start" ? "Trim start" : "Trim end"}
+                      aria-valuenow={Math.round(side === "start" ? (a.trimStart ?? 0) : (a.trimEnd ?? dur))}
+                      draggable={false}
+                      onDragStart={(e) => e.preventDefault()}
+                      onPointerDown={(e) => onTrimDown(e, a, side)}
+                      onPointerMove={(e) => onTrimMove(e, a, side)}
+                      onPointerUp={() => onTrimUp(a)}
+                      title={`Trim ${side} — drag`}
+                      className="absolute inset-y-0 z-30 flex w-3 -translate-x-1/2 cursor-ew-resize touch-none items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 data-[on=true]:opacity-100"
+                      data-on={isTrimmed(a)}
+                      style={{ left: `${leftPct}%` }}
+                    >
+                      <span className="h-10 w-1 rounded-full bg-[color:var(--cw-violet)] shadow ring-1 ring-white/80" />
+                    </div>
+                  );
+                  return (
+                    <>
+                      {sPct > 0.5 ? <div className="pointer-events-none absolute inset-y-0 left-0 z-10 bg-black/60" style={{ width: `${sPct}%` }} /> : null}
+                      {ePct < 99.5 ? <div className="pointer-events-none absolute inset-y-0 right-0 z-10 bg-black/60" style={{ width: `${100 - ePct}%` }} /> : null}
+                      {handle("start", sPct)}
+                      {handle("end", ePct)}
+                    </>
+                  );
+                })() : null}
                 <span className="absolute right-0.5 top-0.5 z-20 opacity-0 transition-opacity group-hover:opacity-100">
                   <GripVertical className="size-3.5 text-white/80" />
                 </span>

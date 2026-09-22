@@ -94,12 +94,10 @@ export function EditorWorkspace({
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_23rem] xl:items-start">
         {/* main column */}
         <div className="space-y-6">
-          {/* Preview + workspace are one sticky group: the preview stays in view WHILE you edit the
-              tabs, then scrolls away once you pass into the render panel / history below (rather than
-              staying pinned all the way to the bottom). */}
+          {/* draft preview — scrolls with the page (not pinned) so it moves out of view as you
+              scroll down to the editing tabs / render panel. */}
           <div className="space-y-6">
-          {/* draft preview */}
-          <div className="cw-glass rounded-2xl p-4 xl:sticky xl:top-4 xl:z-20">
+          <div className="cw-glass rounded-2xl p-4">
             <DraftPreview
               projectId={projectId}
               assets={assets}
