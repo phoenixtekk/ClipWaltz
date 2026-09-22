@@ -94,7 +94,11 @@ export function EditorWorkspace({
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_23rem] xl:items-start">
         {/* main column */}
         <div className="space-y-6">
-          {/* draft preview — always in view */}
+          {/* Preview + workspace are one sticky group: the preview stays in view WHILE you edit the
+              tabs, then scrolls away once you pass into the render panel / history below (rather than
+              staying pinned all the way to the bottom). */}
+          <div className="space-y-6">
+          {/* draft preview */}
           <div className="cw-glass rounded-2xl p-4 xl:sticky xl:top-4 xl:z-20">
             <DraftPreview
               projectId={projectId}
@@ -148,6 +152,7 @@ export function EditorWorkspace({
                 />
               ) : null}
             </div>
+          </div>
           </div>
 
           <RenderPanel projectId={projectId} initial={latestRender} canRender={assets.length > 0} contest={contest} title={project.title} />
