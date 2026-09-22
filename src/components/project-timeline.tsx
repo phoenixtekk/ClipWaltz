@@ -84,10 +84,11 @@ export function ProjectTimeline({
   }
 
   // Video blocks are scaled by SOURCE length (so trim handles map to seconds); others by output time.
-  const SRC_PX = 9;
+  // Wider than the strip default so the in/out handles have room to grab and read.
+  const SRC_PX = 16;
   const blockWidth = (a: AssetSummary) =>
     a.kind === "video" && a.durationSec
-      ? Math.max(110, Math.min(280, a.durationSec * SRC_PX))
+      ? Math.max(180, Math.min(460, a.durationSec * SRC_PX))
       : Math.max(56, clipSec(a) * PX_PER_SEC);
   const trimmable = (a: AssetSummary) =>
     a.kind === "video" && a.uploadState === "uploaded" && !!a.durationSec && (!a.sourceFormat || a.conversionState === "ready");
@@ -361,6 +362,13 @@ export function ProjectTimeline({
                       {ePct < 99.5 ? <div className="pointer-events-none absolute inset-y-0 right-0 z-10 bg-black/60" style={{ width: `${100 - ePct}%` }} /> : null}
                       {handle("start", sPct)}
                       {handle("end", ePct)}
+                      {/* live in/out readout */}
+                      <span
+                        className="pointer-events-none absolute left-1/2 top-1 z-30 -translate-x-1/2 whitespace-nowrap rounded bg-black/80 px-1.5 py-0.5 text-[9px] font-semibold tabular-nums text-white opacity-0 transition-opacity group-hover:opacity-100 data-[on=true]:opacity-100"
+                        data-on={isTrimmed(a) || trim?.id === a.id}
+                      >
+                        in {(a.trimStart ?? 0).toFixed(1)}s · out {(a.trimEnd ?? dur).toFixed(1)}s
+                      </span>
                     </>
                   );
                 })() : null}
@@ -381,7 +389,7 @@ export function ProjectTimeline({
           ))}
         </div>
       )}
-      <p className="text-xs text-muted-foreground">Drag a clip to reorder · tap a clip to preview it &amp; set its screen time · tap + to insert a clip at that spot.</p>
+      <p className="text-xs text-muted-foreground">Drag a clip to reorder · drag a video&apos;s violet in/out handles to set its start &amp; end · tap a clip to preview/trim it precisely · tap + to insert.</p>
       {clip ? (
         <ClipModal
           key={clip.id}
