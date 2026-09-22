@@ -46,6 +46,7 @@ export function MusicPanel({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   async function uploadMp3(file: File) {
     const okExt = /\.(mp3|mpa|mp2|m4a|aac|wav|ogg|oga|opus|flac)$/i.test(file.name);
@@ -205,11 +206,23 @@ export function MusicPanel({
             type="button"
             onClick={() => fileRef.current?.click()}
             disabled={uploading}
-            className="flex w-full flex-col items-center gap-1 rounded-lg border border-dashed border-border px-4 py-5 text-center transition-colors hover:border-primary disabled:opacity-60"
+            onDragOver={(e) => { e.preventDefault(); if (!dragOver) setDragOver(true); }}
+            onDragEnter={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={(e) => { e.preventDefault(); setDragOver(false); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              const f = e.dataTransfer.files?.[0];
+              if (f) uploadMp3(f);
+            }}
+            className={cn(
+              "flex w-full flex-col items-center gap-1 rounded-lg border border-dashed px-4 py-5 text-center transition-colors disabled:opacity-60",
+              dragOver ? "border-primary bg-primary/10" : "border-border hover:border-primary",
+            )}
           >
             {uploading ? <Loader2 className="size-5 animate-spin text-[color:var(--cw-violet)]" /> : <UploadCloud className="size-5 text-[color:var(--cw-violet)]" />}
-            <span className="text-sm font-medium">{uploading ? "Uploading…" : "Upload music"}</span>
-            <span className="text-xs text-muted-foreground">MP3, MPA, M4A, AAC, WAV, OGG, OPUS or FLAC — up to 50 MB. Only you can use it.</span>
+            <span className="text-sm font-medium">{uploading ? "Uploading…" : dragOver ? "Drop to upload" : "Upload music"}</span>
+            <span className="text-xs text-muted-foreground">Click or drag a file here · MP3, MPA, M4A, AAC, WAV, OGG, OPUS or FLAC — up to 50 MB. Only you can use it.</span>
           </button>
         </div>
       ) : null}
