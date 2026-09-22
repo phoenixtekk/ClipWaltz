@@ -89,6 +89,9 @@ export const projects = pgTable("projects", {
   originalAudio: boolean().notNull().default(false),
   musicVolume: real(),
   originalVolume: real(),
+  // Projects-page organisation: a free-text folder name (null = Uncategorized) + free-form tags.
+  category: text(),
+  tags: jsonb(), // string[] — searchable/filterable labels; null = none
   overlays: jsonb(), // text + emoji overlays (see lib/overlays.ts); null = none
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),

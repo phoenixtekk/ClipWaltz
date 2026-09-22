@@ -12,6 +12,8 @@ export type ProjectSummary = {
   status: ProjectStatus;
   aspect: string;
   clips?: number; // uploaded asset count (populated by listProjects)
+  category: string | null; // folder name on the projects page; null = Uncategorized
+  tags: string[]; // free-form labels
   updatedAt: string; // ISO — serializable across the RSC boundary
 };
 
@@ -53,6 +55,8 @@ export async function getProject(id: string): Promise<ProjectDetail | null> {
     title: r.title,
     status: r.status as ProjectStatus,
     aspect: r.aspect,
+    category: r.category,
+    tags: Array.isArray(r.tags) ? (r.tags as string[]) : [],
     template: r.template,
     lengthSec: r.lengthSec,
     musicTrackId: r.musicTrackId,
@@ -105,6 +109,8 @@ export async function listProjects(): Promise<ProjectSummary[]> {
     status: r.status as ProjectStatus,
     aspect: r.aspect,
     clips: clipMap.get(r.id) ?? 0,
+    category: r.category,
+    tags: Array.isArray(r.tags) ? (r.tags as string[]) : [],
     updatedAt: r.updatedAt.toISOString(),
   }));
 }

@@ -155,6 +155,13 @@
       "when": 1790087063579,
       "tag": "0021_puzzling_blonde_phantom",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790087341277,
+      "tag": "0022_foamy_talos",
+      "breakpoints": true
     }
   ]
 }

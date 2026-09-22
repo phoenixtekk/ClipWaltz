@@ -94,6 +94,32 @@ export async function deleteProject(projectId: string): Promise<void> {
   revalidatePath("/projects");
 }
 
+/** Move a project into a category (folder). Empty/whitespace → null (Uncategorized). */
+export async function setProjectCategory(projectId: string, category: string | null): Promise<void> {
+  const userId = await requireUserId();
+  await assertOwner(userId, projectId);
+  const c = (category ?? "").trim().slice(0, 60);
+  await db
+    .update(schema.projects)
+    .set({ category: c || null, updatedAt: new Date() })
+    .where(eq(schema.projects.id, projectId));
+  revalidatePath("/projects");
+}
+
+/** Replace a project's tags (deduped, trimmed, max 12 × 30 chars). */
+export async function setProjectTags(projectId: string, tags: string[]): Promise<void> {
+  const userId = await requireUserId();
+  await assertOwner(userId, projectId);
+  const clean = Array.from(
+    new Set((tags ?? []).map((t) => String(t).trim().slice(0, 30)).filter(Boolean)),
+  ).slice(0, 12);
+  await db
+    .update(schema.projects)
+    .set({ tags: clean, updatedAt: new Date() })
+    .where(eq(schema.projects.id, projectId));
+  revalidatePath("/projects");
+}
+
 export async function renameProject(projectId: string, title: string): Promise<void> {
   const userId = await requireUserId();
   await assertOwner(userId, projectId);
