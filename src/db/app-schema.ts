@@ -189,6 +189,9 @@ export const assets = pgTable("assets", {
   conversionState: text().notNull().default("ready"), // ready | pending | converting | failed
   convertedKey: text(), // MinIO key of the flat mp4/jpg once reprojected
   durationSec: real(),
+  // Manual per-clip screen time (seconds). null = auto (beat/fill decides). When set, the worker
+  // holds this clip for exactly this long (photos: any; videos: clamped to the source length).
+  durationOverride: real(),
   width: integer(),
   height: integer(),
   qualityScore: real(), // blur/brightness heuristic for smart trim/selection
@@ -370,3 +373,21 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
   userAgent: text(),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
+
+// Server-side project categories (folders) for the projects board. Per-owner, ordered, optional
+// colour. `projects.category` holds the category NAME (kept in sync on rename/delete), so cards
+// join by name and legacy free-text categories still work.
+export const projectCategories = pgTable(
+  "project_categories",
+  {
+    id: text().primaryKey(),
+    ownerId: text()
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text().notNull(),
+    color: text(), // hex like #7c3aed, optional
+    sortOrder: integer().notNull().default(0),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.ownerId, t.name)],
+);

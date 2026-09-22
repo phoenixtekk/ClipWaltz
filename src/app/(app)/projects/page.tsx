@@ -1,5 +1,5 @@
 import { getSession } from "@/lib/auth";
-import { listProjects } from "@/lib/projects";
+import { listProjects, listCategories } from "@/lib/projects";
 import { NewProjectButton } from "@/components/new-project-button";
 import { ProjectsBoard } from "@/components/projects-board";
 
@@ -7,7 +7,7 @@ export const metadata = { title: "Projects" };
 
 export default async function ProjectsPage() {
   const session = await getSession();
-  const projects = await listProjects();
+  const [projects, categories] = await Promise.all([listProjects(), listCategories()]);
   const plan = (session?.user as { plan?: string } | undefined)?.plan ?? "free";
   const isFree = plan === "free";
 
@@ -30,7 +30,7 @@ export default async function ProjectsPage() {
         </div>
       ) : null}
 
-      {projects.length === 0 ? <EmptyState /> : <ProjectsBoard projects={projects} />}
+      {projects.length === 0 ? <EmptyState /> : <ProjectsBoard projects={projects} categories={categories} />}
     </div>
   );
 }

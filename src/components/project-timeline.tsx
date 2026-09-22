@@ -1,11 +1,12 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, X, Film, Image as ImageIcon, GripVertical, ListVideo, Loader2, CheckCircle2, AlertCircle, UploadCloud } from "lucide-react";
+import { Plus, X, Film, Image as ImageIcon, GripVertical, ListVideo, Loader2, CheckCircle2, AlertCircle, UploadCloud, Clock, Play } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
+import { Button } from "@/components/ui/button";
 import type { AssetSummary } from "@/lib/assets";
-import { reorderAssets, deleteAsset } from "@/lib/asset-actions";
+import { reorderAssets, deleteAsset, setAssetDuration } from "@/lib/asset-actions";
 import { uploadProjectFile, isSupported } from "@/lib/upload-client";
 
 type InsertStatus = "uploading" | "done" | "error";
@@ -13,7 +14,9 @@ type InsertStatus = "uploading" | "done" | "error";
 const PX_PER_SEC = 34;
 const PHOTO_SEC = 2;
 const VIDEO_SEC = 4;
-const clipSec = (a: AssetSummary) => (a.kind === "video" ? VIDEO_SEC : PHOTO_SEC);
+const autoSec = (a: AssetSummary) => (a.kind === "video" ? VIDEO_SEC : PHOTO_SEC);
+// Effective screen time = manual override, else the default cadence. Drives the timeline widths.
+const clipSec = (a: AssetSummary) => a.durationOverride ?? autoSec(a);
 
 /**
  * Full-video timeline (#4): clips laid out left→right, widths scaled by their draft duration.
@@ -37,6 +40,7 @@ export function ProjectTimeline({
   const [statusName, setStatusName] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [clip, setClip] = useState<AssetSummary | null>(null); // clip open in the preview/duration modal
 
   // keep local order in sync if the server list changes length (add/remove elsewhere)
   const [sig, setSig] = useState(assets.map((a) => a.id).join(","));
@@ -113,6 +117,7 @@ export function ProjectTimeline({
         sourceFormat: res.sourceFormat ?? null,
         conversionState: res.conversionState ?? "ready",
         durationSec: null,
+        durationOverride: null,
       };
       const next = [...order];
       next.splice(idx, 0, inserted);
@@ -255,17 +260,34 @@ export function ProjectTimeline({
                   </div>
                 )}
                 <span className="absolute left-1 top-1 rounded bg-black/60 px-1 text-[10px] font-semibold text-white">{i + 1}</span>
-                <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[10px] text-white">
-                  {a.kind === "video" ? `${VIDEO_SEC}s` : `${PHOTO_SEC}s`}
+                <span
+                  className={cn(
+                    "absolute bottom-1 left-1 rounded px-1 text-[10px] text-white",
+                    a.durationOverride != null ? "bg-[color:var(--cw-violet)]/90 font-semibold" : "bg-black/60",
+                  )}
+                  title={a.durationOverride != null ? "Manual screen time" : "Auto screen time"}
+                >
+                  {clipSec(a)}s
                 </span>
-                <span className="absolute right-0.5 top-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                {/* Preview this specific clip + set its duration */}
+                <button
+                  type="button"
+                  onClick={() => setClip(a)}
+                  aria-label={`Preview and time ${a.name}`}
+                  className="absolute inset-0 z-10 grid place-items-center bg-black/0 opacity-0 transition-opacity hover:bg-black/30 group-hover:opacity-100"
+                >
+                  <span className="grid size-7 place-items-center rounded-full bg-background/80 backdrop-blur-sm">
+                    <Play className="size-3.5 translate-x-0.5 fill-foreground text-foreground" />
+                  </span>
+                </button>
+                <span className="absolute right-0.5 top-0.5 z-20 opacity-0 transition-opacity group-hover:opacity-100">
                   <GripVertical className="size-3.5 text-white/80" />
                 </span>
                 <button
                   type="button"
                   onClick={() => remove(a)}
                   aria-label={`Remove ${a.name}`}
-                  className="absolute bottom-0.5 right-0.5 rounded-full bg-black/60 p-0.5 text-white opacity-0 transition-opacity hover:bg-destructive group-hover:opacity-100"
+                  className="absolute bottom-0.5 right-0.5 z-20 rounded-full bg-black/60 p-0.5 text-white opacity-0 transition-opacity hover:bg-destructive group-hover:opacity-100"
                 >
                   <X className="size-3" />
                 </button>
@@ -275,8 +297,90 @@ export function ProjectTimeline({
           ))}
         </div>
       )}
-      <p className="text-xs text-muted-foreground">Drag a clip to reorder · tap + to insert a photo, video, or Insta360 clip at that spot.</p>
+      <p className="text-xs text-muted-foreground">Drag a clip to reorder · tap a clip to preview it &amp; set its screen time · tap + to insert a clip at that spot.</p>
+      {clip ? (
+        <ClipModal
+          key={clip.id}
+          projectId={projectId}
+          asset={clip}
+          onClose={() => setClip(null)}
+          onSaved={() => router.refresh()}
+        />
+      ) : null}
     </section>
+  );
+}
+
+/** Preview one specific clip (play/scrub) and set its manual screen time. */
+function ClipModal({
+  projectId,
+  asset,
+  onClose,
+  onSaved,
+}: {
+  projectId: string;
+  asset: AssetSummary;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const isVideo = asset.kind === "video";
+  const srcMax = isVideo && asset.durationSec ? Math.min(60, asset.durationSec) : 60;
+  const [manual, setManual] = useState(asset.durationOverride != null);
+  const [secs, setSecs] = useState(asset.durationOverride ?? autoSec(asset));
+  const [saving, setSaving] = useState(false);
+  const src = `/api/projects/${projectId}/assets/${asset.id}`;
+
+  async function save() {
+    setSaving(true);
+    try {
+      await setAssetDuration(projectId, asset.id, manual ? secs : null);
+      onSaved();
+      onClose();
+    } catch (e) {
+      toast.error((e as Error).message || "Could not save the clip time.");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label={`Clip ${asset.name}`} onClick={onClose} className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+      <div onClick={(e) => e.stopPropagation()} className="w-full max-w-lg space-y-4 rounded-2xl border border-border bg-card p-4">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="truncate text-sm font-semibold">{asset.name}</h3>
+          <button type="button" onClick={onClose} aria-label="Close" className="rounded-full p-1 text-muted-foreground hover:text-foreground"><X className="size-5" /></button>
+        </div>
+        <div className="overflow-hidden rounded-lg bg-black">
+          {isVideo ? (
+            <video src={src} controls autoPlay playsInline className="max-h-[55vh] w-full" />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={src} alt={asset.name} className="max-h-[55vh] w-full object-contain" />
+          )}
+        </div>
+        {isVideo && asset.durationSec ? (
+          <p className="text-xs text-muted-foreground">Source clip is {asset.durationSec.toFixed(1)}s long.</p>
+        ) : null}
+        <div className="space-y-2 rounded-lg border border-border bg-background/50 p-3">
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input type="checkbox" checked={manual} onChange={(e) => setManual(e.target.checked)} />
+            <Clock className="size-4 text-[color:var(--cw-violet)]" /> Set screen time manually
+          </label>
+          {manual ? (
+            <div className="flex items-center gap-3">
+              <input type="range" min={0.4} max={srcMax} step={0.1} value={Math.min(secs, srcMax)} onChange={(e) => setSecs(Number(e.target.value))} className="flex-1" />
+              <input type="number" min={0.4} max={srcMax} step={0.1} value={secs} onChange={(e) => setSecs(Number(e.target.value))} className="h-8 w-20 rounded-md border border-border bg-background px-2 text-center text-sm" />
+              <span className="text-xs text-muted-foreground">sec</span>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">Auto — ClipWaltz picks the time from the beat/length ({autoSec(asset)}s baseline).</p>
+          )}
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

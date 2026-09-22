@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { getProject } from "@/lib/projects";
 import { listAssets } from "@/lib/assets";
 import { getMusicTracks, getFavoriteTrackIds } from "@/lib/music";
-import { getLatestRender } from "@/lib/render";
+import { getLatestRender, listRenders } from "@/lib/render";
 import { getActiveContest, isRenderEntered } from "@/lib/contest";
 import { getAuthUserId } from "@/lib/auth";
 import { listPresets } from "@/lib/presets";
@@ -15,10 +15,11 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
   const project = await getProject(id);
   if (!project) notFound();
   const userId = await getAuthUserId();
-  const [assets, tracks, latestRender, activeContest, favorites, presets] = await Promise.all([
+  const [assets, tracks, latestRender, renders, activeContest, favorites, presets] = await Promise.all([
     listAssets(id),
     getMusicTracks(),
     getLatestRender(id),
+    listRenders(id),
     getActiveContest(),
     getFavoriteTrackIds(userId),
     listPresets(),
@@ -38,6 +39,7 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
       tracks={tracks}
       favorites={[...favorites]}
       latestRender={latestRender}
+      renders={renders}
       contest={contest}
       musicTrackTitle={tracks.find((t) => t.id === project.musicTrackId)?.title ?? null}
       backdropAssetId={assets.find((a) => a.uploadState === "uploaded")?.id ?? null}

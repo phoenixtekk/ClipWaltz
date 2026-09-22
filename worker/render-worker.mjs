@@ -845,6 +845,22 @@ async function buildTimeline(assets, beats, lengthSec, beatSync, smartCut, srcDu
     s.offset = s.asset.kind === "video" && smartCut ? nextOffset(s.asset, s.dur) : 0;
   }
 
+  // Manual per-clip screen time wins over the computed duration (photos: any; videos: clamped to
+  // the footage available from the chosen window). Overridden slots are pinned — the stretch pass
+  // below won't lengthen them.
+  for (const s of slots) {
+    const o = s.asset.duration_override;
+    if (o == null || !(o > 0)) continue;
+    let d = o;
+    if (s.asset.kind === "video") {
+      const D = srcDurs.get(s.asset.storage_key) ?? 0;
+      if (D > 0) d = Math.min(d, Math.max(0.4, D - s.offset));
+    }
+    s.dur = d;
+    s._fixed = true;
+  }
+  total = slots.reduce((sum, x) => sum + x.dur, 0);
+
   // Stretch to absorb any leftover void (target not reachable within the 2× cap) — rather than
   // repeating a clip a 3rd time. Hold IMAGES longer first (up to MAX_IMG_HOLD), then lengthen VIDEO
   // slots to use MORE of their own footage (bounded by each clip's remaining length from its
@@ -867,10 +883,10 @@ async function buildTimeline(assets, beats, lengthSec, beatSync, smartCut, srcDu
         }
       }
     };
-    grow(slots.filter((s) => s.asset.kind !== "video"), () => MAX_IMG_HOLD);
+    grow(slots.filter((s) => s.asset.kind !== "video" && !s._fixed), () => MAX_IMG_HOLD);
     if (total < cap - 0.4) {
       grow(
-        slots.filter((s) => s.asset.kind === "video"),
+        slots.filter((s) => s.asset.kind === "video" && !s._fixed),
         (s) => Math.max(s.dur, (srcDurs.get(s.asset.storage_key) ?? 0) - s.offset),
       );
     }

@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import type { ProjectDetail } from "@/lib/projects";
 import type { AssetSummary } from "@/lib/assets";
 import type { Track } from "@/lib/music";
-import type { RenderStatus } from "@/lib/render";
+import type { RenderStatus, RenderHistoryItem } from "@/lib/render";
 import type { Preset } from "@/lib/presets";
+import { RenderHistory } from "@/components/render-history";
 import { PresetBar } from "@/components/preset-bar";
 import { ProjectEditor } from "@/components/project-editor";
 import { ProjectTimeline } from "@/components/project-timeline";
@@ -35,6 +36,7 @@ export function EditorWorkspace({
   tracks,
   favorites,
   latestRender,
+  renders,
   contest,
   musicTrackTitle,
   backdropAssetId,
@@ -46,6 +48,7 @@ export function EditorWorkspace({
   tracks: Track[];
   favorites: string[];
   latestRender: RenderStatus;
+  renders: RenderHistoryItem[];
   contest: { theme: string; entered: boolean } | null;
   musicTrackTitle: string | null;
   backdropAssetId: string | null;
@@ -148,6 +151,8 @@ export function EditorWorkspace({
           </div>
 
           <RenderPanel projectId={projectId} initial={latestRender} canRender={assets.length > 0} contest={contest} title={project.title} />
+
+          <RenderHistory renders={renders} />
 
           <div className="flex items-center gap-2 border-t border-border pt-4">
             <Button variant="ghost" render={<Link href={`/projects/${projectId}/import`} />}>

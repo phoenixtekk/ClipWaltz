@@ -84,6 +84,19 @@ export async function getProject(id: string): Promise<ProjectDetail | null> {
 }
 
 /** Projects owned by the current user, newest first. Server-only (uses headers + db). */
+export type ProjectCategory = { id: string; name: string; color: string | null; sortOrder: number };
+
+/** The signed-in user's project categories, ordered. Server-only. */
+export async function listCategories(): Promise<ProjectCategory[]> {
+  const userId = await requireUserId();
+  const rows = await db
+    .select()
+    .from(schema.projectCategories)
+    .where(eq(schema.projectCategories.ownerId, userId))
+    .orderBy(schema.projectCategories.sortOrder, schema.projectCategories.createdAt);
+  return rows.map((r) => ({ id: r.id, name: r.name, color: r.color, sortOrder: r.sortOrder }));
+}
+
 export async function listProjects(): Promise<ProjectSummary[]> {
   const userId = await requireUserId();
   const rows = await db

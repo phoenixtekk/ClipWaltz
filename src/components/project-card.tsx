@@ -24,6 +24,7 @@ import {
   deleteProject, renameProject, duplicateProject,
   setProjectCategory, setProjectTags,
 } from "@/lib/project-actions";
+import { createCategory } from "@/lib/category-actions";
 
 const STATUS: Record<ProjectStatus, { label: string; className: string }> = {
   draft: { label: "Draft", className: "text-muted-foreground border-border bg-background/80" },
@@ -84,7 +85,9 @@ export function ProjectCard({
   const moveTo = (c: string | null) => run(() => setProjectCategory(project.id, c), "Could not move the project.");
   const onNewCategory = () => {
     const c = window.prompt("New category name:");
-    if (c && c.trim()) moveTo(c.trim());
+    if (!c || !c.trim()) return;
+    const name = c.trim();
+    run(async () => { await createCategory(name); await setProjectCategory(project.id, name); }, "Could not create category.");
   };
 
   return (

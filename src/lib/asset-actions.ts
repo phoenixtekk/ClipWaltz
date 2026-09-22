@@ -23,6 +23,33 @@ export async function deleteAsset(projectId: string, assetId: string): Promise<v
 }
 
 /**
+ * Set (or clear, with null) a clip's manual screen time in seconds. Owner-checked. Clamped to
+ * 0.4–60s; for videos, capped at the source length so we never read past the clip.
+ */
+export async function setAssetDuration(
+  projectId: string,
+  assetId: string,
+  seconds: number | null,
+): Promise<void> {
+  const userId = await requireUserId();
+  const [row] = await db
+    .select({ ownerId: schema.projects.ownerId, kind: schema.assets.kind, durationSec: schema.assets.durationSec })
+    .from(schema.assets)
+    .innerJoin(schema.projects, eq(schema.assets.projectId, schema.projects.id))
+    .where(and(eq(schema.assets.id, assetId), eq(schema.assets.projectId, projectId)));
+  if (!row || row.ownerId !== userId) throw new Error("Asset not found");
+
+  let val: number | null = null;
+  if (seconds != null && Number.isFinite(seconds)) {
+    let v = Math.max(0.4, Math.min(60, seconds));
+    if (row.kind === "video" && row.durationSec) v = Math.min(v, row.durationSec);
+    val = Math.round(v * 10) / 10;
+  }
+  await db.update(schema.assets).set({ durationOverride: val }).where(eq(schema.assets.id, assetId));
+  revalidatePath(`/projects/${projectId}/edit`);
+}
+
+/**
  * Set the full clip order for a project (timeline drag-reorder + insert). Owner-checked;
  * only assets that belong to the project are (re)numbered, any omitted keep a stable tail.
  */

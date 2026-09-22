@@ -48,6 +48,40 @@ export type RenderCheckpoint = {
   hasBlocking: boolean; // a 🔴 issue is present
 };
 
+export type RenderHistoryItem = {
+  id: string;
+  version: number;
+  aspect: string;
+  visibility: string;
+  createdAt: string; // ISO
+  hasOutput: boolean;
+};
+
+/** All finished renders for a project the user owns, newest first (for the download history). */
+export async function listRenders(projectId: string): Promise<RenderHistoryItem[]> {
+  const userId = await requireUserId();
+  const [proj] = await db
+    .select({ id: schema.projects.id })
+    .from(schema.projects)
+    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.ownerId, userId)));
+  if (!proj) return [];
+  const rows = await db
+    .select()
+    .from(schema.renders)
+    .where(and(eq(schema.renders.projectId, projectId), eq(schema.renders.status, "done")))
+    .orderBy(desc(schema.renders.version));
+  return rows
+    .filter((r) => !!r.outputKey)
+    .map((r) => ({
+      id: r.id,
+      version: r.version,
+      aspect: r.aspect,
+      visibility: r.visibility,
+      createdAt: (r.completedAt ?? r.createdAt).toISOString(),
+      hasOutput: true,
+    }));
+}
+
 /** Latest render for a project the current user owns. */
 export async function getLatestRender(projectId: string): Promise<RenderStatus> {
   const userId = await requireUserId();
