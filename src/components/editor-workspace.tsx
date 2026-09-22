@@ -18,6 +18,7 @@ import { OverlayEditor } from "@/components/overlay-editor";
 import { DraftPreview } from "@/components/draft-preview";
 import { RenderPanel } from "@/components/render-panel";
 import { MusicPanel } from "@/components/music-panel";
+import { NewProjectButton } from "@/components/new-project-button";
 
 type Tab = "timeline" | "clips" | "format" | "style" | "overlays";
 const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
@@ -82,11 +83,14 @@ export function EditorWorkspace({
 
   return (
     <div className="mx-auto w-full max-w-[110rem] space-y-6">
-      <div>
-        <h1 className="cw-gradient-text text-2xl font-semibold tracking-tight">{project.title}</h1>
-        <p className="text-sm text-muted-foreground">
-          {assets.length} clip{assets.length === 1 ? "" : "s"} · template: {project.template} · {project.aspect}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="cw-gradient-text text-2xl font-semibold tracking-tight">{project.title}</h1>
+          <p className="text-sm text-muted-foreground">
+            {assets.length} clip{assets.length === 1 ? "" : "s"} · template: {project.template} · {project.aspect}
+          </p>
+        </div>
+        <NewProjectButton />
       </div>
 
       <PresetBar projectId={projectId} presets={presets} />
