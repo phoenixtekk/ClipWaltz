@@ -12,18 +12,21 @@ export const runtime = "nodejs";
 export async function GET(_req: Request, ctx: { params: Promise<{ trackId: string }> }) {
   const { trackId } = await ctx.params;
 
+  let userId: string;
   try {
-    await requireUserId();
+    userId = await requireUserId();
   } catch {
     return new NextResponse("unauthenticated", { status: 401 });
   }
 
   const [track] = await db
-    .select({ key: schema.musicTracks.storageKey })
+    .select({ key: schema.musicTracks.storageKey, ownerId: schema.musicTracks.ownerId })
     .from(schema.musicTracks)
     .where(and(eq(schema.musicTracks.id, trackId), eq(schema.musicTracks.active, true)));
 
   if (!track) return new NextResponse("not found", { status: 404 });
+  // A personal upload (owner set) is only streamable by its owner; catalog tracks are shared.
+  if (track.ownerId && track.ownerId !== userId) return new NextResponse("forbidden", { status: 403 });
 
   return serveObject(_req, track.key, "audio/mpeg");
 }

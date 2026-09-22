@@ -18,6 +18,8 @@ import { user } from "./auth-schema";
 // `premium` marks partner/premium catalogs, `providerTrackId` is the id in that provider's system.
 export const musicTracks = pgTable("music_tracks", {
   id: text().primaryKey(),
+  // null = shared catalog track; set = a user's personal uploaded MP3 (only they see/use it).
+  ownerId: text().references(() => user.id, { onDelete: "cascade" }),
   title: text().notNull(),
   artist: text(),
   licenseRef: text(), // catalog / license reference — proves "safe to post"

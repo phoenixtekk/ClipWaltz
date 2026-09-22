@@ -1,21 +1,22 @@
 "use client";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Music, Play, Pause, Check, VolumeX, Heart, Sparkles, Star, Shuffle, Loader2 } from "lucide-react";
+import { Music, Play, Pause, Check, VolumeX, Heart, Sparkles, Star, Shuffle, Loader2, UploadCloud, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Input } from "@/components/ui/input";
 import type { Track } from "@/lib/music";
 import { setProjectMusic } from "@/lib/project-actions";
-import { toggleFavorite } from "@/lib/music-actions";
+import { toggleFavorite, deleteMusicTrack } from "@/lib/music-actions";
 import { getWaltzRecommendations } from "@/lib/waltzmatch-actions";
 
-type TabKey = "foryou" | "browse" | "premium" | "mymusic";
+type TabKey = "foryou" | "browse" | "premium" | "mymusic" | "upload";
 const TABS: { key: TabKey; label: string }[] = [
   { key: "foryou", label: "For You" },
   { key: "browse", label: "Browse" },
   { key: "premium", label: "Premium" },
   { key: "mymusic", label: "My Music" },
+  { key: "upload", label: "Upload" },
 ];
 
 /**
@@ -43,6 +44,41 @@ export function MusicPanel({
   const [auditionId, setAuditionId] = useState<string | null>(null);
   const [favorites, setFavorites] = useState<Set<string>>(new Set(initialFavorites));
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  async function uploadMp3(file: File) {
+    if (!/\.mp3$/i.test(file.name) && file.type !== "audio/mpeg") {
+      toast.error("Please choose an MP3 file.");
+      return;
+    }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/music/upload", { method: "POST", body: fd });
+      if (!res.ok) throw new Error((await res.text()) || "Upload failed");
+      toast.success("Track uploaded.");
+      router.refresh();
+    } catch (e) {
+      toast.error((e as Error).message || "Could not upload the track.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function removeTrack(id: string) {
+    if (!window.confirm("Delete this uploaded track? This can't be undone.")) return;
+    start(async () => {
+      try {
+        await deleteMusicTrack(id);
+        toast.success("Track deleted.");
+        router.refresh();
+      } catch (e) {
+        toast.error((e as Error).message || "Could not delete the track.");
+      }
+    });
+  }
 
   // WaltzMatch (For You) state — cached for the session once run.
   const [waltz, setWaltz] = useState<{ label: string; source: string; recs: { trackId: string; matchPct: number }[] } | null>(null);
@@ -75,6 +111,7 @@ export function MusicPanel({
     let list = tracks;
     if (tab === "premium") list = tracks.filter((t) => t.premium);
     else if (tab === "mymusic") list = tracks.filter((t) => favorites.has(t.id));
+    else if (tab === "upload") list = tracks.filter((t) => t.mine);
     if (q.trim()) {
       const needle = q.trim().toLowerCase();
       list = list.filter((t) => `${t.title} ${t.mood ?? ""} ${t.artist ?? ""}`.toLowerCase().includes(needle));
@@ -152,6 +189,28 @@ export function MusicPanel({
 
       {tab === "browse" ? (
         <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${tracks.length} tracks…`} className="h-8" />
+      ) : null}
+
+      {tab === "upload" ? (
+        <div className="space-y-2">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="audio/mpeg,.mp3"
+            className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadMp3(f); e.currentTarget.value = ""; }}
+          />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            className="flex w-full flex-col items-center gap-1 rounded-lg border border-dashed border-border px-4 py-5 text-center transition-colors hover:border-primary disabled:opacity-60"
+          >
+            {uploading ? <Loader2 className="size-5 animate-spin text-[color:var(--cw-violet)]" /> : <UploadCloud className="size-5 text-[color:var(--cw-violet)]" />}
+            <span className="text-sm font-medium">{uploading ? "Uploading…" : "Upload an MP3"}</span>
+            <span className="text-xs text-muted-foreground">Your own music — up to 30 MB. Only you can use it.</span>
+          </button>
+        </div>
       ) : null}
 
       {tab === "foryou" ? (
@@ -235,6 +294,7 @@ export function MusicPanel({
               onAudition={() => audition(t.id)}
               onSelect={() => select(t.id)}
               onFavorite={() => favorite(t.id)}
+              onDelete={t.mine ? () => removeTrack(t.id) : undefined}
               disabled={pending}
             />
           ))}
@@ -245,7 +305,9 @@ export function MusicPanel({
                 ? "Premium catalogs (real-artist music) light up when a partner is connected."
                 : tab === "mymusic"
                   ? "No favourites yet — tap the ♥ on a track to save it here."
-                  : `No tracks match “${q}”.`}
+                  : tab === "upload"
+                    ? "No uploads yet — add an MP3 above to use your own music."
+                    : `No tracks match “${q}”.`}
             </p>
           ) : null}
         </div>
@@ -267,6 +329,7 @@ function TrackRow({
   onAudition,
   onSelect,
   onFavorite,
+  onDelete,
   disabled,
 }: {
   track?: Track;
@@ -278,6 +341,7 @@ function TrackRow({
   onAudition?: () => void;
   onSelect: () => void;
   onFavorite?: () => void;
+  onDelete?: () => void;
   disabled?: boolean;
 }) {
   if (noMusic) {
@@ -341,6 +405,11 @@ function TrackRow({
       >
         <Heart className={cn("size-4", favorited && "fill-rose-500 text-rose-500")} />
       </button>
+      {onDelete ? (
+        <button type="button" onClick={onDelete} aria-label="Delete uploaded track" disabled={disabled} className="shrink-0 p-1 text-muted-foreground transition-colors hover:text-destructive disabled:opacity-50">
+          <Trash2 className="size-4" />
+        </button>
+      ) : null}
       {selected ? <Check className="size-4 shrink-0 text-primary" /> : null}
     </div>
   );

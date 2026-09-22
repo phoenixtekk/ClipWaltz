@@ -17,7 +17,7 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
   const userId = await getAuthUserId();
   const [assets, tracks, latestRender, renders, activeContest, favorites, presets] = await Promise.all([
     listAssets(id),
-    getMusicTracks(),
+    getMusicTracks(userId),
     getLatestRender(id),
     listRenders(id),
     getActiveContest(),
