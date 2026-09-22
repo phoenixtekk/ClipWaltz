@@ -14,6 +14,20 @@ const ANIMS: { key: OverlayAnim; label: string }[] = [
   { key: "none", label: "None" },
 ];
 
+// 3×3 quick-anchor grid. Edge anchors sit at an 8–10% margin so text isn't jammed to the border;
+// each sets the overlay's centre (x,y are fractions of the frame). Fine-tune with the px sliders.
+const ANCHORS: { l: string; title: string; x: number; y: number }[] = [
+  { l: "↖", title: "Top left", x: 0.08, y: 0.1 },
+  { l: "↑", title: "Top center", x: 0.5, y: 0.1 },
+  { l: "↗", title: "Top right", x: 0.92, y: 0.1 },
+  { l: "←", title: "Middle left", x: 0.08, y: 0.5 },
+  { l: "•", title: "Center", x: 0.5, y: 0.5 },
+  { l: "→", title: "Middle right", x: 0.92, y: 0.5 },
+  { l: "↙", title: "Bottom left", x: 0.08, y: 0.9 },
+  { l: "↓", title: "Bottom center", x: 0.5, y: 0.9 },
+  { l: "↘", title: "Bottom right", x: 0.92, y: 0.9 },
+];
+
 function uid() {
   return crypto.randomUUID();
 }
@@ -205,6 +219,51 @@ export function OverlayEditor({
                 <input type="range" min={0.03} max={0.4} step={0.01} value={sel.size} onChange={(e) => patch(sel.id, { size: Number(e.target.value) })} className="flex-1" />
               </label>
 
+              {/* Position: quick anchors + pixel-precise sliders (from every edge). */}
+              {(() => {
+                const W = wide ? 1920 : 1080;
+                const H = wide ? 1080 : 1920;
+                const px = Math.round(sel.x * W);
+                const py = Math.round(sel.y * H);
+                return (
+                  <div className="space-y-2 rounded-lg border border-border bg-background/50 p-2">
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-medium text-muted-foreground">Position</span>
+                      <div className="grid grid-cols-3 gap-0.5">
+                        {ANCHORS.map((a) => {
+                          const active = Math.abs(sel.x - a.x) < 0.02 && Math.abs(sel.y - a.y) < 0.02;
+                          return (
+                            <button
+                              key={a.title}
+                              type="button"
+                              title={a.title}
+                              onClick={() => patch(sel.id, { x: a.x, y: a.y })}
+                              className={cn(
+                                "grid size-6 place-items-center rounded text-xs leading-none",
+                                active ? "bg-primary/15 text-primary ring-1 ring-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                              )}
+                            >
+                              {a.l}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <span className="text-[11px] tabular-nums text-muted-foreground">{W}×{H}</span>
+                    </div>
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="w-4">X</span>
+                      <input type="range" min={0} max={W} step={1} value={px} onChange={(e) => patch(sel.id, { x: Number(e.target.value) / W })} className="flex-1" />
+                      <span className="w-32 shrink-0 text-right text-[11px] tabular-nums">{px}px L · {W - px}px R</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="w-4">Y</span>
+                      <input type="range" min={0} max={H} step={1} value={py} onChange={(e) => patch(sel.id, { y: Number(e.target.value) / H })} className="flex-1" />
+                      <span className="w-32 shrink-0 text-right text-[11px] tabular-nums">{py}px T · {H - py}px B</span>
+                    </label>
+                  </div>
+                );
+              })()}
+
               {sel.type === "text" ? (
                 <div className="flex items-center gap-3 text-xs text-muted-foreground">
                   <label className="flex items-center gap-1.5">
@@ -259,7 +318,7 @@ export function OverlayEditor({
 
           {overlays.length > 0 ? (
             <p className="text-xs text-muted-foreground">
-              {overlays.length} overlay{overlays.length === 1 ? "" : "s"} · drag on the frame to position · auto-saved.
+              {overlays.length} overlay{overlays.length === 1 ? "" : "s"} · drag on the frame, use the anchors, or set exact pixels · auto-saved.
             </p>
           ) : null}
         </div>

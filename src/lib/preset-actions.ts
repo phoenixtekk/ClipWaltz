@@ -50,6 +50,36 @@ export async function createPresetFromProject(projectId: string, name: string): 
   return id;
 }
 
+/** Re-snapshot a project's current Format + Style + overlays INTO an existing personal preset. */
+export async function updatePresetFromProject(projectId: string, presetId: string): Promise<void> {
+  const userId = await requireUserId();
+  await assertProjectOwner(userId, projectId);
+  const [p] = await db.select().from(schema.projects).where(eq(schema.projects.id, projectId));
+  if (!p) throw new Error("Project not found");
+  const res = await db
+    .update(schema.presets)
+    .set({
+      aspect: p.aspect,
+      lengthSec: p.lengthSec,
+      maxFootage: p.maxFootage,
+      styleFilter: p.styleFilter,
+      lightFx: p.lightFx,
+      transition: p.transition,
+      motion: p.motion,
+      fades: p.fades,
+      fadeOut: p.fadeOut,
+      smartCut: p.smartCut,
+      beatSync: p.beatSync,
+      waltzToMusic: p.waltzToMusic,
+      loopToFill: p.loopToFill,
+      overlays: p.overlays ?? null,
+    })
+    .where(and(eq(schema.presets.id, presetId), eq(schema.presets.ownerId, userId)))
+    .returning({ id: schema.presets.id });
+  if (res.length === 0) throw new Error("Preset not found (only your own presets can be updated)");
+  revalidatePath(`/projects/${projectId}/edit`);
+}
+
 /** Apply a preset (built-in, personal, or global) onto a project the user owns. */
 export async function applyPreset(projectId: string, presetId: string): Promise<void> {
   const userId = await requireUserId();
