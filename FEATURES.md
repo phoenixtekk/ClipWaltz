@@ -136,6 +136,24 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 - Requires browser notification permission (requested on first enable). Fully degrades: no
   permission, unsupported browser, or unconfigured server → the toggles disable gracefully.
 
+## Auto-Batch Studio (2026-09-22)
+
+- **Server-side batch pipeline** (admin-only: `/admin/batch`, linked from `/admin`). Turns folders of
+  media into rendered videos unattended. A batch = **input / output / done** folders (absolute paths
+  on the render host) + a **style preset** + optional **music** + **describe** toggle + a **grouping
+  mode** (each subfolder → 1 video · all loose files → 1 video · each file → 1 video) + a **schedule**
+  (minutes between videos; 0 = as fast as possible). Tables `batch_jobs` + `batch_items` (migration 0027).
+- **Worker** (`batchTick` in `render-worker.mjs`): for each active batch, when nothing's in flight and
+  the schedule allows, it takes the next group from the input folder, **uploads the media to MinIO +
+  creates a project + queues a render** with the batch settings. On the render finishing
+  (`finalizeBatchItem`): writes the **MP4 + `.txt` description** to the output folder and **moves the
+  consumed sources to the done folder** (failed renders → `done/_failed`). **Auto-stops** (status
+  `done`) when the input folder is empty; **Rescan** re-activates it.
+- One item in flight per batch (so the schedule paces output). UI shows per-batch status + done/in-
+  progress/failed counts; pause/resume/rescan/delete (delete leaves files untouched). Admin-gated
+  because it reads/writes arbitrary server paths. **V1 scope:** standard video/image formats (360
+  `.insv` excluded); no auto-posting yet (render + move only).
+
 ## Later
 Native mobile apps · collaboration/shared reels · auto-captions · face/scene-aware
 selection · 4K · multi-aspect · brand kits · web B-roll · partner API.

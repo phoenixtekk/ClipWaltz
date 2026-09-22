@@ -13,9 +13,9 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, createWriteStream } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, createWriteStream, readdirSync, statSync, existsSync, mkdirSync, renameSync, copyFileSync, unlinkSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, extname, basename } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import postgres from "postgres";
@@ -1325,6 +1325,8 @@ async function processRender(r) {
       `.catch((e) => console.log(`[worker] ledger insert failed: ${e.message}`));
     }
     await notifyReady(r.id);
+    // Auto-Batch: if this render belongs to a batch, write the output + move sources (best-effort).
+    await finalizeBatchItem(r.id, outFile, postText).catch((e) => console.error("[batch] finalize error:", e.message));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1361,6 +1363,7 @@ async function tick() {
     console.error(`[worker] render ${r.id} FAILED:`, e.message);
     await sql`update renders set status='failed' where id=${r.id}`;
     await sql`update projects set status='failed', updated_at=now() where id=${r.project_id}`;
+    await failBatchItem(r.id).catch(() => {});
   }
   return true;
 }
@@ -1581,6 +1584,130 @@ async function captest() {
   await sql.end();
 }
 
+// ── Auto-Batch Studio ───────────────────────────────────────────────────────
+// Watch server folders, render each group with the batch preset, drop MP4 + description into the
+// output folder, and move consumed sources to the done folder. Paces by scheduleMinutes; one item
+// in flight per batch; auto-stops (status='done') when the inbox is empty.
+const BATCH_VIDEO_EXT = new Set([".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"]);
+const BATCH_IMAGE_EXT = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".bmp"]);
+const batchKind = (n) => (BATCH_VIDEO_EXT.has(extname(n).toLowerCase()) ? "video" : "photo");
+const isBatchMedia = (n) => BATCH_VIDEO_EXT.has(extname(n).toLowerCase()) || BATCH_IMAGE_EXT.has(extname(n).toLowerCase());
+function ensureDir(p) { if (!existsSync(p)) mkdirSync(p, { recursive: true }); }
+function moveInto(src, destDir) {
+  ensureDir(destDir);
+  let dest = join(destDir, basename(src));
+  if (existsSync(dest)) dest = join(destDir, `${Date.now()}-${basename(src)}`);
+  try { renameSync(src, dest); }
+  catch {
+    if (statSync(src).isDirectory()) { cpSync(src, dest, { recursive: true }); rmSync(src, { recursive: true, force: true }); }
+    else { copyFileSync(src, dest); unlinkSync(src); }
+  }
+  return dest;
+}
+// Next unit of work from the inbox, or null if empty. Returns { name, files, srcPath }.
+function batchNextGroup(b) {
+  const inbox = b.inbox_path;
+  if (!existsSync(inbox)) return null;
+  const entries = readdirSync(inbox, { withFileTypes: true });
+  if (b.grouping === "subfolder") {
+    const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
+    for (const d of dirs) {
+      const dir = join(inbox, d);
+      const files = readdirSync(dir).filter(isBatchMedia).sort().map((f) => join(dir, f));
+      if (files.length) return { name: d, files, srcPath: dir };
+    }
+    return null;
+  }
+  if (b.grouping === "file") {
+    const f = entries.filter((e) => e.isFile() && isBatchMedia(e.name)).map((e) => e.name).sort()[0];
+    if (!f) return null;
+    return { name: f.replace(/\.[^.]+$/, ""), files: [join(inbox, f)], srcPath: join(inbox, f) };
+  }
+  // "whole": stage all loose media into one subfolder so it moves atomically on finalize.
+  const loose = entries.filter((e) => e.isFile() && isBatchMedia(e.name)).map((e) => e.name).sort();
+  if (!loose.length) return null;
+  const setName = `set-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "").replace("-", "").replace("-", "")}`;
+  const dir = join(inbox, setName);
+  ensureDir(dir);
+  const files = loose.map((f) => { const d = join(dir, f); renameSync(join(inbox, f), d); return d; });
+  return { name: setName, files, srcPath: dir };
+}
+async function startBatchItem(b, group) {
+  const s = b.settings || {};
+  const projectId = randomUUID();
+  const lengthSec = s.maxFootage ? 0 : (s.lengthSec ?? 60);
+  const title = group.name.slice(0, 120);
+  await sql`insert into projects (id, owner_id, title, template, aspect, length_sec, status, music_track_id,
+      style_filter, light_fx, transition, motion, fades, fade_out, smart_cut, beat_sync, waltz_to_music,
+      loop_to_fill, max_footage, describe, original_audio, title_text)
+    values (${projectId}, ${b.owner_id}, ${title}, 'trip', ${s.aspect ?? "9:16"}, ${lengthSec}, 'draft', ${s.musicTrackId ?? null},
+      ${s.styleFilter ?? "none"}, ${s.lightFx ?? "none"}, ${s.transition ?? "cut"}, ${s.motion ?? true}, ${s.fades ?? true}, ${s.fadeOut ?? true}, ${s.smartCut ?? true}, ${s.beatSync ?? true}, ${s.waltzToMusic ?? false},
+      ${s.loopToFill ?? false}, ${s.maxFootage ?? false}, ${s.describe ?? false}, ${s.originalAudio ?? false}, ${group.name.slice(0, 80)})`;
+  let idx = 0;
+  for (const f of group.files) {
+    const kind = batchKind(f);
+    const safe = basename(f).replace(/[^a-zA-Z0-9._-]/g, "_");
+    const key = `projects/${projectId}/${randomUUID()}-${safe}`;
+    await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: readFileSync(f), ContentType: kind === "video" ? "video/mp4" : "image/jpeg" }));
+    await sql`insert into assets (id, project_id, storage_key, kind, original_name, order_index, upload_state, conversion_state)
+      values (${randomUUID()}, ${projectId}, ${key}, ${kind}, ${basename(f)}, ${idx}, 'uploaded', 'ready')`;
+    idx++;
+  }
+  const renderId = randomUUID();
+  await sql`insert into renders (id, project_id, version, aspect, status, watermark) values (${renderId}, ${projectId}, 1, ${s.aspect ?? "9:16"}, 'queued', false)`;
+  await sql`insert into batch_items (id, batch_id, source_name, project_id, render_id, status) values (${randomUUID()}, ${b.id}, ${group.name}, ${projectId}, ${renderId}, 'queued')`;
+  await sql`update batch_jobs set last_run_at=now() where id=${b.id}`;
+  console.log(`[batch] ${b.name}: queued "${group.name}" (${group.files.length} files) → render ${renderId}`);
+}
+async function batchTick() {
+  const jobs = await sql`select * from batch_jobs where status='active' order by created_at asc`;
+  let worked = false;
+  for (const b of jobs) {
+    const [inflight] = await sql`select count(*)::int as n from batch_items where batch_id=${b.id} and status in ('queued','rendering')`;
+    if (inflight.n > 0) continue; // one item at a time; wait for finalize
+    if (b.schedule_minutes > 0 && b.last_run_at && Date.now() - new Date(b.last_run_at).getTime() < b.schedule_minutes * 60000) continue;
+    let group;
+    try { group = batchNextGroup(b); } catch (e) { console.error(`[batch] ${b.name} scan failed:`, e.message); continue; }
+    if (!group) { await sql`update batch_jobs set status='done' where id=${b.id}`; console.log(`[batch] ${b.name}: inbox empty → done`); continue; }
+    try { await startBatchItem(b, group); worked = true; } catch (e) { console.error(`[batch] ${b.name} start failed:`, e.message); }
+  }
+  return worked;
+}
+// On a finished render that belongs to a batch: write MP4 + description to output, move sources to done.
+async function finalizeBatchItem(renderId, outFile, postText) {
+  const [item] = await sql`select * from batch_items where render_id=${renderId}`;
+  if (!item) return;
+  const [b] = await sql`select * from batch_jobs where id=${item.batch_id}`;
+  if (!b) return;
+  try {
+    ensureDir(b.output_path);
+    const base = item.source_name.replace(/[^a-zA-Z0-9._ -]/g, "_");
+    const outMp4 = join(b.output_path, `${base}.mp4`);
+    copyFileSync(outFile, outMp4);
+    if (postText) writeFileSync(join(b.output_path, `${base}.txt`), postText, "utf8");
+    const srcPath = join(b.inbox_path, item.source_name);
+    if (existsSync(srcPath)) moveInto(srcPath, b.done_path);
+    await sql`update batch_items set status='done', output_file=${outMp4}, completed_at=now() where id=${item.id}`;
+    console.log(`[batch] ${b.name}: "${item.source_name}" → ${outMp4}; sources moved to done`);
+  } catch (e) {
+    await sql`update batch_items set status='failed', error=${String(e.message).slice(0, 500)} where id=${item.id}`.catch(() => {});
+    console.error(`[batch] finalize failed for ${renderId}:`, e.message);
+  }
+}
+// On a failed render that belongs to a batch: move the source to done/_failed so the batch advances.
+async function failBatchItem(renderId) {
+  const [item] = await sql`select * from batch_items where render_id=${renderId}`;
+  if (!item) return;
+  const [b] = await sql`select * from batch_jobs where id=${item.batch_id}`;
+  if (!b) return;
+  try {
+    const srcPath = join(b.inbox_path, item.source_name);
+    if (existsSync(srcPath)) moveInto(srcPath, join(b.done_path, "_failed"));
+  } catch { /* leave in place */ }
+  await sql`update batch_items set status='failed', error='render failed', completed_at=now() where id=${item.id}`.catch(() => {});
+  console.log(`[batch] ${b.name}: "${item.source_name}" render failed → moved to done/_failed`);
+}
+
 async function main() {
   if (process.argv.includes("--captest")) return captest();
   if (process.argv.includes("--xfadetest")) return xfadetest();
@@ -1606,6 +1733,7 @@ async function main() {
     try {
       worked = await tick();
       if (!worked) worked = await convTick(); // 360 reprojection queue
+      if (!worked) worked = await batchTick(); // Auto-Batch: queue the next folder group
     } catch (e) {
       console.error("[worker] tick error:", e.message);
     }

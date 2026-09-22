@@ -397,3 +397,46 @@ export const projectCategories = pgTable(
   },
   (t) => [unique().on(t.ownerId, t.name)],
 );
+
+// Auto-Batch Studio: a server-side pipeline that turns folders of media into rendered videos
+// unattended. The batch worker (AI box) scans `inboxPath`, renders each group with `settings`,
+// writes the MP4 + description to `outputPath`, and moves consumed sources to `donePath`. Paces by
+// `scheduleMinutes` and auto-stops (status='done') when the inbox is empty. Paths are absolute on
+// the worker host (owner-trusted). See worker `batchTick` + `finalizeBatchItem`.
+export const batchJobs = pgTable(
+  "batch_jobs",
+  {
+    id: text().primaryKey(),
+    ownerId: text()
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text().notNull(),
+    inboxPath: text().notNull(),
+    outputPath: text().notNull(),
+    donePath: text().notNull(),
+    grouping: text().notNull().default("subfolder"), // subfolder | whole | file
+    settings: jsonb(), // render settings snapshot (aspect, lengthSec, styleFilter, music, …)
+    scheduleMinutes: integer().notNull().default(0), // 0 = as fast as possible; else min gap between items
+    status: text().notNull().default("active"), // active | paused | done
+    lastRunAt: timestamp({ withTimezone: true }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.ownerId, t.name)],
+);
+
+// One rendered item within a batch (a subfolder/file group). Links the created project + render and
+// records where the output landed.
+export const batchItems = pgTable("batch_items", {
+  id: text().primaryKey(),
+  batchId: text()
+    .notNull()
+    .references(() => batchJobs.id, { onDelete: "cascade" }),
+  sourceName: text().notNull(), // relative name of the consumed subfolder/file
+  projectId: text(),
+  renderId: text(),
+  status: text().notNull().default("queued"), // queued | rendering | done | failed
+  outputFile: text(),
+  error: text(),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp({ withTimezone: true }),
+});
