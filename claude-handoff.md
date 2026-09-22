@@ -14,6 +14,18 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
+## Working state (2026-09-22) — v5 wave 3 (all deployed + verified)
+
+- **Editor preview sticky fix** — the draft preview was pinned by the whole left column; wrapped
+  preview+workspace in a sticky group so it releases at the render panel/history.
+- **Per-video trim** (0026, `assets.trim_start/trim_end`) — clip modal Trim toggle: start/end
+  sliders + "Set ⏱" from the video playhead; worker renders exactly `[start,end]` via `-ss`/`-t`,
+  overriding smart window + duration override, pinned. Timeline ✂ badge. `setAssetTrim`.
+- **Music upload broadened** — accepts MP3/MPA/MP2/M4A/AAC/WAV/OGG/OPUS/FLAC (≤50 MB), per-format
+  MIME stored (`/api/music/upload`). ffmpeg decodes any for rendering.
+- **⚠ Not browser-verified (auth-gated):** trim modal + Set-⏱, non-mp3 audio audition. Build/
+  type/lint/migrations/health green.
+
 ## Working state (2026-09-22) — v5 wave 2 (all deployed + verified)
 
 Migrations **0023–0025** applied on prod; app + worker redeployed; FEATURES mirrored to wiki.
