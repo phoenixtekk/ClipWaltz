@@ -14,6 +14,25 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
+## Working state (2026-09-22) — v5 feature wave (all deployed + verified)
+
+Migrations **0020–0022** applied on prod; app + worker redeployed; FEATURES mirrored to wiki.
+- **Per-project post-text** (0020) — Topic + Channel template under 📝; worker defaults to jet-ski.
+- **Notifications** — in-tab + Web Push both working; click → `/projects/<id>/edit`.
+- **Fill quality** — ≤2× appearances per clip (even in loop-to-fill) + stretch-to-fill (images then
+  video footage); `--captest` verifies. **Audio+video fade out together** at the end.
+- **Original audio + mix** (0021) — 🔊 toggle + music/clip level sliders; worker builds a
+  timeline-matched original-audio track and `amix`es with music; crossfade forced to cuts when on.
+  Mix filtergraph validated on the AI box.
+- **Presets** — editor bar now Apply / **Update** (resave) / **Delete** (own presets).
+- **Overlay text placement** — 3×3 anchor grid + pixel sliders (distance from every edge).
+- **Projects board** (0022) — uniform wider cards + orientation icon, **search**, **tag filter**,
+  **user categories** with **click-hold drag between them** (`projects-board.tsx`,
+  `setProjectCategory`/`setProjectTags`). Empty categories persisted per-browser (localStorage).
+- **⚠ Not yet browser-verified (auth-gated):** the projects-board drag-drop, the audio mix on a
+  real render, and the overlay pixel sliders — owner to eyeball. Build/type/lint/migrations/health
+  all green.
+
 ## Working state (2026-09-21) — v5 in progress
 
 - **`3e0dde0` fix(storage): stream large media instead of buffering (DEPLOYED + VERIFIED).**
