@@ -14,6 +14,21 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
+## Working state (2026-09-22) — v5 wave 4 (all deployed + verified)
+
+- **Auto-Batch Studio** (0027, `batch_jobs`+`batch_items`) — admin `/admin/batch`. Server-side pipeline:
+  watches an input folder on the AI box, renders each group (grouping: subfolder/whole/file) with a
+  preset+music+describe, writes MP4+`.txt` to the output folder, moves sources to done, auto-stops when
+  empty; paced by scheduleMinutes; one item in flight per batch. Worker `batchTick`/`finalizeBatchItem`/
+  `failBatchItem` in the loop. **Verified E2E** on the AI box (queue→render→output→move→auto-stop).
+  ⚠️ **Folders must be writable by the worker user `lacy`** (root-owned → EACCES). Skip-set prevents
+  reprocessing done/failed groups (no infinite loop). V1: standard formats, no posting.
+- **UI polish this wave:** projects page + title row in glass cards; editor "New Project" button;
+  music Upload tab drag-and-drop; broadened audio formats (mp3/mpa/m4a/aac/wav/ogg/opus/flac);
+  per-video **trim** (in/out) via clip modal + **drag handles** on the (widened) timeline block with a
+  live in/out readout; draft preview no longer sticky.
+- Migrations through **0027**. Wan2GP nginx vhost on AISERVER (see server-inventory).
+
 ## Working state (2026-09-22) — v5 wave 3 (all deployed + verified)
 
 - **Editor preview sticky fix** — the draft preview was pinned by the whole left column; wrapped
