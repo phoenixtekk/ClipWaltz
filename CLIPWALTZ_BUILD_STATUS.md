@@ -65,6 +65,11 @@ Assembler (music-video) product is separate and shipping — see [ADR-0001](docs
 
 - [x] **Version browser: compare + delete** (2026-09-23). Hover a version for side-by-side
       Compare (two players) or Delete (`deleteGenerationVersion` — row + MinIO object). Deployed.
+- [x] **Version browser: duplicate + regenerate** (2026-09-23). Preview-header Duplicate (same
+      seed) / Regenerate (fresh seed) via `regenerateFromVersion`. Deployed.
+- [x] **Music catalog +41** (2026-09-23): ingested 41 Pixabay tracks (I:\…\Pixabay\200, 2 dupes
+      skipped) via `scripts/seed-music.mjs` + manifest `music-manifest-pixabay200-2026-09-23.json`.
+      music_tracks active now 169; durations ffprobed, moods tagged, Pixabay Content License.
 
 ## Remaining (not yet built)
 - [ ] Generation: enhancement + export-as-job; workspace-scoped auth; realtime SSE status;

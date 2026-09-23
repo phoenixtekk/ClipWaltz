@@ -1,0 +1,414 @@
+{
+  "tracks": [
+    {
+      "id": "pixabay-531530",
+      "file": "aexbeats-street47-rap-battle-free-rap-beat-531530.mp3",
+      "title": "Street47 Rap Battle Free Rap Beat",
+      "artist": "Aexbeats",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 121.9,
+      "active": true
+    },
+    {
+      "id": "pixabay-578491",
+      "file": "alex-morgan-rap-street-cypher-bounce-578491.mp3",
+      "title": "Morgan Rap Street Cypher Bounce",
+      "artist": "Alex",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 148.3,
+      "active": true
+    },
+    {
+      "id": "pixabay-566670",
+      "file": "apalonbeats-rap-rap-beat-beats-566670.mp3",
+      "title": "Rap Rap Beat Beats",
+      "artist": "Apalonbeats",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 108.4,
+      "active": true
+    },
+    {
+      "id": "pixabay-511877",
+      "file": "atlasaudio-suspense-tension-511877.mp3",
+      "title": "Suspense Tension",
+      "artist": "Atlasaudio",
+      "licenseRef": "Pixabay Content License",
+      "mood": "suspense",
+      "durationSec": 102,
+      "active": true
+    },
+    {
+      "id": "pixabay-315229",
+      "file": "cosmonkey-dont-talk-315229.mp3",
+      "title": "Dont Talk",
+      "artist": "Cosmonkey",
+      "licenseRef": "Pixabay Content License",
+      "mood": null,
+      "durationSec": 110.7,
+      "active": true
+    },
+    {
+      "id": "pixabay-379638",
+      "file": "denys_brodovskyi-tell-me-what-379638 (1).mp3",
+      "title": "Tell Me What",
+      "artist": "Denys Brodovskyi",
+      "licenseRef": "Pixabay Content License",
+      "mood": null,
+      "durationSec": 161.3,
+      "active": true
+    },
+    {
+      "id": "pixabay-503339",
+      "file": "gr0za-rap-rap-beat-beats-503339.mp3",
+      "title": "Rap Rap Beat Beats",
+      "artist": "Gr0za",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 164.6,
+      "active": true
+    },
+    {
+      "id": "pixabay-465080",
+      "file": "gr0za-rap-rap-beats-beat-music-465080.mp3",
+      "title": "Rap Rap Beats Beat Music",
+      "artist": "Gr0za",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 136.4,
+      "active": true
+    },
+    {
+      "id": "pixabay-557557",
+      "file": "gr0za-rap-rap-instrumental-557557.mp3",
+      "title": "Rap Rap Instrumental",
+      "artist": "Gr0za",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 143,
+      "active": true
+    },
+    {
+      "id": "pixabay-550792",
+      "file": "grand_project-wonders-of-the-earth-550792.mp3",
+      "title": "Wonders Of The Earth",
+      "artist": "Grand Project",
+      "licenseRef": "Pixabay Content License",
+      "mood": "ambient",
+      "durationSec": 149.6,
+      "active": true
+    },
+    {
+      "id": "pixabay-433937",
+      "file": "hitslab-rap-beat-beats-music-433937.mp3",
+      "title": "Rap Beat Beats Music",
+      "artist": "Hitslab",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 51.6,
+      "active": true
+    },
+    {
+      "id": "pixabay-313635",
+      "file": "jake_plah-rap-freestyle-beat-313635.mp3",
+      "title": "Rap Freestyle Beat",
+      "artist": "Jake Plah",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 120,
+      "active": true
+    },
+    {
+      "id": "pixabay-438398",
+      "file": "kontraa-hype-drill-music-438398.mp3",
+      "title": "Hype Drill Music",
+      "artist": "Kontraa",
+      "licenseRef": "Pixabay Content License",
+      "mood": "drill",
+      "durationSec": 235.5,
+      "active": true
+    },
+    {
+      "id": "pixabay-445661",
+      "file": "kontraa-water-afro-pop-music-445661.mp3",
+      "title": "Water Afro Pop Music",
+      "artist": "Kontraa",
+      "licenseRef": "Pixabay Content License",
+      "mood": "afrobeat",
+      "durationSec": 69.9,
+      "active": true
+    },
+    {
+      "id": "pixabay-576867",
+      "file": "leberch-suspense-fight-576867.mp3",
+      "title": "Suspense Fight",
+      "artist": "Leberch",
+      "licenseRef": "Pixabay Content License",
+      "mood": "suspense",
+      "durationSec": 144,
+      "active": true
+    },
+    {
+      "id": "pixabay-513936",
+      "file": "lightbeatsmusic-joyful-rhythm-walk-funk-513936.mp3",
+      "title": "Joyful Rhythm Walk Funk",
+      "artist": "Lightbeatsmusic",
+      "licenseRef": "Pixabay Content License",
+      "mood": "funk",
+      "durationSec": 138.3,
+      "active": true
+    },
+    {
+      "id": "pixabay-513682",
+      "file": "magpiemusic-action-race-rock-music-513682 (1).mp3",
+      "title": "Action Race Rock Music",
+      "artist": "Magpiemusic",
+      "licenseRef": "Pixabay Content License",
+      "mood": "action",
+      "durationSec": 126.1,
+      "active": true
+    },
+    {
+      "id": "pixabay-513687",
+      "file": "magpiemusic-action-trailer-promo-rock-513687.mp3",
+      "title": "Action Trailer Promo Rock",
+      "artist": "Magpiemusic",
+      "licenseRef": "Pixabay Content License",
+      "mood": "action",
+      "durationSec": 103.6,
+      "active": true
+    },
+    {
+      "id": "pixabay-554494",
+      "file": "mickeyscat-moment-of-peace-mickeyscat-554494.mp3",
+      "title": "Moment Of Peace Mickeyscat",
+      "artist": "Mickeyscat",
+      "licenseRef": "Pixabay Content License",
+      "mood": "ambient",
+      "durationSec": 152.2,
+      "active": true
+    },
+    {
+      "id": "pixabay-513944",
+      "file": "miromaxmusic-music-promotion-513944.mp3",
+      "title": "Music Promotion",
+      "artist": "Miromaxmusic",
+      "licenseRef": "Pixabay Content License",
+      "mood": null,
+      "durationSec": 136.3,
+      "active": true
+    },
+    {
+      "id": "pixabay-501709",
+      "file": "nastelbom-suspense-501709.mp3",
+      "title": "Suspense",
+      "artist": "Nastelbom",
+      "licenseRef": "Pixabay Content License",
+      "mood": "suspense",
+      "durationSec": 103.8,
+      "active": true
+    },
+    {
+      "id": "pixabay-315321",
+      "file": "nest-beatzofficial-royalty-free-hard-reality-i-hard-rap-beat-315321.mp3",
+      "title": "Beatzofficial Royalty Free Hard Reality I Hard Rap Beat",
+      "artist": "Nest",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 219.6,
+      "active": true
+    },
+    {
+      "id": "pixabay-335812",
+      "file": "nest-beatzofficial-royalty-free-no-mercy-i-hard-rap-beat-335812.mp3",
+      "title": "Beatzofficial Royalty Free No Mercy I Hard Rap Beat",
+      "artist": "Nest",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 174.9,
+      "active": true
+    },
+    {
+      "id": "pixabay-335815",
+      "file": "nest-beatzofficial-royalty-free-sharp-beat-i-hard-rap-beat-335815.mp3",
+      "title": "Beatzofficial Royalty Free Sharp Beat I Hard Rap Beat",
+      "artist": "Nest",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 173.7,
+      "active": true
+    },
+    {
+      "id": "pixabay-307337",
+      "file": "nest-beatzofficial-royalty-free-steel-bars-i-hard-rap-beat-307337.mp3",
+      "title": "Beatzofficial Royalty Free Steel Bars I Hard Rap Beat",
+      "artist": "Nest",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 227.1,
+      "active": true
+    },
+    {
+      "id": "pixabay-360145",
+      "file": "nest-beatzofficial-royalty-free-steel-hearts-i-hard-rap-beat-360145.mp3",
+      "title": "Beatzofficial Royalty Free Steel Hearts I Hard Rap Beat",
+      "artist": "Nest",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 240,
+      "active": true
+    },
+    {
+      "id": "pixabay-315325",
+      "file": "nest-beatzofficial-royalty-free-unbreakable-truth-i-hard-rap-beat-315325.mp3",
+      "title": "Beatzofficial Royalty Free Unbreakable Truth I Hard Rap Beat",
+      "artist": "Nest",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 183.6,
+      "active": true
+    },
+    {
+      "id": "pixabay-335822",
+      "file": "nest-beatzofficial-royalty-free-unconquered-i-hard-rap-beat-335822.mp3",
+      "title": "Beatzofficial Royalty Free Unconquered I Hard Rap Beat",
+      "artist": "Nest",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 230,
+      "active": true
+    },
+    {
+      "id": "pixabay-231463",
+      "file": "panda-beats-royalty-free-element-hard-rap-beat-231463.mp3",
+      "title": "Beats Royalty Free Element Hard Rap Beat",
+      "artist": "Panda",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 94,
+      "active": true
+    },
+    {
+      "id": "pixabay-223009",
+      "file": "panda-beats-royalty-free-splint-hard-808-rap-beat-quotflutequot-223009.mp3",
+      "title": "Beats Royalty Free Splint Hard 808 Rap Beat Flute",
+      "artist": "Panda",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 65.1,
+      "active": true
+    },
+    {
+      "id": "pixabay-278877",
+      "file": "panda-beats-snow-traprap-type-beat-quotguitarquot-278877.mp3",
+      "title": "Beats Snow Traprap Type Beat Guitar",
+      "artist": "Panda",
+      "licenseRef": "Pixabay Content License",
+      "mood": "trap",
+      "durationSec": 91.6,
+      "active": true
+    },
+    {
+      "id": "pixabay-551346",
+      "file": "sigmamusicart-football-football-music-551346.mp3",
+      "title": "Football Football Music",
+      "artist": "Sigmamusicart",
+      "licenseRef": "Pixabay Content License",
+      "mood": "sports",
+      "durationSec": 59.1,
+      "active": true
+    },
+    {
+      "id": "pixabay-492540",
+      "file": "starostin-comedy-cartoon-funny-background-music-492540.mp3",
+      "title": "Comedy Cartoon Funny Background Music",
+      "artist": "Starostin",
+      "licenseRef": "Pixabay Content License",
+      "mood": "comedy",
+      "durationSec": 148,
+      "active": true
+    },
+    {
+      "id": "pixabay-441838",
+      "file": "starostin-rap-beat-beats-music-441838.mp3",
+      "title": "Rap Beat Beats Music",
+      "artist": "Starostin",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 72.2,
+      "active": true
+    },
+    {
+      "id": "pixabay-452431",
+      "file": "starostin-rap-beat-beats-music-452431.mp3",
+      "title": "Rap Beat Beats Music",
+      "artist": "Starostin",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 143.6,
+      "active": true
+    },
+    {
+      "id": "pixabay-416039",
+      "file": "tatamusic-rap-rap-beat-416039.mp3",
+      "title": "Rap Rap Beat",
+      "artist": "Tatamusic",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 303.5,
+      "active": true
+    },
+    {
+      "id": "pixabay-593061",
+      "file": "the_mountain-rap-instrumental-593061.mp3",
+      "title": "Rap Instrumental",
+      "artist": "The Mountain",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 149.4,
+      "active": true
+    },
+    {
+      "id": "pixabay-564493",
+      "file": "vaitsez-criminal-gangster-beat-beats-564493.mp3",
+      "title": "Criminal Gangster Beat Beats",
+      "artist": "Vaitsez",
+      "licenseRef": "Pixabay Content License",
+      "mood": "suspense",
+      "durationSec": 143.1,
+      "active": true
+    },
+    {
+      "id": "pixabay-564476",
+      "file": "vaitsez-underground-underground-drill-beat-564476.mp3",
+      "title": "Underground Underground Drill Beat",
+      "artist": "Vaitsez",
+      "licenseRef": "Pixabay Content License",
+      "mood": "drill",
+      "durationSec": 182.6,
+      "active": true
+    },
+    {
+      "id": "pixabay-579022",
+      "file": "vaitsez-urban-street-rap-beat-579022.mp3",
+      "title": "Urban Street Rap Beat",
+      "artist": "Vaitsez",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 147.3,
+      "active": true
+    },
+    {
+      "id": "pixabay-472843",
+      "file": "watermelon_beats-rap-rap-beat-beats-music-violin-2026-472843.mp3",
+      "title": "Rap Rap Beat Beats Music Violin",
+      "artist": "Watermelon Beats",
+      "licenseRef": "Pixabay Content License",
+      "mood": "hip-hop",
+      "durationSec": 181,
+      "active": true
+    }
+  ]
+}
