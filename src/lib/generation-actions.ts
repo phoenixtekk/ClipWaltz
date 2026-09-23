@@ -118,6 +118,50 @@ export async function listGenerationVersions(projectId: string): Promise<Generat
   }));
 }
 
+/**
+ * Start a new generation job from an existing version's settings (owner-checked). `fresh=false`
+ * duplicates it exactly (same seed → reproducible copy); `fresh=true` regenerates a variation with
+ * a new random seed. Returns the new job id.
+ */
+export async function regenerateFromVersion(versionId: string, fresh: boolean): Promise<string> {
+  const userId = await requireUserId();
+  const [ver] = await db
+    .select({
+      jobId: schema.generationVersions.generationJobId,
+      projectId: schema.generationVersions.projectId,
+      ownerId: schema.projects.ownerId,
+    })
+    .from(schema.generationVersions)
+    .innerJoin(schema.projects, eq(schema.generationVersions.projectId, schema.projects.id))
+    .where(eq(schema.generationVersions.id, versionId));
+  if (!ver || ver.ownerId !== userId) throw new Error("Version not found");
+
+  const [job] = await db
+    .select()
+    .from(schema.generationJobs)
+    .where(eq(schema.generationJobs.id, ver.jobId));
+  if (!job) throw new Error("Source job not found");
+
+  const req = (job.requestJson ?? {}) as Record<string, unknown>;
+  const id = randomUUID();
+  await db.insert(schema.generationJobs).values({
+    id,
+    projectId: job.projectId,
+    sceneId: job.sceneId ?? null,
+    workspaceId: job.workspaceId ?? null,
+    requestedBy: userId,
+    jobType: job.jobType,
+    status: "queued",
+    workflowName: job.workflowName,
+    prompt: job.prompt ?? null,
+    negativePrompt: job.negativePrompt ?? null,
+    requestJson: { ...req, seed: fresh ? null : (req.seed ?? null) },
+  });
+  await enqueueGeneration(id);
+  revalidatePath(`/projects/${job.projectId}/edit`);
+  return id;
+}
+
 /** Delete a generated version (owner-checked): its DB row + the MinIO output object. */
 export async function deleteGenerationVersion(versionId: string): Promise<void> {
   const userId = await requireUserId();

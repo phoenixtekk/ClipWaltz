@@ -13,6 +13,8 @@ import {
   Film,
   Trash2,
   Columns2,
+  Copy,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
@@ -24,6 +26,7 @@ import {
   cancelGenerationJob,
   listGenerationVersions,
   deleteGenerationVersion,
+  regenerateFromVersion,
   type GenerationVersionItem,
 } from "@/lib/generation-actions";
 
@@ -256,6 +259,17 @@ export function GenerationPanel({
         toast.success("Version deleted.");
       })
       .catch((e) => toast.error((e as Error).message || "Could not delete the version."));
+  }
+
+  // Duplicate (same seed) or regenerate (fresh seed) a new job from an existing version.
+  function regenFrom(versionId: string, fresh: boolean) {
+    regenerateFromVersion(versionId, fresh)
+      .then((jobId) => {
+        setCompareId(null);
+        setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null });
+        toast.message(fresh ? "Regenerating a new variation…" : "Duplicating this version…");
+      })
+      .catch((e) => toast.error((e as Error).message || "Could not start generation."));
   }
 
   const selected = versions.find((v) => v.id === selectedVersionId) ?? null;
@@ -533,13 +547,21 @@ export function GenerationPanel({
       {/* ── Preview + Version Browser (§12) ──────────────────────────────── */}
       {selected && selected.hasOutput ? (
         <section className="space-y-2">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">{compare ? "Compare" : "Preview"}</h3>
-            {compare ? (
-              <Button variant="ghost" size="sm" onClick={() => setCompareId(null)}>
-                <X className="size-3.5" /> Exit compare
+            <div className="flex items-center gap-1">
+              <Button variant="outline" size="sm" onClick={() => regenFrom(selected.id, false)} disabled={isGenerating || pending} title="Make an exact copy (same settings + seed)">
+                <Copy className="size-3.5" /> Duplicate
               </Button>
-            ) : null}
+              <Button variant="outline" size="sm" onClick={() => regenFrom(selected.id, true)} disabled={isGenerating || pending} title="Generate a new variation (same settings, new seed)">
+                <RefreshCw className="size-3.5" /> Regenerate
+              </Button>
+              {compare ? (
+                <Button variant="ghost" size="sm" onClick={() => setCompareId(null)}>
+                  <X className="size-3.5" /> Exit compare
+                </Button>
+              ) : null}
+            </div>
           </div>
           {compare && compare.hasOutput ? (
             <div className="grid grid-cols-2 gap-2">
