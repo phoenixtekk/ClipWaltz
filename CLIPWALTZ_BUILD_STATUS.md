@@ -105,8 +105,14 @@ Assembler (music-video) product is separate and shipping — see [ADR-0001](docs
       systemd timer (hourly) sweeps output/input (>6h) + temp/cache (>2h), prunes empty job dirs.
       Verified deletes aged / keeps recent.
 
+- [x] **Workspace-scoped auth (foundation)** (2026-09-23, ADR-0004): access = owner OR workspace
+      member (owner fallback → no regression). `getUserWorkspaceIds`/`userCanAccessProject` helpers;
+      getProject/listProjects scope to the user's workspaces; generation/export actions + watch/
+      events/download routes use the access check; createProject sets workspace_id (+ NULLs
+      backfilled). Behaviour-preserving today (1 member/workspace). Member-management UI = follow-up.
+
 ## Remaining (not yet built)
-- [ ] Workspace-scoped auth; SUPIR (premium detail enhancement).
+- [ ] Member management (invite/roles/workspace UI — makes the above multi-user); SUPIR (premium detail).
 - [ ] Workspace-scoped authorization (queries still owner-scoped); enhancement + export-as-job
       phases; text-to-video workflow; realtime SSE status (polling works today).
 
