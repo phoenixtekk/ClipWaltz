@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, X, Film, Image as ImageIcon, GripVertical, ListVideo, Loader2, CheckCircle2, AlertCircle, UploadCloud, Clock, Play } from "lucide-react";
+import { Plus, X, Film, Image as ImageIcon, GripVertical, ListVideo, Loader2, CheckCircle2, AlertCircle, UploadCloud, Clock, Play, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
@@ -116,6 +116,22 @@ export function ProjectTimeline({
     reorderAssets(projectId, next.map((a) => a.id))
       .then(() => router.refresh())
       .catch(() => toast.error("Could not reorder clips."));
+  }
+
+  // Reposition a clip one slot left/right (in addition to drag-reorder).
+  function move(i: number, dir: -1 | 1) {
+    const j = i + dir;
+    if (j < 0 || j >= order.length) return;
+    const next = [...order];
+    [next[i], next[j]] = [next[j], next[i]];
+    commit(next);
+  }
+
+  // Populate a video's duration from the browser (the DB doesn't store it), so trim (start/end)
+  // shows up. Only fills when currently unknown.
+  function setDuration(id: string, sec: number) {
+    if (!sec || !Number.isFinite(sec)) return;
+    setOrder((cur) => cur.map((a) => (a.id === id && a.durationSec == null ? { ...a, durationSec: Math.round(sec * 10) / 10 } : a)));
   }
 
   function onDrop(targetIdx: number) {
@@ -303,7 +319,7 @@ export function ProjectTimeline({
                 ) : a.conversionState === "failed" ? (
                   <div className="flex size-full items-center justify-center text-[9px] font-semibold text-destructive">360 ✕</div>
                 ) : a.uploadState === "uploaded" && a.kind === "video" ? (
-                  <video src={`/api/projects/${projectId}/assets/${a.id}#t=0.1`} muted playsInline preload="metadata" className="size-full object-cover" />
+                  <video src={`/api/projects/${projectId}/assets/${a.id}#t=0.1`} muted playsInline preload="metadata" onLoadedMetadata={(e) => setDuration(a.id, e.currentTarget.duration)} className="size-full object-cover" />
                 ) : a.uploadState === "uploaded" ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={`/api/projects/${projectId}/assets/${a.id}`} alt="" className="size-full object-cover" />
@@ -313,6 +329,29 @@ export function ProjectTimeline({
                   </div>
                 )}
                 <span className="absolute left-1 top-1 rounded bg-black/60 px-1 text-[10px] font-semibold text-white">{i + 1}</span>
+                {/* Reposition this clip left / right (also draggable). */}
+                <div className="absolute left-1/2 top-1 z-30 flex -translate-x-1/2 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                  <button
+                    type="button"
+                    disabled={i === 0}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => { e.stopPropagation(); move(i, -1); }}
+                    aria-label="Move clip left"
+                    className="grid size-5 place-items-center rounded bg-black/70 text-white hover:bg-[color:var(--cw-violet)] disabled:opacity-30"
+                  >
+                    <ChevronLeft className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={i === order.length - 1}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => { e.stopPropagation(); move(i, 1); }}
+                    aria-label="Move clip right"
+                    className="grid size-5 place-items-center rounded bg-black/70 text-white hover:bg-[color:var(--cw-violet)] disabled:opacity-30"
+                  >
+                    <ChevronRight className="size-3.5" />
+                  </button>
+                </div>
                 <span
                   className={cn(
                     "absolute bottom-1 left-1 rounded px-1 text-[10px] text-white",
@@ -417,7 +456,7 @@ function ClipModal({
   onSaved: () => void;
 }) {
   const isVideo = asset.kind === "video";
-  const dur = asset.durationSec ?? 0;
+  const [dur, setDur] = useState(asset.durationSec ?? 0); // filled from the <video> metadata if unknown
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [saving, setSaving] = useState(false);
   const src = `/api/projects/${projectId}/assets/${asset.id}`;
@@ -459,7 +498,15 @@ function ClipModal({
         </div>
         <div className="overflow-hidden rounded-lg bg-black">
           {isVideo ? (
-            <video ref={videoRef} src={src} controls autoPlay playsInline className="max-h-[50vh] w-full" />
+            <video
+              ref={videoRef}
+              src={src}
+              controls
+              autoPlay
+              playsInline
+              onLoadedMetadata={(e) => { const d = e.currentTarget.duration; if (d && Number.isFinite(d)) { setDur(d); if (end <= 0) setEnd(d); } }}
+              className="max-h-[50vh] w-full"
+            />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={src} alt={asset.name} className="max-h-[50vh] w-full object-contain" />
