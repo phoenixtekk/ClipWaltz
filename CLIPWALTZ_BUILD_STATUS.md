@@ -46,10 +46,17 @@ Assembler (music-video) product is separate and shipping — see [ADR-0001](docs
 - [x] **E2E proof:** enqueued a real job against a prod photo asset → worker → Wan 2.2 → MP4 in
       MinIO (405 KB) → `generation_versions` v1 → status `completed` in ~56 s. Test artifacts cleaned up.
 
+## Generation UI: DONE + DEPLOYED (2026-09-23)
+- [x] `GenerationPanel` (doc 03 §9-12): source-photo picker, prompt, style/camera/motion/aspect/
+      quality controls, advanced (seed/negative), dominant Generate CTA, §11 friendly progress +
+      Cancel, version browser playing via `/api/generations/[id]/watch`. New "Generate" tab in the
+      editor (assembler tabs untouched). Backend: `listGenerationVersions` + owner-only watch route.
+- [x] Deployed to linuxg1 (app rebuilt, `pm2 restart clipwaltz` + `clipwaltz-gen-worker`); / 200.
+      **The full path is live: Generate tab → createGenerationJob → BullMQ → worker → AISERVER →
+      MinIO → version browser.** (Backend E2E proven earlier; each UI link verified in code+build.)
+
 ## Remaining (not yet built)
-- [ ] UI: generation panel (prompt + source image + Generate) in the editor; wire to
-      `createGenerationJob`; a versions/compare view. (The whole backend path is ready.)
-- [ ] Variable clip length (duration→frames) — fixed 49-frame default for now.
+- [ ] Variable clip length (duration→frames) — fixed length default for now.
 - [ ] Workspace-scoped authorization (queries still owner-scoped); enhancement + export-as-job
       phases; text-to-video workflow; realtime SSE status (polling works today).
 
