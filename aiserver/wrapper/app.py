@@ -43,7 +43,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -370,3 +371,40 @@ def cancel_job(job_id: str, _: None = Depends(require_token)) -> Dict[str, Any]:
         pass
     _finish_job(job_id, "cancelled")
     return {"job_id": job_id, "status": "cancelled"}
+
+
+# --------------------------------------------------------------------------- #
+# Media staging (the ClipWaltz worker on linuxg1 owns all MinIO I/O; this is the
+# only way media crosses onto/off AISERVER — ComfyUI itself stays isolated).
+# --------------------------------------------------------------------------- #
+def _safe_under(base: Path, rel: str) -> Path:
+    """Resolve `rel` under `base`, rejecting path traversal."""
+    target = (base / rel).resolve()
+    if base.resolve() not in target.parents and target != base.resolve():
+        raise HTTPException(status_code=400, detail="invalid path")
+    return target
+
+
+@app.post("/inputs")
+async def upload_input(file: UploadFile = File(...), _: None = Depends(require_token)) -> Dict[str, Any]:
+    """Stage a source image into CW_INPUT_DIR (for image-to-video). Returns the staged filename
+    to pass as `source_image` in a subsequent /jobs call."""
+    INPUT_DIR.mkdir(parents=True, exist_ok=True)
+    ext = Path(file.filename or "").suffix.lower() or ".png"
+    if ext not in (".png", ".jpg", ".jpeg", ".webp"):
+        raise HTTPException(status_code=400, detail=f"unsupported image type {ext}")
+    name = f"cw_{uuid.uuid4().hex[:16]}{ext}"
+    dest = INPUT_DIR / name
+    with dest.open("wb") as fh:
+        while chunk := await file.read(1024 * 1024):
+            fh.write(chunk)
+    return {"filename": name}
+
+
+@app.get("/outputs/{rel:path}")
+def download_output(rel: str, _: None = Depends(require_token)) -> FileResponse:
+    """Stream a generated output file (relative path under CW_OUTPUT_DIR)."""
+    target = _safe_under(OUTPUT_DIR, rel)
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="output not found")
+    return FileResponse(str(target))
