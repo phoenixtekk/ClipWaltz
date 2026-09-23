@@ -37,12 +37,21 @@ Assembler (music-video) product is separate and shipping — see [ADR-0001](docs
   NOT committed. Owner action / next step: set `AISERVER_API_URL` + `AISERVER_API_TOKEN` on
   linuxg1 `.env.local` for the app/worker to authenticate.
 
-## In Progress
-- [ ] Phase 1 app-layer generation **worker** (`worker/generation-worker.mjs`) — BullMQ consumer.
-      Now unblocked (AISERVER live). Open design point: MinIO↔AISERVER media transfer (stage source
-      image into AISERVER input; pull output MP4 to MinIO) — the wrapper has no upload endpoint yet,
-      so this needs either a wrapper input/output endpoint or AISERVER-side MinIO access.
-- [ ] Variable clip length (duration→frames) in the workflow/provider (fixed 49-frame default now).
+## Phase 1 first vertical slice: DONE + VERIFIED E2E (2026-09-23, Guide §44)
+- [x] Generation **worker** live on linuxg1 (`pm2 clipwaltz-gen-worker`, saved). BullMQ consumer:
+      MinIO source → wrapper `POST /inputs` → `POST /jobs` → poll → `GET /outputs` → MinIO →
+      `generation_versions` row + status state machine. Media transfer via wrapper endpoints
+      (`POST /inputs`, `GET /outputs`) — ComfyUI stays isolated.
+- [x] `AISERVER_API_URL`/`AISERVER_API_TOKEN`/`REDIS_URL` wired into linuxg1 `.env.local`.
+- [x] **E2E proof:** enqueued a real job against a prod photo asset → worker → Wan 2.2 → MP4 in
+      MinIO (405 KB) → `generation_versions` v1 → status `completed` in ~56 s. Test artifacts cleaned up.
+
+## Remaining (not yet built)
+- [ ] UI: generation panel (prompt + source image + Generate) in the editor; wire to
+      `createGenerationJob`; a versions/compare view. (The whole backend path is ready.)
+- [ ] Variable clip length (duration→frames) — fixed 49-frame default for now.
+- [ ] Workspace-scoped authorization (queries still owner-scoped); enhancement + export-as-job
+      phases; text-to-video workflow; realtime SSE status (polling works today).
 
 ## App-layer done (2026-09-23, verified: build passes; backfill tested on dev with real data)
 - [x] BullMQ queue module (`src/lib/queue.ts`, lazy Redis) — `bullmq`/`ioredis` added
