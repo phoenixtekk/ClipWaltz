@@ -10,6 +10,17 @@ import {
   AbortMultipartUploadCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
+import { Agent as HttpAgent } from "node:http";
+import { Agent as HttpsAgent } from "node:https";
+
+// The default AWS SDK socket pool is 50; under bursty media traffic that enqueues hundreds of
+// requests ("socket usage at capacity=50" warnings). Give it a much larger keep-alive pool.
+const S3_MAX_SOCKETS = Number(process.env.S3_MAX_SOCKETS ?? 256);
+const s3RequestHandler = new NodeHttpHandler({
+  httpAgent: new HttpAgent({ keepAlive: true, maxSockets: S3_MAX_SOCKETS }),
+  httpsAgent: new HttpsAgent({ keepAlive: true, maxSockets: S3_MAX_SOCKETS }),
+});
 
 // S3-compatible client for the self-hosted MinIO on linuxg7 (bucket `clipwaltz`).
 // forcePathStyle is required for MinIO. Credentials are a bucket-scoped service
@@ -25,6 +36,7 @@ function s3(): S3Client {
       endpoint,
       region,
       forcePathStyle: true,
+      requestHandler: s3RequestHandler,
       credentials: {
         accessKeyId: process.env.S3_ACCESS_KEY ?? "",
         secretAccessKey: process.env.S3_SECRET_KEY ?? "",

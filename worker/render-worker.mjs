@@ -18,8 +18,11 @@ import { tmpdir } from "node:os";
 import { join, extname, basename } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { Agent as HttpAgent } from "node:http";
+import { Agent as HttpsAgent } from "node:https";
 import postgres from "postgres";
 import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
 
 const run = promisify(execFile);
 const ONCE = process.argv.includes("--once");
@@ -33,10 +36,15 @@ const PER_VIDEO = 4;
 const XFADE_CHUNK = Math.max(2, Number(process.env.XFADE_CHUNK ?? 10));
 
 const sql = postgres(process.env.DATABASE_URL, { prepare: false });
+const S3_MAX_SOCKETS = Number(process.env.S3_MAX_SOCKETS ?? 256);
 const s3 = new S3Client({
   endpoint: process.env.S3_ENDPOINT ?? "http://192.168.166.169:9000",
   region: process.env.S3_REGION ?? "us-east-1",
   forcePathStyle: true,
+  requestHandler: new NodeHttpHandler({
+    httpAgent: new HttpAgent({ keepAlive: true, maxSockets: S3_MAX_SOCKETS }),
+    httpsAgent: new HttpsAgent({ keepAlive: true, maxSockets: S3_MAX_SOCKETS }),
+  }),
   credentials: {
     accessKeyId: process.env.S3_ACCESS_KEY ?? "",
     secretAccessKey: process.env.S3_SECRET_KEY ?? "",
