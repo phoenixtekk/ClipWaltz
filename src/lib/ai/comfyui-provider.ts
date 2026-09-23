@@ -46,6 +46,7 @@ export class ComfyUIAIServerProvider implements AIVideoProvider {
         width: inputs.width ?? 768,
         height: inputs.height ?? 512,
         duration: inputs.duration ?? 5,
+        length: inputs.length ?? null,
         motion: inputs.motion ?? "balanced",
         seed: inputs.seed ?? null,
       },

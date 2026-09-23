@@ -47,6 +47,14 @@ const s3 = new S3Client({
 const BUCKET = process.env.S3_BUCKET ?? "clipwaltz";
 const aiHeaders = { authorization: `Bearer ${AISERVER_TOKEN}` };
 
+// Wan 2.2 TI2V-5B runs at 24 fps and needs a latent length of (4n+1) frames. Convert the
+// requested clip length in seconds to a valid frame count (clamped 1–12 s to bound VRAM/time).
+const WAN_FPS = 24;
+function framesForSeconds(seconds) {
+  const s = Math.min(12, Math.max(1, Number(seconds) || 5));
+  return 4 * Math.round((s * WAN_FPS - 1) / 4) + 1;
+}
+
 async function setStatus(id, fields) {
   await sql`update generation_jobs set ${sql(fields)}, updated_at = now() where id = ${id}`;
 }
@@ -96,6 +104,7 @@ async function processJob(genJobId) {
       width: req.width ?? 704,
       height: req.height ?? 480,
       duration: req.durationSec ?? 5,
+      length: framesForSeconds(req.durationSec ?? 5),
       motion: req.motion ?? "balanced",
       seed: req.seed ?? null,
     },

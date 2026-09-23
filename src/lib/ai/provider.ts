@@ -11,6 +11,8 @@ export type GenerationInputs = {
   height?: number;
   /** Seconds. */
   duration?: number;
+  /** Frame count (Wan needs 4n+1); computed from duration by the caller if set. */
+  length?: number;
   /** Logical motion level, e.g. "subtle" | "balanced" | "dynamic". */
   motion?: string;
   /** null → provider randomises; set → reproducible. */

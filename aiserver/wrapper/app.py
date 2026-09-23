@@ -285,6 +285,9 @@ class JobInputs(BaseModel):
     width: int = 768
     height: int = 512
     duration: float = 5.0
+    # Frame count for the latent (Wan needs (length-1) % 4 == 0). The caller computes this from
+    # duration + fps; if omitted, the workflow's built-in default length is used.
+    length: Optional[int] = None
     motion: str = "balanced"
     seed: Optional[int] = None
 
