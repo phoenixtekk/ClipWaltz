@@ -11,6 +11,11 @@
 //
 // Env: DATABASE_URL, REDIS_URL (default localhost), S3_* (MinIO), AISERVER_API_URL, AISERVER_API_TOKEN.
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Agent as HttpAgent } from "node:http";
 import { Agent as HttpsAgent } from "node:https";
 import postgres from "postgres";
@@ -19,7 +24,9 @@ import { Worker } from "bullmq";
 import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 
+const run = promisify(execFile);
 const GENERATION_QUEUE = "clipwaltz-generation";
+const EXPORT_QUEUE = "clipwaltz-export";
 const REDIS_URL = process.env.REDIS_URL ?? "redis://127.0.0.1:6379";
 const AISERVER_URL = (process.env.AISERVER_API_URL ?? "http://192.168.166.158:8189").replace(/\/$/, "");
 const AISERVER_TOKEN = process.env.AISERVER_API_TOKEN ?? "";
@@ -181,3 +188,60 @@ worker.on("failed", async (job, err) => {
 });
 worker.on("completed", (job) => console.log(`[gen] queue job ${job.id} completed`));
 console.log(`[gen] ClipWaltz generation worker up (queue=${GENERATION_QUEUE}, aiserver=${AISERVER_URL})`);
+
+// ─── Export worker: transcode a generated version to a final deliverable ─────────
+// Short-clip ffmpeg on linuxg1 (ffmpeg already installed; this is not a heavy assembler render).
+function scaleFilter(res) {
+  if (res === "720p") return "scale=w='if(gt(iw,ih),-2,720)':h='if(gt(iw,ih),720,-2)'";
+  if (res === "1080p") return "scale=w='if(gt(iw,ih),-2,1080)':h='if(gt(iw,ih),1080,-2)'";
+  return null; // native
+}
+
+async function processExport(exportJobId) {
+  const [ej] = await sql`select * from export_jobs where id = ${exportJobId}`;
+  if (!ej) { console.warn("[exp] job gone", exportJobId); return; }
+  const [ver] = await sql`select output_key from generation_versions where id = ${ej.source_version_id}`;
+  if (!ver?.output_key) throw new Error("source version has no output");
+
+  await sql`update export_jobs set status='processing', started_at=now() where id=${exportJobId}`;
+  const fmt = ej.output_format === "webm" ? "webm" : "mp4";
+  const dir = mkdtempSync(join(tmpdir(), "cw-export-"));
+  const srcPath = join(dir, "src.mp4");
+  const outPath = join(dir, `out.${fmt}`);
+  try {
+    writeFileSync(srcPath, await getBytes(ver.output_key));
+    const vf = scaleFilter(ej.resolution);
+    const args = ["-y", "-i", srcPath];
+    if (vf) args.push("-vf", vf);
+    if (fmt === "webm") args.push("-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "32", "-an");
+    else args.push("-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "20", "-movflags", "+faststart", "-an");
+    args.push(outPath);
+    await run("ffmpeg", args, { maxBuffer: 1 << 26 });
+
+    const outKey = `exports/${ej.project_id}/${exportJobId}.${fmt}`;
+    await s3.send(new PutObjectCommand({
+      Bucket: BUCKET, Key: outKey, Body: readFileSync(outPath),
+      ContentType: fmt === "webm" ? "video/webm" : "video/mp4",
+    }));
+    await sql`update export_jobs set status='completed', output_key=${outKey}, completed_at=now() where id=${exportJobId}`;
+    console.log(`[exp] ${exportJobId} done → ${outKey} (${fmt}, ${ej.resolution})`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const exportWorker = new Worker(
+  EXPORT_QUEUE,
+  async (job) => { await processExport(job.data.exportJobId); },
+  { connection: new IORedis(REDIS_URL, { maxRetriesPerRequest: null }), concurrency: 2 },
+);
+exportWorker.on("failed", async (job, err) => {
+  const id = job?.data?.exportJobId;
+  console.error(`[exp] FAILED ${id}: ${err?.message}`);
+  if (id) {
+    try {
+      await sql`update export_jobs set status='failed', error_message=${String(err?.message ?? err).slice(0, 1000)} where id=${id}`;
+    } catch (e) { console.error("[exp] status write failed", e); }
+  }
+});
+console.log(`[exp] ClipWaltz export worker up (queue=${EXPORT_QUEUE})`);

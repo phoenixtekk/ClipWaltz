@@ -8,9 +8,12 @@ const REDIS_URL = process.env.REDIS_URL ?? "redis://127.0.0.1:6379";
 
 /** Queue name shared by the app (producer) and the generation worker (consumer). */
 export const GENERATION_QUEUE = "clipwaltz-generation";
+/** Export queue: transcode a chosen generation version to a final deliverable. */
+export const EXPORT_QUEUE = "clipwaltz-export";
 
 /** The payload we enqueue: just the DB job id. The worker loads the row for details. */
 export type GenerationJobData = { generationJobId: string };
+export type ExportJobData = { exportJobId: string };
 
 let _connection: IORedis | null = null;
 /** Shared ioredis connection (lazy). `maxRetriesPerRequest: null` is required by BullMQ. */
@@ -40,6 +43,30 @@ export async function enqueueGeneration(
     { generationJobId },
     {
       jobId: generationJobId, // idempotent: re-enqueuing the same id is a no-op
+      attempts: 2,
+      backoff: { type: "exponential", delay: 5000 },
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+      ...opts,
+    },
+  );
+}
+
+let _exportQueue: Queue<ExportJobData> | null = null;
+export function exportQueue(): Queue<ExportJobData> {
+  if (!_exportQueue) {
+    _exportQueue = new Queue<ExportJobData>(EXPORT_QUEUE, { connection: redis() });
+  }
+  return _exportQueue;
+}
+
+/** Enqueue an export (transcode) job. */
+export async function enqueueExport(exportJobId: string, opts: JobsOptions = {}): Promise<void> {
+  await exportQueue().add(
+    "export",
+    { exportJobId },
+    {
+      jobId: exportJobId,
       attempts: 2,
       backoff: { type: "exponential", delay: 5000 },
       removeOnComplete: 1000,
