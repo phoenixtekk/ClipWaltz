@@ -264,7 +264,9 @@ async function processEnhance(genJobId) {
   try {
     writeFileSync(srcPath, await getBytes(req.sourceKey));
     const filters = [];
-    if (req.interpolate) filters.push("minterpolate=fps=48:mi_mode=mci:mc_mode=aobmc:vsbmc=1");
+    // mc_mode=obmc (no aobmc/vsbmc) is much faster than full motion-comp while still smooth —
+    // keeps short-clip interpolation practical on CPU. (ML/RIFE is the later high-quality upgrade.)
+    if (req.interpolate) filters.push("minterpolate=fps=48:mi_mode=mci:mc_mode=obmc");
     if (req.upscale) filters.push("scale=iw*2:ih*2:flags=lanczos", "unsharp=5:5:0.8:5:5:0.0");
     const args = ["-y", "-i", srcPath];
     if (filters.length) args.push("-vf", filters.join(","));
