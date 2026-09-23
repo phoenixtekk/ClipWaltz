@@ -1,4 +1,5 @@
-<!-- session-version: 5 -->
+<!-- session-version: 6 -->
+<!-- pending-session-title: ClipWaltz v6 -->
 
 # ClipWaltz — session handoff
 
@@ -13,6 +14,40 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 `DESIGN_BUILD_PLAN.md` (settled decisions in §7); features in `FEATURES.md`.
 
 ---
+
+## Working state (2026-09-23) — v6: AI video-generation platform (all deployed + verified)
+
+This session built the **generative AI video** product ALONGSIDE the music-video assembler
+(coexist — ADR-0001). Full phase log: `CLIPWALTZ_BUILD_STATUS.md`; decisions:
+`docs/architecture/DECISIONS.md` (ADR-0001..0005). GitHub remote now
+`github.com/phoenixtekk/ClipWaltz` (main). Tree clean @ `029ace2`.
+
+- **Data/queue:** migration **0028** (workspaces, workspace_members, generation_jobs/versions,
+  export_jobs, scenes, templates, model/workflow registry) applied to dev+prod. **Redis on
+  linuxg1** (127.0.0.1:6379) + BullMQ. Generation worker **`pm2 clipwaltz-gen-worker`** on linuxg1
+  handles 3 queues: generation, export, enhance.
+- **AISERVER (`.158`) = GPU inference node:** ComfyUI (systemd `comfyui`, **127.0.0.1:8188 only**)
+  + FastAPI wrapper (systemd `clipwaltz-aiserver-api`, LAN **:8189**, bearer auth) + hourly
+  `clipwaltz-aiserver-cleanup.timer`. torch 2.11+cu128, **2× RTX 3080 10 GB**. Models via
+  `extra_model_paths.yaml`. Artifacts version-controlled in repo **`aiserver/`**; secret in
+  `/opt/clipwaltz-ai/config/wrapper.env` (chmod 600, not committed). ⚠️ **opencv pin**:
+  keep a single `opencv-contrib-python-headless<5` (dual/opencv-5 breaks cv2 → VideoHelperSuite).
+- **Models/workflows:** Wan 2.2 TI2V-5B fp8 → `wan-image-to-video-v1` + `wan-text-to-video-v1`;
+  enhancement `esrgan-upscale-v1` (Real-ESRGAN 2×) + `rife-interpolate-v1` (RIFE 2× fps).
+- **Generate tab** (editor, new tab; assembler untouched): image/text→video, style/camera/motion/
+  aspect/**variable duration**, seed/negative; live **SSE** progress; version browser with preview/
+  **compare / delete / duplicate / regenerate / favorite / pick**; **Enhance** (Fast ffmpeg OR AI:
+  RIFE+ESRGAN, chained upscale→interpolate); **Export Center** (mp4/webm × native/720p/1080p +
+  download). All E2E-verified.
+- **Workspace-scoped auth (foundation, ADR-0004):** access = owner OR workspace member (owner
+  fallback → no regression; `userCanAccessProject` in `src/lib/workspace.ts`). Behaviour-preserving
+  today (1 member/workspace).
+- **Also:** removed the Media Library; **+41 Pixabay music tracks** (169 active); **timeline
+  drag-to-reorder** fixed; S3 socket pool → 256.
+
+**Next / open:** (1) **member-management** (invite/roles/workspace UI) to make workspace auth
+multi-user; (2) **SUPIR** premium enhancement. ⚠️ AISERVER shares ONE usable GPU → generation +
+AI-enhance serialize under load (the box crashed once under concurrent load, recovered by reboot).
 
 ## Working state (2026-09-22) — v5 wave 4 (all deployed + verified)
 
