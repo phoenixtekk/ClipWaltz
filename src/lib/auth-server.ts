@@ -84,6 +84,13 @@ export const auth = betterAuth({
           } catch (e) {
             console.error("[invite] redeem on signup failed", e);
           }
+          // Give every new user a personal workspace (ADR-0004).
+          try {
+            const { ensurePersonalWorkspace } = await import("./workspace");
+            await ensurePersonalWorkspace(u.id);
+          } catch (e) {
+            console.error("[workspace] create on signup failed", e);
+          }
         },
       },
     },

@@ -31,6 +31,8 @@ See [`env.example`](env.example) for the full list. Groups:
 - **Storage (MinIO):** `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_REGION`
 - **Email (SES):** `SES_SMTP_HOST/PORT/USER/PASS`, `EMAIL_FROM`
 - **Billing (Stripe):** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_PLUS`, `STRIPE_PRICE_PRO`
+- **AI generation queue (BullMQ):** `REDIS_URL` (default `redis://127.0.0.1:6379`; Redis runs on linuxg1, localhost-only). Used by the app (enqueue) and the generation worker (consume).
+- **AI generation node (AISERVER):** `AISERVER_API_URL` (default `http://192.168.166.158:8189` — the FastAPI wrapper, LAN-reachable from linuxg1) and `AISERVER_API_TOKEN` (shared-secret bearer, matches `/opt/clipwaltz-ai/config/wrapper.env` on AISERVER). **Server-only — never `NEXT_PUBLIC_*`.** ComfyUI stays localhost on AISERVER; the app only ever talks to the wrapper.
 - **Worker callback (video-ready email):** `WORKER_CALLBACK_SECRET` — the SAME value on the app (`.env.local`, linuxg1) and the worker (`.env.worker`, AI box). The worker POSTs `/api/internal/render-ready` with it; the app sends the SES email. Stored in `_keys/clipwaltz.txt`.
 - **Google OAuth (Photos import + Drive backup):** both reuse `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (one OAuth 2.0 Client ID in Google Cloud Console → APIs & Services → Credentials). **Both callback URLs must be listed under that client's "Authorized redirect URIs" — exact string, no trailing slash:**
   - Photos import: `https://www.clipwaltz.com/api/oauth/google/callback`

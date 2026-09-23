@@ -1,0 +1,127 @@
+"use server";
+import { randomUUID } from "crypto";
+import { and, eq } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
+import { db, schema } from "@/db";
+import { requireUserId } from "./auth";
+import { enqueueGeneration, generationQueue } from "./queue";
+
+export type GenerationJobType = "text_to_video" | "image_to_video" | "montage" | "enhancement";
+
+export type CreateGenerationInput = {
+  projectId: string;
+  /** Workflow id the AISERVER provider exposes, e.g. "ltx-image-to-video-v1". */
+  workflow: string;
+  jobType: GenerationJobType;
+  prompt?: string;
+  negativePrompt?: string;
+  /** Asset id whose stored image is the image-to-video source (optional). */
+  sourceAssetId?: string;
+  sceneId?: string;
+  width?: number;
+  height?: number;
+  durationSec?: number;
+  motion?: string;
+  seed?: number | null;
+};
+
+/**
+ * Create an AI generation job for a project (owner-checked), persist it, and enqueue it to the
+ * BullMQ generation queue. The generation worker (worker/generation-worker.mjs) claims it, submits
+ * to the AISERVER wrapper, and writes the resulting generation_versions row. Returns the job id.
+ */
+export async function createGenerationJob(input: CreateGenerationInput): Promise<string> {
+  const userId = await requireUserId();
+
+  const [proj] = await db
+    .select({ id: schema.projects.id, workspaceId: schema.projects.workspaceId })
+    .from(schema.projects)
+    .where(and(eq(schema.projects.id, input.projectId), eq(schema.projects.ownerId, userId)));
+  if (!proj) throw new Error("Project not found");
+
+  if (input.jobType === "image_to_video" && !input.sourceAssetId) {
+    throw new Error("Image-to-video needs a source image");
+  }
+  if (input.jobType === "text_to_video" && !input.prompt?.trim()) {
+    throw new Error("Text-to-video needs a prompt");
+  }
+
+  const id = randomUUID();
+  await db.insert(schema.generationJobs).values({
+    id,
+    projectId: input.projectId,
+    sceneId: input.sceneId ?? null,
+    workspaceId: proj.workspaceId ?? null,
+    requestedBy: userId,
+    jobType: input.jobType,
+    status: "queued",
+    workflowName: input.workflow,
+    prompt: input.prompt ?? null,
+    negativePrompt: input.negativePrompt ?? null,
+    // Everything the worker needs to build the provider request (kept off the hot columns).
+    requestJson: {
+      workflow: input.workflow,
+      sourceAssetId: input.sourceAssetId ?? null,
+      width: input.width ?? null,
+      height: input.height ?? null,
+      durationSec: input.durationSec ?? null,
+      motion: input.motion ?? "balanced",
+      seed: input.seed ?? null,
+    },
+  });
+
+  await enqueueGeneration(id);
+  revalidatePath(`/projects/${input.projectId}/edit`);
+  return id;
+}
+
+/** Fetch a generation job (owner-checked) — for status polling in the editor. */
+export async function getGenerationJob(jobId: string) {
+  const userId = await requireUserId();
+  const [row] = await db
+    .select({
+      id: schema.generationJobs.id,
+      projectId: schema.generationJobs.projectId,
+      status: schema.generationJobs.status,
+      progress: schema.generationJobs.progress,
+      jobType: schema.generationJobs.jobType,
+      errorMessage: schema.generationJobs.errorMessage,
+      ownerId: schema.projects.ownerId,
+    })
+    .from(schema.generationJobs)
+    .innerJoin(schema.projects, eq(schema.generationJobs.projectId, schema.projects.id))
+    .where(eq(schema.generationJobs.id, jobId));
+  if (!row || row.ownerId !== userId) throw new Error("Job not found");
+  const { ownerId: _ownerId, ...job } = row;
+  return job;
+}
+
+/**
+ * Cancel a generation job (owner-checked). Removes it from the queue if still pending and marks it
+ * cancelled; the worker also checks for cancellation and interrupts the provider job if it is
+ * already running.
+ */
+export async function cancelGenerationJob(jobId: string): Promise<void> {
+  const userId = await requireUserId();
+  const [row] = await db
+    .select({
+      id: schema.generationJobs.id,
+      projectId: schema.generationJobs.projectId,
+      status: schema.generationJobs.status,
+      ownerId: schema.projects.ownerId,
+    })
+    .from(schema.generationJobs)
+    .innerJoin(schema.projects, eq(schema.generationJobs.projectId, schema.projects.id))
+    .where(eq(schema.generationJobs.id, jobId));
+  if (!row || row.ownerId !== userId) throw new Error("Job not found");
+
+  await db
+    .update(schema.generationJobs)
+    .set({ status: "cancelled", updatedAt: new Date() })
+    .where(eq(schema.generationJobs.id, jobId));
+  // Remove it from BullMQ if it hasn't been claimed yet (best-effort).
+  await generationQueue()
+    .remove(jobId)
+    .catch(() => {});
+  revalidatePath(`/projects/${row.projectId}/edit`);
+}
