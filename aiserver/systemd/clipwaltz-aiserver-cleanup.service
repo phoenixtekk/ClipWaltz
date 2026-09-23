@@ -1,0 +1,8 @@
+[Unit]
+Description=ClipWaltz AISERVER scratch cleanup (outputs/inputs copied to MinIO are transient)
+
+[Service]
+Type=oneshot
+User=lacy
+Group=lacy
+ExecStart=/opt/clipwaltz-ai/scripts/cleanup.sh
