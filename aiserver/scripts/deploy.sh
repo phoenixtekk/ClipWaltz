@@ -30,14 +30,14 @@ uv venv --python "$PYVER" "$OPT/venv"
 source "$OPT/venv/bin/activate"
 python --version
 
-echo "== Step 5: ComfyUI + CUDA (cu124) PyTorch =="
+echo "== Step 5: ComfyUI + CUDA (cu128) PyTorch =="
 if [ ! -d "$OPT/comfyui/.git" ]; then
   git clone https://github.com/comfyanonymous/ComfyUI "$OPT/comfyui"
 fi
-pip install --upgrade pip
-# cu124 wheel: bundled CUDA 12.4 runtime, compatible with driver 595.91.07.
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-pip install -r "$OPT/comfyui/requirements.txt"
+# Use `uv pip` — a uv-created venv has no standalone pip binary.
+# cu128 (CUDA 12.8) — torch >=2.7 is REQUIRED (latest ComfyUI comfy_kitchen uses list[int] custom-op schemas that torch 2.6/cu124 rejects). Driver 595 supports CUDA 12.8.
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+uv pip install -r "$OPT/comfyui/requirements.txt"
 python - <<'PY'
 import torch
 print("torch", torch.__version__, "cuda_available", torch.cuda.is_available(),
@@ -51,11 +51,11 @@ cd "$OPT/comfyui/custom_nodes"
 [ -d ComfyUI-LTXVideo ] || git clone https://github.com/Lightricks/ComfyUI-LTXVideo
 [ -d ComfyUI-VideoHelperSuite ] || git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
 for d in ComfyUI-LTXVideo ComfyUI-VideoHelperSuite; do
-  [ -f "$d/requirements.txt" ] && pip install -r "$d/requirements.txt" || true
+  [ -f "$d/requirements.txt" ] && uv pip install -r "$d/requirements.txt" || true
 done
 
 echo "== wrapper deps =="
-pip install -r "$OPT/scripts/requirements.txt"
+uv pip install -r "$OPT/scripts/requirements.txt"
 
 echo "== Step 6: services =="
 # (unit files + wrapper.env are copied in by the operator before this point)

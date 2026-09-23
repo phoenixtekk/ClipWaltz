@@ -6,7 +6,7 @@
 #
 #   bash ~/clipwaltz-aiserver-kit/scripts/full-deploy.sh
 #
-# Leaves: dirs, ffmpeg, py3.12 venv, ComfyUI + cu124 torch, LTX nodes, wrapper
+# Leaves: dirs, ffmpeg, py3.12 venv, ComfyUI + cu128 torch, LTX nodes, wrapper
 # deps, both systemd services enabled. Model download + workflow capture are the
 # two remaining manual steps (printed at the end) — they need live, non-guessed values.
 set -euo pipefail
@@ -56,11 +56,11 @@ uv python install "$PYVER"
 source "$OPT/venv/bin/activate"
 python --version
 
-echo "== Step 5: ComfyUI + cu124 PyTorch =="
+echo "== Step 5: ComfyUI + cu128 PyTorch =="
 [ -d "$OPT/comfyui/.git" ] || git clone https://github.com/comfyanonymous/ComfyUI "$OPT/comfyui"
-pip install --upgrade pip
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-pip install -r "$OPT/comfyui/requirements.txt"
+# Use `uv pip` — a uv-created venv has no standalone pip binary.
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+uv pip install -r "$OPT/comfyui/requirements.txt"
 python - <<'PY'
 import torch
 print("torch", torch.__version__, "cuda", torch.cuda.is_available(), "gpus", torch.cuda.device_count())
@@ -73,11 +73,11 @@ cd "$OPT/comfyui/custom_nodes"
 [ -d ComfyUI-LTXVideo ]        || git clone https://github.com/Lightricks/ComfyUI-LTXVideo
 [ -d ComfyUI-VideoHelperSuite ] || git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
 for d in ComfyUI-LTXVideo ComfyUI-VideoHelperSuite; do
-  [ -f "$d/requirements.txt" ] && pip install -r "$d/requirements.txt" || true
+  [ -f "$d/requirements.txt" ] && uv pip install -r "$d/requirements.txt" || true
 done
 
 echo "== wrapper deps =="
-pip install -r "$OPT/scripts/requirements.txt"
+uv pip install -r "$OPT/scripts/requirements.txt"
 
 echo "== Step 6: services (ComfyUI localhost:8188; wrapper LAN:8189) =="
 sudo systemctl daemon-reload
