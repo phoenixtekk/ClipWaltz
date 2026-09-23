@@ -33,12 +33,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               Projects
             </Link>
             <Link
-              href="/library"
-              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Library
-            </Link>
-            <Link
               href="/community"
               className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
