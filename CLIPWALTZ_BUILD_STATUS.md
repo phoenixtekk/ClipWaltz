@@ -96,9 +96,13 @@ Assembler (music-video) product is separate and shipping — see [ADR-0001](docs
       `setVersionSelected` (one pick per project); version-browser hover Favorite/Pick toggles +
       persistent star/Pick badges. Deployed.
 
+- [x] **Realtime SSE status** (2026-09-23): owner-checked `GET /api/generations/[versionId]/events`
+      streams status/progress (server DB-poll → SSE push, closes on terminal). Client uses
+      EventSource (one connection/job) + a 10s backstop poll for robustness. Replaces the 3s poll.
+      ⚠️ gotcha: sibling routes must share the slug (`[versionId]`) — Next validates this at runtime.
+
 ## Remaining (not yet built)
-- [ ] Workspace-scoped auth; realtime SSE status; AISERVER output-dir retention/cleanup;
-      SUPIR (premium detail).
+- [ ] Workspace-scoped auth; AISERVER output-dir retention/cleanup; SUPIR (premium detail).
 - [ ] Workspace-scoped authorization (queries still owner-scoped); enhancement + export-as-job
       phases; text-to-video workflow; realtime SSE status (polling works today).
 
