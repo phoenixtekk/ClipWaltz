@@ -1,0 +1,24 @@
+[Unit]
+Description=ClipWaltz AISERVER API wrapper (authenticated front-end to ComfyUI)
+After=network-online.target comfyui.service
+Wants=network-online.target
+Requires=comfyui.service
+
+[Service]
+Type=simple
+User=lacy
+Group=lacy
+WorkingDirectory=/opt/clipwaltz-ai/scripts
+# Shared secret + bind config live here, readable only by the service user.
+EnvironmentFile=/opt/clipwaltz-ai/config/wrapper.env
+ExecStart=/opt/clipwaltz-ai/venv/bin/uvicorn app:app \
+    --host ${CW_BIND_HOST} \
+    --port ${CW_BIND_PORT} \
+    --app-dir /opt/clipwaltz-ai/scripts
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/opt/clipwaltz-ai/logs/wrapper.log
+StandardError=append:/opt/clipwaltz-ai/logs/wrapper.log
+
+[Install]
+WantedBy=multi-user.target

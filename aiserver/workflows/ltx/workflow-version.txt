@@ -1,0 +1,9 @@
+# ltx-image-to-video-v1 — version pins (filled on install)
+workflow_id: ltx-image-to-video-v1
+ltx_model_file: TBD (verify on install)
+ltx_model_sha256: TBD (verify on install)
+text_encoder_file: TBD (verify on install)
+comfyui_commit: TBD (pin on install)
+comfyui_ltxvideo_commit: TBD (pin on install)
+videohelpersuite_commit: TBD (pin on install)
+captured_utc: TBD

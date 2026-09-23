@@ -1,0 +1,12 @@
+{
+  "workflow": "ltx-image-to-video-v1",
+  "inputs": {
+    "prompt": "slow cinematic orbit around the subject, gentle parallax",
+    "source_image": "sample.png",
+    "width": 768,
+    "height": 512,
+    "duration": 5,
+    "motion": "balanced",
+    "seed": null
+  }
+}

@@ -1,0 +1,25 @@
+[Unit]
+Description=ClipWaltz ComfyUI (localhost-only AI video backend)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lacy
+Group=lacy
+WorkingDirectory=/opt/clipwaltz-ai/comfyui
+# Bind ComfyUI to loopback ONLY. It must never be reachable off-box.
+ExecStart=/opt/clipwaltz-ai/venv/bin/python /opt/clipwaltz-ai/comfyui/main.py \
+    --listen 127.0.0.1 \
+    --port 8188 \
+    --output-directory /data/clipwaltz-ai/output \
+    --input-directory /data/clipwaltz-ai/input \
+    --temp-directory /data/clipwaltz-ai/temp
+Restart=on-failure
+RestartSec=5
+# Logs to journald; also mirrored to /opt/clipwaltz-ai/logs by the drop-in below.
+StandardOutput=append:/opt/clipwaltz-ai/logs/comfyui.log
+StandardError=append:/opt/clipwaltz-ai/logs/comfyui.log
+
+[Install]
+WantedBy=multi-user.target
