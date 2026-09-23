@@ -29,6 +29,7 @@ import {
   listGenerationVersions,
   deleteGenerationVersion,
   regenerateFromVersion,
+  enhanceVersion,
   type GenerationVersionItem,
 } from "@/lib/generation-actions";
 import {
@@ -179,6 +180,11 @@ export function GenerationPanel({
   const [exportFormat, setExportFormat] = useState<ExportFormat>("mp4");
   const [exportResolution, setExportResolution] = useState<ExportResolution>("1080p");
   const [exportPending, startExport] = useTransition();
+
+  // Enhance state
+  const [enhanceOpen, setEnhanceOpen] = useState(false);
+  const [enhanceInterp, setEnhanceInterp] = useState(true);
+  const [enhanceUpscale, setEnhanceUpscale] = useState(true);
 
   const refreshVersions = useCallback(async () => {
     try {
@@ -335,6 +341,28 @@ export function GenerationPanel({
         toast.message(fresh ? "Regenerating a new variation…" : "Duplicating this version…");
       })
       .catch((e) => toast.error((e as Error).message || "Could not start generation."));
+  }
+
+  // Enhance the selected version (ffmpeg interpolate/upscale → new version). It's an enhancement
+  // generation_job, so the existing job poller tracks it and refreshes the versions on completion.
+  function runEnhance() {
+    if (!enhanceInterp && !enhanceUpscale) {
+      toast.error("Pick at least one enhancement.");
+      return;
+    }
+    const versionId = selectedVersionId;
+    if (!versionId) return;
+    setEnhanceOpen(false);
+    start(async () => {
+      try {
+        const jobId = await enhanceVersion({ versionId, interpolate: enhanceInterp, upscale: enhanceUpscale });
+        setCompareId(null);
+        setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null });
+        toast.message("Enhancing this version…");
+      } catch (e) {
+        toast.error((e as Error).message || "Could not start enhancement.");
+      }
+    });
   }
 
   const selected = versions.find((v) => v.id === selectedVersionId) ?? null;
@@ -650,6 +678,16 @@ export function GenerationPanel({
               <Button
                 variant="outline"
                 size="sm"
+                onClick={() => setEnhanceOpen((o) => !o)}
+                disabled={isGenerating || pending || !selected.hasOutput}
+                aria-expanded={enhanceOpen}
+                title="Enhance this version (smoother motion / upscale)"
+              >
+                <Sparkles className="size-3.5" /> Enhance
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => setExportOpen((o) => !o)}
                 disabled={isGenerating || exportPending || !selected.hasOutput}
                 aria-expanded={exportOpen}
@@ -664,6 +702,31 @@ export function GenerationPanel({
               ) : null}
             </div>
           </div>
+
+          {/* Inline enhance chooser — smoother motion / upscale, then confirm. */}
+          {enhanceOpen ? (
+            <div className="space-y-3 rounded-xl border border-[color:var(--cw-violet)]/40 bg-[color:var(--cw-violet)]/5 p-3">
+              <div className="flex flex-wrap gap-2">
+                <Chip active={enhanceInterp} onClick={() => setEnhanceInterp((v) => !v)}>
+                  Smoother motion
+                </Chip>
+                <Chip active={enhanceUpscale} onClick={() => setEnhanceUpscale((v) => !v)}>
+                  Upscale 2×
+                </Chip>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Creates a new enhanced version. Smoother motion interpolates to a higher frame rate; upscale doubles the resolution.
+              </p>
+              <div className="flex items-center justify-end gap-1">
+                <Button variant="ghost" size="sm" onClick={() => setEnhanceOpen(false)} disabled={pending}>
+                  <X className="size-3.5" /> Cancel
+                </Button>
+                <Button size="sm" onClick={runEnhance} disabled={pending || (!enhanceInterp && !enhanceUpscale)}>
+                  <Sparkles className="size-3.5" /> Enhance
+                </Button>
+              </div>
+            </div>
+          ) : null}
 
           {/* Inline export chooser — format + resolution, then confirm. */}
           {exportOpen ? (

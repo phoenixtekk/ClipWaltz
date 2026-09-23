@@ -27,6 +27,7 @@ import { NodeHttpHandler } from "@smithy/node-http-handler";
 const run = promisify(execFile);
 const GENERATION_QUEUE = "clipwaltz-generation";
 const EXPORT_QUEUE = "clipwaltz-export";
+const ENHANCE_QUEUE = "clipwaltz-enhance";
 const REDIS_URL = process.env.REDIS_URL ?? "redis://127.0.0.1:6379";
 const AISERVER_URL = (process.env.AISERVER_API_URL ?? "http://192.168.166.158:8189").replace(/\/$/, "");
 const AISERVER_TOKEN = process.env.AISERVER_API_TOKEN ?? "";
@@ -245,3 +246,59 @@ exportWorker.on("failed", async (job, err) => {
   }
 });
 console.log(`[exp] ClipWaltz export worker up (queue=${EXPORT_QUEUE})`);
+
+// ─── Enhance worker: ffmpeg post-process a version → a new enhanced version ──────
+// Motion interpolation (minterpolate → 2× fps) and/or 2× lanczos upscale + light sharpen.
+// ffmpeg on linuxg1 (short clips). ML super-res/RIFE is a later upgrade behind the same action.
+async function processEnhance(genJobId) {
+  const [j] = await sql`select * from generation_jobs where id = ${genJobId}`;
+  if (!j) { console.warn("[enh] job gone", genJobId); return; }
+  if (j.status === "cancelled") return;
+  const req = j.request_json ?? {};
+  if (!req.sourceKey) throw new Error("no sourceKey on enhancement job");
+  await setStatus(genJobId, { status: "enhancing", progress: 40, started_at: new Date() });
+
+  const dir = mkdtempSync(join(tmpdir(), "cw-enh-"));
+  const srcPath = join(dir, "src.mp4");
+  const outPath = join(dir, "out.mp4");
+  try {
+    writeFileSync(srcPath, await getBytes(req.sourceKey));
+    const filters = [];
+    if (req.interpolate) filters.push("minterpolate=fps=48:mi_mode=mci:mc_mode=aobmc:vsbmc=1");
+    if (req.upscale) filters.push("scale=iw*2:ih*2:flags=lanczos", "unsharp=5:5:0.8:5:5:0.0");
+    const args = ["-y", "-i", srcPath];
+    if (filters.length) args.push("-vf", filters.join(","));
+    args.push("-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "18", "-movflags", "+faststart", "-an", outPath);
+    await run("ffmpeg", args, { maxBuffer: 1 << 26 });
+
+    const [{ maxv }] = await sql`select coalesce(max(version_number),0)::int maxv from generation_versions where project_id = ${j.project_id}`;
+    const versionNumber = (maxv ?? 0) + 1;
+    const outKey = `generations/${j.project_id}/${genJobId}/${versionNumber}.mp4`;
+    await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: outKey, Body: readFileSync(outPath), ContentType: "video/mp4" }));
+    await sql`insert into generation_versions ${sql({
+      id: randomUUID(), generation_job_id: genJobId, project_id: j.project_id, scene_id: j.scene_id ?? null,
+      version_number: versionNumber, output_key: outKey,
+      settings: { enhancedFrom: req.sourceVersionId, interpolate: !!req.interpolate, upscale: !!req.upscale },
+    })}`;
+    await setStatus(genJobId, { status: "completed", progress: 100, completed_at: new Date() });
+    console.log(`[enh] ${genJobId} done → ${outKey} (interp=${!!req.interpolate} upscale=${!!req.upscale})`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const enhanceWorker = new Worker(
+  ENHANCE_QUEUE,
+  async (job) => { await processEnhance(job.data.generationJobId); },
+  { connection: new IORedis(REDIS_URL, { maxRetriesPerRequest: null }), concurrency: 1, lockDuration: 10 * 60 * 1000 },
+);
+enhanceWorker.on("failed", async (job, err) => {
+  const id = job?.data?.generationJobId;
+  console.error(`[enh] FAILED ${id}: ${err?.message}`);
+  if (id) {
+    try {
+      await setStatus(id, { status: "failed", error_message: String(err?.message ?? err).slice(0, 1000), failed_at: new Date() });
+    } catch (e) { console.error("[enh] status write failed", e); }
+  }
+});
+console.log(`[enh] ClipWaltz enhance worker up (queue=${ENHANCE_QUEUE})`);

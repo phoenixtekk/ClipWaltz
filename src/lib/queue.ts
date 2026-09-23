@@ -10,6 +10,8 @@ const REDIS_URL = process.env.REDIS_URL ?? "redis://127.0.0.1:6379";
 export const GENERATION_QUEUE = "clipwaltz-generation";
 /** Export queue: transcode a chosen generation version to a final deliverable. */
 export const EXPORT_QUEUE = "clipwaltz-export";
+/** Enhance queue: ffmpeg post-process (interpolate/upscale) a version → a new enhanced version. */
+export const ENHANCE_QUEUE = "clipwaltz-enhance";
 
 /** The payload we enqueue: just the DB job id. The worker loads the row for details. */
 export type GenerationJobData = { generationJobId: string };
@@ -67,6 +69,30 @@ export async function enqueueExport(exportJobId: string, opts: JobsOptions = {})
     { exportJobId },
     {
       jobId: exportJobId,
+      attempts: 2,
+      backoff: { type: "exponential", delay: 5000 },
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+      ...opts,
+    },
+  );
+}
+
+let _enhanceQueue: Queue<GenerationJobData> | null = null;
+export function enhanceQueue(): Queue<GenerationJobData> {
+  if (!_enhanceQueue) {
+    _enhanceQueue = new Queue<GenerationJobData>(ENHANCE_QUEUE, { connection: redis() });
+  }
+  return _enhanceQueue;
+}
+
+/** Enqueue an enhancement job (an `enhancement`-type generation_job that yields a new version). */
+export async function enqueueEnhance(generationJobId: string, opts: JobsOptions = {}): Promise<void> {
+  await enhanceQueue().add(
+    "enhance",
+    { generationJobId },
+    {
+      jobId: generationJobId,
       attempts: 2,
       backoff: { type: "exponential", delay: 5000 },
       removeOnComplete: 1000,

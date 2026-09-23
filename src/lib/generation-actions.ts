@@ -4,7 +4,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
-import { enqueueGeneration, generationQueue } from "./queue";
+import { enqueueGeneration, enqueueEnhance, generationQueue } from "./queue";
 import { deleteObject } from "./storage";
 
 export type GenerationJobType = "text_to_video" | "image_to_video" | "montage" | "enhancement";
@@ -159,6 +159,53 @@ export async function regenerateFromVersion(versionId: string, fresh: boolean): 
   });
   await enqueueGeneration(id);
   revalidatePath(`/projects/${job.projectId}/edit`);
+  return id;
+}
+
+/**
+ * Enhance a version (owner-checked): queue an `enhancement` job that ffmpeg-post-processes the
+ * source clip (motion interpolation and/or 2× upscale) into a NEW version. Returns the new job id.
+ */
+export async function enhanceVersion(input: {
+  versionId: string;
+  interpolate: boolean;
+  upscale: boolean;
+}): Promise<string> {
+  const userId = await requireUserId();
+  if (!input.interpolate && !input.upscale) throw new Error("Pick at least one enhancement");
+  const [ver] = await db
+    .select({
+      id: schema.generationVersions.id,
+      projectId: schema.generationVersions.projectId,
+      sceneId: schema.generationVersions.sceneId,
+      outputKey: schema.generationVersions.outputKey,
+      workspaceId: schema.projects.workspaceId,
+      ownerId: schema.projects.ownerId,
+    })
+    .from(schema.generationVersions)
+    .innerJoin(schema.projects, eq(schema.generationVersions.projectId, schema.projects.id))
+    .where(eq(schema.generationVersions.id, input.versionId));
+  if (!ver || ver.ownerId !== userId) throw new Error("Version not found");
+  if (!ver.outputKey) throw new Error("This version has no output to enhance yet");
+
+  const id = randomUUID();
+  await db.insert(schema.generationJobs).values({
+    id,
+    projectId: ver.projectId,
+    sceneId: ver.sceneId ?? null,
+    workspaceId: ver.workspaceId ?? null,
+    requestedBy: userId,
+    jobType: "enhancement",
+    status: "queued",
+    requestJson: {
+      sourceVersionId: ver.id,
+      sourceKey: ver.outputKey,
+      interpolate: input.interpolate,
+      upscale: input.upscale,
+    },
+  });
+  await enqueueEnhance(id);
+  revalidatePath(`/projects/${ver.projectId}/edit`);
   return id;
 }
 
