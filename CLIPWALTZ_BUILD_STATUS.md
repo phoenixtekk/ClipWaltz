@@ -40,7 +40,9 @@ Assembler (music-video) product is separate and shipping — see [ADR-0001](docs
       the wrapper's exact `/jobs` contract
 - [x] Generation-job service (`src/lib/generation-actions.ts`) — create/get/cancel + enqueue
 - [x] Workspace layer: `ensurePersonalWorkspace` + signup hook + idempotent backfill
-      (`scripts/backfill-workspaces.mjs`, verified on dev). **Backfill not yet run on prod.**
+      (`scripts/backfill-workspaces.mjs`). Run on **dev AND prod** (prod: 1 user → 1 workspace,
+      25 projects + 374 assets linked; re-run idempotent). Note: workspace_id is populated but not
+      yet enforced in authorization (queries still owner-scoped) — enforcement is a later step.
 
 ## Blocked / owner-action
 - [ ] Direct-signed-URL storage edge (ADR-0003) — needs owner-created CF public hostname when Phase 4 lands
