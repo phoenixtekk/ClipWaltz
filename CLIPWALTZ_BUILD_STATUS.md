@@ -63,9 +63,12 @@ Assembler (music-video) product is separate and shipping — see [ADR-0001](docs
       `wan-text-to-video-v1` workflow + wrapper registry; UI "From image / From text" toggle.
       Verified E2E through the worker (prompt→MP4, no image, ~80s). Deployed.
 
+- [x] **Version browser: compare + delete** (2026-09-23). Hover a version for side-by-side
+      Compare (two players) or Delete (`deleteGenerationVersion` — row + MinIO object). Deployed.
+
 ## Remaining (not yet built)
 - [ ] Generation: enhancement + export-as-job; workspace-scoped auth; realtime SSE status;
-      version browser actions (compare/duplicate/enhance/export).
+      remaining version actions (duplicate/regenerate-from, favorite, set-as-selected).
 - [ ] Workspace-scoped authorization (queries still owner-scoped); enhancement + export-as-job
       phases; text-to-video workflow; realtime SSE status (polling works today).
 
