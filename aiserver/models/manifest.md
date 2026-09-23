@@ -28,14 +28,16 @@ frames) completed on a single RTX 3080 in ~60 s incl. model load.
 Wan22ImageToVideoLatent, seed→KSampler). Built from ComfyUI's bundled
 `video_wan2_2_5B_ti2v` template via `aiserver/scripts/ui2api.py`.
 
-## Enhancement models
-| Component | File | Size | Local path | Used by |
-|-----------|------|------|------------|---------|
-| Real-ESRGAN 2× upscaler | `RealESRGAN_x2plus.pth` | 64 MB | `/data/clipwaltz-ai/models/upscale_models/` | `esrgan-upscale-v1` workflow (AI Enhance) |
+## Enhancement models + custom nodes
+| Component | File / node | Local path | Used by |
+|-----------|-------------|------------|---------|
+| Real-ESRGAN 2× upscaler | `RealESRGAN_x2plus.pth` (64 MB) | `/data/clipwaltz-ai/models/upscale_models/` | `esrgan-upscale-v1` |
+| RIFE frame interpolation | `ComfyUI-Frame-Interpolation` custom node (rife47.pth, auto-fetched) | `custom_nodes/` | `rife-interpolate-v1` |
 
-Enhancement workflow `esrgan-upscale-v1` (`aiserver/workflows/wan/enhance.api.json`): VHS_LoadVideo →
-ImageUpscaleWithModel(RealESRGAN_x2plus) → VHS_VideoCombine (NVENC h264). Verified E2E: 704×480 →
-1408×960 in ~20 s, no OOM. Deferred: RIFE (ML interpolation), SUPIR.
+- `esrgan-upscale-v1` (`aiserver/workflows/wan/enhance.api.json`): VHS_LoadVideo → ImageUpscaleWithModel(RealESRGAN_x2plus) → VHS_VideoCombine/NVENC. Verified 704×480 → 1408×960, ~20 s.
+- `rife-interpolate-v1` (`aiserver/workflows/wan/rife.api.json`): VHS_LoadVideo → RIFE VFI (×2, fp16, batch 4) → VHS_VideoCombine @48fps. Verified 24 → 48 fps, ~10 s.
+- **AI Enhance chains upscale THEN interpolate** (RIFE must run last so its fps survives). Chain verified E2E: 704×480@24 → **1408×960 @ 48 fps**.
+- ⚠️ **opencv pin:** the Frame-Interpolation node pulls `opencv-contrib-python`; keep a SINGLE `opencv-contrib-python-headless<5` (cv2 4.x) in the venv — a dual/opencv-5 install broke `cv2` → VideoHelperSuite (both enhance workflows). Deferred: SUPIR.
 
 ## Notes / owner actions
 - The Comfy-Org repackaged Wan 2.2 files are public (not gated) — downloaded without a token.

@@ -87,9 +87,14 @@ Assembler (music-video) product is separate and shipping — see [ADR-0001](docs
       `/inputs` accepts video, worker routes engine=ai to AISERVER. UI: Fast / AI-upscale toggle in
       the Enhance chooser. Verified E2E (704×480 → 1408×960 via GPU, no OOM).
 
+- [x] **ML frame interpolation — RIFE** (2026-09-23): `rife-interpolate-v1` (ComfyUI-Frame-
+      Interpolation, ×2 @48fps). AI Enhance now chains **upscale→interpolate** (RIFE last so fps
+      survives). Verified E2E: RIFE 24→48fps; chain 704×480@24 → 1408×960@48. ML enhancement (both
+      ESRGAN + RIFE) complete. (Also fixed an opencv-corruption regression from the box crash.)
+
 ## Remaining (not yet built)
-- [ ] ML frame interpolation (RIFE on AISERVER — the other ML enhance op); workspace-scoped auth;
-      realtime SSE status; version favorite / set-as-selected; AISERVER output-dir retention/cleanup.
+- [ ] Workspace-scoped auth; realtime SSE status; version favorite / set-as-selected;
+      AISERVER output-dir retention/cleanup; SUPIR (premium detail).
 - [ ] Workspace-scoped authorization (queries still owner-scoped); enhancement + export-as-job
       phases; text-to-video workflow; realtime SSE status (polling works today).
 
