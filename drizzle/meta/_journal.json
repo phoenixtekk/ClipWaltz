@@ -197,6 +197,13 @@
       "when": 1790107777946,
       "tag": "0027_last_punisher",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1790181184976,
+      "tag": "0028_tired_sabra",
+      "breakpoints": true
     }
   ]
 }

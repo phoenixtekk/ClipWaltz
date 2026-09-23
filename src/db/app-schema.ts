@@ -56,6 +56,9 @@ export const projects = pgTable("projects", {
   ownerId: text()
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
+  // ADR-0004 workspace layer. Nullable during rollout; backfilled to each owner's default
+  // personal workspace, then enforced. ownerId is retained (existing owner-scoped queries).
+  workspaceId: text().references(() => workspaces.id, { onDelete: "cascade" }),
   title: text().notNull().default("Untitled project"),
   template: text().notNull().default("surprise"), // trip | event | birthday | surprise
   aspect: text().notNull().default("9:16"), // 9:16 only at MVP
@@ -183,6 +186,8 @@ export const assets = pgTable("assets", {
     .notNull()
     .references(() => projects.id, { onDelete: "cascade" }),
   mediaId: text().references(() => media.id, { onDelete: "cascade" }),
+  // ADR-0004 workspace layer (nullable during rollout; backfilled from the parent project).
+  workspaceId: text().references(() => workspaces.id, { onDelete: "cascade" }),
   storageKey: text().notNull(), // MinIO object key
   kind: text().notNull(), // photo | video
   originalName: text(),
@@ -440,3 +445,202 @@ export const batchItems = pgTable("batch_items", {
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp({ withTimezone: true }),
 });
+
+// ============================================================================
+// AI VIDEO GENERATION (Phase 1 foundation) — coexists with the assembler above.
+// See 01_ClipWaltz_Technical_Architecture.md §5/§6/§8 and docs/architecture/DECISIONS.md.
+// These tables are ADDITIVE; the music-video pipeline (projects/assets/renders) is untouched.
+// ============================================================================
+
+// Multi-tenant container (ADR-0004). Every user gets a default personal workspace; projects and
+// assets are scoped to a workspace. `ownerUserId` is the creator/owner; membership + roles live
+// in workspaceMembers.
+export const workspaces = pgTable("workspaces", {
+  id: text().primaryKey(),
+  name: text().notNull().default("My Workspace"),
+  ownerUserId: text()
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  plan: text().notNull().default("free"), // free | plus | pro
+  isPersonal: boolean().notNull().default(true), // the auto-created per-user default workspace
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+// Workspace membership + role. Authorization for generation resources checks this.
+export const workspaceMembers = pgTable(
+  "workspace_members",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text()
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    role: text().notNull().default("editor"), // owner | admin | editor | viewer
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.workspaceId, t.userId)],
+);
+
+// An ordered scene within a project (storyboard unit). Generation jobs/versions attach to a scene.
+export const scenes = pgTable("scenes", {
+  id: text().primaryKey(),
+  projectId: text()
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  sequenceNumber: integer().notNull().default(0),
+  title: text(),
+  description: text(),
+  durationTarget: real(), // desired seconds
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+// A single AI generation request. Enqueued to BullMQ (ADR-0002); the AISERVER worker drives it
+// through the state machine. Each run of a job may produce a generationVersion.
+export const generationJobs = pgTable("generation_jobs", {
+  id: text().primaryKey(),
+  projectId: text()
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  sceneId: text().references(() => scenes.id, { onDelete: "set null" }),
+  workspaceId: text().references(() => workspaces.id, { onDelete: "cascade" }),
+  requestedBy: text().references(() => user.id, { onDelete: "set null" }),
+  jobType: text().notNull(), // text_to_video | image_to_video | montage | enhancement
+  // queued | preparing | uploading_to_ai_node | loading_model | generating |
+  // enhancing | encoding | uploading_output | completed | failed | cancelled
+  status: text().notNull().default("queued"),
+  routingProfile: text(), // routing decision id/name (see routing engine)
+  modelName: text(), // resolved model family (wan | hunyuan | ltx)
+  workflowName: text(), // resolved workflow logical id
+  workflowVersion: text(),
+  prompt: text(),
+  negativePrompt: text(),
+  requestJson: jsonb(), // full normalized generation request (aspect, duration, quality, inputs…)
+  priority: integer().notNull().default(0),
+  retryCount: integer().notNull().default(0),
+  progress: integer().notNull().default(0), // 0–100
+  queuePosition: integer(),
+  startedAt: timestamp({ withTimezone: true }),
+  completedAt: timestamp({ withTimezone: true }),
+  failedAt: timestamp({ withTimezone: true }),
+  errorCode: text(),
+  errorMessage: text(),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+// A produced output of a generation job. Multiple versions per job/scene enable compare/select.
+export const generationVersions = pgTable("generation_versions", {
+  id: text().primaryKey(),
+  generationJobId: text()
+    .notNull()
+    .references(() => generationJobs.id, { onDelete: "cascade" }),
+  projectId: text()
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  sceneId: text().references(() => scenes.id, { onDelete: "set null" }),
+  versionNumber: integer().notNull().default(1),
+  outputAssetId: text().references(() => assets.id, { onDelete: "set null" }),
+  outputKey: text(), // MinIO object key of the generated video
+  thumbnailKey: text(),
+  durationSec: real(),
+  qualityScore: real(),
+  selected: boolean().notNull().default(false), // the chosen version for the scene
+  favorite: boolean().notNull().default(false),
+  settings: jsonb(), // effective generation settings snapshot (reproducibility)
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+// A distinct export/delivery job (separate from generation — Guide §18). Renders a chosen version
+// to a final deliverable at a requested format/resolution.
+export const exportJobs = pgTable("export_jobs", {
+  id: text().primaryKey(),
+  projectId: text()
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  workspaceId: text().references(() => workspaces.id, { onDelete: "cascade" }),
+  sourceVersionId: text().references(() => generationVersions.id, { onDelete: "set null" }),
+  requestedBy: text().references(() => user.id, { onDelete: "set null" }),
+  status: text().notNull().default("queued"), // queued | processing | completed | failed | cancelled
+  outputFormat: text().notNull().default("mp4"), // mp4 | webm | mov
+  resolution: text(), // e.g. 1080x1920
+  aspectRatio: text(), // 9:16 | 16:9 | 1:1
+  presetName: text(),
+  outputAssetId: text().references(() => assets.id, { onDelete: "set null" }),
+  outputKey: text(),
+  errorMessage: text(),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  startedAt: timestamp({ withTimezone: true }),
+  completedAt: timestamp({ withTimezone: true }),
+});
+
+// Reusable creation template (start-from-template). Binds a workflow profile + default settings.
+export const templates = pgTable("templates", {
+  id: text().primaryKey(),
+  name: text().notNull(),
+  category: text(), // e.g. cinematic | travel | product | social
+  workflowProfile: text(), // logical workflow/routing profile this template drives
+  description: text(),
+  thumbnailKey: text(),
+  metadataJson: jsonb(), // default prompt/settings/aspect the template pre-fills
+  enabled: boolean().notNull().default(true),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+// Per-workspace brand kit (logo/colors/fonts/style guidance) applied to generations/exports.
+export const brandKits = pgTable("brand_kits", {
+  id: text().primaryKey(),
+  workspaceId: text()
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text().notNull().default("Brand Kit"),
+  logoAssetId: text().references(() => assets.id, { onDelete: "set null" }),
+  colorsJson: jsonb(), // string[] hex
+  fontsJson: jsonb(),
+  styleGuidance: text(),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+// Registry of AI model families the platform can route to (Architecture §9). Admin-toggleable.
+// ComfyUI stays hidden behind this — the app references models by name, never node internals.
+export const modelRegistry = pgTable("model_registry", {
+  id: text().primaryKey(),
+  name: text().notNull().unique(), // wan | hunyuan | ltx | …
+  family: text(), // model family/label
+  role: text(), // primary | premium | fast
+  enabled: boolean().notNull().default(false),
+  vramProfileMb: integer(), // approx VRAM the model needs to load
+  capabilities: jsonb(), // { imageToVideo, textToVideo, maxDurationSec, aspectRatios[] }
+  description: text(),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+// Versioned ComfyUI workflow definitions (Architecture §8). Preserves reproducibility: a version's
+// workflow JSON is pinned so past generations remain reproducible when workflows evolve.
+export const workflowRegistry = pgTable(
+  "workflow_registry",
+  {
+    id: text().primaryKey(),
+    workflowId: text().notNull(), // logical id, e.g. "wan/image-to-video"
+    version: text().notNull(), // e.g. "v1"
+    modelName: text(), // supported model family
+    inputTypes: jsonb(), // string[] — image | text | video
+    aspectRatios: jsonb(), // string[] — 9:16 | 16:9 | 1:1
+    durationMin: real(),
+    durationMax: real(),
+    requiredVramMb: integer(),
+    expectedOutput: text(), // e.g. mp4
+    workflowPath: text(), // path/key to the pinned workflow JSON
+    parameterMapping: jsonb(), // maps ClipWaltz params → ComfyUI node inputs
+    enabled: boolean().notNull().default(false),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.workflowId, t.version)],
+);
