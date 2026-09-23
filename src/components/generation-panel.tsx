@@ -228,32 +228,46 @@ export function GenerationPanel({
     return () => clearInterval(t);
   }, [exportsActive, refreshExports]);
 
-  // §11 poll the active job every ~3s until it reaches a terminal state.
+  // §11 realtime job status via SSE (one connection per active job; server pushes changes).
+  const activeJobId = job && !TERMINAL.has(job.status) ? job.id : null;
   useEffect(() => {
-    if (!job || TERMINAL.has(job.status)) return;
-    const t = setInterval(async () => {
-      try {
-        const next = await getGenerationJob(job.id);
-        setJob({
-          id: next.id,
-          status: next.status,
-          progress: next.progress ?? 0,
-          errorMessage: next.errorMessage ?? null,
+    if (!activeJobId) return;
+    const es = new EventSource(`/api/generations/${activeJobId}/events`);
+    es.onmessage = (ev) => {
+      let d: { status?: string; progress?: number; errorMessage?: string | null };
+      try { d = JSON.parse(ev.data); } catch { return; }
+      if (!d.status || d.status === "gone") { es.close(); return; }
+      setJob({ id: activeJobId, status: d.status, progress: d.progress ?? 0, errorMessage: d.errorMessage ?? null });
+      if (d.status === "completed") {
+        es.close();
+        void refreshVersions().then((list) => {
+          const newest = list?.find((v) => v.jobId === activeJobId) ?? list?.[0];
+          if (newest) setSelectedVersionId(newest.id);
         });
+        toast.success("Your clip is ready.");
+      } else if (d.status === "failed") {
+        es.close();
+        toast.error(d.errorMessage || "Generation failed.");
+      } else if (d.status === "cancelled") {
+        es.close();
+      }
+    };
+    // Backstop: SSE gives realtime progress, but if the stream is buffered/dropped (e.g. a proxy),
+    // a slow poll still catches terminal completion so the UI never gets stuck.
+    const backstop = setInterval(async () => {
+      try {
+        const next = await getGenerationJob(activeJobId);
+        setJob({ id: activeJobId, status: next.status, progress: next.progress ?? 0, errorMessage: next.errorMessage ?? null });
         if (next.status === "completed") {
           const list = await refreshVersions();
-          const newest = list?.find((v) => v.jobId === next.id) ?? list?.[0];
+          const newest = list?.find((v) => v.jobId === activeJobId) ?? list?.[0];
           if (newest) setSelectedVersionId(newest.id);
-          toast.success("Your clip is ready.");
-        } else if (next.status === "failed") {
-          toast.error(next.errorMessage || "Generation failed.");
         }
-      } catch {
-        /* transient — keep polling */
-      }
-    }, 3000);
-    return () => clearInterval(t);
-  }, [job, refreshVersions]);
+      } catch { /* transient */ }
+    }, 10000);
+    // EventSource auto-reconnects on transient drops; on terminal we close it above.
+    return () => { es.close(); clearInterval(backstop); };
+  }, [activeJobId, refreshVersions]);
 
   const isGenerating = !!job && !TERMINAL.has(job.status);
 
