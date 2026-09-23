@@ -82,9 +82,14 @@ Assembler (music-video) product is separate and shipping — see [ADR-0001](docs
       Enhance chooser (Smoother motion / Upscale 2×). Verified E2E (704×480@24 → 1408×960@48).
       **ML path (Real-ESRGAN/RIFE on AISERVER) is the later quality upgrade behind the same action.**
 
+- [x] **ML enhancement — Real-ESRGAN upscale** (2026-09-23): AISERVER ComfyUI workflow
+      `esrgan-upscale-v1` (VHS video → ImageUpscaleWithModel(RealESRGAN_x2plus) → NVENC), wrapper
+      `/inputs` accepts video, worker routes engine=ai to AISERVER. UI: Fast / AI-upscale toggle in
+      the Enhance chooser. Verified E2E (704×480 → 1408×960 via GPU, no OOM).
+
 ## Remaining (not yet built)
-- [ ] ML enhancement (Real-ESRGAN/RIFE on AISERVER); workspace-scoped auth; realtime SSE status;
-      version favorite / set-as-selected.
+- [ ] ML frame interpolation (RIFE on AISERVER — the other ML enhance op); workspace-scoped auth;
+      realtime SSE status; version favorite / set-as-selected; AISERVER output-dir retention/cleanup.
 - [ ] Workspace-scoped authorization (queries still owner-scoped); enhancement + export-as-job
       phases; text-to-video workflow; realtime SSE status (polling works today).
 
