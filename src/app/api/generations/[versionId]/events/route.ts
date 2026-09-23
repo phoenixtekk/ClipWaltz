@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { getAuthUserId } from "@/lib/auth";
+import { userCanAccessProject } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -18,11 +19,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ versionId: stri
   if (!userId) return new NextResponse("unauthorized", { status: 401 });
 
   const [own] = await db
-    .select({ ownerId: schema.projects.ownerId })
+    .select({ projectId: schema.generationJobs.projectId })
     .from(schema.generationJobs)
-    .innerJoin(schema.projects, eq(schema.generationJobs.projectId, schema.projects.id))
     .where(eq(schema.generationJobs.id, id));
-  if (!own || own.ownerId !== userId) return new NextResponse("not found", { status: 404 });
+  if (!own || !(await userCanAccessProject(userId, own.projectId))) return new NextResponse("not found", { status: 404 });
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({

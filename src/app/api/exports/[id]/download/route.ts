@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { serveObject } from "@/lib/storage";
 import { getAuthUserId } from "@/lib/auth";
+import { userCanAccessProject } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -17,13 +18,12 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     .select({
       key: schema.exportJobs.outputKey,
       format: schema.exportJobs.outputFormat,
-      ownerId: schema.projects.ownerId,
+      projectId: schema.exportJobs.projectId,
     })
     .from(schema.exportJobs)
-    .innerJoin(schema.projects, eq(schema.exportJobs.projectId, schema.projects.id))
     .where(eq(schema.exportJobs.id, id));
 
-  if (!row || !row.key || row.ownerId !== userId) {
+  if (!row || !row.key || !(await userCanAccessProject(userId, row.projectId))) {
     return new NextResponse("not found", { status: 404 });
   }
   const ext = row.format === "webm" ? "webm" : "mp4";

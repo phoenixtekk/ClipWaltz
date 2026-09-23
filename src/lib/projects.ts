@@ -1,6 +1,7 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
+import { getUserWorkspaceIds } from "./workspace";
 import { parseOverlays, type Overlay } from "./overlays";
 
 export type ProjectStatus = "draft" | "rendering" | "ready" | "failed";
@@ -45,10 +46,17 @@ export type ProjectDetail = ProjectSummary & {
 /** A single project owned by the current user, or null. */
 export async function getProject(id: string): Promise<ProjectDetail | null> {
   const userId = await requireUserId();
+  const wsIds = await getUserWorkspaceIds(userId);
   const [r] = await db
     .select()
     .from(schema.projects)
-    .where(and(eq(schema.projects.id, id), eq(schema.projects.ownerId, userId)));
+    .where(
+      and(
+        eq(schema.projects.id, id),
+        // owner (fallback) OR a member of the project's workspace (ADR-0004)
+        or(eq(schema.projects.ownerId, userId), inArray(schema.projects.workspaceId, wsIds)),
+      ),
+    );
   if (!r) return null;
   return {
     id: r.id,
@@ -99,10 +107,11 @@ export async function listCategories(): Promise<ProjectCategory[]> {
 
 export async function listProjects(): Promise<ProjectSummary[]> {
   const userId = await requireUserId();
+  const wsIds = await getUserWorkspaceIds(userId);
   const rows = await db
     .select()
     .from(schema.projects)
-    .where(eq(schema.projects.ownerId, userId))
+    .where(or(eq(schema.projects.ownerId, userId), inArray(schema.projects.workspaceId, wsIds)))
     .orderBy(desc(schema.projects.updatedAt));
 
   const ids = rows.map((r) => r.id);

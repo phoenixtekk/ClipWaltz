@@ -26,3 +26,32 @@ export async function ensurePersonalWorkspace(
     .onConflictDoNothing();
   return id;
 }
+
+/** The workspace ids the user is a member of (ADR-0004). */
+export async function getUserWorkspaceIds(userId: string): Promise<string[]> {
+  const rows = await db
+    .select({ id: schema.workspaceMembers.workspaceId })
+    .from(schema.workspaceMembers)
+    .where(eq(schema.workspaceMembers.userId, userId));
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Workspace-scoped access check: true if the user owns the project OR is a member of its
+ * workspace. Owner is the fallback so projects with a null workspace_id (or the owner's own)
+ * always resolve — no regression from the pre-workspace, owner-only model.
+ */
+export async function userCanAccessProject(userId: string, projectId: string): Promise<boolean> {
+  const [p] = await db
+    .select({ ownerId: schema.projects.ownerId, workspaceId: schema.projects.workspaceId })
+    .from(schema.projects)
+    .where(eq(schema.projects.id, projectId));
+  if (!p) return false;
+  if (p.ownerId === userId) return true;
+  if (!p.workspaceId) return false;
+  const [m] = await db
+    .select({ id: schema.workspaceMembers.id })
+    .from(schema.workspaceMembers)
+    .where(and(eq(schema.workspaceMembers.workspaceId, p.workspaceId), eq(schema.workspaceMembers.userId, userId)));
+  return !!m;
+}

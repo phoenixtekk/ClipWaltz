@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { serveObject } from "@/lib/storage";
 import { getAuthUserId } from "@/lib/auth";
+import { userCanAccessProject } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -14,12 +15,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ versionId: stri
   if (!userId) return new NextResponse("unauthorized", { status: 401 });
 
   const [row] = await db
-    .select({ key: schema.generationVersions.outputKey, ownerId: schema.projects.ownerId })
+    .select({ key: schema.generationVersions.outputKey, projectId: schema.generationVersions.projectId })
     .from(schema.generationVersions)
-    .innerJoin(schema.projects, eq(schema.generationVersions.projectId, schema.projects.id))
     .where(eq(schema.generationVersions.id, versionId));
 
-  if (!row || !row.key || row.ownerId !== userId) {
+  if (!row || !row.key || !(await userCanAccessProject(userId, row.projectId))) {
     return new NextResponse("not found", { status: 404 });
   }
   return serveObject(req, row.key, "video/mp4", { cacheControl: "private, max-age=3600" });

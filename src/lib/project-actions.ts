@@ -38,10 +38,13 @@ export async function createProject(template?: string, aspect?: string): Promise
   const userId = await requireUserId();
   const t = template && ACTIVE_TEMPLATES.has(template) ? template : "surprise";
   const a = aspect && ASPECTS.has(aspect) ? aspect : "9:16";
+  const { ensurePersonalWorkspace } = await import("./workspace");
+  const workspaceId = await ensurePersonalWorkspace(userId);
   const id = randomUUID();
   await db.insert(schema.projects).values({
     id,
     ownerId: userId,
+    workspaceId,
     template: t,
     aspect: a,
     title: DEFAULT_TITLE[t] ?? "Untitled project",
@@ -291,6 +294,7 @@ export async function duplicateProject(projectId: string): Promise<string> {
   await db.insert(schema.projects).values({
     id,
     ownerId: userId,
+    workspaceId: orig.workspaceId ?? null,
     title: `${orig.title} (copy)`,
     template: orig.template,
     aspect: orig.aspect,
