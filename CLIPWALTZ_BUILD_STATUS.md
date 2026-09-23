@@ -71,9 +71,14 @@ Assembler (music-video) product is separate and shipping — see [ADR-0001](docs
       skipped) via `scripts/seed-music.mjs` + manifest `music-manifest-pixabay200-2026-09-23.json`.
       music_tracks active now 169; durations ffprobed, moods tagged, Pixabay Content License.
 
+- [x] **Export-as-a-job** (2026-09-23): `clipwaltz-export` queue + export-actions + owner-only
+      download route; the worker ffmpeg-transcodes a version to format (MP4/WebM) + resolution
+      (Native/720p/1080p) on linuxg1 → MinIO. UI: preview-header Export chooser + Export Center
+      (status, download, delete). Verified E2E (704×480 → 1080p → 1584×1080). Deployed.
+
 ## Remaining (not yet built)
-- [ ] Generation: enhancement + export-as-job; workspace-scoped auth; realtime SSE status;
-      remaining version actions (duplicate/regenerate-from, favorite, set-as-selected).
+- [ ] Generation: enhancement pass (interpolation/upscale); workspace-scoped auth; realtime SSE
+      status; version favorite / set-as-selected.
 - [ ] Workspace-scoped authorization (queries still owner-scoped); enhancement + export-as-job
       phases; text-to-video workflow; realtime SSE status (polling works today).
 
