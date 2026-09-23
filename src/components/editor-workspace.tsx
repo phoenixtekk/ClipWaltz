@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { ListVideo, Film, Ratio, Sparkles, Layers, Music } from "lucide-react";
+import { ListVideo, Film, Ratio, Sparkles, Layers, Music, Wand2 } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import type { ProjectDetail } from "@/lib/projects";
@@ -18,15 +18,17 @@ import { OverlayEditor } from "@/components/overlay-editor";
 import { DraftPreview } from "@/components/draft-preview";
 import { RenderPanel } from "@/components/render-panel";
 import { MusicPanel } from "@/components/music-panel";
+import { GenerationPanel } from "@/components/generation-panel";
 import { NewProjectButton } from "@/components/new-project-button";
 
-type Tab = "timeline" | "clips" | "format" | "style" | "overlays";
+type Tab = "timeline" | "clips" | "format" | "style" | "overlays" | "generate";
 const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: "timeline", label: "Timeline", icon: <ListVideo className="size-4" /> },
   { key: "clips", label: "Clips", icon: <Film className="size-4" /> },
   { key: "format", label: "Format", icon: <Ratio className="size-4" /> },
   { key: "style", label: "Style", icon: <Sparkles className="size-4" /> },
   { key: "overlays", label: "Overlays", icon: <Layers className="size-4" /> },
+  { key: "generate", label: "Generate", icon: <Wand2 className="size-4" /> },
 ];
 
 export function EditorWorkspace({
@@ -151,6 +153,12 @@ export function EditorWorkspace({
                   aspect={project.aspect}
                   backdropAssetId={backdropAssetId}
                   lengthSec={project.lengthSec}
+                />
+              ) : null}
+              {tab === "generate" ? (
+                <GenerationPanel
+                  projectId={projectId}
+                  photos={assets.filter((a) => a.kind === "photo" && a.uploadState === "uploaded")}
                 />
               ) : null}
             </div>

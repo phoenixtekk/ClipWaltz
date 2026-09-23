@@ -1,6 +1,6 @@
 "use server";
 import { randomUUID } from "crypto";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
@@ -73,6 +73,48 @@ export async function createGenerationJob(input: CreateGenerationInput): Promise
   await enqueueGeneration(id);
   revalidatePath(`/projects/${input.projectId}/edit`);
   return id;
+}
+
+export type GenerationVersionItem = {
+  id: string;
+  jobId: string;
+  versionNumber: number;
+  hasOutput: boolean;
+  selected: boolean;
+  favorite: boolean;
+  createdAt: string;
+};
+
+/** List a project's generated versions, newest first (owner-checked) — for the version browser. */
+export async function listGenerationVersions(projectId: string): Promise<GenerationVersionItem[]> {
+  const userId = await requireUserId();
+  const [proj] = await db
+    .select({ id: schema.projects.id })
+    .from(schema.projects)
+    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.ownerId, userId)));
+  if (!proj) throw new Error("Project not found");
+  const rows = await db
+    .select({
+      id: schema.generationVersions.id,
+      jobId: schema.generationVersions.generationJobId,
+      versionNumber: schema.generationVersions.versionNumber,
+      outputKey: schema.generationVersions.outputKey,
+      selected: schema.generationVersions.selected,
+      favorite: schema.generationVersions.favorite,
+      createdAt: schema.generationVersions.createdAt,
+    })
+    .from(schema.generationVersions)
+    .where(eq(schema.generationVersions.projectId, projectId))
+    .orderBy(desc(schema.generationVersions.createdAt));
+  return rows.map((r) => ({
+    id: r.id,
+    jobId: r.jobId,
+    versionNumber: r.versionNumber,
+    hasOutput: !!r.outputKey,
+    selected: r.selected,
+    favorite: r.favorite,
+    createdAt: r.createdAt.toISOString(),
+  }));
 }
 
 /** Fetch a generation job (owner-checked) — for status polling in the editor. */
