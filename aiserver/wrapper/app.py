@@ -63,9 +63,9 @@ AUDIT_LOG = LOG_DIR / "jobs.jsonl"
 # Registry of available workflows. Each maps a logical workflow id to a template
 # (ComfyUI API-format graph) and a field mapping. Add entries as workflows land.
 WORKFLOWS: Dict[str, Dict[str, str]] = {
-    "ltx-image-to-video-v1": {
-        "template": "ltx/workflow.api.json",
-        "mapping": "ltx/workflow.map.json",
+    "wan-image-to-video-v1": {
+        "template": "wan/workflow.api.json",
+        "mapping": "wan/workflow.map.json",
     },
 }
 

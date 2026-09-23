@@ -26,13 +26,23 @@ Assembler (music-video) product is separate and shipping — see [ADR-0001](docs
 - [x] Phase 1 schema — migration 0028 (10 new tables + workspace_id) applied to **dev AND prod** (10/10 verified)
 - [x] Redis provisioned on linuxg1 (127.0.0.1:6379, localhost-only, verified PONG)
 
+## Phase 2 — AISERVER inference node: DONE + VERIFIED (2026-09-23)
+- [x] ComfyUI (localhost:8188, systemd) + FastAPI wrapper (LAN :8189, bearer auth) both active;
+      torch 2.11+cu128, both RTX 3080s visible.
+- [x] Model: **Wan 2.2 TI2V-5B fp8** (ADR-0005 — LTX is now 22B, too big for 10 GB). Workflow
+      `wan-image-to-video-v1` (graph + map in `aiserver/workflows/wan/`).
+- [x] E2E through the wrapper: `POST /jobs` → ComfyUI → Wan 2.2 → MP4, `/jobs/{id}` completed
+      (doc 04 §28 tests 1–5 + submit/status). linuxg1→wrapper reachable (401 w/o token).
+- **Wrapper shared secret** lives at `/opt/clipwaltz-ai/config/wrapper.env` on AISERVER (chmod 600),
+  NOT committed. Owner action / next step: set `AISERVER_API_URL` + `AISERVER_API_TOKEN` on
+  linuxg1 `.env.local` for the app/worker to authenticate.
+
 ## In Progress
-- [ ] Phase 2 — AISERVER ComfyUI inference node. **Deployment kit built + committed (`aiserver/`,
-      reviewed) and staged on .158**, but host provisioning is blocked by this session's auto-mode
-      classifier (Modify-Shared-Resources / Auto-Mode-Bypass). Owner adding an SSH allow-rule so I
-      can run `full-deploy.sh` → LTX model → workflow capture → validate.
 - [ ] Phase 1 app-layer generation **worker** (`worker/generation-worker.mjs`) — BullMQ consumer.
-      Deferred until AISERVER is live so the MinIO↔AISERVER media-transfer contract is finalized.
+      Now unblocked (AISERVER live). Open design point: MinIO↔AISERVER media transfer (stage source
+      image into AISERVER input; pull output MP4 to MinIO) — the wrapper has no upload endpoint yet,
+      so this needs either a wrapper input/output endpoint or AISERVER-side MinIO access.
+- [ ] Variable clip length (duration→frames) in the workflow/provider (fixed 49-frame default now).
 
 ## App-layer done (2026-09-23, verified: build passes; backfill tested on dev with real data)
 - [x] BullMQ queue module (`src/lib/queue.ts`, lazy Redis) — `bullmq`/`ioredis` added

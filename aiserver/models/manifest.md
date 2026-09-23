@@ -1,33 +1,39 @@
 # ClipWaltz AISERVER — Model Manifest
 
-Phase 1 leads with **LTX-Video** for image-to-video. This is a deliberate,
-doc-04 §12-sanctioned VRAM choice: the target GPUs are 2× RTX 3080 with **10 GB
-each**, and LTX-Video is the model in the doc's set that fits 10 GB while giving
-fast preview-grade generation. Wan and Hunyuan (doc §12 Models 1 and 3) are
-deferred to a later phase / larger-VRAM node.
+Phase 1 uses **Wan 2.2 TI2V-5B** (fp8) for image→video (see ADR-0005). The original
+plan led with LTX, but ComfyUI-LTXVideo has moved to **LTX-2.3 (22B)** — too large for
+the AISERVER's 2× RTX 3080 **10 GB** cards. Wan 2.2 TI2V-5B fits 10 GB with fp8 weights +
+offload and is the design doc's "baseline" model family. Verified E2E on 2026-09-23.
 
-> Sizes and "VRAM at load" are recorded from the **actual download and first
-> load on AISERVER** during deployment. Rows marked `TBD (verify on install)`
-> are filled in at that point rather than guessed here.
+Served via ComfyUI **core** Wan nodes (`UNETLoader` + `CLIPLoader type=wan` + `VAELoader`
++ `Wan22ImageToVideoLatent` + `KSampler` + `ModelSamplingSD3` + `VAEDecode` + `CreateVideo`/
+`SaveVideo`) — no extra custom node required. Models are found via
+`extra_model_paths.yaml` pointing ComfyUI at `/data/clipwaltz-ai/models`.
 
-## Models
+## Models (verified on install, 2026-09-23)
 
-| # | Model | Component | Source (repo) | File | Size | VRAM at load | License | Local path |
-|---|-------|-----------|---------------|------|------|--------------|---------|------------|
-| 1 | LTX-Video | diffusion model | `Lightricks/LTX-Video` (Hugging Face) | `ltx-video-*.safetensors` | TBD (verify on install) | TBD (verify on install) | LTX-Video / OpenRAIL-style — **confirm license terms on the HF repo before use** | `/data/clipwaltz-ai/models/checkpoints/` |
-| 2 | T5 text encoder | text encoder | (paired with LTX-Video; PixArt/T5-XXL) | `t5xxl_*.safetensors` | TBD (verify on install) | Apache-2.0 (T5) | `/data/clipwaltz-ai/models/text_encoders/` |
+| Component | Source repo (HF) | File | Size | Local path |
+|-----------|------------------|------|------|------------|
+| Diffusion (5B TI2V) | `Comfy-Org/Wan_2.2_ComfyUI_Repackaged` | `wan2.2_ti2v_5B_fp16.safetensors` | 9.4 GB | `/data/clipwaltz-ai/models/diffusion_models/` |
+| Text encoder | `Comfy-Org/Wan_2.2_ComfyUI_Repackaged` | `umt5_xxl_fp8_e4m3fn_scaled.safetensors` | 6.3 GB | `/data/clipwaltz-ai/models/text_encoders/` |
+| VAE | `Comfy-Org/Wan_2.2_ComfyUI_Repackaged` | `wan2.2_vae.safetensors` | 1.4 GB | `/data/clipwaltz-ai/models/vae/` |
+
+**10 GB fit:** `UNETLoader.weight_dtype = fp8_e4m3fn` casts the 5B to ~5–6 GB resident; the
+umt5 text encoder is the fp8 build and is offloaded after encode. First run (704×480, 49
+frames) completed on a single RTX 3080 in ~60 s incl. model load.
+
+## Workflow
+`wan-image-to-video-v1` — graph `aiserver/workflows/wan/workflow.api.json`, logical-field map
+`workflow.map.json` (prompt→CLIPTextEncode, source_image→LoadImage, width/height→
+Wan22ImageToVideoLatent, seed→KSampler). Built from ComfyUI's bundled
+`video_wan2_2_5B_ti2v` template via `aiserver/scripts/ui2api.py`.
 
 ## Enhancement models (doc §13 — NOT installed in Phase 1)
-
-Deferred until baseline LTX generation is proven end-to-end:
-- RIFE (frame interpolation)
-- Real-ESRGAN (upscale)
-- SUPIR (detail restoration)
+Deferred until baseline is stable: RIFE (interpolation), Real-ESRGAN (upscale), SUPIR.
 
 ## Notes / owner actions
-
-- If the LTX-Video weights or the T5 encoder are **gated or require accepting a
-  license** on Hugging Face, deployment STOPS and the owner is asked to accept
-  the license / provide a token — per the standing rule, no working around gates.
-- Model binaries are re-downloadable; **this manifest is the artifact that must
-  be retained** (doc §27). Binaries are intentionally not committed to the repo.
+- The Comfy-Org repackaged Wan 2.2 files are public (not gated) — downloaded without a token.
+- Model binaries are re-downloadable; **this manifest is the retained artifact** (doc §27).
+  Binaries are intentionally not committed.
+- Variable clip length (duration→frames) is not yet wired — the workflow uses a fixed 49-frame
+  default; the provider/worker will map duration later.

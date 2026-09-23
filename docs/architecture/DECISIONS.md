@@ -4,6 +4,21 @@ Per `00_ClipWaltz_Build_Execution_Guide.md` §38. Newest first.
 
 ---
 
+## ADR-0005 — First generation model: Wan 2.2 TI2V-5B (not LTX)
+- **Date:** 2026-09-23
+- **Decision:** Use **Wan 2.2 TI2V-5B** (fp8) as the first image→video model on AISERVER, via
+  ComfyUI core's native Wan nodes. Owner ruling after the VRAM finding below.
+- **Reason:** The plan (and doc §9/§12) assumed LTX as the light/fast model, but **ComfyUI-LTXVideo
+  has moved to LTX-2.3, whose checkpoint is 22B** — impossible to load on the AISERVER's 2× RTX 3080
+  **10 GB** cards. Wan 2.2 TI2V-5B (fp8, ~5–6 GB resident) fits 10 GB with weight-dtype fp8 + offload
+  and is the doc's "baseline" family.
+- **Alternatives considered:** older LTX-Video 0.9.x 2B (fp8) — the original fast/light LTX.
+- **Impact:** Models (`wan2.2_ti2v_5B_fp16.safetensors`, `umt5_xxl_fp8_e4m3fn_scaled.safetensors`,
+  `wan2.2_vae.safetensors`) in `/data/clipwaltz-ai/models`, referenced via
+  `extra_model_paths.yaml`. Workflow id `wan-image-to-video-v1` (graph + field map committed under
+  `aiserver/workflows/wan/`). UNETLoader `weight_dtype=fp8_e4m3fn` to fit 10 GB. Verified E2E through
+  the wrapper 2026-09-23. LTX / Hunyuan deferred.
+
 ## ADR-0004 — Multi-tenant Workspace layer from the start
 - **Date:** 2026-09-23
 - **Decision:** Introduce `Workspace → Project` with `WorkspaceMember` roles up front, per the
