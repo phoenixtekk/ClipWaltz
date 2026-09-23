@@ -250,43 +250,83 @@ console.log(`[exp] ClipWaltz export worker up (queue=${EXPORT_QUEUE})`);
 // ─── Enhance worker: ffmpeg post-process a version → a new enhanced version ──────
 // Motion interpolation (minterpolate → 2× fps) and/or 2× lanczos upscale + light sharpen.
 // ffmpeg on linuxg1 (short clips). ML super-res/RIFE is a later upgrade behind the same action.
-async function processEnhance(genJobId) {
-  const [j] = await sql`select * from generation_jobs where id = ${genJobId}`;
-  if (!j) { console.warn("[enh] job gone", genJobId); return; }
-  if (j.status === "cancelled") return;
-  const req = j.request_json ?? {};
-  if (!req.sourceKey) throw new Error("no sourceKey on enhancement job");
-  await setStatus(genJobId, { status: "enhancing", progress: 40, started_at: new Date() });
-
+// ffmpeg enhancement (fast): motion interpolation and/or lanczos upscale. Returns output bytes.
+// mc_mode=obmc (no aobmc/vsbmc) is much faster than full motion-comp while still smooth.
+async function ffmpegEnhance(req) {
   const dir = mkdtempSync(join(tmpdir(), "cw-enh-"));
-  const srcPath = join(dir, "src.mp4");
-  const outPath = join(dir, "out.mp4");
   try {
+    const srcPath = join(dir, "src.mp4"), outPath = join(dir, "out.mp4");
     writeFileSync(srcPath, await getBytes(req.sourceKey));
     const filters = [];
-    // mc_mode=obmc (no aobmc/vsbmc) is much faster than full motion-comp while still smooth —
-    // keeps short-clip interpolation practical on CPU. (ML/RIFE is the later high-quality upgrade.)
     if (req.interpolate) filters.push("minterpolate=fps=48:mi_mode=mci:mc_mode=obmc");
     if (req.upscale) filters.push("scale=iw*2:ih*2:flags=lanczos", "unsharp=5:5:0.8:5:5:0.0");
     const args = ["-y", "-i", srcPath];
     if (filters.length) args.push("-vf", filters.join(","));
     args.push("-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "18", "-movflags", "+faststart", "-an", outPath);
     await run("ffmpeg", args, { maxBuffer: 1 << 26 });
-
-    const [{ maxv }] = await sql`select coalesce(max(version_number),0)::int maxv from generation_versions where project_id = ${j.project_id}`;
-    const versionNumber = (maxv ?? 0) + 1;
-    const outKey = `generations/${j.project_id}/${genJobId}/${versionNumber}.mp4`;
-    await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: outKey, Body: readFileSync(outPath), ContentType: "video/mp4" }));
-    await sql`insert into generation_versions ${sql({
-      id: randomUUID(), generation_job_id: genJobId, project_id: j.project_id, scene_id: j.scene_id ?? null,
-      version_number: versionNumber, output_key: outKey,
-      settings: { enhancedFrom: req.sourceVersionId, interpolate: !!req.interpolate, upscale: !!req.upscale },
-    })}`;
-    await setStatus(genJobId, { status: "completed", progress: 100, completed_at: new Date() });
-    console.log(`[enh] ${genJobId} done → ${outKey} (interp=${!!req.interpolate} upscale=${!!req.upscale})`);
+    return readFileSync(outPath);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+// AI enhancement: Real-ESRGAN 2× upscale on AISERVER (ComfyUI). Returns output bytes.
+async function aiUpscale(req, genJobId) {
+  const fd = new FormData();
+  fd.append("file", new Blob([await getBytes(req.sourceKey)], { type: "video/mp4" }), "src.mp4");
+  const up = await fetch(`${AISERVER_URL}/inputs`, { method: "POST", headers: aiHeaders, body: fd });
+  if (!up.ok) throw new Error(`stage /inputs ${up.status}: ${(await up.text()).slice(0, 200)}`);
+  const staged = (await up.json()).filename;
+  const sub = await fetch(`${AISERVER_URL}/jobs`, {
+    method: "POST", headers: { ...aiHeaders, "content-type": "application/json" },
+    body: JSON.stringify({ workflow: "esrgan-upscale-v1", inputs: { source_image: staged } }),
+  });
+  if (!sub.ok) throw new Error(`/jobs ${sub.status}: ${(await sub.text()).slice(0, 200)}`);
+  const providerJobId = (await sub.json()).job_id;
+  const deadline = Date.now() + JOB_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, POLL_MS));
+    const [cur] = await sql`select status from generation_jobs where id = ${genJobId}`;
+    if (cur?.status === "cancelled") { await fetch(`${AISERVER_URL}/jobs/${providerJobId}/cancel`, { method: "POST", headers: aiHeaders }).catch(() => {}); throw new Error("cancelled"); }
+    const pr = await fetch(`${AISERVER_URL}/jobs/${providerJobId}`, { headers: aiHeaders });
+    if (!pr.ok) continue;
+    const st = await pr.json();
+    if (st.status === "completed") {
+      const out = st.outputs?.[0];
+      if (!out) throw new Error("ai enhance: no output");
+      const rel = out.subfolder ? `${out.subfolder}/${out.filename}` : out.filename;
+      const dl = await fetch(`${AISERVER_URL}/outputs/${rel}`, { headers: aiHeaders });
+      if (!dl.ok) throw new Error(`/outputs ${dl.status}`);
+      return Buffer.from(await dl.arrayBuffer());
+    }
+    if (st.status === "failed") throw new Error(`ai enhance failed: ${st.error ?? "unknown"}`);
+  }
+  throw new Error("ai enhance timed out");
+}
+
+async function processEnhance(genJobId) {
+  const [j] = await sql`select * from generation_jobs where id = ${genJobId}`;
+  if (!j) { console.warn("[enh] job gone", genJobId); return; }
+  if (j.status === "cancelled") return;
+  const req = j.request_json ?? {};
+  if (!req.sourceKey) throw new Error("no sourceKey on enhancement job");
+  const ai = req.engine === "ai";
+  await setStatus(genJobId, { status: ai ? "generating" : "enhancing", progress: 40, started_at: new Date() });
+
+  const videoBytes = ai ? await aiUpscale(req, genJobId) : await ffmpegEnhance(req);
+
+  await setStatus(genJobId, { status: "uploading_output", progress: 85 });
+  const [{ maxv }] = await sql`select coalesce(max(version_number),0)::int maxv from generation_versions where project_id = ${j.project_id}`;
+  const versionNumber = (maxv ?? 0) + 1;
+  const outKey = `generations/${j.project_id}/${genJobId}/${versionNumber}.mp4`;
+  await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: outKey, Body: videoBytes, ContentType: "video/mp4" }));
+  await sql`insert into generation_versions ${sql({
+    id: randomUUID(), generation_job_id: genJobId, project_id: j.project_id, scene_id: j.scene_id ?? null,
+    version_number: versionNumber, output_key: outKey,
+    settings: { enhancedFrom: req.sourceVersionId, engine: ai ? "ai" : "ffmpeg", interpolate: !!req.interpolate, upscale: !!req.upscale },
+  })}`;
+  await setStatus(genJobId, { status: "completed", progress: 100, completed_at: new Date() });
+  console.log(`[enh] ${genJobId} done → ${outKey} (engine=${ai ? "ai" : "ffmpeg"})`);
 }
 
 const enhanceWorker = new Worker(

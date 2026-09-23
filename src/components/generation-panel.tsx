@@ -183,6 +183,7 @@ export function GenerationPanel({
 
   // Enhance state
   const [enhanceOpen, setEnhanceOpen] = useState(false);
+  const [enhanceEngine, setEnhanceEngine] = useState<"ffmpeg" | "ai">("ffmpeg");
   const [enhanceInterp, setEnhanceInterp] = useState(true);
   const [enhanceUpscale, setEnhanceUpscale] = useState(true);
 
@@ -346,7 +347,7 @@ export function GenerationPanel({
   // Enhance the selected version (ffmpeg interpolate/upscale → new version). It's an enhancement
   // generation_job, so the existing job poller tracks it and refreshes the versions on completion.
   function runEnhance() {
-    if (!enhanceInterp && !enhanceUpscale) {
+    if (enhanceEngine === "ffmpeg" && !enhanceInterp && !enhanceUpscale) {
       toast.error("Pick at least one enhancement.");
       return;
     }
@@ -355,7 +356,7 @@ export function GenerationPanel({
     setEnhanceOpen(false);
     start(async () => {
       try {
-        const jobId = await enhanceVersion({ versionId, interpolate: enhanceInterp, upscale: enhanceUpscale });
+        const jobId = await enhanceVersion({ versionId, engine: enhanceEngine, interpolate: enhanceInterp, upscale: enhanceUpscale });
         setCompareId(null);
         setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null });
         toast.message("Enhancing this version…");
@@ -706,22 +707,46 @@ export function GenerationPanel({
           {/* Inline enhance chooser — smoother motion / upscale, then confirm. */}
           {enhanceOpen ? (
             <div className="space-y-3 rounded-xl border border-[color:var(--cw-violet)]/40 bg-[color:var(--cw-violet)]/5 p-3">
-              <div className="flex flex-wrap gap-2">
-                <Chip active={enhanceInterp} onClick={() => setEnhanceInterp((v) => !v)}>
-                  Smoother motion
-                </Chip>
-                <Chip active={enhanceUpscale} onClick={() => setEnhanceUpscale((v) => !v)}>
-                  Upscale 2×
-                </Chip>
+              <div className="inline-flex rounded-lg border border-border bg-muted/50 p-0.5 text-sm font-medium">
+                {(["ffmpeg", "ai"] as const).map((e) => (
+                  <button
+                    key={e}
+                    type="button"
+                    onClick={() => setEnhanceEngine(e)}
+                    aria-pressed={enhanceEngine === e}
+                    className={cn(
+                      "rounded-md px-3 py-1.5 transition-colors",
+                      enhanceEngine === e ? "bg-[color:var(--cw-violet)] text-white shadow" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {e === "ffmpeg" ? "Fast" : "AI upscale"}
+                  </button>
+                ))}
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                Creates a new enhanced version. Smoother motion interpolates to a higher frame rate; upscale doubles the resolution.
-              </p>
+              {enhanceEngine === "ffmpeg" ? (
+                <>
+                  <div className="flex flex-wrap gap-2">
+                    <Chip active={enhanceInterp} onClick={() => setEnhanceInterp((v) => !v)}>
+                      Smoother motion
+                    </Chip>
+                    <Chip active={enhanceUpscale} onClick={() => setEnhanceUpscale((v) => !v)}>
+                      Upscale 2×
+                    </Chip>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Fast (ffmpeg): smoother motion interpolates to a higher frame rate; upscale doubles the resolution. Creates a new version.
+                  </p>
+                </>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  AI upscale: Real-ESRGAN 2× super-resolution on the GPU — sharper detail than Fast. Takes longer. Creates a new version.
+                </p>
+              )}
               <div className="flex items-center justify-end gap-1">
                 <Button variant="ghost" size="sm" onClick={() => setEnhanceOpen(false)} disabled={pending}>
                   <X className="size-3.5" /> Cancel
                 </Button>
-                <Button size="sm" onClick={runEnhance} disabled={pending || (!enhanceInterp && !enhanceUpscale)}>
+                <Button size="sm" onClick={runEnhance} disabled={pending || (enhanceEngine === "ffmpeg" && !enhanceInterp && !enhanceUpscale)}>
                   <Sparkles className="size-3.5" /> Enhance
                 </Button>
               </div>

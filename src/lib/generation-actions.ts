@@ -170,9 +170,14 @@ export async function enhanceVersion(input: {
   versionId: string;
   interpolate: boolean;
   upscale: boolean;
+  /** "ffmpeg" = fast interpolate/upscale; "ai" = Real-ESRGAN 2× upscale on AISERVER. */
+  engine?: "ffmpeg" | "ai";
 }): Promise<string> {
   const userId = await requireUserId();
-  if (!input.interpolate && !input.upscale) throw new Error("Pick at least one enhancement");
+  const engine = input.engine ?? "ffmpeg";
+  if (engine === "ffmpeg" && !input.interpolate && !input.upscale) {
+    throw new Error("Pick at least one enhancement");
+  }
   const [ver] = await db
     .select({
       id: schema.generationVersions.id,
@@ -200,6 +205,7 @@ export async function enhanceVersion(input: {
     requestJson: {
       sourceVersionId: ver.id,
       sourceKey: ver.outputKey,
+      engine,
       interpolate: input.interpolate,
       upscale: input.upscale,
     },

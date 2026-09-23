@@ -72,6 +72,11 @@ WORKFLOWS: Dict[str, Dict[str, str]] = {
         "template": "wan/workflow.t2v.api.json",
         "mapping": "wan/workflow.t2v.map.json",
     },
+    # ML enhancement: Real-ESRGAN 2x upscale of a source video (source_image = staged video file).
+    "esrgan-upscale-v1": {
+        "template": "wan/enhance.api.json",
+        "mapping": "wan/enhance.map.json",
+    },
 }
 
 app = FastAPI(title="ClipWaltz AISERVER API", version="1.0")
@@ -398,8 +403,9 @@ async def upload_input(file: UploadFile = File(...), _: None = Depends(require_t
     to pass as `source_image` in a subsequent /jobs call."""
     INPUT_DIR.mkdir(parents=True, exist_ok=True)
     ext = Path(file.filename or "").suffix.lower() or ".png"
-    if ext not in (".png", ".jpg", ".jpeg", ".webp"):
-        raise HTTPException(status_code=400, detail=f"unsupported image type {ext}")
+    # images (image-to-video source) + video (enhancement source).
+    if ext not in (".png", ".jpg", ".jpeg", ".webp", ".mp4", ".webm", ".mov"):
+        raise HTTPException(status_code=400, detail=f"unsupported input type {ext}")
     name = f"cw_{uuid.uuid4().hex[:16]}{ext}"
     dest = INPUT_DIR / name
     with dest.open("wb") as fh:

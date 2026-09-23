@@ -28,8 +28,14 @@ frames) completed on a single RTX 3080 in ~60 s incl. model load.
 Wan22ImageToVideoLatent, seed→KSampler). Built from ComfyUI's bundled
 `video_wan2_2_5B_ti2v` template via `aiserver/scripts/ui2api.py`.
 
-## Enhancement models (doc §13 — NOT installed in Phase 1)
-Deferred until baseline is stable: RIFE (interpolation), Real-ESRGAN (upscale), SUPIR.
+## Enhancement models
+| Component | File | Size | Local path | Used by |
+|-----------|------|------|------------|---------|
+| Real-ESRGAN 2× upscaler | `RealESRGAN_x2plus.pth` | 64 MB | `/data/clipwaltz-ai/models/upscale_models/` | `esrgan-upscale-v1` workflow (AI Enhance) |
+
+Enhancement workflow `esrgan-upscale-v1` (`aiserver/workflows/wan/enhance.api.json`): VHS_LoadVideo →
+ImageUpscaleWithModel(RealESRGAN_x2plus) → VHS_VideoCombine (NVENC h264). Verified E2E: 704×480 →
+1408×960 in ~20 s, no OOM. Deferred: RIFE (ML interpolation), SUPIR.
 
 ## Notes / owner actions
 - The Comfy-Org repackaged Wan 2.2 files are public (not gated) — downloaded without a token.
