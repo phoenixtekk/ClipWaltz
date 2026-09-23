@@ -175,7 +175,7 @@ export async function enhanceVersion(input: {
 }): Promise<string> {
   const userId = await requireUserId();
   const engine = input.engine ?? "ffmpeg";
-  if (engine === "ffmpeg" && !input.interpolate && !input.upscale) {
+  if (!input.interpolate && !input.upscale) {
     throw new Error("Pick at least one enhancement");
   }
   const [ver] = await db

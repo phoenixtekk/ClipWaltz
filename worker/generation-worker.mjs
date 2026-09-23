@@ -270,16 +270,16 @@ async function ffmpegEnhance(req) {
   }
 }
 
-// AI enhancement: Real-ESRGAN 2× upscale on AISERVER (ComfyUI). Returns output bytes.
-async function aiUpscale(req, genJobId) {
+// Run one AISERVER enhancement workflow on the given video bytes; returns the output bytes.
+async function runAiWorkflow(workflow, inputBytes, genJobId) {
   const fd = new FormData();
-  fd.append("file", new Blob([await getBytes(req.sourceKey)], { type: "video/mp4" }), "src.mp4");
+  fd.append("file", new Blob([inputBytes], { type: "video/mp4" }), "src.mp4");
   const up = await fetch(`${AISERVER_URL}/inputs`, { method: "POST", headers: aiHeaders, body: fd });
   if (!up.ok) throw new Error(`stage /inputs ${up.status}: ${(await up.text()).slice(0, 200)}`);
   const staged = (await up.json()).filename;
   const sub = await fetch(`${AISERVER_URL}/jobs`, {
     method: "POST", headers: { ...aiHeaders, "content-type": "application/json" },
-    body: JSON.stringify({ workflow: "esrgan-upscale-v1", inputs: { source_image: staged } }),
+    body: JSON.stringify({ workflow, inputs: { source_image: staged } }),
   });
   if (!sub.ok) throw new Error(`/jobs ${sub.status}: ${(await sub.text()).slice(0, 200)}`);
   const providerJobId = (await sub.json()).job_id;
@@ -293,15 +293,24 @@ async function aiUpscale(req, genJobId) {
     const st = await pr.json();
     if (st.status === "completed") {
       const out = st.outputs?.[0];
-      if (!out) throw new Error("ai enhance: no output");
+      if (!out) throw new Error(`${workflow}: no output`);
       const rel = out.subfolder ? `${out.subfolder}/${out.filename}` : out.filename;
       const dl = await fetch(`${AISERVER_URL}/outputs/${rel}`, { headers: aiHeaders });
       if (!dl.ok) throw new Error(`/outputs ${dl.status}`);
       return Buffer.from(await dl.arrayBuffer());
     }
-    if (st.status === "failed") throw new Error(`ai enhance failed: ${st.error ?? "unknown"}`);
+    if (st.status === "failed") throw new Error(`${workflow} failed: ${st.error ?? "unknown"}`);
   }
-  throw new Error("ai enhance timed out");
+  throw new Error(`${workflow} timed out`);
+}
+
+// AI enhancement on AISERVER: RIFE interpolation and/or Real-ESRGAN upscale (chained when both).
+async function aiEnhance(req, genJobId) {
+  let bytes = null;
+  if (req.interpolate) bytes = await runAiWorkflow("rife-interpolate-v1", await getBytes(req.sourceKey), genJobId);
+  if (req.upscale) bytes = await runAiWorkflow("esrgan-upscale-v1", bytes ?? (await getBytes(req.sourceKey)), genJobId);
+  if (!bytes) bytes = await runAiWorkflow("esrgan-upscale-v1", await getBytes(req.sourceKey), genJobId); // default: upscale
+  return bytes;
 }
 
 async function processEnhance(genJobId) {
@@ -313,7 +322,7 @@ async function processEnhance(genJobId) {
   const ai = req.engine === "ai";
   await setStatus(genJobId, { status: ai ? "generating" : "enhancing", progress: 40, started_at: new Date() });
 
-  const videoBytes = ai ? await aiUpscale(req, genJobId) : await ffmpegEnhance(req);
+  const videoBytes = ai ? await aiEnhance(req, genJobId) : await ffmpegEnhance(req);
 
   await setStatus(genJobId, { status: "uploading_output", progress: 85 });
   const [{ maxv }] = await sql`select coalesce(max(version_number),0)::int maxv from generation_versions where project_id = ${j.project_id}`;

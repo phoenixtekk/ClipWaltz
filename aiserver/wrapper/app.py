@@ -77,6 +77,11 @@ WORKFLOWS: Dict[str, Dict[str, str]] = {
         "template": "wan/enhance.api.json",
         "mapping": "wan/enhance.map.json",
     },
+    # ML enhancement: RIFE 2x frame interpolation (smoother motion) of a source video.
+    "rife-interpolate-v1": {
+        "template": "wan/rife.api.json",
+        "mapping": "wan/rife.map.json",
+    },
 }
 
 app = FastAPI(title="ClipWaltz AISERVER API", version="1.0")

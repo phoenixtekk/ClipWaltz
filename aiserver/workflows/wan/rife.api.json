@@ -1,0 +1,47 @@
+{
+  "2": {
+    "class_type": "VHS_LoadVideo",
+    "inputs": {
+      "video": "rifetest.mp4",
+      "force_rate": 0,
+      "custom_width": 0,
+      "custom_height": 0,
+      "frame_load_cap": 0,
+      "skip_first_frames": 0,
+      "select_every_nth": 1
+    }
+  },
+  "5": {
+    "class_type": "RIFE VFI",
+    "inputs": {
+      "frames": [
+        "2",
+        0
+      ],
+      "ckpt_name": "rife47.pth",
+      "clear_cache_after_n_frames": 10,
+      "multiplier": 2,
+      "fast_mode": true,
+      "ensemble": false,
+      "scale_factor": 1.0,
+      "dtype": "float16",
+      "torch_compile": false,
+      "batch_size": 4
+    }
+  },
+  "4": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "images": [
+        "5",
+        0
+      ],
+      "frame_rate": 48,
+      "loop_count": 0,
+      "filename_prefix": "clipwaltz/rifetest",
+      "format": "video/nvenc_h264-mp4",
+      "pingpong": false,
+      "save_output": true
+    }
+  }
+}

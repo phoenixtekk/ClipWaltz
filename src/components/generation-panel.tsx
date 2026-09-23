@@ -347,7 +347,7 @@ export function GenerationPanel({
   // Enhance the selected version (ffmpeg interpolate/upscale → new version). It's an enhancement
   // generation_job, so the existing job poller tracks it and refreshes the versions on completion.
   function runEnhance() {
-    if (enhanceEngine === "ffmpeg" && !enhanceInterp && !enhanceUpscale) {
+    if (!enhanceInterp && !enhanceUpscale) {
       toast.error("Pick at least one enhancement.");
       return;
     }
@@ -723,30 +723,24 @@ export function GenerationPanel({
                   </button>
                 ))}
               </div>
-              {enhanceEngine === "ffmpeg" ? (
-                <>
-                  <div className="flex flex-wrap gap-2">
-                    <Chip active={enhanceInterp} onClick={() => setEnhanceInterp((v) => !v)}>
-                      Smoother motion
-                    </Chip>
-                    <Chip active={enhanceUpscale} onClick={() => setEnhanceUpscale((v) => !v)}>
-                      Upscale 2×
-                    </Chip>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    Fast (ffmpeg): smoother motion interpolates to a higher frame rate; upscale doubles the resolution. Creates a new version.
-                  </p>
-                </>
-              ) : (
-                <p className="text-[11px] text-muted-foreground">
-                  AI upscale: Real-ESRGAN 2× super-resolution on the GPU — sharper detail than Fast. Takes longer. Creates a new version.
-                </p>
-              )}
+              <div className="flex flex-wrap gap-2">
+                <Chip active={enhanceInterp} onClick={() => setEnhanceInterp((v) => !v)}>
+                  Smoother motion
+                </Chip>
+                <Chip active={enhanceUpscale} onClick={() => setEnhanceUpscale((v) => !v)}>
+                  Upscale 2×
+                </Chip>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {enhanceEngine === "ai"
+                  ? "AI (GPU): smoother motion uses RIFE frame interpolation; upscale uses Real-ESRGAN 2× super-resolution. Best quality, takes longer. Creates a new version."
+                  : "Fast (ffmpeg): smoother motion interpolates to a higher frame rate; upscale doubles the resolution. Creates a new version."}
+              </p>
               <div className="flex items-center justify-end gap-1">
                 <Button variant="ghost" size="sm" onClick={() => setEnhanceOpen(false)} disabled={pending}>
                   <X className="size-3.5" /> Cancel
                 </Button>
-                <Button size="sm" onClick={runEnhance} disabled={pending || (enhanceEngine === "ffmpeg" && !enhanceInterp && !enhanceUpscale)}>
+                <Button size="sm" onClick={runEnhance} disabled={pending || (!enhanceInterp && !enhanceUpscale)}>
                   <Sparkles className="size-3.5" /> Enhance
                 </Button>
               </div>
