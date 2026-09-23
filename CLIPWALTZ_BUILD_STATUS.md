@@ -23,14 +23,17 @@ Assembler (music-video) product is separate and shipping — see [ADR-0001](docs
 ## Completed
 - [x] Phase 0 — build-gap report + owner decisions + ADRs
 - [x] Live AISERVER + backend-reachability validation
+- [x] Phase 1 schema — migration 0028 (10 new tables + workspace_id) applied to **dev AND prod** (10/10 verified)
+- [x] Redis provisioned on linuxg1 (127.0.0.1:6379, localhost-only, verified PONG)
 
 ## In Progress
-- [ ] Phase 1 — new-entity schema (workspaces, workspace_members, generation_jobs,
-      generation_versions, export_jobs, scenes, templates, model_registry, workflow_registry)
+- [ ] Phase 2 — AISERVER ComfyUI inference node (ffmpeg + py3.12 env + ComfyUI + LTX image→video
+      workflow + FastAPI wrapper, localhost/LAN-only) — DevOps build running on .158
+- [ ] Phase 1 app-layer — queue module (BullMQ→Redis) + generation-job service + workspace backfill
 
-## Blocked
-- [ ] Redis provisioning on linuxg1 (127.0.0.1:6379) — awaiting owner go-ahead (new service on prod)
-- [ ] Phase 2 (AISERVER/ComfyUI) — blocked by ffmpeg + Python-env + ComfyUI install on .158
+## Blocked / owner-action
+- [ ] Direct-signed-URL storage edge (ADR-0003) — needs owner-created CF public hostname when Phase 4 lands
+- [ ] AISERVER wrapper public exposure (if ever needed) — owner CF Access, per fleet rule 1a
 
 ## Next (dependency order)
 1. Read doc 01 data model + doc 05 §6 entities; design + write Drizzle migrations for the new
