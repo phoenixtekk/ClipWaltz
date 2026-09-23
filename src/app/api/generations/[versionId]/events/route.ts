@@ -10,12 +10,13 @@ const TERMINAL = new Set(["completed", "failed", "cancelled"]);
 // SSE stream of a generation job's status/progress (owner-only). One persistent connection
 // replaces client polling: the server reads the DB on a short interval and pushes changes,
 // closing when the job reaches a terminal state (or the client disconnects).
-export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const { id } = await ctx.params;
+// NOTE: the [versionId] slug is shared with the sibling /watch route (Next requires one slug name
+// per path); here the segment value is a generation-JOB id.
+export async function GET(req: Request, ctx: { params: Promise<{ versionId: string }> }) {
+  const { versionId: id } = await ctx.params;
   const userId = await getAuthUserId();
   if (!userId) return new NextResponse("unauthorized", { status: 401 });
 
-  // Owner check once up front.
   const [own] = await db
     .select({ ownerId: schema.projects.ownerId })
     .from(schema.generationJobs)
@@ -63,7 +64,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       };
 
       req.signal.addEventListener("abort", close);
-      void tick(); // emit current state immediately
+      void tick();
       timer = setInterval(tick, 1500);
     },
   });
