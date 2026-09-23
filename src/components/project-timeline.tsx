@@ -303,12 +303,20 @@ export function ProjectTimeline({
             <div key={a.id} className="flex items-stretch gap-1">
               <div
                 draggable={trim?.id !== a.id}
-                onDragStart={(e) => { if (trim) { e.preventDefault(); return; } setDragId(a.id); }}
+                onDragStart={(e) => { if (trim) { e.preventDefault(); return; } setDragId(a.id); e.dataTransfer.effectAllowed = "move"; }}
                 onDragEnd={() => { setDragId(null); setOverIdx(null); }}
+                // Drop ONTO a clip: the cursor's half decides before/after; the gap indicator shows where it lands.
+                onDragOver={(e) => {
+                  if (dragId == null || dragId === a.id) return;
+                  e.preventDefault();
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setOverIdx(e.clientX > r.left + r.width / 2 ? i + 1 : i);
+                }}
+                onDrop={(e) => { if (dragId == null) return; e.preventDefault(); onDrop(overIdx ?? i); }}
                 style={{ width: blockWidth(a) }}
                 className={cn(
                   "group relative h-20 shrink-0 cursor-grab overflow-hidden rounded-md border border-border bg-muted active:cursor-grabbing",
-                  dragId === a.id && "opacity-40",
+                  dragId === a.id && "opacity-40 ring-2 ring-[color:var(--cw-violet)]",
                 )}
               >
                 {a.sourceFormat && a.conversionState !== "ready" && a.conversionState !== "failed" ? (
@@ -319,10 +327,10 @@ export function ProjectTimeline({
                 ) : a.conversionState === "failed" ? (
                   <div className="flex size-full items-center justify-center text-[9px] font-semibold text-destructive">360 ✕</div>
                 ) : a.uploadState === "uploaded" && a.kind === "video" ? (
-                  <video src={`/api/projects/${projectId}/assets/${a.id}#t=0.1`} muted playsInline preload="metadata" onLoadedMetadata={(e) => setDuration(a.id, e.currentTarget.duration)} className="size-full object-cover" />
+                  <video src={`/api/projects/${projectId}/assets/${a.id}#t=0.1`} muted playsInline preload="metadata" draggable={false} onDragStart={(e) => e.preventDefault()} onLoadedMetadata={(e) => setDuration(a.id, e.currentTarget.duration)} className="pointer-events-none size-full object-cover" />
                 ) : a.uploadState === "uploaded" ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={`/api/projects/${projectId}/assets/${a.id}`} alt="" className="size-full object-cover" />
+                  <img src={`/api/projects/${projectId}/assets/${a.id}`} alt="" draggable={false} onDragStart={(e) => e.preventDefault()} className="pointer-events-none size-full object-cover" />
                 ) : (
                   <div className="flex size-full items-center justify-center">
                     {a.kind === "video" ? <Film className="size-4 text-muted-foreground" /> : <ImageIcon className="size-4 text-muted-foreground" />}
@@ -361,16 +369,16 @@ export function ProjectTimeline({
                 >
                   {clipSec(a).toFixed(clipSec(a) % 1 ? 1 : 0)}s{isTrimmed(a) ? " ✂" : ""}
                 </span>
-                {/* Preview this specific clip + set its duration */}
+                {/* Preview this specific clip + set its duration. A centered control (NOT a full-cover
+                    overlay) so the rest of the clip surface stays grabbable for drag-to-reorder. */}
                 <button
                   type="button"
                   onClick={() => setClip(a)}
+                  onPointerDown={(e) => e.stopPropagation()}
                   aria-label={`Preview and time ${a.name}`}
-                  className="absolute inset-0 z-10 grid place-items-center bg-black/0 opacity-0 transition-opacity hover:bg-black/30 group-hover:opacity-100"
+                  className="absolute left-1/2 top-1/2 z-10 grid size-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-background/80 opacity-0 backdrop-blur-sm transition-opacity hover:bg-background group-hover:opacity-100"
                 >
-                  <span className="grid size-7 place-items-center rounded-full bg-background/80 backdrop-blur-sm">
-                    <Play className="size-3.5 translate-x-0.5 fill-foreground text-foreground" />
-                  </span>
+                  <Play className="size-3.5 translate-x-0.5 fill-foreground text-foreground" />
                 </button>
                 {/* Drag-to-trim handles (videos): dim the trimmed-off ends, drag the violet bars. */}
                 {trimmable(a) ? (() => {
