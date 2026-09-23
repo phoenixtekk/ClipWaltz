@@ -55,8 +55,13 @@ Assembler (music-video) product is separate and shipping — see [ADR-0001](docs
       **The full path is live: Generate tab → createGenerationJob → BullMQ → worker → AISERVER →
       MinIO → version browser.** (Backend E2E proven earlier; each UI link verified in code+build.)
 
+- [x] **Variable clip length** (2026-09-23): worker converts durationSec→Wan frames (24fps, 4n+1,
+      clamped 1–12s), wrapper accepts `length`, workflow maps it. Verified E2E: 3s→3.04s/73f,
+      8s→8.04s/193f (no OOM). Deployed.
+
 ## Remaining (not yet built)
-- [ ] Variable clip length (duration→frames) — fixed length default for now.
+- [ ] Generation: text-to-video workflow; enhancement + export-as-job; workspace-scoped auth;
+      realtime SSE status; version browser actions (compare/duplicate/enhance/export).
 - [ ] Workspace-scoped authorization (queries still owner-scoped); enhancement + export-as-job
       phases; text-to-video workflow; realtime SSE status (polling works today).
 
