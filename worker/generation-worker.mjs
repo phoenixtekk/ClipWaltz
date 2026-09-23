@@ -304,11 +304,13 @@ async function runAiWorkflow(workflow, inputBytes, genJobId) {
   throw new Error(`${workflow} timed out`);
 }
 
-// AI enhancement on AISERVER: RIFE interpolation and/or Real-ESRGAN upscale (chained when both).
+// AI enhancement on AISERVER: Real-ESRGAN upscale and/or RIFE interpolation.
+// ORDER MATTERS: upscale first, then interpolate — RIFE must be LAST so its doubled frame rate
+// survives to the final encode (running ESRGAN last would re-encode at its own fps and drop it).
 async function aiEnhance(req, genJobId) {
   let bytes = null;
-  if (req.interpolate) bytes = await runAiWorkflow("rife-interpolate-v1", await getBytes(req.sourceKey), genJobId);
-  if (req.upscale) bytes = await runAiWorkflow("esrgan-upscale-v1", bytes ?? (await getBytes(req.sourceKey)), genJobId);
+  if (req.upscale) bytes = await runAiWorkflow("esrgan-upscale-v1", await getBytes(req.sourceKey), genJobId);
+  if (req.interpolate) bytes = await runAiWorkflow("rife-interpolate-v1", bytes ?? (await getBytes(req.sourceKey)), genJobId);
   if (!bytes) bytes = await runAiWorkflow("esrgan-upscale-v1", await getBytes(req.sourceKey), genJobId); // default: upscale
   return bytes;
 }
