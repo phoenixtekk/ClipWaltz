@@ -11,6 +11,8 @@ import {
   Star,
   Check,
   Film,
+  Trash2,
+  Columns2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
@@ -21,6 +23,7 @@ import {
   getGenerationJob,
   cancelGenerationJob,
   listGenerationVersions,
+  deleteGenerationVersion,
   type GenerationVersionItem,
 } from "@/lib/generation-actions";
 
@@ -129,6 +132,7 @@ export function GenerationPanel({
   const [pending, start] = useTransition();
   const [versions, setVersions] = useState<GenerationVersionItem[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
+  const [compareId, setCompareId] = useState<string | null>(null);
 
   const refreshVersions = useCallback(async () => {
     try {
@@ -235,7 +239,30 @@ export function GenerationPanel({
     });
   }
 
+  // Toggle a version into the compare slot (side-by-side against the selected one).
+  function toggleCompare(id: string) {
+    setCompareId((cur) => (cur === id ? null : id));
+    if (!selectedVersionId) setSelectedVersionId(id);
+  }
+
+  // Delete a version (row + MinIO object), clearing it from selection/compare.
+  function removeVersion(id: string) {
+    if (!window.confirm("Delete this version? The video is removed permanently.")) return;
+    deleteGenerationVersion(id)
+      .then(async () => {
+        if (selectedVersionId === id) setSelectedVersionId(null);
+        if (compareId === id) setCompareId(null);
+        await refreshVersions();
+        toast.success("Version deleted.");
+      })
+      .catch((e) => toast.error((e as Error).message || "Could not delete the version."));
+  }
+
   const selected = versions.find((v) => v.id === selectedVersionId) ?? null;
+  const compare =
+    compareId && compareId !== selectedVersionId
+      ? versions.find((v) => v.id === compareId) ?? null
+      : null;
 
   return (
     <div className="space-y-6">
@@ -506,27 +533,52 @@ export function GenerationPanel({
       {/* ── Preview + Version Browser (§12) ──────────────────────────────── */}
       {selected && selected.hasOutput ? (
         <section className="space-y-2">
-          <h3 className="text-sm font-semibold">Preview</h3>
-          <div className="overflow-hidden rounded-xl border border-border bg-black">
-            <video
-              key={selected.id}
-              src={`/api/generations/${selected.id}/watch`}
-              controls
-              autoPlay
-              playsInline
-              className="max-h-[60vh] w-full"
-            />
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold">{compare ? "Compare" : "Preview"}</h3>
+            {compare ? (
+              <Button variant="ghost" size="sm" onClick={() => setCompareId(null)}>
+                <X className="size-3.5" /> Exit compare
+              </Button>
+            ) : null}
           </div>
-          <p className="text-xs text-muted-foreground">
-            Version {selected.versionNumber} · {relTime(selected.createdAt)}
-          </p>
+          {compare && compare.hasOutput ? (
+            <div className="grid grid-cols-2 gap-2">
+              {[selected, compare].map((v) => (
+                <div key={v.id} className="space-y-1">
+                  <div className="overflow-hidden rounded-xl border border-border bg-black">
+                    <video key={v.id} src={`/api/generations/${v.id}/watch`} controls playsInline className="max-h-[50vh] w-full" />
+                  </div>
+                  <p className="text-center text-xs font-medium text-muted-foreground">v{v.versionNumber} · {relTime(v.createdAt)}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <>
+              <div className="overflow-hidden rounded-xl border border-border bg-black">
+                <video
+                  key={selected.id}
+                  src={`/api/generations/${selected.id}/watch`}
+                  controls
+                  autoPlay
+                  playsInline
+                  className="max-h-[60vh] w-full"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Version {selected.versionNumber} · {relTime(selected.createdAt)}
+              </p>
+            </>
+          )}
         </section>
       ) : null}
 
       <VersionBrowser
         versions={versions}
         selectedId={selectedVersionId}
+        compareId={compareId}
         onSelect={setSelectedVersionId}
+        onCompare={toggleCompare}
+        onDelete={removeVersion}
       />
     </div>
   );
@@ -560,15 +612,22 @@ function GenerationProgress({ job, onCancel }: { job: Job; onCancel: () => void 
   );
 }
 
-/** §12 Version browser — grid of generated clips, newest first. Selecting one shows it above. */
+/** §12 Version browser — grid of generated clips, newest first. Click to preview; hover for
+    Compare (side-by-side) and Delete. */
 function VersionBrowser({
   versions,
   selectedId,
+  compareId,
   onSelect,
+  onCompare,
+  onDelete,
 }: {
   versions: GenerationVersionItem[];
   selectedId: string | null;
+  compareId: string | null;
   onSelect: (id: string) => void;
+  onCompare: (id: string) => void;
+  onDelete: (id: string) => void;
 }) {
   return (
     <section className="space-y-3">
@@ -590,19 +649,18 @@ function VersionBrowser({
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {versions.map((v) => {
             const active = v.id === selectedId;
+            const comparing = v.id === compareId;
             return (
-              <button
+              <div
                 key={v.id}
-                type="button"
-                onClick={() => v.hasOutput && onSelect(v.id)}
-                disabled={!v.hasOutput}
-                aria-pressed={active}
                 className={cn(
-                  "group relative flex aspect-video flex-col items-center justify-center gap-1 overflow-hidden rounded-xl border-2 bg-muted transition-all",
+                  "group relative flex aspect-video items-center justify-center overflow-hidden rounded-xl border-2 bg-muted transition-all",
                   active
                     ? "border-[color:var(--cw-violet)] ring-2 ring-[color:var(--cw-violet)]/30"
-                    : "border-transparent hover:border-border",
-                  !v.hasOutput && "cursor-default opacity-70",
+                    : comparing
+                      ? "border-sky-400 ring-2 ring-sky-400/30"
+                      : "border-transparent hover:border-border",
+                  !v.hasOutput && "opacity-70",
                 )}
               >
                 {v.hasOutput ? (
@@ -611,37 +669,64 @@ function VersionBrowser({
                     muted
                     playsInline
                     preload="metadata"
-                    className="absolute inset-0 size-full object-cover"
+                    className="pointer-events-none absolute inset-0 size-full object-cover"
                   />
                 ) : (
                   <Loader2 className="size-5 animate-spin text-muted-foreground" />
                 )}
 
-                {/* play affordance on hover for ready clips */}
+                {/* click-to-preview layer (below the hover action buttons) */}
                 {v.hasOutput ? (
-                  <span className="absolute inset-0 z-10 grid place-items-center bg-black/0 transition-colors group-hover:bg-black/25">
+                  <button
+                    type="button"
+                    onClick={() => onSelect(v.id)}
+                    aria-pressed={active}
+                    aria-label={`Preview version ${v.versionNumber}`}
+                    className="absolute inset-0 z-10 grid place-items-center bg-black/0 transition-colors group-hover:bg-black/25"
+                  >
                     <span className="grid size-8 place-items-center rounded-full bg-background/80 opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100">
                       <Play className="size-4 translate-x-0.5 fill-foreground text-foreground" />
                     </span>
-                  </span>
+                  </button>
                 ) : null}
 
-                {/* meta row */}
-                <span className="absolute left-1.5 top-1.5 z-20 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                {/* hover actions: compare + delete */}
+                {v.hasOutput ? (
+                  <div className="absolute right-1.5 top-1.5 z-30 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                    <button
+                      type="button"
+                      onClick={() => onCompare(v.id)}
+                      aria-pressed={comparing}
+                      title={comparing ? "Stop comparing" : "Compare"}
+                      className={cn(
+                        "grid size-6 place-items-center rounded-md text-white shadow",
+                        comparing ? "bg-sky-500" : "bg-black/70 hover:bg-sky-500",
+                      )}
+                    >
+                      <Columns2 className="size-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDelete(v.id)}
+                      title="Delete version"
+                      className="grid size-6 place-items-center rounded-md bg-black/70 text-white shadow hover:bg-destructive"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
+                ) : null}
+
+                {/* meta */}
+                <span className="pointer-events-none absolute left-1.5 top-1.5 z-20 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">
                   v{v.versionNumber}
                 </span>
                 {v.favorite ? (
-                  <Star className="absolute right-1.5 top-1.5 z-20 size-3.5 fill-amber-400 text-amber-400" />
+                  <Star className="pointer-events-none absolute left-1.5 bottom-1.5 z-20 size-3.5 fill-amber-400 text-amber-400" />
                 ) : null}
-                {v.selected ? (
-                  <span className="absolute right-1.5 bottom-1.5 z-20 grid size-4 place-items-center rounded-full bg-[color:var(--cw-violet)] text-white">
-                    <Check className="size-3" />
-                  </span>
-                ) : null}
-                <span className="absolute left-1.5 bottom-1.5 z-20 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
+                <span className="pointer-events-none absolute right-1.5 bottom-1.5 z-20 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
                   {v.hasOutput ? relTime(v.createdAt) : "Processing…"}
                 </span>
-              </button>
+              </div>
             );
           })}
         </div>

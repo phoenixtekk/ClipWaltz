@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
 import { enqueueGeneration, generationQueue } from "./queue";
+import { deleteObject } from "./storage";
 
 export type GenerationJobType = "text_to_video" | "image_to_video" | "montage" | "enhancement";
 
@@ -115,6 +116,25 @@ export async function listGenerationVersions(projectId: string): Promise<Generat
     favorite: r.favorite,
     createdAt: r.createdAt.toISOString(),
   }));
+}
+
+/** Delete a generated version (owner-checked): its DB row + the MinIO output object. */
+export async function deleteGenerationVersion(versionId: string): Promise<void> {
+  const userId = await requireUserId();
+  const [row] = await db
+    .select({
+      id: schema.generationVersions.id,
+      key: schema.generationVersions.outputKey,
+      projectId: schema.generationVersions.projectId,
+      ownerId: schema.projects.ownerId,
+    })
+    .from(schema.generationVersions)
+    .innerJoin(schema.projects, eq(schema.generationVersions.projectId, schema.projects.id))
+    .where(eq(schema.generationVersions.id, versionId));
+  if (!row || row.ownerId !== userId) throw new Error("Version not found");
+  await db.delete(schema.generationVersions).where(eq(schema.generationVersions.id, versionId));
+  if (row.key) await deleteObject(row.key).catch(() => {});
+  revalidatePath(`/projects/${row.projectId}/edit`);
 }
 
 /** Fetch a generation job (owner-checked) — for status polling in the editor. */
