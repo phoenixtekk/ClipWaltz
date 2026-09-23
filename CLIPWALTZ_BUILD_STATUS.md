@@ -59,9 +59,13 @@ Assembler (music-video) product is separate and shipping — see [ADR-0001](docs
       clamped 1–12s), wrapper accepts `length`, workflow maps it. Verified E2E: 3s→3.04s/73f,
       8s→8.04s/193f (no OOM). Deployed.
 
+- [x] **Text-to-video** (2026-09-23): Wan 2.2 TI2V-5B does both modes (start_image optional).
+      `wan-text-to-video-v1` workflow + wrapper registry; UI "From image / From text" toggle.
+      Verified E2E through the worker (prompt→MP4, no image, ~80s). Deployed.
+
 ## Remaining (not yet built)
-- [ ] Generation: text-to-video workflow; enhancement + export-as-job; workspace-scoped auth;
-      realtime SSE status; version browser actions (compare/duplicate/enhance/export).
+- [ ] Generation: enhancement + export-as-job; workspace-scoped auth; realtime SSE status;
+      version browser actions (compare/duplicate/enhance/export).
 - [ ] Workspace-scoped authorization (queries still owner-scoped); enhancement + export-as-job
       phases; text-to-video workflow; realtime SSE status (polling works today).
 
