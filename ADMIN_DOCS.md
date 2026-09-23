@@ -68,8 +68,13 @@ See [`env.example`](env.example) for the full list. Groups:
 - **Object storage:** MinIO on linuxg7 at `192.168.166.169:9000` (LAN), bucket `clipwaltz` (versioning on), accessed via a **bucket-scoped service account** (least privilege; not the root key). Keys in `.env.local`/`_keys`. Never recursive-delete the bucket (documented incident on the fleet). Uploads are proxied through `/api/projects/[id]/assets` (MinIO stays off the public internet).
 - **Render pool:** FFmpeg on the AI box; keep renders off the shared linuxg web hosts (they throttle transcoding).
 - **Proxied media (music preview, video watch, downloads):** all media is served **through the
-  app** from MinIO (`/api/music/*`, `/api/renders/*/watch|download`, `/api/media/*`,
+  app** from MinIO (`/api/music/*`, `/api/renders/*/watch|download`,
   `/api/projects/*/assets/*`) so MinIO stays off the public internet, via `storage.serveObject()`.
+  (`/api/media/*` was removed with the Media Library, 2026-09-22.)
+- **S3 socket pool:** the AWS SDK default keep-alive pool is 50 sockets; bursty MinIO traffic queued
+  past it (`socket usage at capacity=50`). Both the app (`src/lib/storage.ts`) and the render worker
+  (`worker/render-worker.mjs`) use an explicit `NodeHttpHandler` with `maxSockets` from
+  **`S3_MAX_SOCKETS`** (default **256**). Raise the env var on either process if the warning returns.
   **The Content-Length gotcha:** a streamed web `ReadableStream` body **without** a `Content-Length`
   hangs on Next 16 (response never flushes; `curl` gets code 000). The earlier fix "solved" this by
   buffering the whole object — which then let one large download (an 8 GB `.insv`, a big render, or
