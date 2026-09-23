@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Download,
   Clapperboard,
+  Bookmark,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
@@ -30,6 +31,8 @@ import {
   deleteGenerationVersion,
   regenerateFromVersion,
   enhanceVersion,
+  toggleVersionFavorite,
+  setVersionSelected,
   type GenerationVersionItem,
 } from "@/lib/generation-actions";
 import {
@@ -364,6 +367,16 @@ export function GenerationPanel({
         toast.error((e as Error).message || "Could not start enhancement.");
       }
     });
+  }
+
+  // Toggle favorite / set the project's selected pick, then refresh the list.
+  function favVersion(id: string) {
+    setVersions((cur) => cur.map((v) => (v.id === id ? { ...v, favorite: !v.favorite } : v))); // optimistic
+    toggleVersionFavorite(id).then(() => refreshVersions()).catch(() => { void refreshVersions(); toast.error("Could not update favorite."); });
+  }
+  function pickVersion(id: string) {
+    setVersions((cur) => cur.map((v) => ({ ...v, selected: v.id === id }))); // optimistic (one pick/project)
+    setVersionSelected(id).then(() => refreshVersions()).catch(() => { void refreshVersions(); toast.error("Could not set the pick."); });
   }
 
   const selected = versions.find((v) => v.id === selectedVersionId) ?? null;
@@ -839,6 +852,8 @@ export function GenerationPanel({
         onSelect={setSelectedVersionId}
         onCompare={toggleCompare}
         onDelete={removeVersion}
+        onFavorite={favVersion}
+        onPick={pickVersion}
       />
 
       {exports.length > 0 ? <ExportCenter exports={exports} onDelete={removeExport} /> : null}
@@ -954,6 +969,8 @@ function VersionBrowser({
   onSelect,
   onCompare,
   onDelete,
+  onFavorite,
+  onPick,
 }: {
   versions: GenerationVersionItem[];
   selectedId: string | null;
@@ -961,6 +978,8 @@ function VersionBrowser({
   onSelect: (id: string) => void;
   onCompare: (id: string) => void;
   onDelete: (id: string) => void;
+  onFavorite: (id: string) => void;
+  onPick: (id: string) => void;
 }) {
   return (
     <section className="space-y-3">
@@ -1023,9 +1042,33 @@ function VersionBrowser({
                   </button>
                 ) : null}
 
-                {/* hover actions: compare + delete */}
+                {/* hover actions: favorite, pick, compare, delete */}
                 {v.hasOutput ? (
                   <div className="absolute right-1.5 top-1.5 z-30 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                    <button
+                      type="button"
+                      onClick={() => onFavorite(v.id)}
+                      aria-pressed={v.favorite}
+                      title={v.favorite ? "Unfavorite" : "Favorite"}
+                      className={cn(
+                        "grid size-6 place-items-center rounded-md text-white shadow",
+                        v.favorite ? "bg-amber-500" : "bg-black/70 hover:bg-amber-500",
+                      )}
+                    >
+                      <Star className={cn("size-3.5", v.favorite && "fill-white")} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onPick(v.id)}
+                      aria-pressed={v.selected}
+                      title={v.selected ? "This is the pick" : "Set as pick"}
+                      className={cn(
+                        "grid size-6 place-items-center rounded-md text-white shadow",
+                        v.selected ? "bg-[color:var(--cw-violet)]" : "bg-black/70 hover:bg-[color:var(--cw-violet)]",
+                      )}
+                    >
+                      <Bookmark className={cn("size-3.5", v.selected && "fill-white")} />
+                    </button>
                     <button
                       type="button"
                       onClick={() => onCompare(v.id)}
@@ -1050,8 +1093,11 @@ function VersionBrowser({
                 ) : null}
 
                 {/* meta */}
-                <span className="pointer-events-none absolute left-1.5 top-1.5 z-20 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                <span className="pointer-events-none absolute left-1.5 top-1.5 z-20 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">
                   v{v.versionNumber}
+                  {v.selected ? (
+                    <span className="flex items-center gap-0.5 text-[color:var(--cw-violet)]"><Bookmark className="size-2.5 fill-current" /> Pick</span>
+                  ) : null}
                 </span>
                 {v.favorite ? (
                   <Star className="pointer-events-none absolute left-1.5 bottom-1.5 z-20 size-3.5 fill-amber-400 text-amber-400" />

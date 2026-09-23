@@ -215,6 +215,51 @@ export async function enhanceVersion(input: {
   return id;
 }
 
+// Owner-check a version and return its project id (shared guard for favorite/select).
+async function ownedVersion(versionId: string, userId: string) {
+  const [row] = await db
+    .select({
+      id: schema.generationVersions.id,
+      projectId: schema.generationVersions.projectId,
+      favorite: schema.generationVersions.favorite,
+      ownerId: schema.projects.ownerId,
+    })
+    .from(schema.generationVersions)
+    .innerJoin(schema.projects, eq(schema.generationVersions.projectId, schema.projects.id))
+    .where(eq(schema.generationVersions.id, versionId));
+  if (!row || row.ownerId !== userId) throw new Error("Version not found");
+  return row;
+}
+
+/** Toggle a version's favorite flag (owner-checked). */
+export async function toggleVersionFavorite(versionId: string): Promise<void> {
+  const userId = await requireUserId();
+  const row = await ownedVersion(versionId, userId);
+  await db
+    .update(schema.generationVersions)
+    .set({ favorite: !row.favorite })
+    .where(eq(schema.generationVersions.id, versionId));
+  revalidatePath(`/projects/${row.projectId}/edit`);
+}
+
+/**
+ * Mark a version as the project's selected/preferred pick (owner-checked). One pick per project:
+ * setting this clears `selected` on the project's other versions.
+ */
+export async function setVersionSelected(versionId: string): Promise<void> {
+  const userId = await requireUserId();
+  const row = await ownedVersion(versionId, userId);
+  await db
+    .update(schema.generationVersions)
+    .set({ selected: false })
+    .where(eq(schema.generationVersions.projectId, row.projectId));
+  await db
+    .update(schema.generationVersions)
+    .set({ selected: true })
+    .where(eq(schema.generationVersions.id, versionId));
+  revalidatePath(`/projects/${row.projectId}/edit`);
+}
+
 /** Delete a generated version (owner-checked): its DB row + the MinIO output object. */
 export async function deleteGenerationVersion(versionId: string): Promise<void> {
   const userId = await requireUserId();
