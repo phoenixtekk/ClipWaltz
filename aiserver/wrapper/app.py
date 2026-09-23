@@ -68,6 +68,10 @@ WORKFLOWS: Dict[str, Dict[str, str]] = {
         "template": "wan/workflow.api.json",
         "mapping": "wan/workflow.map.json",
     },
+    "wan-text-to-video-v1": {
+        "template": "wan/workflow.t2v.api.json",
+        "mapping": "wan/workflow.t2v.map.json",
+    },
 }
 
 app = FastAPI(title="ClipWaltz AISERVER API", version="1.0")

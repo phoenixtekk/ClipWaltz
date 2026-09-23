@@ -24,8 +24,9 @@ import {
   type GenerationVersionItem,
 } from "@/lib/generation-actions";
 
-// Only one workflow exists today: Wan image→video. The panel therefore requires a source photo.
-const WORKFLOW = "wan-image-to-video-v1";
+// Wan 2.2 TI2V-5B drives both modes. Image→video needs a source photo; text→video needs a prompt.
+const WORKFLOW_I2V = "wan-image-to-video-v1";
+const WORKFLOW_T2V = "wan-text-to-video-v1";
 
 // §9 Style chips + §9 Camera picker. There are no dedicated backend fields for these, so the
 // chosen phrases are folded into the prompt text (see buildPrompt) — kept simple and documented.
@@ -110,6 +111,7 @@ export function GenerationPanel({
   photos: AssetSummary[];
 }) {
   // Create-panel state
+  const [mode, setMode] = useState<"image" | "text">(photos.length ? "image" : "text");
   const [sourceAssetId, setSourceAssetId] = useState<string | null>(photos[0]?.id ?? null);
   const [prompt, setPrompt] = useState("");
   const [negativePrompt, setNegativePrompt] = useState("");
@@ -184,8 +186,12 @@ export function GenerationPanel({
   }
 
   function generate() {
-    if (!sourceAssetId) {
+    if (mode === "image" && !sourceAssetId) {
       toast.error("Pick a source photo first.");
+      return;
+    }
+    if (mode === "text" && !prompt.trim()) {
+      toast.error("Describe the video you want to create.");
       return;
     }
     const aspect = ASPECTS.find((a) => a.key === aspectKey)!;
@@ -198,9 +204,9 @@ export function GenerationPanel({
       try {
         const jobId = await createGenerationJob({
           projectId,
-          workflow: WORKFLOW,
-          jobType: "image_to_video",
-          sourceAssetId,
+          workflow: mode === "text" ? WORKFLOW_T2V : WORKFLOW_I2V,
+          jobType: mode === "text" ? "text_to_video" : "image_to_video",
+          sourceAssetId: mode === "text" ? undefined : sourceAssetId ?? undefined,
           prompt: buildPrompt() || undefined,
           negativePrompt: negativePrompt.trim() || undefined,
           width: aspect.w,
@@ -238,19 +244,35 @@ export function GenerationPanel({
         <div className="flex items-center gap-2">
           <Wand2 className="size-4 text-[color:var(--cw-violet)]" />
           <h2 className="text-sm font-semibold">Generate with AI</h2>
-          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-            Image → video
-          </span>
         </div>
 
-        {/* Source photo picker */}
-        <Field label="Source photo" hint="Pick a photo to bring to life.">
+        {/* Mode: image→video vs text→video */}
+        <div className="inline-flex rounded-lg border border-border bg-muted/50 p-0.5 text-sm font-medium">
+          {(["image", "text"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMode(m)}
+              aria-pressed={mode === m}
+              className={cn(
+                "rounded-md px-3 py-1.5 transition-colors",
+                mode === m ? "bg-[color:var(--cw-violet)] text-white shadow" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {m === "image" ? "From image" : "From text"}
+            </button>
+          ))}
+        </div>
+
+        {/* Source photo picker (image→video only) */}
+        {mode === "image" ? (
+          <Field label="Source photo" hint="Pick a photo to bring to life.">
           {photos.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-border p-8 text-center">
               <ImageIcon className="size-6 text-muted-foreground" />
               <p className="text-sm font-medium">No photos yet</p>
               <p className="text-xs text-muted-foreground">
-                Add photos on the Import screen or the Timeline tab, then come back to generate.
+                Add photos on the Import screen or the Timeline tab, or switch to <b>From text</b>.
               </p>
             </div>
           ) : (
@@ -287,7 +309,8 @@ export function GenerationPanel({
               })}
             </div>
           )}
-        </Field>
+          </Field>
+        ) : null}
 
         {/* Prompt */}
         <Field label="Prompt" hint="Describe the motion, atmosphere, and feeling you want.">
@@ -463,7 +486,7 @@ export function GenerationPanel({
         ) : (
           <Button
             onClick={generate}
-            disabled={pending || photos.length === 0 || !sourceAssetId}
+            disabled={pending || (mode === "image" ? !sourceAssetId : !prompt.trim())}
             size="lg"
             className="h-14 w-full bg-[image:var(--cw-spectrum)] text-base font-semibold text-white shadow-lg hover:opacity-90"
           >

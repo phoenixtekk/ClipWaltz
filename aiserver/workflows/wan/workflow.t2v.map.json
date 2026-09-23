@@ -1,0 +1,34 @@
+{
+  "fields": {
+    "prompt": [
+      [
+        "6",
+        "text"
+      ]
+    ],
+    "width": [
+      [
+        "55",
+        "width"
+      ]
+    ],
+    "height": [
+      [
+        "55",
+        "height"
+      ]
+    ],
+    "length": [
+      [
+        "55",
+        "length"
+      ]
+    ]
+  },
+  "seed_fields": [
+    [
+      "3",
+      "seed"
+    ]
+  ]
+}
