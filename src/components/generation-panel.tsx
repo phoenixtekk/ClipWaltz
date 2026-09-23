@@ -15,6 +15,8 @@ import {
   Columns2,
   Copy,
   RefreshCw,
+  Download,
+  Clapperboard,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
@@ -29,6 +31,14 @@ import {
   regenerateFromVersion,
   type GenerationVersionItem,
 } from "@/lib/generation-actions";
+import {
+  createExportJob,
+  listExportJobs,
+  deleteExportJob,
+  type ExportFormat,
+  type ExportResolution,
+  type ExportJobItem,
+} from "@/lib/export-actions";
 
 // Wan 2.2 TI2V-5B drives both modes. Image→video needs a source photo; text→video needs a prompt.
 const WORKFLOW_I2V = "wan-image-to-video-v1";
@@ -90,6 +100,32 @@ const PHASE: Record<string, string> = {
 };
 const TERMINAL = new Set(["completed", "failed", "cancelled"]);
 
+// Export chooser options.
+const EXPORT_FORMATS: { key: ExportFormat; label: string }[] = [
+  { key: "mp4", label: "MP4" },
+  { key: "webm", label: "WebM" },
+];
+const EXPORT_RESOLUTIONS: { key: ExportResolution; label: string }[] = [
+  { key: "native", label: "Native" },
+  { key: "720p", label: "720p" },
+  { key: "1080p", label: "1080p" },
+];
+
+// Export job status → friendly label + chip colour.
+const EXPORT_TERMINAL = new Set(["completed", "failed"]);
+const EXPORT_STATUS: Record<string, { label: string; cls: string }> = {
+  queued: { label: "Queued", cls: "bg-muted text-muted-foreground" },
+  processing: { label: "Processing", cls: "bg-sky-500/15 text-sky-600 dark:text-sky-400" },
+  completed: { label: "Completed", cls: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" },
+  failed: { label: "Failed", cls: "bg-destructive/15 text-destructive" },
+};
+
+function exportLabel(e: ExportJobItem): string {
+  const fmt = e.outputFormat.toUpperCase();
+  const res = e.resolution ? (e.resolution === "native" ? "Native" : e.resolution) : "Native";
+  return `${fmt} · ${res}`;
+}
+
 type Job = {
   id: string;
   status: string;
@@ -137,6 +173,13 @@ export function GenerationPanel({
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const [compareId, setCompareId] = useState<string | null>(null);
 
+  // Export state
+  const [exports, setExports] = useState<ExportJobItem[]>([]);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<ExportFormat>("mp4");
+  const [exportResolution, setExportResolution] = useState<ExportResolution>("1080p");
+  const [exportPending, startExport] = useTransition();
+
   const refreshVersions = useCallback(async () => {
     try {
       const list = await listGenerationVersions(projectId);
@@ -148,10 +191,32 @@ export function GenerationPanel({
     }
   }, [projectId]);
 
-  // Initial versions load.
+  const refreshExports = useCallback(async () => {
+    try {
+      const list = await listExportJobs(projectId);
+      setExports(list);
+      return list;
+    } catch {
+      /* transient — leave the current list in place */
+      return null;
+    }
+  }, [projectId]);
+
+  // Initial versions + exports load.
   useEffect(() => {
     void refreshVersions();
-  }, [refreshVersions]);
+    void refreshExports();
+  }, [refreshVersions, refreshExports]);
+
+  // Poll the export list every ~3s while any export is still queued/processing.
+  const exportsActive = exports.some((e) => !EXPORT_TERMINAL.has(e.status));
+  useEffect(() => {
+    if (!exportsActive) return;
+    const t = setInterval(() => {
+      void refreshExports();
+    }, 3000);
+    return () => clearInterval(t);
+  }, [exportsActive, refreshExports]);
 
   // §11 poll the active job every ~3s until it reaches a terminal state.
   useEffect(() => {
@@ -277,6 +342,32 @@ export function GenerationPanel({
     compareId && compareId !== selectedVersionId
       ? versions.find((v) => v.id === compareId) ?? null
       : null;
+
+  // Queue an export of the selected version, then refresh the Export Center + collapse the chooser.
+  function runExport() {
+    if (!selected || !selected.hasOutput) return;
+    const versionId = selected.id;
+    startExport(async () => {
+      try {
+        await createExportJob({ versionId, outputFormat: exportFormat, resolution: exportResolution });
+        toast.success("Export started…");
+        setExportOpen(false);
+        await refreshExports();
+      } catch (e) {
+        toast.error((e as Error).message || "Could not start the export.");
+      }
+    });
+  }
+
+  // Delete an export job (row + MinIO object), then refresh the Export Center.
+  function removeExport(id: string) {
+    deleteExportJob(id)
+      .then(async () => {
+        await refreshExports();
+        toast.success("Export deleted.");
+      })
+      .catch((e) => toast.error((e as Error).message || "Could not delete the export."));
+  }
 
   return (
     <div className="space-y-6">
@@ -556,6 +647,16 @@ export function GenerationPanel({
               <Button variant="outline" size="sm" onClick={() => regenFrom(selected.id, true)} disabled={isGenerating || pending} title="Generate a new variation (same settings, new seed)">
                 <RefreshCw className="size-3.5" /> Regenerate
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setExportOpen((o) => !o)}
+                disabled={isGenerating || exportPending || !selected.hasOutput}
+                aria-expanded={exportOpen}
+                title="Export this version as a downloadable video"
+              >
+                <Download className="size-3.5" /> Export
+              </Button>
               {compare ? (
                 <Button variant="ghost" size="sm" onClick={() => setCompareId(null)}>
                   <X className="size-3.5" /> Exit compare
@@ -563,6 +664,61 @@ export function GenerationPanel({
               ) : null}
             </div>
           </div>
+
+          {/* Inline export chooser — format + resolution, then confirm. */}
+          {exportOpen ? (
+            <div className="space-y-3 rounded-xl border border-[color:var(--cw-violet)]/40 bg-[color:var(--cw-violet)]/5 p-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Format</label>
+                  <div className="inline-flex rounded-lg border border-border bg-muted/50 p-0.5 text-sm font-medium">
+                    {EXPORT_FORMATS.map((f) => (
+                      <button
+                        key={f.key}
+                        type="button"
+                        onClick={() => setExportFormat(f.key)}
+                        aria-pressed={exportFormat === f.key}
+                        className={cn(
+                          "rounded-md px-3 py-1.5 transition-colors",
+                          exportFormat === f.key
+                            ? "bg-[color:var(--cw-violet)] text-white shadow"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Resolution</label>
+                  <div className="flex flex-wrap gap-2">
+                    {EXPORT_RESOLUTIONS.map((r) => (
+                      <Chip key={r.key} active={exportResolution === r.key} onClick={() => setExportResolution(r.key)}>
+                        {r.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-1">
+                <Button variant="ghost" size="sm" onClick={() => setExportOpen(false)} disabled={exportPending}>
+                  <X className="size-3.5" /> Cancel
+                </Button>
+                <Button size="sm" onClick={runExport} disabled={exportPending}>
+                  {exportPending ? (
+                    <>
+                      <Loader2 className="size-3.5 animate-spin" /> Starting…
+                    </>
+                  ) : (
+                    <>
+                      <Download className="size-3.5" /> Export
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          ) : null}
           {compare && compare.hasOutput ? (
             <div className="grid grid-cols-2 gap-2">
               {[selected, compare].map((v) => (
@@ -602,7 +758,80 @@ export function GenerationPanel({
         onCompare={toggleCompare}
         onDelete={removeVersion}
       />
+
+      {exports.length > 0 ? <ExportCenter exports={exports} onDelete={removeExport} /> : null}
     </div>
+  );
+}
+
+/** Export Center — lists a project's export jobs with status, download + delete. */
+function ExportCenter({
+  exports,
+  onDelete,
+}: {
+  exports: ExportJobItem[];
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Clapperboard className="size-4 text-[color:var(--cw-violet)]" />
+        <h3 className="text-sm font-semibold">Exports</h3>
+        <span className="text-xs text-muted-foreground">{exports.length}</span>
+      </div>
+
+      <ul className="space-y-2">
+        {exports.map((e) => {
+          const status = EXPORT_STATUS[e.status] ?? { label: e.status, cls: "bg-muted text-muted-foreground" };
+          const active = !EXPORT_TERMINAL.has(e.status);
+          return (
+            <li
+              key={e.id}
+              className="flex items-center gap-3 rounded-xl border border-border bg-background p-3"
+            >
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
+                <Film className="size-4" />
+              </span>
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-semibold">{exportLabel(e)}</span>
+                  <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium", status.cls)}>
+                    {active ? <Loader2 className="size-3 animate-spin" /> : e.status === "completed" ? <Check className="size-3" /> : e.status === "failed" ? <X className="size-3" /> : null}
+                    {status.label}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">{relTime(e.createdAt)}</span>
+                </div>
+                {e.status === "failed" && e.errorMessage ? (
+                  <p className="truncate text-[11px] text-destructive" title={e.errorMessage}>
+                    {e.errorMessage}
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                {e.hasOutput ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    render={<a href={`/api/exports/${e.id}/download`} download />}
+                    title="Download this export"
+                  >
+                    <Download className="size-3.5" /> Download
+                  </Button>
+                ) : null}
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => onDelete(e.id)}
+                  title="Delete export"
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
