@@ -101,8 +101,12 @@ Assembler (music-video) product is separate and shipping — see [ADR-0001](docs
       EventSource (one connection/job) + a 10s backstop poll for robustness. Replaces the 3s poll.
       ⚠️ gotcha: sibling routes must share the slug (`[versionId]`) — Next validates this at runtime.
 
+- [x] **AISERVER scratch retention** (2026-09-23): `cleanup.sh` + `clipwaltz-aiserver-cleanup`
+      systemd timer (hourly) sweeps output/input (>6h) + temp/cache (>2h), prunes empty job dirs.
+      Verified deletes aged / keeps recent.
+
 ## Remaining (not yet built)
-- [ ] Workspace-scoped auth; AISERVER output-dir retention/cleanup; SUPIR (premium detail).
+- [ ] Workspace-scoped auth; SUPIR (premium detail enhancement).
 - [ ] Workspace-scoped authorization (queries still owner-scoped); enhancement + export-as-job
       phases; text-to-video workflow; realtime SSE status (polling works today).
 
