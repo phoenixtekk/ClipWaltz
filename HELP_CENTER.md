@@ -78,6 +78,21 @@ them there, then come back. (These are in addition to the "video ready" email, w
 - **Monthly Theme Challenge:** each month has a theme. Enter one of your Public videos from the
   editor — likes are votes, and the month's most-liked entry wins **ClipWaltz Pro**.
 
+## Generating AI video
+- Open a project and switch to the **Generate** tab. Start from one of your photos (image → video) or
+  just describe the scene (text → video), then pick style, camera, motion, shape (landscape,
+  portrait or square) and length (3, 5 or 8 seconds) and press **Generate**. Progress updates live.
+- Every result is saved as a **version**. Preview, compare two side by side, favourite the ones you
+  like, **pick** the one to use, or regenerate for a new take.
+- **Enhance** a version to make a better copy (your original is kept):
+  - **Fast** — quick smoother motion and/or double resolution.
+  - **AI upscale** — sharper 2× upscaling and AI smooth motion on our GPU; takes a little longer.
+  - **AI Restore** — our highest-quality option: it rebuilds fine detail and doubles the resolution
+    (up to 1080p). It takes several minutes per clip. It works best on real camera footage; on
+    AI-generated clips it can look over-sharpened — compare it with the original and keep the one you
+    prefer. Add **Smoother motion** for a higher frame rate.
+- **Export** any version as MP4 or WebM at its native size, 720p or 1080p, then download it.
+
 ## Working with others (workspaces)
 - Open the **account menu → Workspace** to invite people by email. Pick a role:
   **Viewer** (watch and download only), **Editor** (edit, upload, render and generate) or, if you're

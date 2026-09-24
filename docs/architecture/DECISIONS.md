@@ -4,6 +4,26 @@ Per `00_ClipWaltz_Build_Execution_Guide.md` §38. Newest first.
 
 ---
 
+## ADR-0007 — Premium enhancement uses SeedVR2, not SUPIR
+- **Date:** 2026-09-24
+- **Decision:** The premium "restore" enhancement is **SeedVR2-3B** (ByteDance-Seed; code **and**
+  weights Apache-2.0) via the `ComfyUI-SeedVR2_VideoUpscaler` node (v2.5.23, Apache-2.0), exposed as
+  the **AI Restore** engine (`seedvr2-restore-v1`).
+- **Reason:** SUPIR's license (Fanghua-Yu/SUPIR `LICENSE` §1(c), §3) prohibits commercial use —
+  explicitly including "deploying software as a service" — without a separate written agreement.
+  ClipWaltz is a paid SaaS. Owner chose SeedVR2 over licensing SUPIR. SeedVR2 is also video-native
+  (temporal batches) where SUPIR is per-image.
+- **Measured on one 10 GB RTX 3080 (2026-09-24):** 3B fp8 DiT, BlockSwap 32, VAE tiles 512 →
+  704×480→1408×960 b21: 118 s / 49 frames, 8.8 GB peak; 640×360→1280×720 b21: 88 s / 45 frames;
+  1280×720→1920×1080 b13: 206 s / 45 frames, 8.4 GB peak (b21 hit 9.5 GB, b49 OOM). On real footage
+  it gives clearly more detail than Real-ESRGAN; on blurry Wan output it can invent streak texture —
+  `latent_noise_scale=0.1` reduces it and is the default.
+- **Alternatives considered:** License SUPIR commercially; SUPIR internal-only.
+- **Impact:** New AISERVER node + 3.7 GB of models (`/data/clipwaltz-ai/models/SEEDVR2`); wrapper
+  gains optional `resolution`/`batch_size` job inputs; worker computes them (2× short side ≤1080;
+  batch 13 above 1.4 MP), 60-min timeout, 400-frame cap. Long restores occupy the single GPU and
+  serialize with generation jobs.
+
 ## ADR-0006 — Workspace roles + email invites (member management)
 - **Date:** 2026-09-23
 - **Decision:** Four roles — owner > admin > editor > viewer. Members get the **full editor** on every

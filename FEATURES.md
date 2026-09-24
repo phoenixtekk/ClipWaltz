@@ -181,6 +181,31 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
   the Community / entering a challenge stays with the project's creator (credit + prizes).
 - Data: `workspace_invites` (migration 0029). Actions: `src/lib/workspace-actions.ts`.
 
+## AI video generation (2026-09-23) + AI Restore (2026-09-24)
+
+Runs alongside the music-video assembler (ADR-0001). Jobs go through Redis/BullMQ
+(`clipwaltz-gen-worker` on linuxg1) to the AISERVER GPU node (ComfyUI behind an authenticated
+wrapper; ADR-0002/0005).
+
+- **Generate tab** (project editor): image→video or text→video with Wan 2.2 TI2V-5B. Controls:
+  prompt, style, camera, motion, aspect (landscape 1280×720 / portrait 720×1280 / square 768×768),
+  duration (3 / 5 / 8 s), seed and negative prompt. Live progress over SSE.
+- **Versions:** every result is a numbered version — preview, compare side by side, favourite, pick,
+  duplicate, regenerate, delete.
+- **Enhance** (creates a new version; `enhanceVersion` → `clipwaltz-enhance` queue):
+  - **Fast** — ffmpeg on linuxg1: smoother motion (motion interpolation to 48 fps) and/or 2× lanczos
+    upscale + light sharpen.
+  - **AI upscale** — GPU: Real-ESRGAN 2× (`esrgan-upscale-v1`) and/or RIFE 2× frame interpolation
+    (`rife-interpolate-v1`); chained upscale → interpolate.
+  - **AI Restore** — GPU: **SeedVR2-3B** (Apache-2.0) diffusion video restoration
+    (`seedvr2-restore-v1`, ADR-0007). Rebuilds fine detail and doubles resolution (short side ×2,
+    capped at 1080p), keeps the source frame rate, optional RIFE afterwards. Clips up to 400 frames;
+    ~2 s/frame at 720p, ~4.6 s/frame at 1080p. Best on real camera footage; can over-sharpen
+    AI-generated clips (`latent_noise_scale` 0.1 applied to soften this).
+- **Export Center:** MP4 or WebM × native / 720p / 1080p, then download.
+- **Access:** generate / enhance / export need the **editor** role or higher in the project's
+  workspace; viewers can watch and download.
+
 ## Later
 Native mobile apps · collaboration/shared reels · auto-captions · face/scene-aware
 selection · 4K · multi-aspect · brand kits · web B-roll · partner API.

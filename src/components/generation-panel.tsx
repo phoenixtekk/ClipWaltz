@@ -186,9 +186,10 @@ export function GenerationPanel({
 
   // Enhance state
   const [enhanceOpen, setEnhanceOpen] = useState(false);
-  const [enhanceEngine, setEnhanceEngine] = useState<"ffmpeg" | "ai">("ffmpeg");
+  const [enhanceEngine, setEnhanceEngine] = useState<"ffmpeg" | "ai" | "restore">("ffmpeg");
   const [enhanceInterp, setEnhanceInterp] = useState(true);
   const [enhanceUpscale, setEnhanceUpscale] = useState(true);
+  const enhanceUpscaleEffective = enhanceEngine === "restore" || enhanceUpscale; // restore always upscales
 
   const refreshVersions = useCallback(async () => {
     try {
@@ -364,7 +365,7 @@ export function GenerationPanel({
   // Enhance the selected version (ffmpeg interpolate/upscale → new version). It's an enhancement
   // generation_job, so the existing job poller tracks it and refreshes the versions on completion.
   function runEnhance() {
-    if (!enhanceInterp && !enhanceUpscale) {
+    if (!enhanceInterp && !enhanceUpscaleEffective) {
       toast.error("Pick at least one enhancement.");
       return;
     }
@@ -373,7 +374,7 @@ export function GenerationPanel({
     setEnhanceOpen(false);
     start(async () => {
       try {
-        const jobId = await enhanceVersion({ versionId, engine: enhanceEngine, interpolate: enhanceInterp, upscale: enhanceUpscale });
+        const jobId = await enhanceVersion({ versionId, engine: enhanceEngine, interpolate: enhanceInterp, upscale: enhanceUpscaleEffective });
         setCompareId(null);
         setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null });
         toast.message("Enhancing this version…");
@@ -735,7 +736,7 @@ export function GenerationPanel({
           {enhanceOpen ? (
             <div className="space-y-3 rounded-xl border border-[color:var(--cw-violet)]/40 bg-[color:var(--cw-violet)]/5 p-3">
               <div className="inline-flex rounded-lg border border-border bg-muted/50 p-0.5 text-sm font-medium">
-                {(["ffmpeg", "ai"] as const).map((e) => (
+                {(["ffmpeg", "ai", "restore"] as const).map((e) => (
                   <button
                     key={e}
                     type="button"
@@ -746,7 +747,7 @@ export function GenerationPanel({
                       enhanceEngine === e ? "bg-[color:var(--cw-violet)] text-white shadow" : "text-muted-foreground hover:text-foreground",
                     )}
                   >
-                    {e === "ffmpeg" ? "Fast" : "AI upscale"}
+                    {e === "ffmpeg" ? "Fast" : e === "ai" ? "AI upscale" : "AI Restore"}
                   </button>
                 ))}
               </div>
@@ -754,20 +755,24 @@ export function GenerationPanel({
                 <Chip active={enhanceInterp} onClick={() => setEnhanceInterp((v) => !v)}>
                   Smoother motion
                 </Chip>
-                <Chip active={enhanceUpscale} onClick={() => setEnhanceUpscale((v) => !v)}>
-                  Upscale 2×
-                </Chip>
+                {enhanceEngine === "restore" ? null : (
+                  <Chip active={enhanceUpscale} onClick={() => setEnhanceUpscale((v) => !v)}>
+                    Upscale 2×
+                  </Chip>
+                )}
               </div>
               <p className="text-[11px] text-muted-foreground">
-                {enhanceEngine === "ai"
-                  ? "AI (GPU): smoother motion uses RIFE frame interpolation; upscale uses Real-ESRGAN 2× super-resolution. Best quality, takes longer. Creates a new version."
-                  : "Fast (ffmpeg): smoother motion interpolates to a higher frame rate; upscale doubles the resolution. Creates a new version."}
+                {enhanceEngine === "restore"
+                  ? "AI Restore (GPU): SeedVR2 rebuilds fine detail and doubles the resolution (up to 1080p). Slowest — several minutes per clip. Best on real camera footage; on AI-generated clips it can over-sharpen. Smoother motion adds RIFE afterwards. Creates a new version."
+                  : enhanceEngine === "ai"
+                    ? "AI (GPU): smoother motion uses RIFE frame interpolation; upscale uses Real-ESRGAN 2× super-resolution. Best quality, takes longer. Creates a new version."
+                    : "Fast (ffmpeg): smoother motion interpolates to a higher frame rate; upscale doubles the resolution. Creates a new version."}
               </p>
               <div className="flex items-center justify-end gap-1">
                 <Button variant="ghost" size="sm" onClick={() => setEnhanceOpen(false)} disabled={pending}>
                   <X className="size-3.5" /> Cancel
                 </Button>
-                <Button size="sm" onClick={runEnhance} disabled={pending || (!enhanceInterp && !enhanceUpscale)}>
+                <Button size="sm" onClick={runEnhance} disabled={pending || (!enhanceInterp && !enhanceUpscaleEffective)}>
                   <Sparkles className="size-3.5" /> Enhance
                 </Button>
               </div>

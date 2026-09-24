@@ -54,6 +54,19 @@ for d in ComfyUI-LTXVideo ComfyUI-VideoHelperSuite; do
   [ -f "$d/requirements.txt" ] && uv pip install -r "$d/requirements.txt" || true
 done
 
+echo "== Restoration node: SeedVR2 (ADR-0007) =="
+cd "$OPT/comfyui/custom_nodes"
+[ -d ComfyUI-SeedVR2_VideoUpscaler ] || git clone https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler
+git -C ComfyUI-SeedVR2_VideoUpscaler -c advice.detachedHead=false checkout -q v2.5.23
+# NOT `-r requirements.txt`: it lists opencv-python (breaks the single-opencv pin) and torch.
+uv pip install "omegaconf>=2.3.0" "peft>=0.17.0" "rotary_embedding_torch>=0.5.3" gguf matplotlib
+mkdir -p "$DATA"/models/SEEDVR2
+( cd "$DATA"/models/SEEDVR2
+  dl(){ [ -f "$1" ] || { curl -sSfL -o "$1.part" "https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/$1"         && echo "$2  $1.part" | sha256sum -c --quiet && mv "$1.part" "$1"; }; }
+  dl seedvr2_ema_3b_fp8_e4m3fn.safetensors 3bf1e43ebedd570e7e7a0b1b60d6a02e105978f505c8128a241cde99a8240cff
+  dl ema_vae_fp16.safetensors 20678548f420d98d26f11442d3528f8b8c94e57ee046ef93dbb7633da8612ca1 )
+python -c "import cv2; print('cv2', cv2.__version__)"   # must still import after the install
+
 echo "== wrapper deps =="
 uv pip install -r "$OPT/scripts/requirements.txt"
 

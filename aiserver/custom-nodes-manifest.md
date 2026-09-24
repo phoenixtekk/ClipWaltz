@@ -11,6 +11,7 @@ reason and a pinned commit is recorded on install.
 |------------------|--------|------------------|---------|---------------------|
 | ComfyUI-LTXVideo | https://github.com/Lightricks/ComfyUI-LTXVideo | TBD (pin on install) | LTX-Video sampler / model loader nodes | ltx-image-to-video-v1 |
 | ComfyUI-VideoHelperSuite | https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite | TBD (pin on install) | encode frames to MP4 (VHS_VideoCombine) into /data/clipwaltz-ai/output | ltx-image-to-video-v1 |
+| ComfyUI-SeedVR2_VideoUpscaler | https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler | `v2.5.23` (`5a4bf428f3735cc72ac760d40f372f94dec28422`), Apache-2.0 | SeedVR2 DiT/VAE loaders + video upscaler (restoration) | seedvr2-restore-v1 |
 
 Notes:
 - The exact node set is confirmed against the LTX example workflow that ships

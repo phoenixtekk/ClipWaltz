@@ -8,3 +8,4 @@ clipwaltz:
   loras: loras
   upscale_models: upscale_models
   controlnet: controlnet
+  seedvr2: SEEDVR2

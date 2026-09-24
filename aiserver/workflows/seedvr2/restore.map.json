@@ -1,0 +1,22 @@
+{
+  "fields": {
+    "source_image": [
+      [
+        "3",
+        "video"
+      ]
+    ],
+    "resolution": [
+      [
+        "4",
+        "resolution"
+      ]
+    ],
+    "batch_size": [
+      [
+        "4",
+        "batch_size"
+      ]
+    ]
+  }
+}

@@ -118,7 +118,10 @@ Assembler (music-video) product is separate and shipping — see [ADR-0001](docs
       role checks. E2E-verified on dev; security-reviewed (4 findings fixed). Migration 0029 on
       dev + prod; **deployed to prod 2026-09-23**. ⚠️ Prod lacks SES SMTP user/pass → invite
       emails only logged; use Copy link until creds are added.
-- [ ] SUPIR (premium detail).
+- [x] **Premium restore — SeedVR2** (2026-09-24, ADR-0007): SUPIR dropped (license forbids
+      commercial SaaS use). SeedVR2-3B (Apache-2.0) on AISERVER as `seedvr2-restore-v1`; Enhance
+      chooser gains **AI Restore**. Benchmarked on one 10 GB 3080 (≤8.8 GB peak); wrapper E2E
+      verified (640×360@25 → 1280×720@25, 45/45 frames, 91 s).
 
 ## App-layer done (2026-09-23, verified: build passes; backfill tested on dev with real data)
 - [x] BullMQ queue module (`src/lib/queue.ts`, lazy Redis) — `bullmq`/`ioredis` added

@@ -33,6 +33,17 @@ const AISERVER_URL = (process.env.AISERVER_API_URL ?? "http://192.168.166.158:81
 const AISERVER_TOKEN = process.env.AISERVER_API_TOKEN ?? "";
 const POLL_MS = 5000;
 const JOB_TIMEOUT_MS = Number(process.env.GEN_JOB_TIMEOUT_MS ?? 20 * 60 * 1000);
+// ComfyUI runs one prompt at a time, so a job can wait behind a long one (e.g. a 30-min restore).
+// The timeout clock starts when the wrapper reports "running"; queue wait has its own cap.
+const QUEUE_WAIT_MS = Number(process.env.GEN_QUEUE_WAIT_MS ?? 3 * 60 * 60 * 1000);
+function providerClock(timeoutMs) {
+  const submitted = Date.now();
+  let runningSince = null;
+  return {
+    observe(status) { if (status === "running" && runningSince === null) runningSince = Date.now(); },
+    expired() { return runningSince === null ? Date.now() - submitted > QUEUE_WAIT_MS : Date.now() - runningSince > timeoutMs; },
+  };
+}
 
 if (!process.env.DATABASE_URL) { console.error("DATABASE_URL required"); process.exit(1); }
 if (!AISERVER_TOKEN) { console.error("AISERVER_API_TOKEN required"); process.exit(1); }
@@ -127,9 +138,9 @@ async function processJob(genJobId) {
   await setStatus(genJobId, { status: "generating", progress: 30 });
 
   // Poll to completion.
-  const deadline = Date.now() + JOB_TIMEOUT_MS;
+  const clock = providerClock(JOB_TIMEOUT_MS);
   let out = null;
-  while (Date.now() < deadline) {
+  while (!clock.expired()) {
     await new Promise((r) => setTimeout(r, POLL_MS));
     // Honour a cancellation requested via the app.
     const [cur] = await sql`select status from generation_jobs where id = ${genJobId}`;
@@ -141,6 +152,7 @@ async function processJob(genJobId) {
     const pr = await fetch(`${AISERVER_URL}/jobs/${providerJobId}`, { headers: aiHeaders });
     if (!pr.ok) continue;
     const st = await pr.json();
+    clock.observe(st.status);
     if (st.status === "completed") { out = st.outputs?.[0] ?? null; break; }
     if (st.status === "failed") throw new Error(`provider failed: ${st.error ?? "unknown"}`);
   }
@@ -271,7 +283,8 @@ async function ffmpegEnhance(req) {
 }
 
 // Run one AISERVER enhancement workflow on the given video bytes; returns the output bytes.
-async function runAiWorkflow(workflow, inputBytes, genJobId) {
+// `extraInputs` are merged into the wrapper's job inputs; `timeoutMs` overrides JOB_TIMEOUT_MS.
+async function runAiWorkflow(workflow, inputBytes, genJobId, { extraInputs = {}, timeoutMs = JOB_TIMEOUT_MS } = {}) {
   const fd = new FormData();
   fd.append("file", new Blob([inputBytes], { type: "video/mp4" }), "src.mp4");
   const up = await fetch(`${AISERVER_URL}/inputs`, { method: "POST", headers: aiHeaders, body: fd });
@@ -279,18 +292,19 @@ async function runAiWorkflow(workflow, inputBytes, genJobId) {
   const staged = (await up.json()).filename;
   const sub = await fetch(`${AISERVER_URL}/jobs`, {
     method: "POST", headers: { ...aiHeaders, "content-type": "application/json" },
-    body: JSON.stringify({ workflow, inputs: { source_image: staged } }),
+    body: JSON.stringify({ workflow, inputs: { source_image: staged, ...extraInputs } }),
   });
   if (!sub.ok) throw new Error(`/jobs ${sub.status}: ${(await sub.text()).slice(0, 200)}`);
   const providerJobId = (await sub.json()).job_id;
-  const deadline = Date.now() + JOB_TIMEOUT_MS;
-  while (Date.now() < deadline) {
+  const clock = providerClock(timeoutMs);
+  while (!clock.expired()) {
     await new Promise((r) => setTimeout(r, POLL_MS));
     const [cur] = await sql`select status from generation_jobs where id = ${genJobId}`;
     if (cur?.status === "cancelled") { await fetch(`${AISERVER_URL}/jobs/${providerJobId}/cancel`, { method: "POST", headers: aiHeaders }).catch(() => {}); throw new Error("cancelled"); }
     const pr = await fetch(`${AISERVER_URL}/jobs/${providerJobId}`, { headers: aiHeaders });
     if (!pr.ok) continue;
     const st = await pr.json();
+    clock.observe(st.status);
     if (st.status === "completed") {
       const out = st.outputs?.[0];
       if (!out) throw new Error(`${workflow}: no output`);
@@ -304,14 +318,50 @@ async function runAiWorkflow(workflow, inputBytes, genJobId) {
   throw new Error(`${workflow} timed out`);
 }
 
-// AI enhancement on AISERVER: Real-ESRGAN upscale and/or RIFE interpolation.
+// Width/height/frame count of a video, via ffprobe on a temp copy.
+async function probeVideo(bytes) {
+  const dir = mkdtempSync(join(tmpdir(), "cw-probe-"));
+  try {
+    const p = join(dir, "v.mp4");
+    writeFileSync(p, bytes);
+    const { stdout } = await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-count_packets",
+      "-show_entries", "stream=width,height,nb_read_packets", "-of", "json", p]);
+    const s = JSON.parse(stdout).streams?.[0] ?? {};
+    return { width: Number(s.width), height: Number(s.height), frames: Number(s.nb_read_packets) };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// SeedVR2 restore (ADR-0007): 2× the short side, capped at 1080 (multiple of 16). Batch size is
+// 21 frames (4n+1) up to ~1.4 MP output, 13 above — the largest that stayed ≤8.5 GB peak on one
+// 10 GB RTX 3080 in the 2026-09-24 benchmarks (1408×960 b21 = 8.8 GB; 1920×1080 b13 = 8.4 GB).
+const RESTORE_MAX_FRAMES = 400; // ~8 s @ 48 fps; ~30 min worst case at 1080p
+const RESTORE_TIMEOUT_MS = 60 * 60 * 1000;
+function restoreParams({ width, height }) {
+  const short = Math.min(width, height), long = Math.max(width, height);
+  const resolution = Math.max(256, Math.floor(Math.min(1080, short * 2) / 16) * 16); // wrapper floor
+  const outPixels = resolution * Math.round((long * resolution) / short);
+  return { resolution, batch_size: outPixels > 1_400_000 ? 13 : 21 };
+}
+
+// AI enhancement on AISERVER: Real-ESRGAN (engine "ai") or SeedVR2 restore (engine "restore")
+// for the upscale step, and/or RIFE interpolation.
 // ORDER MATTERS: upscale first, then interpolate — RIFE must be LAST so its doubled frame rate
 // survives to the final encode (running ESRGAN last would re-encode at its own fps and drop it).
 async function aiEnhance(req, genJobId) {
+  const src = await getBytes(req.sourceKey);
   let bytes = null;
-  if (req.upscale) bytes = await runAiWorkflow("esrgan-upscale-v1", await getBytes(req.sourceKey), genJobId);
-  if (req.interpolate) bytes = await runAiWorkflow("rife-interpolate-v1", bytes ?? (await getBytes(req.sourceKey)), genJobId);
-  if (!bytes) bytes = await runAiWorkflow("esrgan-upscale-v1", await getBytes(req.sourceKey), genJobId); // default: upscale
+  if (req.engine === "restore") {
+    const info = await probeVideo(src);
+    if (!info.width || !info.height || !Number.isFinite(info.frames)) throw new Error("could not read source video dimensions / frame count");
+    if (info.frames > RESTORE_MAX_FRAMES) throw new Error(`AI Restore supports clips up to ${RESTORE_MAX_FRAMES} frames (this one has ${info.frames})`);
+    bytes = await runAiWorkflow("seedvr2-restore-v1", src, genJobId, { extraInputs: restoreParams(info), timeoutMs: RESTORE_TIMEOUT_MS });
+  } else if (req.upscale) {
+    bytes = await runAiWorkflow("esrgan-upscale-v1", src, genJobId);
+  }
+  if (req.interpolate) bytes = await runAiWorkflow("rife-interpolate-v1", bytes ?? src, genJobId);
+  if (!bytes) bytes = await runAiWorkflow("esrgan-upscale-v1", src, genJobId); // default: upscale
   return bytes;
 }
 
@@ -321,7 +371,7 @@ async function processEnhance(genJobId) {
   if (j.status === "cancelled") return;
   const req = j.request_json ?? {};
   if (!req.sourceKey) throw new Error("no sourceKey on enhancement job");
-  const ai = req.engine === "ai";
+  const ai = req.engine === "ai" || req.engine === "restore";
   await setStatus(genJobId, { status: ai ? "generating" : "enhancing", progress: 40, started_at: new Date() });
 
   const videoBytes = ai ? await aiEnhance(req, genJobId) : await ffmpegEnhance(req);
@@ -334,10 +384,10 @@ async function processEnhance(genJobId) {
   await sql`insert into generation_versions ${sql({
     id: randomUUID(), generation_job_id: genJobId, project_id: j.project_id, scene_id: j.scene_id ?? null,
     version_number: versionNumber, output_key: outKey,
-    settings: { enhancedFrom: req.sourceVersionId, engine: ai ? "ai" : "ffmpeg", interpolate: !!req.interpolate, upscale: !!req.upscale },
+    settings: { enhancedFrom: req.sourceVersionId, engine: ai ? req.engine : "ffmpeg", interpolate: !!req.interpolate, upscale: !!req.upscale || req.engine === "restore" },
   })}`;
   await setStatus(genJobId, { status: "completed", progress: 100, completed_at: new Date() });
-  console.log(`[enh] ${genJobId} done → ${outKey} (engine=${ai ? "ai" : "ffmpeg"})`);
+  console.log(`[enh] ${genJobId} done → ${outKey} (engine=${ai ? req.engine : "ffmpeg"})`);
 }
 
 const enhanceWorker = new Worker(

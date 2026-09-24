@@ -37,7 +37,17 @@ Wan22ImageToVideoLatent, seed→KSampler). Built from ComfyUI's bundled
 - `esrgan-upscale-v1` (`aiserver/workflows/wan/enhance.api.json`): VHS_LoadVideo → ImageUpscaleWithModel(RealESRGAN_x2plus) → VHS_VideoCombine/NVENC. Verified 704×480 → 1408×960, ~20 s.
 - `rife-interpolate-v1` (`aiserver/workflows/wan/rife.api.json`): VHS_LoadVideo → RIFE VFI (×2, fp16, batch 4) → VHS_VideoCombine @48fps. Verified 24 → 48 fps, ~10 s.
 - **AI Enhance chains upscale THEN interpolate** (RIFE must run last so its fps survives). Chain verified E2E: 704×480@24 → **1408×960 @ 48 fps**.
-- ⚠️ **opencv pin:** the Frame-Interpolation node pulls `opencv-contrib-python`; keep a SINGLE `opencv-contrib-python-headless<5` (cv2 4.x) in the venv — a dual/opencv-5 install broke `cv2` → VideoHelperSuite (both enhance workflows). Deferred: SUPIR.
+- ⚠️ **opencv pin:** the Frame-Interpolation node pulls `opencv-contrib-python`; keep a SINGLE `opencv-contrib-python-headless<5` (cv2 4.x) in the venv — a dual/opencv-5 install broke `cv2` → VideoHelperSuite (both enhance workflows). The SeedVR2 node's `requirements.txt` also lists `opencv-python` (and torch) — **never** `pip install -r` it; install only the missing deps (see `scripts/deploy.sh`).
+
+## Restoration model — SeedVR2 (ADR-0007; replaces the deferred SUPIR, which is non-commercial)
+| Component | Source repo (HF) | File | Size | sha256 | Local path |
+|-----------|------------------|------|------|--------|------------|
+| SeedVR2 DiT 3B fp8 | `numz/SeedVR2_comfyUI` (repack of Apache-2.0 `ByteDance-Seed/SeedVR2-3B`) | `seedvr2_ema_3b_fp8_e4m3fn.safetensors` | 3.2 GB | `3bf1e43e…a8240cff` | `/data/clipwaltz-ai/models/SEEDVR2/` |
+| SeedVR2 VAE | `numz/SeedVR2_comfyUI` | `ema_vae_fp16.safetensors` | 479 MB | `20678548…8612ca1` | `/data/clipwaltz-ai/models/SEEDVR2/` |
+
+- Found via `seedvr2: SEEDVR2` in `extra_model_paths.yaml`. Hashes match the node's `src/utils/model_registry.py`.
+- `seedvr2-restore-v1` (`aiserver/workflows/seedvr2/restore.api.json`): VHS_LoadVideo → SeedVR2 DiT loader (fp8, BlockSwap 32, swap I/O, offload cpu) + VAE loader (tiled encode/decode 512/64) → SeedVR2VideoUpscaler (lab colour, temporal overlap 3, uniform batches, latent noise 0.1) → VHS_VideoCombine/NVENC at the **source fps** (VHS_VideoInfoLoaded). Caller sets `resolution` (target short side) + `batch_size` (4n+1).
+- Benchmarks (one RTX 3080 10 GB): 1408×960 b21 118 s/49 f, 8.8 GB peak · 1280×720 b21 88 s/45 f · 1920×1080 b13 206 s/45 f, 8.4 GB (b21 9.5 GB — too tight; b49 OOM; VAE tiles 1024 OOM).
 
 ## Notes / owner actions
 - The Comfy-Org repackaged Wan 2.2 files are public (not gated) — downloaded without a token.

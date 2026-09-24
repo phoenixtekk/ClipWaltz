@@ -82,6 +82,13 @@ WORKFLOWS: Dict[str, Dict[str, str]] = {
         "template": "wan/rife.api.json",
         "mapping": "wan/rife.map.json",
     },
+    # ML restoration: SeedVR2-3B (Apache-2.0) diffusion video restoration + upscale. Caller sets
+    # resolution (target short side) and batch_size (4n+1) — both fall back to the template's
+    # 960 / 21, which fit one 10 GB RTX 3080 (ADR-0007).
+    "seedvr2-restore-v1": {
+        "template": "seedvr2/restore.api.json",
+        "mapping": "seedvr2/restore.map.json",
+    },
 }
 
 app = FastAPI(title="ClipWaltz AISERVER API", version="1.0")
@@ -219,6 +226,15 @@ def submit_to_comfyui(graph: Dict[str, Any], client_id: str) -> str:
         raise HTTPException(status_code=502, detail=f"comfyui unreachable: {exc}")
 
 
+def _comfyui_is_running(prompt_id: str) -> bool:
+    """True if ComfyUI is currently executing this prompt (queue_running entry [num, id, ...])."""
+    try:
+        q = httpx.get(f"{COMFYUI_URL}/queue", timeout=10).json()
+    except Exception:  # noqa: BLE001
+        return False
+    return any(len(item) > 1 and item[1] == prompt_id for item in q.get("queue_running", []))
+
+
 def poll_job(job_id: str) -> None:
     """Background poller: watches ComfyUI /history until the prompt completes,
     then records output file metadata."""
@@ -235,6 +251,14 @@ def poll_job(job_id: str) -> None:
             with _jobs_lock:
                 if _jobs[job_id]["status"] == "cancelled":
                     return
+                waiting = _jobs[job_id]["status"] == "queued"
+            # ComfyUI runs one prompt at a time: report "running" once ours leaves the queue so
+            # callers can time the actual work, not the wait behind other jobs.
+            if waiting and _comfyui_is_running(prompt_id):
+                with _jobs_lock:
+                    if _jobs[job_id]["status"] == "queued":
+                        _jobs[job_id]["status"] = "running"
+                        _jobs[job_id]["started_at"] = _now()
             continue
         entry = hist[prompt_id]
         status = entry.get("status", {})
@@ -304,6 +328,9 @@ class JobInputs(BaseModel):
     length: Optional[int] = None
     motion: str = "balanced"
     seed: Optional[int] = None
+    # Restoration (seedvr2-restore-v1): target short-side resolution and frames per batch.
+    resolution: Optional[int] = Field(default=None, ge=256, le=1080)
+    batch_size: Optional[int] = Field(default=None, ge=1, le=33)
 
 
 class JobRequest(BaseModel):
@@ -380,10 +407,12 @@ def cancel_job(job_id: str, _: None = Depends(require_token)) -> Dict[str, Any]:
         if not j:
             raise HTTPException(status_code=404, detail="unknown job")
         prompt_id = j["prompt_id"]
-    # Remove from queue if still pending, and interrupt if it is the running one.
+    # Remove from queue if still pending, and interrupt ONLY if it is the running one (/interrupt
+    # stops whatever is executing — it must not kill another job's work).
     try:
         httpx.post(f"{COMFYUI_URL}/queue", json={"delete": [prompt_id]}, timeout=10)
-        httpx.post(f"{COMFYUI_URL}/interrupt", timeout=10)
+        if _comfyui_is_running(prompt_id):
+            httpx.post(f"{COMFYUI_URL}/interrupt", timeout=10)
     except Exception:  # noqa: BLE001
         pass
     _finish_job(job_id, "cancelled")

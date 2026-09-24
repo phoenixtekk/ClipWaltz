@@ -172,19 +172,24 @@ export async function regenerateFromVersion(versionId: string, fresh: boolean): 
 }
 
 /**
- * Enhance a version (owner-checked): queue an `enhancement` job that ffmpeg-post-processes the
- * source clip (motion interpolation and/or 2× upscale) into a NEW version. Returns the new job id.
+ * Enhance a version (editor-checked): queue an `enhancement` job that post-processes the source
+ * clip (motion interpolation and/or 2× upscale) into a NEW version. Returns the new job id.
  */
 export async function enhanceVersion(input: {
   versionId: string;
   interpolate: boolean;
   upscale: boolean;
-  /** "ffmpeg" = fast interpolate/upscale; "ai" = Real-ESRGAN 2× upscale on AISERVER. */
-  engine?: "ffmpeg" | "ai";
+  /**
+   * "ffmpeg" = fast interpolate/upscale; "ai" = Real-ESRGAN 2× upscale on AISERVER;
+   * "restore" = SeedVR2 diffusion restoration + 2× upscale on AISERVER (always upscales; ADR-0007).
+   */
+  engine?: "ffmpeg" | "ai" | "restore";
 }): Promise<string> {
   const userId = await requireUserId();
   const engine = input.engine ?? "ffmpeg";
-  if (!input.interpolate && !input.upscale) {
+  if (!["ffmpeg", "ai", "restore"].includes(engine)) throw new Error("Unknown enhancement engine");
+  const upscale = engine === "restore" ? true : input.upscale;
+  if (!input.interpolate && !upscale) {
     throw new Error("Pick at least one enhancement");
   }
   const [ver] = await db
@@ -216,7 +221,7 @@ export async function enhanceVersion(input: {
       sourceKey: ver.outputKey,
       engine,
       interpolate: input.interpolate,
-      upscale: input.upscale,
+      upscale,
     },
   });
   await enqueueEnhance(id);
