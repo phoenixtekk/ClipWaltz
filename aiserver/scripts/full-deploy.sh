@@ -28,6 +28,8 @@ cp "$KIT/wrapper/requirements.txt" "$OPT/scripts/requirements.txt"
 cp -r "$KIT/workflows/ltx/." "$OPT/workflows/ltx/"
 cp "$KIT/scripts/"*.sh "$OPT/scripts/" 2>/dev/null || true
 sudo cp "$KIT/systemd/comfyui.service" /etc/systemd/system/comfyui.service
+sudo cp "$KIT/systemd/comfyui-gpu1.service" /etc/systemd/system/comfyui-gpu1.service
+mkdir -p /data/clipwaltz-ai/temp-gpu1 "$OPT/comfyui-user-gpu1"
 sudo cp "$KIT/systemd/clipwaltz-aiserver-api.service" /etc/systemd/system/clipwaltz-aiserver-api.service
 
 echo "== shared-secret env (chmod 600, secret NOT printed) =="
@@ -81,10 +83,10 @@ uv pip install -r "$OPT/scripts/requirements.txt"
 
 echo "== Step 6: services (ComfyUI localhost:8188; wrapper LAN:8189) =="
 sudo systemctl daemon-reload
-sudo systemctl enable --now comfyui
+sudo systemctl enable --now comfyui comfyui-gpu1
 sudo systemctl enable --now clipwaltz-aiserver-api
 sleep 4
-systemctl --no-pager --lines=0 status comfyui clipwaltz-aiserver-api | grep -E "Active:|●" || true
+systemctl --no-pager --lines=0 status comfyui comfyui-gpu1 clipwaltz-aiserver-api | grep -E "Active:|●" || true
 
 cat <<'NEXT'
 

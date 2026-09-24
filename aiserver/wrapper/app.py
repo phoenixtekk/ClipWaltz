@@ -21,7 +21,8 @@ Env (loaded by systemd from /opt/clipwaltz-ai/config/wrapper.env):
   CW_BIND_HOST         interface to bind (default 127.0.0.1; set to the LAN IP
                        to allow the ClipWaltz backend on linuxg1 to reach it).
   CW_BIND_PORT         default 8189.
-  COMFYUI_URL          default http://127.0.0.1:8188
+  COMFYUI_URLS         comma-separated ComfyUI backends, one per GPU
+                       (default COMFYUI_URL, else http://127.0.0.1:8188)
   CW_WORKFLOW_DIR      default /opt/clipwaltz-ai/workflows
   CW_OUTPUT_DIR        default /data/clipwaltz-ai/output
   CW_INPUT_DIR         default /data/clipwaltz-ai/input
@@ -52,7 +53,14 @@ from pydantic import BaseModel, Field
 # Configuration
 # --------------------------------------------------------------------------- #
 API_TOKEN = os.environ.get("CW_API_TOKEN", "").strip()
-COMFYUI_URL = os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188").rstrip("/")
+# One ComfyUI per GPU (comfyui.service → GPU 0 :8188, comfyui-gpu1.service → GPU 1 :8190). Jobs
+# are dispatched to the least-busy online backend. COMFYUI_URLS is comma-separated; COMFYUI_URL
+# (single backend) is still honoured for older wrapper.env files.
+COMFYUI_URLS = [
+    u.strip().rstrip("/")
+    for u in os.environ.get("COMFYUI_URLS", os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188")).split(",")
+    if u.strip()
+]
 WORKFLOW_DIR = Path(os.environ.get("CW_WORKFLOW_DIR", "/opt/clipwaltz-ai/workflows"))
 OUTPUT_DIR = Path(os.environ.get("CW_OUTPUT_DIR", "/data/clipwaltz-ai/output"))
 INPUT_DIR = Path(os.environ.get("CW_INPUT_DIR", "/data/clipwaltz-ai/input"))
@@ -97,6 +105,7 @@ bearer = HTTPBearer(auto_error=True)
 # In-memory job table. Durable audit is appended to AUDIT_LOG.
 _jobs: Dict[str, Dict[str, Any]] = {}
 _jobs_lock = threading.Lock()
+_dispatch_lock = threading.Lock()
 
 
 def _now() -> str:
@@ -152,12 +161,17 @@ def disk_free_gb(path: str) -> int:
         return -1
 
 
-def comfyui_online() -> bool:
+def comfyui_online(base: str) -> bool:
     try:
-        r = httpx.get(f"{COMFYUI_URL}/system_stats", timeout=5)
+        r = httpx.get(f"{base}/system_stats", timeout=5)
         return r.status_code == 200
     except Exception:  # noqa: BLE001
         return False
+
+
+def _active_on(base: str) -> int:
+    """Jobs this wrapper has queued/running on a backend (caller holds _jobs_lock)."""
+    return len([j for j in _jobs.values() if j.get("backend") == base and j["status"] in ("queued", "running")])
 
 
 # --------------------------------------------------------------------------- #
@@ -168,7 +182,7 @@ def _load_json(p: Path) -> Any:
         return json.load(fh)
 
 
-def build_graph(workflow_id: str, inputs: "JobInputs") -> Dict[str, Any]:
+def build_graph(workflow_id: str, inputs: "JobInputs", job_id: str) -> Dict[str, Any]:
     """Load the template graph and apply logical inputs via the mapping file.
 
     The mapping file has shape:
@@ -205,16 +219,22 @@ def build_graph(workflow_id: str, inputs: "JobInputs") -> Dict[str, Any]:
             if node_id in graph and "inputs" in graph[node_id]:
                 graph[node_id]["inputs"][input_key] = logical[field]
 
+    # Per-job output prefix: several ComfyUI instances share the output dir, and each picks its
+    # file counter by scanning it — two jobs saving at once under one prefix could collide.
+    for node in graph.values():
+        if isinstance(node, dict) and "filename_prefix" in node.get("inputs", {}):
+            node["inputs"]["filename_prefix"] = f"clipwaltz/{job_id}"
+
     return graph
 
 
 # --------------------------------------------------------------------------- #
 # ComfyUI interaction
 # --------------------------------------------------------------------------- #
-def submit_to_comfyui(graph: Dict[str, Any], client_id: str) -> str:
+def submit_to_comfyui(base: str, graph: Dict[str, Any], client_id: str) -> str:
     try:
         r = httpx.post(
-            f"{COMFYUI_URL}/prompt",
+            f"{base}/prompt",
             json={"prompt": graph, "client_id": client_id},
             timeout=30,
         )
@@ -226,10 +246,10 @@ def submit_to_comfyui(graph: Dict[str, Any], client_id: str) -> str:
         raise HTTPException(status_code=502, detail=f"comfyui unreachable: {exc}")
 
 
-def _comfyui_is_running(prompt_id: str) -> bool:
+def _comfyui_is_running(base: str, prompt_id: str) -> bool:
     """True if ComfyUI is currently executing this prompt (queue_running entry [num, id, ...])."""
     try:
-        q = httpx.get(f"{COMFYUI_URL}/queue", timeout=10).json()
+        q = httpx.get(f"{base}/queue", timeout=10).json()
     except Exception:  # noqa: BLE001
         return False
     return any(len(item) > 1 and item[1] == prompt_id for item in q.get("queue_running", []))
@@ -240,10 +260,11 @@ def poll_job(job_id: str) -> None:
     then records output file metadata."""
     with _jobs_lock:
         prompt_id = _jobs[job_id]["prompt_id"]
+        base = _jobs[job_id]["backend"]
     while True:
         time.sleep(3)
         try:
-            r = httpx.get(f"{COMFYUI_URL}/history/{prompt_id}", timeout=10)
+            r = httpx.get(f"{base}/history/{prompt_id}", timeout=10)
             hist = r.json()
         except Exception:  # noqa: BLE001
             continue
@@ -252,9 +273,9 @@ def poll_job(job_id: str) -> None:
                 if _jobs[job_id]["status"] == "cancelled":
                     return
                 waiting = _jobs[job_id]["status"] == "queued"
-            # ComfyUI runs one prompt at a time: report "running" once ours leaves the queue so
+            # Each ComfyUI runs one prompt at a time: report "running" once ours leaves the queue so
             # callers can time the actual work, not the wait behind other jobs.
-            if waiting and _comfyui_is_running(prompt_id):
+            if waiting and _comfyui_is_running(base, prompt_id):
                 with _jobs_lock:
                     if _jobs[job_id]["status"] == "queued":
                         _jobs[job_id]["status"] = "running"
@@ -345,12 +366,16 @@ class JobRequest(BaseModel):
 def health(_: None = Depends(require_token)) -> Dict[str, Any]:
     gpus = query_gpus()
     gpu_count = len([g for g in gpus if "error" not in g])
+    backends = [{"url": b, "online": comfyui_online(b)} for b in COMFYUI_URLS]
     with _jobs_lock:
         active = len([j for j in _jobs.values() if j["status"] in ("queued", "running")])
-    online = comfyui_online()
+        for b in backends:
+            b["active_jobs"] = _active_on(b["url"])
+    online = sum(1 for b in backends if b["online"])
     return {
-        "status": "healthy" if online else "degraded",
-        "comfyui": "online" if online else "offline",
+        "status": "healthy" if online == len(backends) else "degraded",
+        "comfyui": "online" if online == len(backends) else ("partial" if online else "offline"),
+        "backends": backends,
         "gpu_count": gpu_count,
         "active_jobs": active,
         "disk_free_gb": disk_free_gb(DATA_MOUNT),
@@ -371,11 +396,26 @@ def models(_: None = Depends(require_token)) -> Dict[str, Any]:
 def create_job(req: JobRequest, _: None = Depends(require_token)) -> Dict[str, Any]:
     job_id = "cw_" + uuid.uuid4().hex[:12]
     client_id = job_id
-    graph = build_graph(req.workflow, req.inputs)
-    prompt_id = submit_to_comfyui(graph, client_id)
+    graph = build_graph(req.workflow, req.inputs, job_id)
+    online = [b for b in COMFYUI_URLS if comfyui_online(b)]
+    if not online:
+        raise HTTPException(status_code=502, detail="no ComfyUI backend online")
+    # Pick + submit + register under one lock so concurrent requests see each other's load.
+    with _dispatch_lock:
+        with _jobs_lock:
+            base = min(online, key=_active_on)  # ties → first listed (GPU 0)
+        prompt_id = submit_to_comfyui(base, graph, client_id)
+        rec = _register_job(job_id, prompt_id, base, req)
+    _audit({**rec, "event": "submitted"})
+    threading.Thread(target=poll_job, args=(job_id,), daemon=True).start()
+    return {"job_id": job_id, "prompt_id": prompt_id, "status": "queued"}
+
+
+def _register_job(job_id: str, prompt_id: str, base: str, req: JobRequest) -> Dict[str, Any]:
     rec = {
         "job_id": job_id,
         "prompt_id": prompt_id,
+        "backend": base,
         "workflow": req.workflow,
         "inputs": req.inputs.model_dump(),
         "status": "queued",
@@ -386,9 +426,7 @@ def create_job(req: JobRequest, _: None = Depends(require_token)) -> Dict[str, A
     }
     with _jobs_lock:
         _jobs[job_id] = rec
-    _audit({**rec, "event": "submitted"})
-    threading.Thread(target=poll_job, args=(job_id,), daemon=True).start()
-    return {"job_id": job_id, "prompt_id": prompt_id, "status": "queued"}
+    return rec
 
 
 @app.get("/jobs/{job_id}")
@@ -407,12 +445,13 @@ def cancel_job(job_id: str, _: None = Depends(require_token)) -> Dict[str, Any]:
         if not j:
             raise HTTPException(status_code=404, detail="unknown job")
         prompt_id = j["prompt_id"]
+        base = j["backend"]
     # Remove from queue if still pending, and interrupt ONLY if it is the running one (/interrupt
     # stops whatever is executing — it must not kill another job's work).
     try:
-        httpx.post(f"{COMFYUI_URL}/queue", json={"delete": [prompt_id]}, timeout=10)
-        if _comfyui_is_running(prompt_id):
-            httpx.post(f"{COMFYUI_URL}/interrupt", timeout=10)
+        httpx.post(f"{base}/queue", json={"delete": [prompt_id]}, timeout=10)
+        if _comfyui_is_running(base, prompt_id):
+            httpx.post(f"{base}/interrupt", timeout=10)
     except Exception:  # noqa: BLE001
         pass
     _finish_job(job_id, "cancelled")

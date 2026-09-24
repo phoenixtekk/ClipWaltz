@@ -15,7 +15,7 @@ for d in output input; do
   c=$(find "$DATA/$d" -type f -mmin "+$KEEP_MIN" -delete -print 2>/dev/null | wc -l)
   removed=$((removed + c))
 done
-for d in temp cache; do
+for d in temp temp-gpu1 cache; do
   [ -d "$DATA/$d" ] && find "$DATA/$d" -type f -mmin "+$TMP_KEEP_MIN" -delete 2>/dev/null || true
 done
 # prune now-empty per-job subdirs

@@ -1,0 +1,28 @@
+[Unit]
+Description=ClipWaltz ComfyUI on GPU 1 (localhost-only AI video backend)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lacy
+Group=lacy
+WorkingDirectory=/opt/clipwaltz-ai/comfyui
+# Second instance on GPU 1 (the wrapper load-balances across both). Loopback ONLY. Separate
+# temp + user directories: ComfyUI wipes its temp dir on start and locks a SQLite DB in user/.
+ExecStart=/opt/clipwaltz-ai/venv/bin/python /opt/clipwaltz-ai/comfyui/main.py \
+    --listen 127.0.0.1 \
+    --port 8190 \
+    --output-directory /data/clipwaltz-ai/output \
+    --input-directory /data/clipwaltz-ai/input \
+    --temp-directory /data/clipwaltz-ai/temp-gpu1 \
+    --user-directory /opt/clipwaltz-ai/comfyui-user-gpu1 \
+    --cuda-device 1
+Restart=on-failure
+RestartSec=5
+# Logs to journald; also mirrored to /opt/clipwaltz-ai/logs by the drop-in below.
+StandardOutput=append:/opt/clipwaltz-ai/logs/comfyui-gpu1.log
+StandardError=append:/opt/clipwaltz-ai/logs/comfyui-gpu1.log
+
+[Install]
+WantedBy=multi-user.target

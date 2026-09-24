@@ -1,5 +1,5 @@
 [Unit]
-Description=ClipWaltz ComfyUI (localhost-only AI video backend)
+Description=ClipWaltz ComfyUI on GPU 0 (localhost-only AI video backend)
 After=network-online.target
 Wants=network-online.target
 
@@ -14,7 +14,8 @@ ExecStart=/opt/clipwaltz-ai/venv/bin/python /opt/clipwaltz-ai/comfyui/main.py \
     --port 8188 \
     --output-directory /data/clipwaltz-ai/output \
     --input-directory /data/clipwaltz-ai/input \
-    --temp-directory /data/clipwaltz-ai/temp
+    --temp-directory /data/clipwaltz-ai/temp \
+    --cuda-device 0
 Restart=on-failure
 RestartSec=5
 # Logs to journald; also mirrored to /opt/clipwaltz-ai/logs by the drop-in below.

@@ -4,6 +4,23 @@ Per `00_ClipWaltz_Build_Execution_Guide.md` §38. Newest first.
 
 ---
 
+## ADR-0008 — One ComfyUI per GPU, load-balanced by the wrapper
+- **Date:** 2026-09-24
+- **Decision:** Run a second ComfyUI (`comfyui-gpu1`, `127.0.0.1:8190`, `--cuda-device 1`) beside
+  the first (pinned `--cuda-device 0`). The wrapper sends each job to the online backend with the
+  fewest active jobs and gives every job a unique output prefix (`clipwaltz/<job_id>`).
+- **Reason:** GPU 1 sat idle; a 30-min restore blocked every generation. The two 10 GB 3080s cannot
+  pool into one 20 GB device (no NVLink; SeedVR2 has no model-sharding) — tested: VAE on GPU 1 with
+  the DiT on GPU 0 left GPU 0's peak unchanged (9.48 GB at 1080p b21) and b33 still OOMed. So the
+  second card buys **concurrency**, not bigger batches.
+- **Measured (2026-09-24):** 1080p restore on GPU 0 and a Wan 704×480 generation on GPU 1 at the
+  same time: 205 s and 82 s (solo: 206 s / 86 s); peak system RAM 30 GB of 121; both cards peaked
+  319 W / 84 °C; no kernel/GPU errors.
+- **Alternatives considered:** SeedVR2 CLI multi-GPU (splits one clip across both cards — ~2×
+  faster per restore, but still serial across jobs and outside ComfyUI).
+- **Impact:** ~640 W GPU draw when both are busy (PSU rating not checked). Models load per
+  instance (a job landing on the other card pays a cold load). `COMFYUI_URLS` in `wrapper.env`.
+
 ## ADR-0007 — Premium enhancement uses SeedVR2, not SUPIR
 - **Date:** 2026-09-24
 - **Decision:** The premium "restore" enhancement is **SeedVR2-3B** (ByteDance-Seed; code **and**
@@ -21,8 +38,8 @@ Per `00_ClipWaltz_Build_Execution_Guide.md` §38. Newest first.
 - **Alternatives considered:** License SUPIR commercially; SUPIR internal-only.
 - **Impact:** New AISERVER node + 3.7 GB of models (`/data/clipwaltz-ai/models/SEEDVR2`); wrapper
   gains optional `resolution`/`batch_size` job inputs; worker computes them (2× short side ≤1080;
-  batch 13 above 1.4 MP), 60-min timeout, 400-frame cap. Long restores occupy the single GPU and
-  serialize with generation jobs.
+  batch 13 above 1.4 MP), 60-min timeout, 400-frame cap. (Long restores no longer block
+  generation — see ADR-0008.)
 
 ## ADR-0006 — Workspace roles + email invites (member management)
 - **Date:** 2026-09-23

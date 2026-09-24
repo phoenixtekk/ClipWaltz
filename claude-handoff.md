@@ -50,6 +50,9 @@ f22c126 docs(handoff): rotate to session v6
   ≤8.8 GB on one 3080; wrapper E2E; full worker E2E on dev (704×480→1408×960, 49/49 frames, 125 s,
   cleaned up). **Not browser-verified** (auth-gated): the AI Restore button itself.
   ⚠️ ESRGAN workflow hard-codes 24 fps output (a 25/48 fps source is re-timed) — not fixed.
+- **Both GPUs in use (ADR-0008, DEPLOYED):** 2nd ComfyUI `comfyui-gpu1` on GPU 1 (`127.0.0.1:8190`); wrapper
+  load-balances + per-job output prefix. Verified concurrent 1080p restore + Wan gen (205 s / 82 s, no slowdown,
+  30 GB RAM, 319 W/84 °C per card, no kernel errors). VRAM can't pool across the cards (tested).
 - **Next:** owner's signed-in smoke test of `/account/workspace` + Enhance → AI Restore; watch AISERVER
   for freezes (`/var/crash/`).
 

@@ -30,7 +30,8 @@ dedicated `/data` mount, never mixed with app code (doc §5).
 
 | Service | Bind | Port | Reachable from |
 |---------|------|------|----------------|
-| ComfyUI | `127.0.0.1` | 8188 | **localhost only** — never off-box |
+| ComfyUI (GPU 0) | `127.0.0.1` | 8188 | **localhost only** — never off-box |
+| ComfyUI (GPU 1) | `127.0.0.1` | 8190 | **localhost only** — never off-box |
 | AISERVER API wrapper | LAN IP `192.168.166.158` | 8189 | LAN (ClipWaltz backend on linuxg1); **not** public |
 
 Nothing here is on the public internet. If external access is ever needed it
@@ -40,13 +41,21 @@ that up from here. Untouched neighbours on this host: nginx `:80`, Ollama
 
 ## Systemd services
 
-- `comfyui.service` — runs ComfyUI from the venv, bound to `127.0.0.1:8188`,
+- `comfyui.service` — ComfyUI on **GPU 0** (`--cuda-device 0`), bound to `127.0.0.1:8188`,
   output/input/temp pointed at `/data/clipwaltz-ai`. Auto-start, restart-on-failure.
+- `comfyui-gpu1.service` — a second ComfyUI on **GPU 1** (`--cuda-device 1`), `127.0.0.1:8190`,
+  same output/input dirs but its own temp (`/data/clipwaltz-ai/temp-gpu1`) and user dir
+  (`/opt/clipwaltz-ai/comfyui-user-gpu1` — ComfyUI locks a SQLite DB there). Log:
+  `/opt/clipwaltz-ai/logs/comfyui-gpu1.log`.
+- The wrapper load-balances: each job goes to the online backend with the fewest queued/running
+  jobs (ties → GPU 0), recorded as `backend` on the job. Backends come from `COMFYUI_URLS` in
+  `wrapper.env`. Every job's outputs are saved under `clipwaltz/<job_id>` so the two instances
+  never collide in the shared output dir. `/health` lists each backend.
 - `clipwaltz-aiserver-api.service` — runs the FastAPI wrapper via uvicorn,
   `EnvironmentFile=/opt/clipwaltz-ai/config/wrapper.env`, `Requires=comfyui.service`.
 
 Install: copy the units from `systemd/` to `/etc/systemd/system/`, then
-`sudo systemctl daemon-reload && sudo systemctl enable --now comfyui clipwaltz-aiserver-api`.
+`sudo systemctl daemon-reload && sudo systemctl enable --now comfyui comfyui-gpu1 clipwaltz-aiserver-api`.
 
 ## API (wrapper)
 
@@ -65,8 +74,8 @@ All endpoints require `Authorization: Bearer <CW_API_TOKEN>`.
 
 ```bash
 # status / logs
-systemctl status comfyui clipwaltz-aiserver-api
-tail -f /opt/clipwaltz-ai/logs/comfyui.log
+systemctl status comfyui comfyui-gpu1 clipwaltz-aiserver-api
+tail -f /opt/clipwaltz-ai/logs/comfyui.log /opt/clipwaltz-ai/logs/comfyui-gpu1.log
 tail -f /opt/clipwaltz-ai/logs/wrapper.log
 cat /opt/clipwaltz-ai/logs/jobs.jsonl          # structured per-job audit (doc §22)
 
@@ -74,7 +83,7 @@ cat /opt/clipwaltz-ai/logs/jobs.jsonl          # structured per-job audit (doc �
 curl -s -H "Authorization: Bearer $CW_API_TOKEN" http://192.168.166.158:8189/health
 
 # restart
-sudo systemctl restart comfyui
+sudo systemctl restart comfyui comfyui-gpu1
 sudo systemctl restart clipwaltz-aiserver-api
 ```
 

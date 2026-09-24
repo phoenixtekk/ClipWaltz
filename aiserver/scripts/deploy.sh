@@ -73,8 +73,9 @@ uv pip install -r "$OPT/scripts/requirements.txt"
 echo "== Step 6: services =="
 # (unit files + wrapper.env are copied in by the operator before this point)
 sudo systemctl daemon-reload
-sudo systemctl enable --now comfyui
+mkdir -p "$DATA"/temp-gpu1 "$OPT"/comfyui-user-gpu1
+sudo systemctl enable --now comfyui comfyui-gpu1
 sudo systemctl enable --now clipwaltz-aiserver-api
-systemctl --no-pager status comfyui clipwaltz-aiserver-api | head -20
+systemctl --no-pager status comfyui comfyui-gpu1 clipwaltz-aiserver-api | head -20
 
 echo "Done. Next: download LTX model into $DATA/models, capture workflow.api.json, validate (doc §28)."
