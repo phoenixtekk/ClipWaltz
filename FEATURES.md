@@ -203,6 +203,14 @@ wrapper; ADR-0002/0005).
     ~2 s/frame at 720p, ~4.6 s/frame at 1080p. Best on real camera footage; can over-sharpen
     AI-generated clips (`latent_noise_scale` 0.1 applied to soften this).
 - **Export Center:** MP4 or WebM × native / 720p / 1080p, then download.
+- **Quality routing** (ADR-0009): Preview / Standard / High map to admin-editable routing rules
+  (default 10 / 20 / 30 sampler steps). **Motion** (subtle / balanced / dynamic) steers the prompt.
+  **Seed** is honoured and recorded (Duplicate reproduces a version; Regenerate varies it).
+  **Negative prompt** is sent to the model. Prompts are limited to 2,000 characters with a counter.
+- **Failures:** a plain-language message plus a **Retry** button (same settings; re-routed if the
+  original workflow was switched off).
+- **Admin — AI models & routing** (`/admin/ai`): switch models and workflows on/off, edit routing
+  rules and fallbacks; the Generate tab greys out anything unavailable.
 - **Two GPUs in parallel** (ADR-0008): the AISERVER runs one ComfyUI per RTX 3080 and the wrapper
   sends each job to the less busy card, so a long AI Restore no longer blocks new generations.
 - **Access:** generate / enhance / export need the **editor** role or higher in the project's

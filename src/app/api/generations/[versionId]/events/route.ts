@@ -3,10 +3,11 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { getAuthUserId } from "@/lib/auth";
 import { userCanAccessProject } from "@/lib/workspace";
+import { friendlyJobError } from "@/lib/ai/errors";
 
 export const runtime = "nodejs";
 
-const TERMINAL = new Set(["completed", "failed", "cancelled"]);
+const TERMINAL = new Set(["completed", "failed", "cancelled", "retried"]);
 
 // SSE stream of a generation job's status/progress (owner-only). One persistent connection
 // replaces client polling: the server reads the DB on a short interval and pushes changes,
@@ -55,7 +56,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ versionId: stri
           const key = `${row.status}:${row.progress}`;
           if (key !== last) {
             last = key;
-            send({ status: row.status, progress: row.progress ?? 0, errorMessage: row.errorMessage ?? null });
+            send({ status: row.status, progress: row.progress ?? 0, errorMessage: friendlyJobError(row.errorMessage), errorDetail: row.errorMessage ?? null });
           }
           if (TERMINAL.has(row.status)) close();
         } catch {

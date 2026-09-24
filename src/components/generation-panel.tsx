@@ -18,6 +18,7 @@ import {
   Download,
   Clapperboard,
   Bookmark,
+  RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
@@ -33,8 +34,11 @@ import {
   enhanceVersion,
   toggleVersionFavorite,
   setVersionSelected,
+  retryGenerationJob,
+  getGenerationAvailability,
   type GenerationVersionItem,
 } from "@/lib/generation-actions";
+import type { AiAvailability, Quality } from "@/lib/ai/routing";
 import {
   createExportJob,
   listExportJobs,
@@ -44,9 +48,9 @@ import {
   type ExportJobItem,
 } from "@/lib/export-actions";
 
-// Wan 2.2 TI2V-5B drives both modes. Image→video needs a source photo; text→video needs a prompt.
-const WORKFLOW_I2V = "wan-image-to-video-v1";
-const WORKFLOW_T2V = "wan-text-to-video-v1";
+// The server's routing engine picks the workflow from mode + quality (ADR-0009); the panel only
+// sends the quality. Image→video needs a source photo; text→video needs a prompt.
+const PROMPT_MAX = 2000;
 
 // §9 Style chips + §9 Camera picker. There are no dedicated backend fields for these, so the
 // chosen phrases are folded into the prompt text (see buildPrompt) — kept simple and documented.
@@ -84,11 +88,12 @@ const ASPECTS: { key: string; label: string; w: number; h: number; box: string }
   { key: "1:1", label: "Square", w: 768, h: 768, box: "h-8 w-8" },
 ];
 
-// §9 Quality cards. There is no backend field for quality yet, so this is a UI-only hint for now.
-const QUALITIES: { key: string; label: string; note: string }[] = [
+// §9 Quality cards → routing rules (default Preview 10 / Standard 20 / High 30 sampler steps,
+// editable in /admin/ai).
+const QUALITIES: { key: Quality; label: string; note: string }[] = [
   { key: "preview", label: "Preview", note: "Fastest draft" },
   { key: "standard", label: "Standard", note: "Balanced" },
-  { key: "high", label: "High", note: "Best detail" },
+  { key: "high", label: "High", note: "Best detail, slower" },
 ];
 
 // §11 status → friendly phase name.
@@ -102,7 +107,7 @@ const PHASE: Record<string, string> = {
   encoding: "Encoding video",
   uploading_output: "Finishing up",
 };
-const TERMINAL = new Set(["completed", "failed", "cancelled"]);
+const TERMINAL = new Set(["completed", "failed", "cancelled", "retried"]);
 
 // Export chooser options.
 const EXPORT_FORMATS: { key: ExportFormat; label: string }[] = [
@@ -135,6 +140,8 @@ type Job = {
   status: string;
   progress: number;
   errorMessage: string | null;
+  /** Raw worker error, kept for support (shown as a tooltip). */
+  errorDetail?: string | null;
 };
 
 function relTime(iso: string): string {
@@ -166,7 +173,9 @@ export function GenerationPanel({
   const [motionIdx, setMotionIdx] = useState(1); // balanced
   const [durationSec, setDurationSec] = useState<number>(5);
   const [aspectKey, setAspectKey] = useState("16:9");
-  const [qualityKey, setQualityKey] = useState("standard");
+  const [qualityKey, setQualityKey] = useState<Quality>("standard");
+  // What the routing registry currently allows (null until loaded → everything shown enabled).
+  const [avail, setAvail] = useState<AiAvailability | null>(null);
   const [seed, setSeed] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
@@ -219,6 +228,14 @@ export function GenerationPanel({
     void refreshExports();
   }, [refreshVersions, refreshExports]);
 
+  // Which modes / qualities / enhance engines are enabled in the admin registry.
+  useEffect(() => {
+    getGenerationAvailability().then(setAvail, () => { /* keep everything enabled */ });
+  }, []);
+  const qualityAvailable = (q: Quality) => !avail || (mode === "text" ? avail.textToVideo : avail.imageToVideo)[q];
+  const engineAvailable = (e: "ffmpeg" | "ai" | "restore") =>
+    !avail || e === "ffmpeg" || (e === "restore" ? avail.restore : avail.upscale || avail.interpolate);
+
   // Poll the export list every ~3s while any export is still queued/processing.
   const exportsActive = exports.some((e) => !EXPORT_TERMINAL.has(e.status));
   useEffect(() => {
@@ -235,10 +252,10 @@ export function GenerationPanel({
     if (!activeJobId) return;
     const es = new EventSource(`/api/generations/${activeJobId}/events`);
     es.onmessage = (ev) => {
-      let d: { status?: string; progress?: number; errorMessage?: string | null };
+      let d: { status?: string; progress?: number; errorMessage?: string | null; errorDetail?: string | null };
       try { d = JSON.parse(ev.data); } catch { return; }
       if (!d.status || d.status === "gone") { es.close(); return; }
-      setJob({ id: activeJobId, status: d.status, progress: d.progress ?? 0, errorMessage: d.errorMessage ?? null });
+      setJob({ id: activeJobId, status: d.status, progress: d.progress ?? 0, errorMessage: d.errorMessage ?? null, errorDetail: d.errorDetail ?? null });
       if (d.status === "completed") {
         es.close();
         void refreshVersions().then((list) => {
@@ -301,8 +318,8 @@ export function GenerationPanel({
       try {
         const jobId = await createGenerationJob({
           projectId,
-          workflow: mode === "text" ? WORKFLOW_T2V : WORKFLOW_I2V,
           jobType: mode === "text" ? "text_to_video" : "image_to_video",
+          quality: qualityKey,
           sourceAssetId: mode === "text" ? undefined : sourceAssetId ?? undefined,
           prompt: buildPrompt() || undefined,
           negativePrompt: negativePrompt.trim() || undefined,
@@ -315,6 +332,20 @@ export function GenerationPanel({
         setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null });
       } catch (e) {
         toast.error((e as Error).message || "Could not start generation.");
+      }
+    });
+  }
+
+  // CW-MVP-181: re-run a failed job with the same settings; the new job takes over the progress UI.
+  function retry() {
+    if (!job) return;
+    const failedId = job.id;
+    start(async () => {
+      try {
+        const jobId = await retryGenerationJob(failedId);
+        setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null });
+      } catch (e) {
+        toast.error((e as Error).message || "Could not retry.");
       }
     });
   }
@@ -506,10 +537,14 @@ export function GenerationPanel({
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
+            maxLength={PROMPT_MAX}
             rows={3}
             placeholder="Describe the shot, motion, atmosphere, and feeling you want."
             className="w-full resize-y rounded-xl border border-border bg-background p-3 text-sm outline-none transition-colors focus:border-[color:var(--cw-violet)]"
           />
+          <div className="mt-1 text-right text-[11px] text-muted-foreground">
+            {prompt.length}/{PROMPT_MAX}
+          </div>
         </Field>
 
         {/* Style chips */}
@@ -610,8 +645,8 @@ export function GenerationPanel({
           </Field>
         </div>
 
-        {/* Quality cards (UI hint only for now) */}
-        <Field label="Quality" hint="A hint for now — quality tiers aren't wired to the model yet.">
+        {/* Quality cards → routing rules */}
+        <Field label="Quality" hint="Preview is a quick draft; High takes about 1.5× longer than Standard.">
           <div className="grid grid-cols-3 gap-2">
             {QUALITIES.map((q) => (
               <button
@@ -619,8 +654,10 @@ export function GenerationPanel({
                 type="button"
                 onClick={() => setQualityKey(q.key)}
                 aria-pressed={qualityKey === q.key}
+                disabled={!qualityAvailable(q.key)}
+                title={qualityAvailable(q.key) ? undefined : "Temporarily unavailable"}
                 className={cn(
-                  "rounded-xl border px-3 py-2.5 text-left transition-colors",
+                  "rounded-xl border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40",
                   qualityKey === q.key
                     ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10"
                     : "border-border hover:border-border/80",
@@ -660,6 +697,7 @@ export function GenerationPanel({
                 <textarea
                   value={negativePrompt}
                   onChange={(e) => setNegativePrompt(e.target.value)}
+                  maxLength={PROMPT_MAX}
                   rows={2}
                   placeholder="blurry, distorted, low quality"
                   className="w-full resize-y rounded-xl border border-border bg-background p-3 text-sm outline-none focus:border-[color:var(--cw-violet)]"
@@ -670,6 +708,16 @@ export function GenerationPanel({
         </div>
 
         {/* CTA (§9) — dominant Generate button, or the §11 progress state while running */}
+        {job?.status === "failed" ? (
+          <div className="flex items-start justify-between gap-3 rounded-xl border border-destructive/40 bg-destructive/5 p-3">
+            <p className="text-sm text-destructive" title={job.errorDetail ?? undefined}>
+              {job.errorMessage ?? "Something went wrong while making this video."}
+            </p>
+            <Button variant="outline" size="sm" onClick={retry} disabled={pending}>
+              <RotateCcw className="size-3.5" /> Retry
+            </Button>
+          </div>
+        ) : null}
         {isGenerating ? (
           <GenerationProgress job={job!} onCancel={cancel} />
         ) : (
@@ -742,8 +790,10 @@ export function GenerationPanel({
                     type="button"
                     onClick={() => setEnhanceEngine(e)}
                     aria-pressed={enhanceEngine === e}
+                    disabled={!engineAvailable(e)}
+                    title={engineAvailable(e) ? undefined : "Temporarily unavailable"}
                     className={cn(
-                      "rounded-md px-3 py-1.5 transition-colors",
+                      "rounded-md px-3 py-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-40",
                       enhanceEngine === e ? "bg-[color:var(--cw-violet)] text-white shadow" : "text-muted-foreground hover:text-foreground",
                     )}
                   >

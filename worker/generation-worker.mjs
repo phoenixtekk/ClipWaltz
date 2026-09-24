@@ -10,7 +10,7 @@
 // isolated on AISERVER; this worker owns all MinIO I/O.
 //
 // Env: DATABASE_URL, REDIS_URL (default localhost), S3_* (MinIO), AISERVER_API_URL, AISERVER_API_TOKEN.
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomInt } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
@@ -78,6 +78,21 @@ async function setStatus(id, fields) {
   await sql`update generation_jobs set ${sql(fields)}, updated_at = now() where id = ${id}`;
 }
 
+// BullMQ retries a job automatically (attempts: 2). Only the LAST failure marks the job "failed"
+// (which shows the user a Retry button); earlier ones put it back to "queued" for the auto-retry.
+// Never overwrite cancelled/retried — the user already acted on it.
+async function markAttemptFailed(job, id, err) {
+  const final = (job?.attemptsMade ?? 1) >= (job?.opts?.attempts ?? 1);
+  const msg = String(err?.message ?? err).slice(0, 1000);
+  if (final) {
+    await sql`update generation_jobs set status = 'failed', error_message = ${msg}, failed_at = now(), updated_at = now()
+      where id = ${id} and status not in ('cancelled', 'retried')`;
+  } else {
+    await sql`update generation_jobs set status = 'queued', progress = 0, error_message = ${msg}, updated_at = now()
+      where id = ${id} and status not in ('cancelled', 'retried')`;
+  }
+}
+
 async function getBytes(key) {
   const out = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
   return Buffer.from(await out.Body.transformToByteArray());
@@ -98,7 +113,7 @@ async function stageImage(key) {
 async function processJob(genJobId) {
   const [j] = await sql`select * from generation_jobs where id = ${genJobId}`;
   if (!j) { console.warn("[gen] job gone", genJobId); return; }
-  if (j.status === "cancelled") { console.log("[gen] skip cancelled", genJobId); return; }
+  if (j.status === "cancelled" || j.status === "retried") { console.log(`[gen] skip ${j.status}`, genJobId); return; }
 
   const req = j.request_json ?? {};
   const workflow = j.workflow_name ?? req.workflow;
@@ -114,6 +129,11 @@ async function processJob(genJobId) {
     await setStatus(genJobId, { status: "uploading_to_ai_node", progress: 15 });
   }
 
+  // Pick the seed here (not in the wrapper) and record it on the job, so Duplicate can reproduce
+  // this exact version later.
+  const seed = Number.isSafeInteger(req.seed) ? req.seed : randomInt(0, 2 ** 32);
+  if (seed !== req.seed) await sql`update generation_jobs set request_json = ${sql.json({ ...req, seed })} where id = ${genJobId}`;
+
   // Submit to the wrapper.
   const body = {
     workflow,
@@ -125,7 +145,9 @@ async function processJob(genJobId) {
       duration: req.durationSec ?? 5,
       length: framesForSeconds(req.durationSec ?? 5),
       motion: req.motion ?? "balanced",
-      seed: req.seed ?? null,
+      seed,
+      negative_prompt: j.negative_prompt ?? null,
+      steps: req.steps ?? null, // routing rule's quality profile; null → workflow default
     },
   };
   const subRes = await fetch(`${AISERVER_URL}/jobs`, {
@@ -192,10 +214,10 @@ const worker = new Worker(
 
 worker.on("failed", async (job, err) => {
   const id = job?.data?.generationJobId;
-  console.error(`[gen] FAILED ${id}: ${err?.message}`);
+  console.error(`[gen] FAILED ${id} (attempt ${job?.attemptsMade}/${job?.opts?.attempts ?? 1}): ${err?.message}`);
   if (id) {
     try {
-      await setStatus(id, { status: "failed", error_message: String(err?.message ?? err).slice(0, 1000), failed_at: new Date() });
+      await markAttemptFailed(job, id, err);
     } catch (e) { console.error("[gen] status write failed", e); }
   }
 });
@@ -350,25 +372,27 @@ function restoreParams({ width, height }) {
 // ORDER MATTERS: upscale first, then interpolate — RIFE must be LAST so its doubled frame rate
 // survives to the final encode (running ESRGAN last would re-encode at its own fps and drop it).
 async function aiEnhance(req, genJobId) {
+  // Workflow ids resolved by the app's routing registry (ADR-0009); defaults for older jobs.
+  const wf = { upscale: "esrgan-upscale-v1", interpolate: "rife-interpolate-v1", restore: "seedvr2-restore-v1", ...(req.workflows ?? {}) };
   const src = await getBytes(req.sourceKey);
   let bytes = null;
   if (req.engine === "restore") {
     const info = await probeVideo(src);
     if (!info.width || !info.height || !Number.isFinite(info.frames)) throw new Error("could not read source video dimensions / frame count");
     if (info.frames > RESTORE_MAX_FRAMES) throw new Error(`AI Restore supports clips up to ${RESTORE_MAX_FRAMES} frames (this one has ${info.frames})`);
-    bytes = await runAiWorkflow("seedvr2-restore-v1", src, genJobId, { extraInputs: restoreParams(info), timeoutMs: RESTORE_TIMEOUT_MS });
+    bytes = await runAiWorkflow(wf.restore, src, genJobId, { extraInputs: restoreParams(info), timeoutMs: RESTORE_TIMEOUT_MS });
   } else if (req.upscale) {
-    bytes = await runAiWorkflow("esrgan-upscale-v1", src, genJobId);
+    bytes = await runAiWorkflow(wf.upscale, src, genJobId);
   }
-  if (req.interpolate) bytes = await runAiWorkflow("rife-interpolate-v1", bytes ?? src, genJobId);
-  if (!bytes) bytes = await runAiWorkflow("esrgan-upscale-v1", src, genJobId); // default: upscale
+  if (req.interpolate) bytes = await runAiWorkflow(wf.interpolate, bytes ?? src, genJobId);
+  if (!bytes) bytes = await runAiWorkflow(wf.upscale, src, genJobId); // default: upscale
   return bytes;
 }
 
 async function processEnhance(genJobId) {
   const [j] = await sql`select * from generation_jobs where id = ${genJobId}`;
   if (!j) { console.warn("[enh] job gone", genJobId); return; }
-  if (j.status === "cancelled") return;
+  if (j.status === "cancelled" || j.status === "retried") return;
   const req = j.request_json ?? {};
   if (!req.sourceKey) throw new Error("no sourceKey on enhancement job");
   const ai = req.engine === "ai" || req.engine === "restore";
@@ -397,10 +421,10 @@ const enhanceWorker = new Worker(
 );
 enhanceWorker.on("failed", async (job, err) => {
   const id = job?.data?.generationJobId;
-  console.error(`[enh] FAILED ${id}: ${err?.message}`);
+  console.error(`[enh] FAILED ${id} (attempt ${job?.attemptsMade}/${job?.opts?.attempts ?? 1}): ${err?.message}`);
   if (id) {
     try {
-      await setStatus(id, { status: "failed", error_message: String(err?.message ?? err).slice(0, 1000), failed_at: new Date() });
+      await markAttemptFailed(job, id, err);
     } catch (e) { console.error("[enh] status write failed", e); }
   }
 });

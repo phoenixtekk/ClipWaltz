@@ -219,6 +219,22 @@ def build_graph(workflow_id: str, inputs: "JobInputs", job_id: str) -> Dict[str,
             if node_id in graph and "inputs" in graph[node_id]:
                 graph[node_id]["inputs"][input_key] = logical[field]
 
+    # "append_fields": add the value to the template's own text (e.g. the user's negative prompt
+    # goes after the workflow's built-in negative prompt instead of replacing it).
+    for field, targets in mapping.get("append_fields", {}).items():
+        value = (logical.get(field) or "").strip()
+        if not value:
+            continue
+        for node_id, input_key in targets:
+            if node_id in graph and "inputs" in graph[node_id]:
+                base = str(graph[node_id]["inputs"].get(input_key) or "").strip()
+                graph[node_id]["inputs"][input_key] = f"{base}, {value}" if base else value
+
+    # Seed: without this every job ran with the template's baked-in seed (identical regenerations).
+    for node_id, input_key in mapping.get("seed_fields", []):
+        if node_id in graph and "inputs" in graph[node_id]:
+            graph[node_id]["inputs"][input_key] = logical["seed"]
+
     # Per-job output prefix: several ComfyUI instances share the output dir, and each picks its
     # file counter by scanning it — two jobs saving at once under one prefix could collide.
     for node in graph.values():
@@ -348,7 +364,10 @@ class JobInputs(BaseModel):
     # duration + fps; if omitted, the workflow's built-in default length is used.
     length: Optional[int] = None
     motion: str = "balanced"
-    seed: Optional[int] = None
+    seed: Optional[int] = Field(default=None, ge=0, le=2**53 - 1)
+    negative_prompt: Optional[str] = Field(default=None, max_length=2000)
+    # Sampler steps (quality profile from the app's routing rules); template default if omitted.
+    steps: Optional[int] = Field(default=None, ge=4, le=60)
     # Restoration (seedvr2-restore-v1): target short-side resolution and frames per batch.
     resolution: Optional[int] = Field(default=None, ge=256, le=1080)
     batch_size: Optional[int] = Field(default=None, ge=1, le=33)

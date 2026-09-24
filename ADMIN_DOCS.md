@@ -111,6 +111,55 @@ See [`env.example`](env.example) for the full list. Groups:
 - **Code:** `src/lib/workspace.ts` (role helpers), `src/lib/workspace-actions.ts` (member management,
   returns `{ ok, error }`), `/account/workspace`, `/invite/[token]`.
 
+## AI models & routing (ADR-0009)
+
+**Where:** `/admin/ai` (admins only — `ADMIN_EMAILS`), linked from `/admin` as **🤖 AI models**.
+
+- **Models** (`model_registry`) and **Workflows** (`workflow_registry`) have on/off switches. A
+  workflow is usable only if it AND its model are enabled. Changes apply to the next job; running
+  jobs finish on what they started with.
+- **Routing rules** (`routing_rules`): for each task (text→video, image→video) and quality
+  (preview / standard / high) the **lowest-priority usable rule** wins; the rest are fallbacks.
+  `steps` = sampler steps sent to ComfyUI (blank = the workflow's default of 20). Defaults seeded by
+  migration 0030: Preview 10, Standard 20, High 30 (measured on a 3080: 33 s / 44 s / 63 s for a
+  2 s 704×480 clip, model already loaded). A rule must point at a workflow of the same task (the
+  engine also enforces this).
+- **What users see:** qualities / Enhance engines with no usable route are greyed out
+  ("Temporarily unavailable"); a direct attempt gets a friendly error. With every rule for a task
+  and quality disabled the admin page shows **"no usable rule — unavailable to users"**.
+- **Enhancement workflows** are chosen by task (`upscale` / `interpolate` / `restore`) — the first
+  enabled one with an enabled model. The resolved ids are stored on the job (`request_json.workflows`).
+- **Code:** `src/lib/ai/routing.ts` (engine), `src/lib/ai-admin-actions.ts` (admin actions),
+  `src/components/admin-ai.tsx`. Adding a new workflow: deploy its template/map to the AISERVER, add
+  it to the wrapper's `WORKFLOWS`, insert a `workflow_registry` row whose `id` = wrapper id
+  (`<workflow_id>-<version>`) with the right `task`, then point a routing rule at it.
+- **Failure messages:** the worker stores the raw error; users see a mapped friendly message
+  (`src/lib/ai/errors.ts`) with a **Retry** button (`retryGenerationJob`); the raw text is the
+  tooltip. Retry re-routes (and re-checks enhancement workflows), so a job whose workflow was
+  disabled retries on the current rule. **Job states:** the queue auto-retries once — after the
+  first failure a job shows `queued` again (error kept); only the last failure sets `failed`. A
+  retry atomically marks the old job `retried` (so it can't be retried twice) and creates a new job.
+
+## Storage edge for direct downloads/uploads (ADR-0003) — owner setup, then code
+
+Status: **not built.** Needs an owner-created Cloudflare public hostname first.
+
+1. **Cloudflare dashboard → Zero Trust → Networks → Tunnels** → the **linuxg1** tunnel (ID starts
+   `772914b5`, the one already serving `www.clipwaltz.com`) → **Public Hostnames → Add**:
+   subdomain `media`, domain `clipwaltz.com`, path empty, service **HTTP**, URL
+   **`192.168.166.169:9000`** (MinIO **API** port — never `:9001`, the console). The dashboard creates
+   the DNS record.
+2. **Do NOT put a Cloudflare Access policy on it** — end users' browsers must fetch it without a
+   login; access is controlled by the short-lived signature on each URL.
+3. **Rules → Cache Rules:** hostname `media.clipwaltz.com` → **Bypass cache** (presigned URLs are
+   per-user and short-lived).
+4. Tell the developer the hostname. Code side (not yet done): presign with endpoint
+   `https://media.clipwaltz.com` (SigV4 signs the Host header — cloudflared forwards it unchanged),
+   MinIO CORS limited to `https://www.clipwaltz.com`, confirm the bucket is not anonymously
+   listable (`curl https://media.clipwaltz.com/clipwaltz` must be 403), TTL ≤ 1 h, and
+   **multipart uploads with parts < 100 MB** — Cloudflare Free/Pro rejects request bodies over
+   100 MB (HTTP 413).
+
 ## Monthly Theme Challenge (contests)
 Admin-run community contest; likes on entered public renders are votes.
 - **Start:** `/admin` → *Monthly Theme Challenge* → enter a theme (+ optional description) → **Start challenge**. Only **one active** contest at a time; the community banner appears automatically.

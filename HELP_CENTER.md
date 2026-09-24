@@ -82,6 +82,14 @@ them there, then come back. (These are in addition to the "video ready" email, w
 - Open a project and switch to the **Generate** tab. Start from one of your photos (image → video) or
   just describe the scene (text → video), then pick style, camera, motion, shape (landscape,
   portrait or square) and length (3, 5 or 8 seconds) and press **Generate**. Progress updates live.
+- **Quality:** *Preview* is a fast draft for trying ideas, *Standard* is the everyday setting, and
+  *High* adds detail but takes about 1.5× longer. **Motion** sets how much movement you get —
+  *Subtle* for calm scenes, *Dynamic* for energetic ones.
+- **Seed** (Advanced settings): leave it blank for a new random take each time, or enter a number
+  to recreate a result. **Negative prompt** lists things you don't want, such as "text, watermark".
+- If a generation fails you'll see what went wrong in plain words and a **Retry** button that runs
+  it again with the same settings. If an option is greyed out it's temporarily switched off — pick
+  another quality or check back soon.
 - Every result is saved as a **version**. Preview, compare two side by side, favourite the ones you
   like, **pick** the one to use, or regenerate for a new take.
 - **Enhance** a version to make a better copy (your original is kept):

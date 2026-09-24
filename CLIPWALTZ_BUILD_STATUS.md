@@ -123,6 +123,12 @@ Assembler (music-video) product is separate and shipping — see [ADR-0001](docs
       chooser gains **AI Restore**. Benchmarked on one 10 GB 3080 (≤8.8 GB peak); wrapper E2E
       verified (640×360@25 → 1280×720@25, 45/45 frames, 91 s).
 
+- [x] **Routing engine + admin registry** (2026-09-24, ADR-0009, migration 0030): CW-MVP-070/071/
+      190/191 + quality (052), motion (053), failure message/retry (180/181), prompt limit (030).
+      Fixed: seed never applied by the wrapper; negative prompt never sent. Verified: routing matrix
+      + disable/fallback on dev; dev worker E2E (preview → 10 steps, seed recorded + used, negative
+      appended). Not browser-verified (auth-gated): /admin/ai UI, Retry button, greyed options.
+
 ## App-layer done (2026-09-23, verified: build passes; backfill tested on dev with real data)
 - [x] BullMQ queue module (`src/lib/queue.ts`, lazy Redis) — `bullmq`/`ioredis` added
 - [x] Provider abstraction `AIVideoProvider` + `ComfyUIAIServerProvider` (`src/lib/ai/*`) — coded to

@@ -528,7 +528,7 @@ export const generationJobs = pgTable("generation_jobs", {
   requestedBy: text().references(() => user.id, { onDelete: "set null" }),
   jobType: text().notNull(), // text_to_video | image_to_video | montage | enhancement
   // queued | preparing | uploading_to_ai_node | loading_model | generating |
-  // enhancing | encoding | uploading_output | completed | failed | cancelled
+  // enhancing | encoding | uploading_output | completed | failed | cancelled | retried
   status: text().notNull().default("queued"),
   routingProfile: text(), // routing decision id/name (see routing engine)
   modelName: text(), // resolved model family (wan | hunyuan | ltx)
@@ -645,8 +645,10 @@ export const workflowRegistry = pgTable(
   "workflow_registry",
   {
     id: text().primaryKey(),
-    workflowId: text().notNull(), // logical id, e.g. "wan/image-to-video"
+    workflowId: text().notNull(), // logical id; `${workflowId}-${version}` is the AISERVER wrapper id
     version: text().notNull(), // e.g. "v1"
+    // What it does: text_to_video | image_to_video | upscale | interpolate | restore (routing key).
+    task: text(),
     modelName: text(), // supported model family
     inputTypes: jsonb(), // string[] — image | text | video
     aspectRatios: jsonb(), // string[] — 9:16 | 16:9 | 1:1
@@ -662,3 +664,20 @@ export const workflowRegistry = pgTable(
   },
   (t) => [unique().on(t.workflowId, t.version)],
 );
+
+// Routing rules (CW-MVP-070): task + quality → workflow + sampler steps, admin-editable so routing
+// changes need no frontend deploy. Lowest `priority` wins among rules whose workflow AND model are
+// enabled; the next one is the fallback. See src/lib/ai/routing.ts.
+export const routingRules = pgTable("routing_rules", {
+  id: text().primaryKey(),
+  task: text().notNull(), // text_to_video | image_to_video
+  quality: text().notNull(), // preview | standard | high
+  workflowRegistryId: text()
+    .notNull()
+    .references(() => workflowRegistry.id, { onDelete: "cascade" }),
+  steps: integer(), // sampler steps; null = workflow default
+  priority: integer().notNull().default(0),
+  enabled: boolean().notNull().default(true),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});

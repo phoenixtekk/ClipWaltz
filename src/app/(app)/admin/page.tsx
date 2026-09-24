@@ -38,9 +38,14 @@ export default async function AdminPage() {
             Invite people and grant Plus/Pro access — lifetime or with an expiry date.
           </p>
         </div>
-        <a href="/admin/batch" className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium hover:border-primary hover:text-primary">
-          🎬 Auto-Batch
-        </a>
+        <div className="flex gap-2">
+          <a href="/admin/ai" className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium hover:border-primary hover:text-primary">
+            🤖 AI models
+          </a>
+          <a href="/admin/batch" className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium hover:border-primary hover:text-primary">
+            🎬 Auto-Batch
+          </a>
+        </div>
       </div>
 
       <section className="space-y-3">

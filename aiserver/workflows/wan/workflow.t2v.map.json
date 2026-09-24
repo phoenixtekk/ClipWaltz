@@ -23,6 +23,12 @@
         "55",
         "length"
       ]
+    ],
+    "steps": [
+      [
+        "3",
+        "steps"
+      ]
     ]
   },
   "seed_fields": [
@@ -30,5 +36,13 @@
       "3",
       "seed"
     ]
-  ]
+  ],
+  "append_fields": {
+    "negative_prompt": [
+      [
+        "7",
+        "text"
+      ]
+    ]
+  }
 }

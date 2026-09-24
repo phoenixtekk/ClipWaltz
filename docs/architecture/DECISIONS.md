@@ -4,6 +4,26 @@ Per `00_ClipWaltz_Build_Execution_Guide.md` §38. Newest first.
 
 ---
 
+## ADR-0009 — DB-driven routing engine + admin AI registry
+- **Date:** 2026-09-24
+- **Decision:** Generation routing reads `routing_rules` (task + quality → workflow + sampler
+  steps, priority-ordered with fallbacks) joined to `workflow_registry` / `model_registry` enabled
+  flags. The client no longer names a workflow; it sends a quality. Admins edit models, workflows
+  and rules at `/admin/ai`. Enhancement workflows resolve by `workflow_registry.task`.
+- **Reason:** CW-MVP-070 requires routing to be "editable without frontend code changes"; 071/190/191
+  need a registry with enable/disable. The tables existed (migration 0028) but nothing read them.
+- **Quality profile:** Wan 2.2 5B has no separate fast model on this hardware, so Preview = fewer
+  sampler steps (10) on the same model; Standard 20 (the template default); High 30. Measured
+  33 s / 44 s / 63 s; 10 steps is visibly softer but usable as a draft.
+- **Also fixed with this change:** the AISERVER wrapper never applied `seed_fields` — every
+  generation ran with the template's baked seed (898471028164125), so Seed and Regenerate had no
+  effect. The worker now picks a random seed when none is given and records it on the job
+  (Duplicate reproduces it). The user's negative prompt was stored but never sent; it is now
+  appended to Wan's built-in negative prompt.
+- **Motion intensity:** Wan 2.2 has no motion-strength input — the choice is a prompt phrase,
+  like style and camera.
+- **Impact:** migration 0030 (`routing_rules`, `workflow_registry.task`, idempotent seed rows).
+
 ## ADR-0008 — One ComfyUI per GPU, load-balanced by the wrapper
 - **Date:** 2026-09-24
 - **Decision:** Run a second ComfyUI (`comfyui-gpu1`, `127.0.0.1:8190`, `--cuda-device 1`) beside

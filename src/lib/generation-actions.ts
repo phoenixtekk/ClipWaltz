@@ -1,19 +1,58 @@
 "use server";
 import { randomUUID } from "crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
 import { enqueueGeneration, enqueueEnhance, generationQueue } from "./queue";
 import { deleteObject } from "./storage";
 import { userCanAccessProject } from "./workspace";
+import { friendlyJobError } from "./ai/errors";
+import { resolveGenerationRoute, resolveEnhanceWorkflow, getAiAvailability, RouteUnavailableError, QUALITIES, type Quality } from "./ai/routing";
+
+const PROMPT_MAX = 2000;
+
+// The wrapper accepts 0 … 2^53-1; anything else becomes null (the worker picks a random seed).
+function validSeed(seed: unknown): number | null {
+  return Number.isSafeInteger(seed) && (seed as number) >= 0 ? (seed as number) : null;
+}
+
+// Motion intensity (CW-MVP-053). Wan 2.2 has no motion-strength input, so the choice becomes a
+// prompt phrase — the same approach the Generate tab uses for style and camera.
+const MOTION_PHRASE: Record<string, string> = {
+  subtle: "subtle, gentle, minimal movement",
+  balanced: "",
+  dynamic: "dynamic, energetic, fast movement",
+};
+function withMotion(prompt: string | undefined, motion: string): string | null {
+  const parts = [prompt?.trim(), MOTION_PHRASE[motion]].filter(Boolean);
+  return parts.length ? parts.join(", ") : null;
+}
+
+// Route via the DB rules; an unavailable route becomes a plain user-facing Error.
+async function routeOrUserError(task: "text_to_video" | "image_to_video", quality: Quality) {
+  try {
+    return await resolveGenerationRoute(task, quality);
+  } catch (e) {
+    if (e instanceof RouteUnavailableError) throw new Error(e.message);
+    throw e;
+  }
+}
+
+/** What the Generate tab can offer right now (enabled workflows/models via the routing rules). */
+export async function getGenerationAvailability() {
+  await requireUserId();
+  return getAiAvailability();
+}
 
 export type GenerationJobType = "text_to_video" | "image_to_video" | "montage" | "enhancement";
 
 export type CreateGenerationInput = {
   projectId: string;
-  /** Workflow id the AISERVER provider exposes, e.g. "ltx-image-to-video-v1". */
-  workflow: string;
+  /** Ignored — the routing engine picks the workflow from jobType + quality (ADR-0009). */
+  workflow?: string;
+  /** Quality profile → routing rule (workflow + sampler steps). Default "standard". */
+  quality?: Quality;
   jobType: GenerationJobType;
   prompt?: string;
   negativePrompt?: string;
@@ -55,6 +94,13 @@ export async function createGenerationJob(input: CreateGenerationInput): Promise
   if (input.jobType === "text_to_video" && !input.prompt?.trim()) {
     throw new Error("Text-to-video needs a prompt");
   }
+  if ((input.prompt?.length ?? 0) > PROMPT_MAX || (input.negativePrompt?.length ?? 0) > PROMPT_MAX) {
+    throw new Error(`Prompts are limited to ${PROMPT_MAX} characters`);
+  }
+  if (input.jobType !== "text_to_video" && input.jobType !== "image_to_video") throw new Error("Unsupported job type");
+  const quality: Quality = QUALITIES.includes(input.quality as Quality) ? (input.quality as Quality) : "standard";
+  const motion = MOTION_PHRASE[input.motion ?? ""] !== undefined ? input.motion! : "balanced";
+  const route = await routeOrUserError(input.jobType, quality);
 
   const id = randomUUID();
   await db.insert(schema.generationJobs).values({
@@ -65,18 +111,24 @@ export async function createGenerationJob(input: CreateGenerationInput): Promise
     requestedBy: userId,
     jobType: input.jobType,
     status: "queued",
-    workflowName: input.workflow,
-    prompt: input.prompt ?? null,
-    negativePrompt: input.negativePrompt ?? null,
+    routingProfile: route.ruleId,
+    modelName: route.modelName,
+    workflowName: route.workflow,
+    workflowVersion: route.workflowVersion,
+    // Motion has no model input on Wan 2.2 — it is folded into the prompt, like style/camera.
+    prompt: withMotion(input.prompt, motion),
+    negativePrompt: input.negativePrompt?.trim() || null,
     // Everything the worker needs to build the provider request (kept off the hot columns).
     requestJson: {
-      workflow: input.workflow,
+      workflow: route.workflow,
+      quality,
+      steps: route.steps,
       sourceAssetId: input.sourceAssetId ?? null,
       width: input.width ?? null,
       height: input.height ?? null,
       durationSec: input.durationSec ?? null,
-      motion: input.motion ?? "balanced",
-      seed: input.seed ?? null,
+      motion,
+      seed: validSeed(input.seed),
     },
   });
 
@@ -152,6 +204,37 @@ export async function regenerateFromVersion(versionId: string, fresh: boolean): 
   if (!job) throw new Error("Source job not found");
 
   const req = (job.requestJson ?? {}) as Record<string, unknown>;
+  const id = await requeueGenerationCopy(job, userId, { ...req, seed: fresh ? null : (req.seed ?? null) });
+  revalidatePath(`/projects/${job.projectId}/edit`);
+  return id;
+}
+
+// Insert a new job copying `job`, re-resolving the route for generation jobs (a workflow disabled
+// since the original run is replaced by the current rule), then enqueue it on the right queue.
+async function requeueGenerationCopy(
+  job: typeof schema.generationJobs.$inferSelect,
+  userId: string,
+  requestJson: Record<string, unknown>,
+  retryCount = 0,
+): Promise<string> {
+  let routing = {
+    routingProfile: job.routingProfile, modelName: job.modelName,
+    workflowName: job.workflowName, workflowVersion: job.workflowVersion,
+  };
+  if (job.jobType === "text_to_video" || job.jobType === "image_to_video") {
+    const q = requestJson.quality;
+    const quality: Quality = QUALITIES.includes(q as Quality) ? (q as Quality) : "standard";
+    const route = await routeOrUserError(job.jobType, quality);
+    routing = { routingProfile: route.ruleId, modelName: route.modelName, workflowName: route.workflow, workflowVersion: route.workflowVersion };
+    requestJson = { ...requestJson, workflow: route.workflow, quality, steps: route.steps };
+  } else if (job.jobType === "enhancement") {
+    // Re-check the registry and use the workflows enabled NOW (never the ones stored on the old
+    // job — they may have been switched off, or predate the registry).
+    const workflows = await assertEnhanceAvailable(
+      String(requestJson.engine ?? "ffmpeg"), !!requestJson.interpolate, !!requestJson.upscale,
+    );
+    requestJson = { ...requestJson, workflows };
+  }
   const id = randomUUID();
   await db.insert(schema.generationJobs).values({
     id,
@@ -161,14 +244,57 @@ export async function regenerateFromVersion(versionId: string, fresh: boolean): 
     requestedBy: userId,
     jobType: job.jobType,
     status: "queued",
-    workflowName: job.workflowName,
+    ...routing,
     prompt: job.prompt ?? null,
     negativePrompt: job.negativePrompt ?? null,
-    requestJson: { ...req, seed: fresh ? null : (req.seed ?? null) },
+    requestJson,
+    retryCount,
   });
-  await enqueueGeneration(id);
-  revalidatePath(`/projects/${job.projectId}/edit`);
+  if (job.jobType === "enhancement") await enqueueEnhance(id);
+  else await enqueueGeneration(id);
   return id;
+}
+
+/**
+ * Retry a failed or cancelled job (CW-MVP-181, editor-checked): a new job with the same prompt,
+ * source and settings (same seed if one was recorded). Returns the new job id.
+ */
+export async function retryGenerationJob(jobId: string): Promise<string> {
+  const userId = await requireUserId();
+  const [job] = await db.select().from(schema.generationJobs).where(eq(schema.generationJobs.id, jobId));
+  if (!job || !(await userCanAccessProject(userId, job.projectId, "editor"))) throw new Error("Job not found");
+  // Claim the failed job atomically so a double-click or repeated call retries it only once.
+  const claimed = await db
+    .update(schema.generationJobs)
+    .set({ status: "retried", updatedAt: new Date() })
+    .where(and(eq(schema.generationJobs.id, jobId), inArray(schema.generationJobs.status, ["failed", "cancelled"])))
+    .returning({ id: schema.generationJobs.id });
+  if (!claimed.length) throw new Error("This job was already retried or isn't finished");
+  try {
+    const id = await requeueGenerationCopy(job, userId, { ...((job.requestJson ?? {}) as Record<string, unknown>) }, job.retryCount + 1);
+    revalidatePath(`/projects/${job.projectId}/edit`);
+    return id;
+  } catch (e) {
+    // Couldn't start (e.g. workflow switched off) — release the claim so it can be retried later.
+    await db.update(schema.generationJobs).set({ status: job.status }).where(eq(schema.generationJobs.id, jobId));
+    throw e;
+  }
+}
+
+// The AI enhancement workflows an engine needs must be enabled in the registry (CW-MVP-191).
+async function assertEnhanceAvailable(engine: string, interpolate: boolean, upscale: boolean) {
+  if (engine === "ffmpeg") return {};
+  const need: { key: "upscale" | "interpolate" | "restore"; label: string }[] = [];
+  if (engine === "restore") need.push({ key: "restore", label: "AI Restore" });
+  else if (upscale || !interpolate) need.push({ key: "upscale", label: "AI upscale" });
+  if (interpolate) need.push({ key: "interpolate", label: "AI smoother motion" });
+  const out: Record<string, string> = {};
+  for (const n of need) {
+    const wf = await resolveEnhanceWorkflow(n.key);
+    if (!wf) throw new Error(`${n.label} is temporarily unavailable. Try the Fast engine or check back soon.`);
+    out[n.key] = wf;
+  }
+  return out;
 }
 
 /**
@@ -206,6 +332,7 @@ export async function enhanceVersion(input: {
     .where(eq(schema.generationVersions.id, input.versionId));
   if (!ver || !(await userCanAccessProject(userId, ver.projectId, "editor"))) throw new Error("Version not found");
   if (!ver.outputKey) throw new Error("This version has no output to enhance yet");
+  const workflows = await assertEnhanceAvailable(engine, input.interpolate, upscale);
 
   const id = randomUUID();
   await db.insert(schema.generationJobs).values({
@@ -222,6 +349,7 @@ export async function enhanceVersion(input: {
       engine,
       interpolate: input.interpolate,
       upscale,
+      workflows, // resolved wrapper workflow ids for the AI steps (worker falls back to defaults)
     },
   });
   await enqueueEnhance(id);
@@ -308,7 +436,7 @@ export async function getGenerationJob(jobId: string) {
     .from(schema.generationJobs)
     .where(eq(schema.generationJobs.id, jobId));
   if (!row || !(await userCanAccessProject(userId, row.projectId))) throw new Error("Job not found");
-  return row;
+  return { ...row, errorMessage: friendlyJobError(row.errorMessage), errorDetail: row.errorMessage };
 }
 
 /**
