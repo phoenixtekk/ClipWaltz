@@ -22,7 +22,7 @@ const TEMPLATES: Template[] = [
   { key: "surprise", label: "Surprise me", glyph: "✦", desc: "Let ClipWaltz choose the style", active: true },
 ];
 
-export function NewProjectWizard() {
+export function NewProjectWizard({ workspaceId }: { workspaceId?: string }) {
   const router = useRouter();
   const [selected, setSelected] = useState("trip");
   const [aspect, setAspect] = useState<"9:16" | "16:9">("9:16");
@@ -31,7 +31,7 @@ export function NewProjectWizard() {
   function onContinue() {
     start(async () => {
       try {
-        const id = await createProject(selected, aspect);
+        const id = await createProject(selected, aspect, workspaceId);
         router.push(`/projects/${id}/import`);
       } catch {
         toast.error("Could not create the project. Please try again.");

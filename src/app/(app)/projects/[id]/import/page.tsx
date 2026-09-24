@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getProject } from "@/lib/projects";
 import { listAssets } from "@/lib/assets";
 import { getAuthUserId } from "@/lib/auth";
@@ -22,6 +22,7 @@ export default async function ImportPage({
   const sp = await searchParams;
   const project = await getProject(id);
   if (!project) notFound();
+  if (project.role === "viewer") redirect(`/projects/${project.id}/edit`); // viewers can't add media
   const assets = await listAssets(id);
   const userId = await getAuthUserId();
   const googleConnected = !!userId && googleConfigured() && (await hasGoogleConnection(userId));

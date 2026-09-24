@@ -78,6 +78,18 @@ them there, then come back. (These are in addition to the "video ready" email, w
 - **Monthly Theme Challenge:** each month has a theme. Enter one of your Public videos from the
   editor — likes are votes, and the month's most-liked entry wins **ClipWaltz Pro**.
 
+## Working with others (workspaces)
+- Open the **account menu → Workspace** to invite people by email. Pick a role:
+  **Viewer** (watch and download only), **Editor** (edit, upload, render and generate) or, if you're
+  the owner, **Admin** (also deletes projects and manages members).
+- The invite link works once, for 7 days, and only for the email address you invited — the person
+  signs in (or creates an account) with that address and clicks **Accept invite**. Invite them again to
+  send a fresh link; the old one stops working.
+- Shared workspaces appear as tabs at the top of **Projects**. Pick one to see its projects, and use
+  **New Project** there to create a project everyone in it can open.
+- Change someone's role or remove them from the Workspace page at any time — removal takes effect
+  immediately. If you were invited, you can **Leave** a workspace from the same page.
+
 ## Account
 - Profile, password reset, retention (free sources auto-delete after 7 days; paid "Project Vault"
   keeps them).

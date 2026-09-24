@@ -1,6 +1,7 @@
 "use server";
 import { and, asc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { userCanAccessProject } from "./workspace";
 import { requireUserId } from "./auth";
 import { getObjectBytes } from "./storage";
 import { getMusicTracks } from "./music";
@@ -68,17 +69,11 @@ export async function getWaltzRecommendations(
   projectId: string,
 ): Promise<{ label: string; source: MediaProfile["source"]; recs: Recommendation[] }> {
   const userId = await requireUserId();
+  if (!(await userCanAccessProject(userId, projectId, "editor"))) throw new Error("Project not found");
   const rows = await db
     .select({ kind: schema.assets.kind, storageKey: schema.assets.storageKey })
     .from(schema.assets)
-    .innerJoin(schema.projects, eq(schema.assets.projectId, schema.projects.id))
-    .where(
-      and(
-        eq(schema.assets.projectId, projectId),
-        eq(schema.projects.ownerId, userId),
-        eq(schema.assets.uploadState, "uploaded"),
-      ),
-    )
+    .where(and(eq(schema.assets.projectId, projectId), eq(schema.assets.uploadState, "uploaded")))
     .orderBy(asc(schema.assets.orderIndex));
 
   const photos = rows.filter((r) => r.kind === "photo");

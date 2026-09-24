@@ -204,6 +204,13 @@
       "when": 1790181184976,
       "tag": "0028_tired_sabra",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790207499769,
+      "tag": "0029_great_weapon_omega",
+      "breakpoints": true
     }
   ]
 }

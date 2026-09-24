@@ -4,23 +4,12 @@ import { and, asc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
+import { assertProjectRole, getProjectRole, getWorkspaceRole, roleAtLeast } from "./workspace";
 
-async function assertProjectOwner(userId: string, projectId: string) {
-  const [p] = await db
-    .select({ id: schema.projects.id })
-    .from(schema.projects)
-    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.ownerId, userId)));
-  if (!p) throw new Error("Project not found");
-}
-
-// Confirm the current user owns the project before any mutation (defends against
-// a tampered projectId from the client).
-async function assertOwner(userId: string, projectId: string) {
-  const [row] = await db
-    .select({ id: schema.projects.id })
-    .from(schema.projects)
-    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.ownerId, userId)));
-  if (!row) throw new Error("Project not found");
+// Confirm the current user may edit the project (workspace role ≥ editor, ADR-0004) before any
+// mutation — defends against a tampered projectId from the client.
+async function assertEditor(userId: string, projectId: string) {
+  await assertProjectRole(userId, projectId, "editor");
 }
 
 // Templates selectable at MVP. "birthday" ships later, so it's not accepted yet.
@@ -34,12 +23,19 @@ const DEFAULT_TITLE: Record<string, string> = {
 const ASPECTS = new Set(["9:16", "16:9"]);
 
 /** Create a new draft project for the current user. Returns its id. */
-export async function createProject(template?: string, aspect?: string): Promise<string> {
+export async function createProject(template?: string, aspect?: string, inWorkspaceId?: string): Promise<string> {
   const userId = await requireUserId();
   const t = template && ACTIVE_TEMPLATES.has(template) ? template : "surprise";
   const a = aspect && ASPECTS.has(aspect) ? aspect : "9:16";
-  const { ensurePersonalWorkspace } = await import("./workspace");
-  const workspaceId = await ensurePersonalWorkspace(userId);
+  let workspaceId: string;
+  if (inWorkspaceId) {
+    // Creating inside a shared workspace needs editor rights there.
+    if (!roleAtLeast(await getWorkspaceRole(userId, inWorkspaceId), "editor")) throw new Error("Workspace not found");
+    workspaceId = inWorkspaceId;
+  } else {
+    const { ensurePersonalWorkspace } = await import("./workspace");
+    workspaceId = await ensurePersonalWorkspace(userId);
+  }
   const id = randomUUID();
   await db.insert(schema.projects).values({
     id,
@@ -81,7 +77,7 @@ export async function createProject(template?: string, aspect?: string): Promise
 
 export async function setProjectAspect(projectId: string, aspect: string): Promise<void> {
   const userId = await requireUserId();
-  await assertProjectOwner(userId, projectId);
+  await assertEditor(userId, projectId);
   const a = ASPECTS.has(aspect) ? aspect : "9:16";
   await db
     .update(schema.projects)
@@ -92,7 +88,12 @@ export async function setProjectAspect(projectId: string, aspect: string): Promi
 
 export async function deleteProject(projectId: string): Promise<void> {
   const userId = await requireUserId();
-  await assertOwner(userId, projectId);
+  // Admins/owners may delete any project in the workspace; an editor only the ones they created.
+  const role = await getProjectRole(userId, projectId);
+  const [p] = await db.select({ ownerId: schema.projects.ownerId }).from(schema.projects).where(eq(schema.projects.id, projectId));
+  if (!p || !(roleAtLeast(role, "admin") || (roleAtLeast(role, "editor") && p.ownerId === userId))) {
+    throw new Error("Project not found");
+  }
   await db.delete(schema.projects).where(eq(schema.projects.id, projectId));
   revalidatePath("/projects");
 }
@@ -100,7 +101,7 @@ export async function deleteProject(projectId: string): Promise<void> {
 /** Move a project into a category (folder). Empty/whitespace → null (Uncategorized). */
 export async function setProjectCategory(projectId: string, category: string | null): Promise<void> {
   const userId = await requireUserId();
-  await assertOwner(userId, projectId);
+  await assertEditor(userId, projectId);
   const c = (category ?? "").trim().slice(0, 60);
   await db
     .update(schema.projects)
@@ -112,7 +113,7 @@ export async function setProjectCategory(projectId: string, category: string | n
 /** Replace a project's tags (deduped, trimmed, max 12 × 30 chars). */
 export async function setProjectTags(projectId: string, tags: string[]): Promise<void> {
   const userId = await requireUserId();
-  await assertOwner(userId, projectId);
+  await assertEditor(userId, projectId);
   const clean = Array.from(
     new Set((tags ?? []).map((t) => String(t).trim().slice(0, 30)).filter(Boolean)),
   ).slice(0, 12);
@@ -125,7 +126,7 @@ export async function setProjectTags(projectId: string, tags: string[]): Promise
 
 export async function renameProject(projectId: string, title: string): Promise<void> {
   const userId = await requireUserId();
-  await assertOwner(userId, projectId);
+  await assertEditor(userId, projectId);
   const clean = title.trim().slice(0, 120) || "Untitled project";
   await db
     .update(schema.projects)
@@ -137,7 +138,7 @@ export async function renameProject(projectId: string, title: string): Promise<v
 // Length in seconds: 15s minimum up to 60 minutes (3600s). Non-finite → 30s.
 export async function setProjectLength(projectId: string, lengthSec: number): Promise<void> {
   const userId = await requireUserId();
-  await assertProjectOwner(userId, projectId);
+  await assertEditor(userId, projectId);
   const n = Math.round(lengthSec);
   const len = Number.isFinite(n) ? Math.min(3600, Math.max(15, n)) : 30;
   await db
@@ -180,7 +181,7 @@ export async function setProjectStyle(
   },
 ): Promise<void> {
   const userId = await requireUserId();
-  await assertProjectOwner(userId, projectId);
+  await assertEditor(userId, projectId);
   const set: Record<string, unknown> = { updatedAt: new Date() };
   let titleFollowed = false;
   if (patch.titleText !== undefined) {
@@ -244,13 +245,14 @@ export async function setProjectStyle(
 
 export async function setProjectMusic(projectId: string, trackId: string | null): Promise<void> {
   const userId = await requireUserId();
-  await assertProjectOwner(userId, projectId);
+  await assertEditor(userId, projectId);
   if (trackId) {
     const [t] = await db
-      .select({ id: schema.musicTracks.id })
+      .select({ id: schema.musicTracks.id, ownerId: schema.musicTracks.ownerId })
       .from(schema.musicTracks)
       .where(and(eq(schema.musicTracks.id, trackId), eq(schema.musicTracks.active, true)));
-    if (!t) throw new Error("Track not found");
+    // Catalog tracks (no owner) or the caller's own uploads only.
+    if (!t || (t.ownerId && t.ownerId !== userId)) throw new Error("Track not found");
   }
   await db
     .update(schema.projects)
@@ -265,7 +267,7 @@ export async function moveAsset(
   dir: "up" | "down",
 ): Promise<void> {
   const userId = await requireUserId();
-  await assertProjectOwner(userId, projectId);
+  await assertEditor(userId, projectId);
   const rows = await db
     .select({ id: schema.assets.id })
     .from(schema.assets)
@@ -284,7 +286,7 @@ export async function moveAsset(
 
 export async function duplicateProject(projectId: string): Promise<string> {
   const userId = await requireUserId();
-  await assertOwner(userId, projectId);
+  await assertEditor(userId, projectId);
   const [orig] = await db
     .select()
     .from(schema.projects)

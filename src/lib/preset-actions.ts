@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
+import { userCanAccessProject } from "./workspace";
 import { requireUserId } from "./auth";
 import { requireAdmin } from "./admin";
 import { getPresetShape } from "./presets";
@@ -11,8 +12,8 @@ async function assertProjectOwner(userId: string, projectId: string) {
   const [p] = await db
     .select({ id: schema.projects.id })
     .from(schema.projects)
-    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.ownerId, userId)));
-  if (!p) throw new Error("Project not found");
+    .where(eq(schema.projects.id, projectId));
+  if (!p || !(await userCanAccessProject(userId, projectId, "editor"))) throw new Error("Project not found");
 }
 
 /** Snapshot a project's current Format + Style + overlays into a new personal preset. */

@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
+import { userCanAccessProject } from "./workspace";
 import { requireUserId } from "./auth";
 
 const VISIBILITY = new Set(["private", "unlisted", "public"]);
@@ -11,11 +12,14 @@ const VISIBILITY = new Set(["private", "unlisted", "public"]);
 export async function shareRender(renderId: string, visibility: string): Promise<string> {
   const userId = await requireUserId();
   const [row] = await db
-    .select({ ownerId: schema.projects.ownerId })
+    .select({ ownerId: schema.projects.ownerId, projectId: schema.renders.projectId })
     .from(schema.renders)
     .innerJoin(schema.projects, eq(schema.renders.projectId, schema.projects.id))
     .where(eq(schema.renders.id, renderId));
-  if (!row || row.ownerId !== userId) throw new Error("Render not found");
+  // The creator shares (credit is theirs), and only while still an editor+ in the workspace.
+  if (!row || row.ownerId !== userId || !(await userCanAccessProject(userId, row.projectId, "editor"))) {
+    throw new Error("Render not found");
+  }
   const v = VISIBILITY.has(visibility) ? visibility : "private";
   await db
     .update(schema.renders)

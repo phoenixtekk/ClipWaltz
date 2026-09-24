@@ -3,19 +3,19 @@ import { randomUUID } from "crypto";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
+import { userCanAccessProject } from "./workspace";
 import { requireUserId } from "./auth";
 import { deleteObject } from "./storage";
 import type { RenderSettings, RenderCheckpoint, CheckWarning } from "./render";
 
-/** Delete a saved render (the DB row + its MinIO object), owner-checked. */
+/** Delete a saved render (the DB row + its MinIO object), editor-checked. */
 export async function deleteRender(renderId: string): Promise<void> {
   const userId = await requireUserId();
   const [row] = await db
-    .select({ ownerId: schema.projects.ownerId, key: schema.renders.outputKey, projectId: schema.renders.projectId })
+    .select({ key: schema.renders.outputKey, projectId: schema.renders.projectId })
     .from(schema.renders)
-    .innerJoin(schema.projects, eq(schema.renders.projectId, schema.projects.id))
     .where(eq(schema.renders.id, renderId));
-  if (!row || row.ownerId !== userId) throw new Error("Render not found");
+  if (!row || !(await userCanAccessProject(userId, row.projectId, "editor"))) throw new Error("Render not found");
   await db.delete(schema.renders).where(eq(schema.renders.id, renderId));
   if (row.key) await deleteObject(row.key).catch(() => {});
   revalidatePath(`/projects/${row.projectId}/edit`);
@@ -53,8 +53,8 @@ export async function createRender(projectId: string): Promise<string> {
   const [proj] = await db
     .select()
     .from(schema.projects)
-    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.ownerId, userId)));
-  if (!proj) throw new Error("Project not found");
+    .where(eq(schema.projects.id, projectId));
+  if (!proj || !(await userCanAccessProject(userId, projectId, "editor"))) throw new Error("Project not found");
 
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -131,8 +131,8 @@ export async function getRenderCheckpoint(projectId: string): Promise<RenderChec
   const [proj] = await db
     .select()
     .from(schema.projects)
-    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.ownerId, userId)));
-  if (!proj) throw new Error("Project not found");
+    .where(eq(schema.projects.id, projectId));
+  if (!proj || !(await userCanAccessProject(userId, projectId, "editor"))) throw new Error("Project not found");
 
   const assets = await db
     .select({

@@ -4,6 +4,21 @@ Per `00_ClipWaltz_Build_Execution_Guide.md` §38. Newest first.
 
 ---
 
+## ADR-0006 — Workspace roles + email invites (member management)
+- **Date:** 2026-09-23
+- **Decision:** Four roles — owner > admin > editor > viewer. Members get the **full editor** on every
+  project in the workspace (owner ruling), by role. Invites are **emailed via SES** as single-use,
+  7-day, email-bound token links (only the SHA-256 is stored). Admins manage editors/viewers; only the
+  owner manages admins. A project in a workspace is authorized **solely by workspace membership** —
+  the creator fallback applies only to legacy projects with no workspace, so removing a member
+  revokes access even to projects they created there.
+- **Reason:** Owner ruling (full editor + 4 roles + email link) to make ADR-0004 multi-user.
+- **Alternatives considered:** Generate/export-only or view-only membership; copy-link-only invites;
+  two roles.
+- **Impact:** `workspace_invites` (migration 0029). All project-scoped actions/routes moved from
+  `ownerId` checks to role checks. Categories, presets, music uploads, batches, community sharing and
+  challenge entries stay per-person (creator).
+
 ## ADR-0005 — First generation model: Wan 2.2 TI2V-5B (not LTX)
 - **Date:** 2026-09-23
 - **Decision:** Use **Wan 2.2 TI2V-5B** (fp8) as the first image→video model on AISERVER, via

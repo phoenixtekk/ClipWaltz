@@ -3,10 +3,11 @@ import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
+import { assertProjectRole, userCanAccessProject } from "./workspace";
 
 /**
  * Remove a clip from a project (the placement only). The underlying file stays in the
- * user's media library (delete it there to remove the object). Owner-checked.
+ * user's media library (delete it there to remove the object). Editor-checked.
  */
 export async function deleteAsset(projectId: string, assetId: string): Promise<void> {
   const userId = await requireUserId();
@@ -15,7 +16,7 @@ export async function deleteAsset(projectId: string, assetId: string): Promise<v
     .from(schema.assets)
     .innerJoin(schema.projects, eq(schema.assets.projectId, schema.projects.id))
     .where(and(eq(schema.assets.id, assetId), eq(schema.assets.projectId, projectId)));
-  if (!row || row.ownerId !== userId) throw new Error("Asset not found");
+  if (!row || !(await userCanAccessProject(userId, projectId, "editor"))) throw new Error("Asset not found");
 
   await db.delete(schema.assets).where(eq(schema.assets.id, assetId));
   revalidatePath(`/projects/${projectId}/import`);
@@ -23,7 +24,7 @@ export async function deleteAsset(projectId: string, assetId: string): Promise<v
 }
 
 /**
- * Set (or clear, with null) a clip's manual screen time in seconds. Owner-checked. Clamped to
+ * Set (or clear, with null) a clip's manual screen time in seconds. Editor-checked. Clamped to
  * 0.4–60s; for videos, capped at the source length so we never read past the clip.
  */
 export async function setAssetDuration(
@@ -37,7 +38,7 @@ export async function setAssetDuration(
     .from(schema.assets)
     .innerJoin(schema.projects, eq(schema.assets.projectId, schema.projects.id))
     .where(and(eq(schema.assets.id, assetId), eq(schema.assets.projectId, projectId)));
-  if (!row || row.ownerId !== userId) throw new Error("Asset not found");
+  if (!row || !(await userCanAccessProject(userId, projectId, "editor"))) throw new Error("Asset not found");
 
   let val: number | null = null;
   if (seconds != null && Number.isFinite(seconds)) {
@@ -51,7 +52,7 @@ export async function setAssetDuration(
 
 /**
  * Set (or clear, with nulls) a video's trim in/out points in seconds — only [start,end] renders.
- * Owner-checked. Clamped to the source length; enforces a ≥0.4s window. Takes precedence over the
+ * Editor-checked. Clamped to the source length; enforces a ≥0.4s window. Takes precedence over the
  * smart-cut window and the manual duration for that clip.
  */
 export async function setAssetTrim(
@@ -66,7 +67,7 @@ export async function setAssetTrim(
     .from(schema.assets)
     .innerJoin(schema.projects, eq(schema.assets.projectId, schema.projects.id))
     .where(and(eq(schema.assets.id, assetId), eq(schema.assets.projectId, projectId)));
-  if (!row || row.ownerId !== userId) throw new Error("Asset not found");
+  if (!row || !(await userCanAccessProject(userId, projectId, "editor"))) throw new Error("Asset not found");
   if (row.kind !== "video") throw new Error("Only videos can be trimmed");
 
   let s: number | null = null;
@@ -83,16 +84,12 @@ export async function setAssetTrim(
 }
 
 /**
- * Set the full clip order for a project (timeline drag-reorder + insert). Owner-checked;
+ * Set the full clip order for a project (timeline drag-reorder + insert). Editor-checked;
  * only assets that belong to the project are (re)numbered, any omitted keep a stable tail.
  */
 export async function reorderAssets(projectId: string, orderedIds: string[]): Promise<void> {
   const userId = await requireUserId();
-  const [proj] = await db
-    .select({ id: schema.projects.id })
-    .from(schema.projects)
-    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.ownerId, userId)));
-  if (!proj) throw new Error("Project not found");
+  await assertProjectRole(userId, projectId, "editor");
 
   const rows = await db
     .select({ id: schema.assets.id })

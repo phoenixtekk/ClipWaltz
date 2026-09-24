@@ -1,7 +1,8 @@
 "use server";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
+import { userCanAccessProject } from "./workspace";
 import { requireUserId } from "./auth";
 import { sanitizeOverlays, type Overlay } from "./overlays";
 
@@ -11,8 +12,8 @@ export async function setProjectOverlays(projectId: string, overlays: Overlay[])
   const [proj] = await db
     .select({ id: schema.projects.id })
     .from(schema.projects)
-    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.ownerId, userId)));
-  if (!proj) throw new Error("Project not found");
+    .where(eq(schema.projects.id, projectId));
+  if (!proj || !(await userCanAccessProject(userId, projectId, "editor"))) throw new Error("Project not found");
   const clean = sanitizeOverlays(overlays);
   await db
     .update(schema.projects)

@@ -1,7 +1,7 @@
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
-import { getUserWorkspaceIds } from "./workspace";
+import { getUserWorkspaceIds, getProjectRole, visibleProjectsFilter, type WorkspaceRole } from "./workspace";
 import { parseOverlays, type Overlay } from "./overlays";
 
 export type ProjectStatus = "draft" | "rendering" | "ready" | "failed";
@@ -41,9 +41,11 @@ export type ProjectDetail = ProjectSummary & {
   loopToFill: boolean;
   maxFootage: boolean;
   overlays: Overlay[];
+  workspaceId: string | null;
+  role: WorkspaceRole; // the caller's effective role — gates the editor UI (viewer = read-only)
 };
 
-/** A single project owned by the current user, or null. */
+/** A single project the current user can see (any workspace role), or null. */
 export async function getProject(id: string): Promise<ProjectDetail | null> {
   const userId = await requireUserId();
   const wsIds = await getUserWorkspaceIds(userId);
@@ -51,13 +53,12 @@ export async function getProject(id: string): Promise<ProjectDetail | null> {
     .select()
     .from(schema.projects)
     .where(
-      and(
-        eq(schema.projects.id, id),
-        // owner (fallback) OR a member of the project's workspace (ADR-0004)
-        or(eq(schema.projects.ownerId, userId), inArray(schema.projects.workspaceId, wsIds)),
-      ),
+      // a member of the project's workspace, or the creator of a legacy project (ADR-0004)
+      and(eq(schema.projects.id, id), visibleProjectsFilter(userId, wsIds)),
     );
   if (!r) return null;
+  const role = await getProjectRole(userId, r.id);
+  if (!role) return null;
   return {
     id: r.id,
     title: r.title,
@@ -87,11 +88,12 @@ export async function getProject(id: string): Promise<ProjectDetail | null> {
     loopToFill: r.loopToFill,
     maxFootage: r.maxFootage,
     overlays: parseOverlays(r.overlays),
+    workspaceId: r.workspaceId,
+    role,
     updatedAt: r.updatedAt.toISOString(),
   };
 }
 
-/** Projects owned by the current user, newest first. Server-only (uses headers + db). */
 export type ProjectCategory = { id: string; name: string; color: string | null; sortOrder: number };
 
 /** The signed-in user's project categories, ordered. Server-only. */
@@ -105,13 +107,21 @@ export async function listCategories(): Promise<ProjectCategory[]> {
   return rows.map((r) => ({ id: r.id, name: r.name, color: r.color, sortOrder: r.sortOrder }));
 }
 
-export async function listProjects(): Promise<ProjectSummary[]> {
+/**
+ * Projects the current user can see, newest first. With `workspaceId`, only that workspace's
+ * (plus, for the caller's personal workspace, their legacy workspace-less projects).
+ */
+export async function listProjects(workspaceId?: string, includeLegacy = false): Promise<ProjectSummary[]> {
   const userId = await requireUserId();
-  const wsIds = await getUserWorkspaceIds(userId);
+  const allWs = await getUserWorkspaceIds(userId);
+  const wsIds = workspaceId ? allWs.filter((id) => id === workspaceId) : allWs;
+  const filter = workspaceId && !includeLegacy
+    ? inArray(schema.projects.workspaceId, wsIds)
+    : visibleProjectsFilter(userId, wsIds);
   const rows = await db
     .select()
     .from(schema.projects)
-    .where(or(eq(schema.projects.ownerId, userId), inArray(schema.projects.workspaceId, wsIds)))
+    .where(filter)
     .orderBy(desc(schema.projects.updatedAt));
 
   const ids = rows.map((r) => r.id);

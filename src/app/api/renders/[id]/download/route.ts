@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { userCanAccessProject } from "@/lib/workspace";
 import { requireUserId } from "@/lib/auth";
 import { serveObject } from "@/lib/storage";
 
@@ -21,7 +22,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const [row] = await db
     .select({
       key: schema.renders.outputKey,
-      ownerId: schema.projects.ownerId,
+      projectId: schema.renders.projectId,
       titleText: schema.projects.titleText,
       title: schema.projects.title,
     })
@@ -29,7 +30,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     .innerJoin(schema.projects, eq(schema.renders.projectId, schema.projects.id))
     .where(eq(schema.renders.id, id));
 
-  if (!row || row.ownerId !== userId || !row.key) {
+  if (!row || !row.key || !(await userCanAccessProject(userId, row.projectId))) {
     return new NextResponse("not found", { status: 404 });
   }
 

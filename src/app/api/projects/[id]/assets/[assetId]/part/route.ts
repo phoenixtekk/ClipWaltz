@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { userCanAccessProject } from "@/lib/workspace";
 import { requireUserId } from "@/lib/auth";
 import { uploadPart } from "@/lib/storage";
 
@@ -27,19 +28,12 @@ export async function PUT(
     return NextResponse.json({ error: "bad part params" }, { status: 400 });
   }
 
-  // Owner-scoped asset lookup (join project).
+  // Editor-scoped asset lookup (workspace role, ADR-0004).
   const [row] = await db
     .select({ key: schema.assets.storageKey })
     .from(schema.assets)
-    .innerJoin(schema.projects, eq(schema.assets.projectId, schema.projects.id))
-    .where(
-      and(
-        eq(schema.assets.id, assetId),
-        eq(schema.assets.projectId, projectId),
-        eq(schema.projects.ownerId, userId),
-      ),
-    );
-  if (!row) return NextResponse.json({ error: "not found" }, { status: 404 });
+    .where(and(eq(schema.assets.id, assetId), eq(schema.assets.projectId, projectId)));
+  if (!row || !(await userCanAccessProject(userId, projectId, "editor"))) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const buf = new Uint8Array(await req.arrayBuffer());
   if (buf.byteLength === 0) return NextResponse.json({ error: "empty part" }, { status: 400 });

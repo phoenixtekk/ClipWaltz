@@ -5,12 +5,15 @@ import { Button } from "@/components/ui/button";
 export function NewProjectButton({
   size = "default",
   label = "+ New Project",
+  workspaceId,
 }: {
   size?: "default" | "sm" | "lg";
   label?: string;
+  workspaceId?: string; // create inside this (shared) workspace; default = personal
 }) {
+  const href = workspaceId ? `/projects/new?ws=${encodeURIComponent(workspaceId)}` : "/projects/new";
   return (
-    <Button render={<Link href="/projects/new" />} size={size}>
+    <Button render={<Link href={href} />} size={size}>
       {label}
     </Button>
   );

@@ -1,5 +1,6 @@
-import { and, asc, eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { userCanAccessProject } from "./workspace";
 import { requireUserId } from "./auth";
 
 export type AssetSummary = {
@@ -22,8 +23,8 @@ export async function listAssets(projectId: string): Promise<AssetSummary[]> {
   const [proj] = await db
     .select({ id: schema.projects.id })
     .from(schema.projects)
-    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.ownerId, userId)));
-  if (!proj) return [];
+    .where(eq(schema.projects.id, projectId));
+  if (!proj || !(await userCanAccessProject(userId, projectId, "viewer"))) return [];
 
   const rows = await db
     .select()

@@ -40,7 +40,7 @@ export async function createExportJob(input: {
     .from(schema.generationVersions)
     .innerJoin(schema.projects, eq(schema.generationVersions.projectId, schema.projects.id))
     .where(eq(schema.generationVersions.id, input.versionId));
-  if (!ver || !(await userCanAccessProject(userId, ver.projectId))) throw new Error("Version not found");
+  if (!ver || !(await userCanAccessProject(userId, ver.projectId, "editor"))) throw new Error("Version not found");
   if (!ver.outputKey) throw new Error("This version has no output to export yet");
 
   const id = randomUUID();
@@ -106,7 +106,7 @@ export async function deleteExportJob(exportId: string): Promise<void> {
     .from(schema.exportJobs)
     .innerJoin(schema.projects, eq(schema.exportJobs.projectId, schema.projects.id))
     .where(eq(schema.exportJobs.id, exportId));
-  if (!row || !(await userCanAccessProject(userId, row.projectId))) throw new Error("Export not found");
+  if (!row || !(await userCanAccessProject(userId, row.projectId, "editor"))) throw new Error("Export not found");
   await db.delete(schema.exportJobs).where(eq(schema.exportJobs.id, exportId));
   if (row.key) await deleteObject(row.key).catch(() => {});
   revalidatePath(`/projects/${row.projectId}/edit`);

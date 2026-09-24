@@ -1,6 +1,6 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { LogOut, User as UserIcon, CreditCard, Bell } from "lucide-react";
+import { LogOut, User as UserIcon, CreditCard, Bell, Users } from "lucide-react";
 import { authClient, useSession } from "@/lib/auth-client";
 import {
   DropdownMenu,
@@ -50,6 +50,9 @@ export function UserMenu() {
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => router.push("/account/profile")}>
           <UserIcon className="size-4" /> Profile
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => router.push("/account/workspace")}>
+          <Users className="size-4" /> Workspace
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => router.push("/account/billing")}>
           <CreditCard className="size-4" /> Billing

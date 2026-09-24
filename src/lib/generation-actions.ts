@@ -1,6 +1,6 @@
 "use server";
 import { randomUUID } from "crypto";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
@@ -39,10 +39,18 @@ export async function createGenerationJob(input: CreateGenerationInput): Promise
     .select({ id: schema.projects.id, workspaceId: schema.projects.workspaceId })
     .from(schema.projects)
     .where(eq(schema.projects.id, input.projectId));
-  if (!proj || !(await userCanAccessProject(userId, input.projectId))) throw new Error("Project not found");
+  if (!proj || !(await userCanAccessProject(userId, input.projectId, "editor"))) throw new Error("Project not found");
 
   if (input.jobType === "image_to_video" && !input.sourceAssetId) {
     throw new Error("Image-to-video needs a source image");
+  }
+  if (input.sourceAssetId) {
+    // The source image must belong to THIS project (the worker loads it by id alone).
+    const [a] = await db
+      .select({ id: schema.assets.id })
+      .from(schema.assets)
+      .where(and(eq(schema.assets.id, input.sourceAssetId), eq(schema.assets.projectId, input.projectId)));
+    if (!a) throw new Error("Source image not found");
   }
   if (input.jobType === "text_to_video" && !input.prompt?.trim()) {
     throw new Error("Text-to-video needs a prompt");
@@ -135,7 +143,7 @@ export async function regenerateFromVersion(versionId: string, fresh: boolean): 
     .from(schema.generationVersions)
     .innerJoin(schema.projects, eq(schema.generationVersions.projectId, schema.projects.id))
     .where(eq(schema.generationVersions.id, versionId));
-  if (!ver || !(await userCanAccessProject(userId, ver.projectId))) throw new Error("Version not found");
+  if (!ver || !(await userCanAccessProject(userId, ver.projectId, "editor"))) throw new Error("Version not found");
 
   const [job] = await db
     .select()
@@ -191,7 +199,7 @@ export async function enhanceVersion(input: {
     .from(schema.generationVersions)
     .innerJoin(schema.projects, eq(schema.generationVersions.projectId, schema.projects.id))
     .where(eq(schema.generationVersions.id, input.versionId));
-  if (!ver || !(await userCanAccessProject(userId, ver.projectId))) throw new Error("Version not found");
+  if (!ver || !(await userCanAccessProject(userId, ver.projectId, "editor"))) throw new Error("Version not found");
   if (!ver.outputKey) throw new Error("This version has no output to enhance yet");
 
   const id = randomUUID();
@@ -228,7 +236,7 @@ async function ownedVersion(versionId: string, userId: string) {
     .from(schema.generationVersions)
     .innerJoin(schema.projects, eq(schema.generationVersions.projectId, schema.projects.id))
     .where(eq(schema.generationVersions.id, versionId));
-  if (!row || !(await userCanAccessProject(userId, row.projectId))) throw new Error("Version not found");
+  if (!row || !(await userCanAccessProject(userId, row.projectId, "editor"))) throw new Error("Version not found");
   return row;
 }
 
@@ -274,7 +282,7 @@ export async function deleteGenerationVersion(versionId: string): Promise<void> 
     .from(schema.generationVersions)
     .innerJoin(schema.projects, eq(schema.generationVersions.projectId, schema.projects.id))
     .where(eq(schema.generationVersions.id, versionId));
-  if (!row || !(await userCanAccessProject(userId, row.projectId))) throw new Error("Version not found");
+  if (!row || !(await userCanAccessProject(userId, row.projectId, "editor"))) throw new Error("Version not found");
   await db.delete(schema.generationVersions).where(eq(schema.generationVersions.id, versionId));
   if (row.key) await deleteObject(row.key).catch(() => {});
   revalidatePath(`/projects/${row.projectId}/edit`);
@@ -315,7 +323,7 @@ export async function cancelGenerationJob(jobId: string): Promise<void> {
     .from(schema.generationJobs)
     .innerJoin(schema.projects, eq(schema.generationJobs.projectId, schema.projects.id))
     .where(eq(schema.generationJobs.id, jobId));
-  if (!row || !(await userCanAccessProject(userId, row.projectId))) throw new Error("Job not found");
+  if (!row || !(await userCanAccessProject(userId, row.projectId, "editor"))) throw new Error("Job not found");
 
   await db
     .update(schema.generationJobs)

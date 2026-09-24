@@ -14,10 +14,25 @@ const SOCIAL = (process.env.NEXT_PUBLIC_AUTH_SOCIAL || "")
   .filter(Boolean);
 const SOCIAL_LABEL: Record<string, string> = { github: "GitHub", google: "Google" };
 
+// Resolve like the browser does (it strips tabs/newlines, so "/\t/evil.com" → evil.com) and keep
+// only same-origin targets. A fixed placeholder base keeps SSR and client output identical.
+const BASE = "http://same-origin.invalid";
+function safeRedirect(raw: string | null): string {
+  if (!raw) return "/dashboard";
+  try {
+    const u = new URL(raw, BASE);
+    return u.origin === BASE ? u.pathname + u.search + u.hash : "/dashboard";
+  } catch {
+    return "/dashboard";
+  }
+}
+
 export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
   const router = useRouter();
   const sp = useSearchParams();
-  const redirect = sp.get("redirect") || "/dashboard";
+  // Same-site paths only (e.g. an invite link) — never an absolute/protocol-relative URL.
+  const redirect = safeRedirect(sp.get("redirect"));
+  const carry = redirect !== "/dashboard" ? `?redirect=${encodeURIComponent(redirect)}` : "";
   const isSignUp = mode === "sign-up";
 
   const [name, setName] = useState("");
@@ -121,12 +136,12 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
         {isSignUp ? (
           <>
             Already have an account?{" "}
-            <Link href="/sign-in" className="text-primary hover:underline">Sign in</Link>
+            <Link href={`/sign-in${carry}`} className="text-primary hover:underline">Sign in</Link>
           </>
         ) : (
           <>
             New here?{" "}
-            <Link href="/sign-up" className="text-primary hover:underline">Create an account</Link>
+            <Link href={`/sign-up${carry}`} className="text-primary hover:underline">Create an account</Link>
           </>
         )}
       </p>

@@ -484,6 +484,24 @@ export const workspaceMembers = pgTable(
   (t) => [unique().on(t.workspaceId, t.userId)],
 );
 
+// Pending invitation to join a workspace. Only a SHA-256 of the token is stored; the raw token
+// travels once, in the emailed link. Single-use (acceptedAt), revocable, time-limited.
+export const workspaceInvites = pgTable("workspace_invites", {
+  id: text().primaryKey(),
+  workspaceId: text()
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  email: text().notNull(), // lower-cased
+  role: text().notNull().default("editor"), // admin | editor | viewer (never owner)
+  tokenHash: text().notNull().unique(),
+  invitedBy: text().references(() => user.id, { onDelete: "set null" }),
+  expiresAt: timestamp({ withTimezone: true }).notNull(),
+  acceptedAt: timestamp({ withTimezone: true }),
+  acceptedBy: text().references(() => user.id, { onDelete: "set null" }),
+  revokedAt: timestamp({ withTimezone: true }),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
 // An ordered scene within a project (storyboard unit). Generation jobs/versions attach to a scene.
 export const scenes = pgTable("scenes", {
   id: text().primaryKey(),

@@ -159,6 +159,28 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
   `batch_item` is never reprocessed (skip-set), so a bad folder can't spin an infinite retry loop;
   finalize failures move the source to `done/_failed`.
 
+## Workspaces & team members (2026-09-23)
+
+- **Shared workspaces** (ADR-0004/0006). Every user has a personal workspace; its owner can invite
+  others so they can work on **every project in it**. Settings at **Account menu → Workspace**
+  (`/account/workspace`): rename, members list, role changes, remove, pending invites, leave.
+- **Roles:** **owner** (one per workspace; can't be removed) · **admin** (edit, delete any project,
+  manage editors/viewers) · **editor** (edit, upload, render, generate, enhance, export, delete media)
+  · **viewer** (open projects read-only, watch + download renders/exports). Only the owner can invite
+  or manage admins.
+- **Email invites** via SES: single-use link, 7-day expiry, only for the invited email address
+  (`/invite/<token>`; the raw token is never stored — only its SHA-256). Re-inviting an address
+  revokes the older link. Max 25 pending invites per workspace. The inviter can also copy the link.
+- **Enforcement:** every project-scoped server action and API route checks the caller's workspace
+  role (`src/lib/workspace.ts`: `getProjectRole` / `userCanAccessProject` / `assertProjectRole`).
+  Removing a member revokes their access at once — including projects they created there.
+- **Projects page** gains a workspace switcher (`?ws=`); **New Project** creates inside the selected
+  workspace (editor+). **Viewers** get the editor read-only (all controls disabled + banner) and are
+  redirected away from Import.
+- Stays per-person: categories, presets, music uploads, batches, dashboard stats. Sharing a render to
+  the Community / entering a challenge stays with the project's creator (credit + prizes).
+- Data: `workspace_invites` (migration 0029). Actions: `src/lib/workspace-actions.ts`.
+
 ## Later
 Native mobile apps · collaboration/shared reels · auto-captions · face/scene-aware
 selection · 4K · multi-aspect · brand kits · web B-roll · partner API.

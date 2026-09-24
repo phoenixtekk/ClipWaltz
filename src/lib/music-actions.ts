@@ -15,11 +15,11 @@ export async function deleteMusicTrack(trackId: string): Promise<void> {
     .from(schema.musicTracks)
     .where(eq(schema.musicTracks.id, trackId));
   if (!row || row.ownerId !== userId) throw new Error("Track not found");
-  // Drop it from any of the user's projects still pointing at it.
+  // Drop it from every project still pointing at it (incl. shared-workspace projects it scored).
   await db
     .update(schema.projects)
     .set({ musicTrackId: null })
-    .where(and(eq(schema.projects.ownerId, userId), eq(schema.projects.musicTrackId, trackId)));
+    .where(eq(schema.projects.musicTrackId, trackId));
   await db.delete(schema.musicTracks).where(eq(schema.musicTracks.id, trackId));
   if (row.key) await deleteObject(row.key).catch(() => {});
   revalidatePath("/projects", "layout");

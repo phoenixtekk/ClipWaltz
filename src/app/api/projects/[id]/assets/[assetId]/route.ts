@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { userCanAccessProject } from "@/lib/workspace";
 import { requireUserId } from "@/lib/auth";
 import { serveObject } from "@/lib/storage";
 
@@ -27,13 +28,11 @@ export async function GET(
       key: schema.assets.storageKey,
       convertedKey: schema.assets.convertedKey,
       state: schema.assets.uploadState,
-      ownerId: schema.projects.ownerId,
     })
     .from(schema.assets)
-    .innerJoin(schema.projects, eq(schema.assets.projectId, schema.projects.id))
     .where(and(eq(schema.assets.id, assetId), eq(schema.assets.projectId, projectId)));
 
-  if (!row || row.ownerId !== userId || row.state !== "uploaded") {
+  if (!row || row.state !== "uploaded" || !(await userCanAccessProject(userId, projectId))) {
     return new NextResponse("not found", { status: 404 });
   }
 

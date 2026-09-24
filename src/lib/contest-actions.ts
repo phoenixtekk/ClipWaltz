@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
+import { userCanAccessProject } from "./workspace";
 import { requireUserId } from "./auth";
 import { requireAdmin } from "./admin";
 import { applyGrant } from "./tier";
@@ -110,13 +111,16 @@ export async function enterContest(renderId: string): Promise<{ theme: string }>
   const [r] = await db
     .select({
       ownerId: schema.projects.ownerId,
+      projectId: schema.renders.projectId,
       visibility: schema.renders.visibility,
       outputKey: schema.renders.outputKey,
     })
     .from(schema.renders)
     .innerJoin(schema.projects, eq(schema.renders.projectId, schema.projects.id))
     .where(eq(schema.renders.id, renderId));
-  if (!r || r.ownerId !== userId) throw new Error("Render not found");
+  if (!r || r.ownerId !== userId || !(await userCanAccessProject(userId, r.projectId, "editor"))) {
+    throw new Error("Render not found");
+  }
   if (!r.outputKey || r.visibility !== "public") throw new Error("Make the video Public first, then enter");
 
   await db

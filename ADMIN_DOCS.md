@@ -90,6 +90,26 @@ See [`env.example`](env.example) for the full list. Groups:
   object. `Accept-Ranges` + 206 give `<audio>`/`<video>` seeking; 416 on a bad range.
 - **DB migrations:** `drizzle-kit` does **not** auto-load `.env.local`, so it silently falls back to `postgres://localhost:5432/clipwaltz` and hangs/exit-1 if run bare. Always run **`node --env-file=.env.local ./node_modules/drizzle-kit/bin.cjs migrate`** (never pipe to `tail` — it SIGPIPEs mid-apply). Locally the dev DB (`clipwaltz_dev`) needs the linuxg1 SSH tunnel up.
 
+## Workspaces, roles & invites (ADR-0004 / ADR-0006)
+- **Model:** `workspaces` → `workspace_members` (role owner|admin|editor|viewer) → `projects.workspace_id`.
+  Pending invites in `workspace_invites` (migration **0029**): `token_hash` = SHA-256 of the emailed
+  token (the raw token is never stored), `expires_at` (+7 days), `accepted_at`/`accepted_by`, `revoked_at`.
+- **Authorization rule:** a project **with** a `workspace_id` is authorized only by the caller's
+  membership role there; the creator (`projects.owner_id`) gets no extra rights. Only projects with a
+  **NULL** `workspace_id` fall back to the creator. ⇒ Every project's creator must be a member of its
+  workspace, or they lose access. Integrity check (should return 0):
+  `select count(*) from projects p where p.workspace_id is not null and not exists (select 1 from
+  workspace_members m where m.workspace_id=p.workspace_id and m.user_id=p.owner_id);`
+- **Invite email** goes through SES (`sendEmail`); link base = `NEXT_PUBLIC_APP_URL` (must be
+  `https://www.clipwaltz.com` in prod). With SES unset (dev) the email + link are logged to the console.
+  In the SES sandbox only verified recipients receive it — the inviter can still copy the link from
+  the Workspace page right after sending.
+- **Support tasks:** revoke an invite → Workspace page (or set `revoked_at`); a user locked out of a
+  shared workspace → check their `workspace_members` row; the owner row (`role='owner'`) must never be
+  deleted or changed.
+- **Code:** `src/lib/workspace.ts` (role helpers), `src/lib/workspace-actions.ts` (member management,
+  returns `{ ok, error }`), `/account/workspace`, `/invite/[token]`.
+
 ## Monthly Theme Challenge (contests)
 Admin-run community contest; likes on entered public renders are votes.
 - **Start:** `/admin` → *Monthly Theme Challenge* → enter a theme (+ optional description) → **Start challenge**. Only **one active** contest at a time; the community banner appears automatically.

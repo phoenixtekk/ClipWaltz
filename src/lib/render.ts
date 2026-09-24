@@ -1,5 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { userCanAccessProject } from "./workspace";
 import { requireUserId } from "./auth";
 
 export type RenderStatus = {
@@ -63,8 +64,8 @@ export async function listRenders(projectId: string): Promise<RenderHistoryItem[
   const [proj] = await db
     .select({ id: schema.projects.id })
     .from(schema.projects)
-    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.ownerId, userId)));
-  if (!proj) return [];
+    .where(eq(schema.projects.id, projectId));
+  if (!proj || !(await userCanAccessProject(userId, projectId, "viewer"))) return [];
   const rows = await db
     .select()
     .from(schema.renders)
@@ -88,8 +89,8 @@ export async function getLatestRender(projectId: string): Promise<RenderStatus> 
   const [proj] = await db
     .select({ id: schema.projects.id })
     .from(schema.projects)
-    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.ownerId, userId)));
-  if (!proj) return null;
+    .where(eq(schema.projects.id, projectId));
+  if (!proj || !(await userCanAccessProject(userId, projectId, "viewer"))) return null;
 
   const [r] = await db
     .select()

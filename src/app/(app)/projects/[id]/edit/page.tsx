@@ -30,7 +30,7 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
       ? { theme: activeContest.theme, entered: await isRenderEntered(activeContest.id, latestRender.id) }
       : null;
 
-  return (
+  const editor = (
     <EditorWorkspace
       projectId={id}
       project={project}
@@ -44,5 +44,19 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
       musicTrackTitle={tracks.find((t) => t.id === project.musicTrackId)?.title ?? null}
       backdropAssetId={assets.find((a) => a.uploadState === "uploaded")?.id ?? null}
     />
+  );
+  if (project.role !== "viewer") return editor;
+
+  // Viewers (ADR-0004) get the same screen read-only: every control is disabled natively by the
+  // fieldset; players and download links still work. The server rejects any edit regardless.
+  return (
+    <div className="space-y-4">
+      <p role="status" className="rounded-lg border border-border bg-muted/40 px-4 py-2 text-sm text-muted-foreground">
+        View only — you&apos;re a viewer in this workspace. Ask an admin for editor access to make changes.
+      </p>
+      <fieldset disabled className="contents">
+        {editor}
+      </fieldset>
+    </div>
   );
 }

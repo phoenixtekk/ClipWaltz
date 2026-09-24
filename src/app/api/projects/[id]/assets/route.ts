@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { randomUUID } from "crypto";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { userCanAccessProject } from "@/lib/workspace";
 import { requireUserId } from "@/lib/auth";
 import { putObject } from "@/lib/storage";
 
@@ -23,8 +24,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const [proj] = await db
     .select({ id: schema.projects.id })
     .from(schema.projects)
-    .where(and(eq(schema.projects.id, projectId), eq(schema.projects.ownerId, userId)));
-  if (!proj) return NextResponse.json({ error: "not found" }, { status: 404 });
+    .where(eq(schema.projects.id, projectId));
+  if (!proj || !(await userCanAccessProject(userId, projectId, "editor"))) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const url = new URL(req.url);
   const name = (url.searchParams.get("name") ?? "file").slice(0, 200);
