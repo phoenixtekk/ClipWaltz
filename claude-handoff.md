@@ -43,7 +43,15 @@ f22c126 docs(handoff): rotate to session v6
 - **AISERVER idle freezes (2026-09-24):** froze twice at idle with no kernel trace; mitigations applied —
   `processor.max_cstate=1`, kdump armed (was `USE_KDUMP=0`), lockup→panic sysctls. Details in
   server-inventory AISERVER section. Watch for 1–2 days before long GPU jobs; after any freeze check `/var/crash/`.
-- **Next:** owner's signed-in smoke test of `/account/workspace`; **SUPIR** (once AISERVER proves stable).
+- **AI Restore = SeedVR2 (ADR-0007, `82b5b97`, DEPLOYED):** SUPIR dropped — its license bars commercial
+  SaaS use. SeedVR2-3B (Apache-2.0) on AISERVER as `seedvr2-restore-v1`; Enhance chooser has **AI Restore**
+  (2× short side ≤1080p, source fps kept, ≤400 frames, 60-min timeout). Wrapper now reports `running`;
+  worker timeouts count run time (3 h queue cap); cancel no longer interrupts other jobs. Verified: bench
+  ≤8.8 GB on one 3080; wrapper E2E; full worker E2E on dev (704×480→1408×960, 49/49 frames, 125 s,
+  cleaned up). **Not browser-verified** (auth-gated): the AI Restore button itself.
+  ⚠️ ESRGAN workflow hard-codes 24 fps output (a 25/48 fps source is re-timed) — not fixed.
+- **Next:** owner's signed-in smoke test of `/account/workspace` + Enhance → AI Restore; watch AISERVER
+  for freezes (`/var/crash/`).
 
 ## Working state (2026-09-23) — v6: AI video-generation platform (all deployed + verified)
 
