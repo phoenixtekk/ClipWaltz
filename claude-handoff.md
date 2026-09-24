@@ -17,9 +17,9 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 ## Working state (2026-09-23, later) — v6: member management (DEPLOYED + verified)
 
 - **Deployed to prod 2026-09-23 ~17:15 MST** (migration 0029 applied, 30 total; build OK; pm2
-  `clipwaltz` online; routes 200/307/308 as expected). ⚠️ **Prod has NO `SES_SMTP_USER`/`PASS`** →
-  ALL app email (invites, render-ready, resets) is only console-logged; inviters must use the
-  **Copy link** on the Workspace page until the owner supplies SES creds. Old "different slug names
+  `clipwaltz` online; routes 200/307/308 as expected). **SES SMTP user/pass added to prod
+  `.env.local` 2026-09-24** (backup `.env.local.bak-ses-*`); SMTP auth + a simulator send returned
+  `250 Ok`. SES may still be in **sandbox** (unverified — only verified recipients) — unchecked. Old "different slug names
   ('id' !== 'versionId')" lines in pm2 error log predate this deploy (log untouched since 15:51).
 - **Built + committed `17560d1`:**
   workspace roles owner>admin>editor>viewer, SES email invites (`workspace_invites`, migration
@@ -38,7 +38,9 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
   tar xzf /tmp/cw.tgz` → `node --env-file=.env.local ./node_modules/drizzle-kit/bin.cjs migrate`
   (no `| tail`) → `npm run build` → `pm2 restart clipwaltz --update-env`. Then smoke-test
   `/account/workspace` and a project editor while signed in.
-- **Next:** SES creds on prod (owner); authenticated smoke test by owner; SUPIR.
+- **2026-09-24: watermark = logo PNG bottom-left** (free tier), worker redeployed to AI box +
+  verified with `--wmtest` on a real prod project. Pushed to GitHub.
+- **Next:** authenticated smoke test by owner; SUPIR.
 
 ## Working state (2026-09-23) — v6: AI video-generation platform (all deployed + verified)
 

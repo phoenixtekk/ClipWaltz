@@ -15,7 +15,8 @@ import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, createWriteStream, readdirSync, statSync, existsSync, mkdirSync, renameSync, copyFileSync, unlinkSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, extname, basename } from "node:path";
+import { join, extname, basename, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { Agent as HttpAgent } from "node:http";
@@ -68,6 +69,10 @@ const VISION_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS ?? 20000);
 
 // "Video ready" email: the app (linuxg1) holds the SES creds, so the worker just pings it.
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "").replace(/\/$/, "");
+// Free-tier watermark image (the ClipWaltz logo + URL, transparent PNG), shipped next to this file.
+// Override with WATERMARK_PATH. Missing file → renders proceed without a watermark (logged).
+const WATERMARK_PATH = process.env.WATERMARK_PATH || join(dirname(fileURLToPath(import.meta.url)), "WaterMark.png");
+
 const WORKER_CALLBACK_SECRET = process.env.WORKER_CALLBACK_SECRET ?? "";
 async function notifyReady(renderId) {
   if (!APP_URL || !WORKER_CALLBACK_SECRET) return;
@@ -1161,11 +1166,16 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
   // Crossfade overlaps segments (shortens the video); original audio is a straight concat matching
   // the CUT timeline, so the two would drift. When original audio is on, force cut transitions.
   const wantCross = style.transition === "crossfade" && segments.length > 1 && !style.originalAudio;
-  const WM =
-    "drawtext=text='ClipWaltz':fontcolor=white@0.85:fontsize=44:x=w-tw-32:y=h-th-44:box=1:boxcolor=black@0.35:boxborderw=12";
+  // Watermark: the logo PNG, bottom-left, sized to ~22% of the frame's short side, slightly
+  // translucent. Overlaid before the fades so it fades in/out with the picture.
+  const wmOk = existsSync(WATERMARK_PATH);
+  if (watermark && !wmOk) console.warn(`[worker] watermark image missing at ${WATERMARK_PATH} — rendering without it`);
+  const wmW = Math.round(Math.min(W, H) * 0.22);
+  const wmPad = Math.round(Math.min(W, H) * 0.03);
   const titleT = safeText(style.titleText);
 
-  function post(useTitle, useWatermark, outDur) {
+  // Picture look (colour, light, title) — everything before the watermark.
+  function look(useTitle) {
     const parts = [];
     const cf = colorFilter(style.styleFilter);
     if (cf) parts.push(cf);
@@ -1179,7 +1189,11 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
           `alpha='if(lt(t,0.6),(t-0.2)/0.4,if(gt(t,2.6),(3.0-t)/0.4,1))'`,
       );
     }
-    if (useWatermark) parts.push(WM);
+    return parts.length ? parts.join(",") : "null";
+  }
+
+  function fades(outDur) {
+    const parts = [];
     if (style.fades) parts.push("fade=t=in:st=0:d=0.5");
     if (style.fadeOut && outDur > 1.6) parts.push(`fade=t=out:st=${(outDur - 0.7).toFixed(2)}:d=0.7`);
     return parts.length ? parts.join(",") : "null";
@@ -1197,7 +1211,6 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
       effTotal = cc.total || total;
     }
     const outDur = lengthSec > 0 ? Math.min(effTotal, lengthSec) : effTotal;
-    const pf = post(useTitle, useWatermark, outDur);
     const args = ["-f", "concat", "-safe", "0", "-i", fwd(srcList)];
     // Inputs after the video concat [0]: music (if any), then the original-audio track (if any).
     let idx = 1;
@@ -1205,6 +1218,8 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     let origIdx = -1;
     if (musicFile) { args.push("-ss", musicOffset.toFixed(3), "-stream_loop", "-1", "-i", fwd(musicFile)); musicIdx = idx++; }
     if (origAudioFile) { args.push("-i", fwd(origAudioFile)); origIdx = idx++; }
+    let wmIdx = -1;
+    if (useWatermark && wmOk) { args.push("-i", fwd(WATERMARK_PATH)); wmIdx = idx++; }
 
     // Levels (0–1); default 1. Music dips a touch by default when mixed with original audio so the
     // clip's own sound stays intelligible; the user can override both with the level sliders.
@@ -1213,7 +1228,11 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     const endFade = style.fadeOut && outDur > 1.6; // fade audio out with the picture
 
     // Assemble the audio graph from whichever sources are present.
-    let fc = `[0:v]${pf}[vout]`;
+    // Single-frame PNG input: overlay repeats its last frame (eof_action=repeat) for the whole video.
+    let fc = wmIdx >= 0
+      ? `[0:v]${look(useTitle)}[vlook];[${wmIdx}:v]scale=${wmW}:-1,format=rgba,colorchannelmixer=aa=0.9[wm];` +
+        `[vlook][wm]overlay=x=${wmPad}:y=main_h-overlay_h-${wmPad}:format=auto,${fades(outDur)}[vout]`
+      : `[0:v]${look(useTitle)},${fades(outDur)}[vout]`;
     const stems = [];
     if (musicIdx >= 0 && musicVol > 0) { fc += `;[${musicIdx}:a]volume=${musicVol.toFixed(3)}[ma]`; stems.push("[ma]"); }
     if (origIdx >= 0 && origVol > 0) { fc += `;[${origIdx}:a]volume=${origVol.toFixed(3)}[oa]`; stems.push("[oa]"); }
@@ -1253,12 +1272,13 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
   return out;
 }
 
-async function processRender(r) {
-  const started = Date.now();
-  const [project] = await sql`select * from projects where id = ${r.project_id}`;
+// Everything a render needs from the DB (read-only): the project, its ready assets, the music bed,
+// length, aspect and style. Shared by processRender and the --wmtest diagnostic.
+async function loadRenderInputs(projectId, aspectOverride) {
+  const [project] = await sql`select * from projects where id = ${projectId}`;
   const assets = await sql`
     select * from assets
-    where project_id = ${r.project_id} and upload_state = 'uploaded'
+    where project_id = ${projectId} and upload_state = 'uploaded'
       and (source_format is null or conversion_state = 'ready')
     order by order_index asc, created_at asc`;
   if (assets.length === 0) throw new Error("no uploaded assets");
@@ -1273,7 +1293,7 @@ async function processRender(r) {
   // Max-footage mode ignores the length cap → pass length 0 so buildTimeline runs uncapped.
   const maxFootage = project?.max_footage ?? false;
   const lengthSec = maxFootage ? 0 : (project?.length_sec ?? 30);
-  const aspect = r.aspect ?? project?.aspect ?? "9:16";
+  const aspect = aspectOverride ?? project?.aspect ?? "9:16";
   const style = {
     titleText: project?.title_text ?? null,
     styleFilter: project?.style_filter ?? "none",
@@ -1292,6 +1312,13 @@ async function processRender(r) {
     originalVolume: project?.original_volume ?? null,
     overlays: Array.isArray(project?.overlays) ? project.overlays : [],
   };
+
+  return { project, assets, music, lengthSec, aspect, style };
+}
+
+async function processRender(r) {
+  const started = Date.now();
+  const { project, assets, music, lengthSec, aspect, style } = await loadRenderInputs(r.project_id, r.aspect);
 
   const dir = mkdtempSync(join(tmpdir(), "cw-render-"));
   try {
@@ -1428,6 +1455,25 @@ async function overlaytest() {
   const outFile = await applyOverlays(dir, base, overlays, 1080, 1920, [], 4);
   const dur = await probe(outFile);
   console.log(`[overlaytest] out=${outFile} dur=${dur.toFixed(2)}s (${outFile !== base ? "overlays applied" : "no overlays"})`);
+  await sql.end();
+}
+
+// Diagnostic: `--wmtest <projectId> [seconds]` runs the real assemble() on a project's media with
+// the free-tier watermark forced on, capped to a few seconds, and leaves the MP4 in /tmp. Read-only:
+// no DB writes, no upload.
+async function wmtest() {
+  const i = process.argv.indexOf("--wmtest");
+  const projectId = process.argv[i + 1];
+  const secs = Number(process.argv[i + 2]) || 6;
+  if (!projectId) {
+    console.error("usage: --wmtest <projectId> [seconds]");
+    process.exit(2);
+  }
+  const { assets, music, aspect, style } = await loadRenderInputs(projectId);
+  if (!assets.length) throw new Error("project has no ready assets");
+  const dir = mkdtempSync(join(tmpdir(), "cw-wm-"));
+  const outFile = await assemble(dir, assets.slice(0, 4), music ?? null, true, secs, aspect, { ...style, overlays: [] });
+  console.log(`[wmtest] out=${outFile} dur=${(await probe(outFile)).toFixed(2)}s watermark=${existsSync(WATERMARK_PATH) ? WATERMARK_PATH : "MISSING"}`);
   await sql.end();
 }
 
@@ -1732,6 +1778,7 @@ async function main() {
   if (process.argv.includes("--waltztest")) return waltztest();
   if (process.argv.includes("--overlaytest")) return overlaytest();
   if (process.argv.includes("--convtest")) return convtest();
+  if (process.argv.includes("--wmtest")) return wmtest();
   console.log(`[worker] ClipWaltz render worker starting (${ONCE ? "once" : "loop"})`);
   if (ONCE) {
     // Don't reap in --once (a manual one-shot could nuke a render the loop service is running).

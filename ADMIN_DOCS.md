@@ -173,6 +173,13 @@ project's clips from MinIO, FFmpeg-assembles a 1080p 9:16 video (photos 2s, vide
 music from `music_tracks`, optional watermark), uploads to `renders/<projectId>/<renderId>.mp4`,
 and marks the row `done` (+ project `ready`). Reuses the app's `postgres` + S3 deps.
 
+**Watermark (free tier):** `worker/WaterMark.png` (transparent PNG, a copy of `public/WaterMark.png`)
+is overlaid bottom-left. **Deploy it with the worker** — scp it next to `render-worker.mjs`
+(`/home/lacy/clipwaltz/worker/` on the AI box, owned by `lacy`); override with `WATERMARK_PATH`.
+If the file is missing the worker logs a warning and renders without a watermark. To change the
+logo, replace both PNGs and redeploy the worker. Check: `node --env-file=.env.worker
+worker/render-worker.mjs --wmtest <projectId> [secs]` (read-only; writes an MP4 to /tmp).
+
 Run (from project root):
 ```bash
 node --env-file=.env.local worker/render-worker.mjs --once   # one job, then exit
