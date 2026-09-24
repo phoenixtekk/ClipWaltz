@@ -112,9 +112,12 @@ Assembler (music-video) product is separate and shipping — see [ADR-0001](docs
       backfilled). Behaviour-preserving today (1 member/workspace). Member-management UI = follow-up.
 
 ## Remaining (not yet built)
-- [ ] Member management (invite/roles/workspace UI — makes the above multi-user); SUPIR (premium detail).
-- [ ] Workspace-scoped authorization (queries still owner-scoped); enhancement + export-as-job
-      phases; text-to-video workflow; realtime SSE status (polling works today).
+- [x] **Member management** (2026-09-23, ADR-0006, commit `17560d1`): 4 roles, SES email invites
+      (single-use, 7-day, email-bound + verified email), /account/workspace, /invite/[token],
+      projects workspace switcher, viewer read-only editor; ALL project-scoped actions/routes on
+      role checks. E2E-verified on dev; security-reviewed (4 findings fixed). Migration 0029 on
+      dev. ⚠️ **PROD DEPLOY PENDING (owner)** — auto-mode blocked it; see handoff.
+- [ ] SUPIR (premium detail).
 
 ## App-layer done (2026-09-23, verified: build passes; backfill tested on dev with real data)
 - [x] BullMQ queue module (`src/lib/queue.ts`, lazy Redis) — `bullmq`/`ioredis` added

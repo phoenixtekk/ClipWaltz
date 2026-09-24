@@ -14,6 +14,27 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
+## Working state (2026-09-23, later) — v6: member management ⚠️ PROD DEPLOY PENDING (owner)
+
+- **Built + committed `17560d1`, NOT deployed** (auto-mode classifier blocks prod deploys):
+  workspace roles owner>admin>editor>viewer, SES email invites (`workspace_invites`, migration
+  **0029** — applied to **dev only**), `/account/workspace`, `/invite/[token]`, projects-page
+  workspace switcher, viewer read-only editor. Every project-scoped action/route now uses
+  `src/lib/workspace.ts` role checks; creator fallback ONLY for workspace-less projects.
+- **Verified:** E2E on dev with 2 test users (isolation pre-invite, wrong-user refusal, email
+  verification → accept, editor edit lands, viewer edit rejected + upload 404, role change, remove
+  → 404, revoke). Test data deleted. Prod integrity pre-check: 0 projects whose creator isn't a
+  member of their workspace (required — else creators lose access). Security Engineer review:
+  4 findings, all fixed (asset-to-project binding in generation, share/contest need membership,
+  `?redirect=` tab bypass, verified email required since prod has verification OFF).
+- **Docs** mirrored to wiki: `ClipWaltz/{features,admin-docs,help-center,decisions}` (verified).
+- **Owner deploy (linuxg1)** — package-lock + workers unchanged, so no `npm ci`/worker redeploy:
+  local `git archive --format=tar.gz -o /tmp/cw.tgz HEAD` → `scp` to linuxg1 → `cd ~/clipwaltz &&
+  tar xzf /tmp/cw.tgz` → `node --env-file=.env.local ./node_modules/drizzle-kit/bin.cjs migrate`
+  (no `| tail`) → `npm run build` → `pm2 restart clipwaltz --update-env`. Then smoke-test
+  `/account/workspace` and a project editor while signed in.
+- **Next:** deploy above; SUPIR.
+
 ## Working state (2026-09-23) — v6: AI video-generation platform (all deployed + verified)
 
 This session built the **generative AI video** product ALONGSIDE the music-video assembler
