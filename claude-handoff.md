@@ -14,9 +14,14 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
-## Working state (2026-09-23, later) — v6: member management ⚠️ PROD DEPLOY PENDING (owner)
+## Working state (2026-09-23, later) — v6: member management (DEPLOYED + verified)
 
-- **Built + committed `17560d1`, NOT deployed** (auto-mode classifier blocks prod deploys):
+- **Deployed to prod 2026-09-23 ~17:15 MST** (migration 0029 applied, 30 total; build OK; pm2
+  `clipwaltz` online; routes 200/307/308 as expected). ⚠️ **Prod has NO `SES_SMTP_USER`/`PASS`** →
+  ALL app email (invites, render-ready, resets) is only console-logged; inviters must use the
+  **Copy link** on the Workspace page until the owner supplies SES creds. Old "different slug names
+  ('id' !== 'versionId')" lines in pm2 error log predate this deploy (log untouched since 15:51).
+- **Built + committed `17560d1`:**
   workspace roles owner>admin>editor>viewer, SES email invites (`workspace_invites`, migration
   **0029** — applied to **dev only**), `/account/workspace`, `/invite/[token]`, projects-page
   workspace switcher, viewer read-only editor. Every project-scoped action/route now uses
@@ -33,7 +38,7 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
   tar xzf /tmp/cw.tgz` → `node --env-file=.env.local ./node_modules/drizzle-kit/bin.cjs migrate`
   (no `| tail`) → `npm run build` → `pm2 restart clipwaltz --update-env`. Then smoke-test
   `/account/workspace` and a project editor while signed in.
-- **Next:** deploy above; SUPIR.
+- **Next:** SES creds on prod (owner); authenticated smoke test by owner; SUPIR.
 
 ## Working state (2026-09-23) — v6: AI video-generation platform (all deployed + verified)
 
