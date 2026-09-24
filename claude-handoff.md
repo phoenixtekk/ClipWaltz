@@ -1,4 +1,5 @@
-<!-- session-version: 6 -->
+<!-- session-version: 7 -->
+<!-- pending-session-title: ClipWaltz v7 -->
 
 # ClipWaltz — session handoff
 
@@ -14,33 +15,32 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
-## Working state (2026-09-23, later) — v6: member management (DEPLOYED + verified)
+## Working state (2026-09-24) — v7 start: member management + watermark (all deployed + verified)
 
-- **Deployed to prod 2026-09-23 ~17:15 MST** (migration 0029 applied, 30 total; build OK; pm2
-  `clipwaltz` online; routes 200/307/308 as expected). **SES SMTP user/pass added to prod
-  `.env.local` 2026-09-24** (backup `.env.local.bak-ses-*`); SMTP auth + a simulator send returned
-  `250 Ok`. SES may still be in **sandbox** (unverified — only verified recipients) — unchecked. Old "different slug names
-  ('id' !== 'versionId')" lines in pm2 error log predate this deploy (log untouched since 15:51).
-- **Built + committed `17560d1`:**
-  workspace roles owner>admin>editor>viewer, SES email invites (`workspace_invites`, migration
-  **0029** — applied to **dev only**), `/account/workspace`, `/invite/[token]`, projects-page
-  workspace switcher, viewer read-only editor. Every project-scoped action/route now uses
-  `src/lib/workspace.ts` role checks; creator fallback ONLY for workspace-less projects.
-- **Verified:** E2E on dev with 2 test users (isolation pre-invite, wrong-user refusal, email
-  verification → accept, editor edit lands, viewer edit rejected + upload 404, role change, remove
-  → 404, revoke). Test data deleted. Prod integrity pre-check: 0 projects whose creator isn't a
-  member of their workspace (required — else creators lose access). Security Engineer review:
-  4 findings, all fixed (asset-to-project binding in generation, share/contest need membership,
-  `?redirect=` tab bypass, verified email required since prod has verification OFF).
-- **Docs** mirrored to wiki: `ClipWaltz/{features,admin-docs,help-center,decisions}` (verified).
-- **Owner deploy (linuxg1)** — package-lock + workers unchanged, so no `npm ci`/worker redeploy:
-  local `git archive --format=tar.gz -o /tmp/cw.tgz HEAD` → `scp` to linuxg1 → `cd ~/clipwaltz &&
-  tar xzf /tmp/cw.tgz` → `node --env-file=.env.local ./node_modules/drizzle-kit/bin.cjs migrate`
-  (no `| tail`) → `npm run build` → `pm2 restart clipwaltz --update-env`. Then smoke-test
-  `/account/workspace` and a project editor while signed in.
-- **2026-09-24: watermark = logo PNG bottom-left** (free tier), worker redeployed to AI box +
-  verified with `--wmtest` on a real prod project. Pushed to GitHub.
-- **Next:** authenticated smoke test by owner; SUPIR.
+Tree **clean** @ `87547a0`, pushed to `github.com/phoenixtekk/ClipWaltz` main. Type-check + lint green.
+```
+87547a0 feat(worker): logo PNG watermark bottom-left; --wmtest diagnostic
+90318ce docs(status): member management deployed to prod
+1ebc44c docs(status): member management built; prod deploy pending
+17560d1 feat(workspaces): member management — roles, email invites, role-based access (ADR-0006)
+f22c126 docs(handoff): rotate to session v6
+```
+- **Member management (ADR-0006) LIVE:** roles owner>admin>editor>viewer; SES email invites
+  (`workspace_invites`, migration **0029** on dev+prod; single-use, 7-day, email-bound, **verified
+  email required**); `/account/workspace`, `/invite/[token]`, projects workspace switcher, viewer
+  read-only editor. ALL project-scoped actions/routes use `src/lib/workspace.ts` role checks;
+  creator fallback ONLY for workspace-less projects (prod integrity check = 0 orphans). E2E on dev
+  (2 test users, cleaned up); Security Engineer review → 4 findings fixed.
+- **SES now works on prod:** SMTP user/pass added to linuxg1 `.env.local` (backup
+  `.env.local.bak-ses-*`); auth + simulator send `250 Ok`. **Sandbox status unchecked.**
+- **Watermark:** free-tier renders overlay `worker/WaterMark.png` (logo) **bottom-left**; worker on
+  AI box redeployed; verified via new read-only `--wmtest <projectId>` on a real prod project.
+- **Deploy notes:** prod deploys work only outside auto mode (classifier blocks them). `ssh ai` logs
+  in as **root** → use absolute `/home/lacy/clipwaltz/...` paths and `chown lacy`. Old pm2 error-log
+  lines "different slug names ('id' !== 'versionId')" predate this deploy.
+- ⚠️ Secrets from `_keys/clipwaltz.txt` (SES SMTP pass, Stripe test sk, Google client secret) were
+  shown in the v6 transcript — owner advised to rotate SES + Google; update prod env if they do.
+- **Next:** owner's signed-in smoke test of `/account/workspace`; SES sandbox check; **SUPIR**.
 
 ## Working state (2026-09-23) — v6: AI video-generation platform (all deployed + verified)
 
