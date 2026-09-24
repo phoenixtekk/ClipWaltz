@@ -53,6 +53,15 @@ f22c126 docs(handoff): rotate to session v6
 - **Both GPUs in use (ADR-0008, DEPLOYED):** 2nd ComfyUI `comfyui-gpu1` on GPU 1 (`127.0.0.1:8190`); wrapper
   load-balances + per-job output prefix. Verified concurrent 1080p restore + Wan gen (205 s / 82 s, no slowdown,
   30 GB RAM, 319 W/84 °C per card, no kernel errors). VRAM can't pool across the cards (tested).
+- **Routing engine + admin (ADR-0009, `fffbb5c`, DEPLOYED, migration 0030 on dev+prod):** `/admin/ai`
+  (models/workflows on-off, editable routing rules); Quality → steps (10/20/30); Motion → prompt phrase;
+  negative prompt now sent; **seed bug fixed** (wrapper ignored seed_fields → every job used the template
+  seed); friendly errors + Retry (atomic `retried`); only the final BullMQ attempt sets `failed`.
+  Verified on dev: routing matrix/fallback/disable, worker E2E (10 steps, recorded seed, neg appended),
+  attempt-aware failure. **Not browser-verified** (auth-gated): /admin/ai UI, Retry button, greyed options.
+- **ADR-0003 storage edge:** owner steps in ADMIN_DOCS ("Storage edge…"): `media.clipwaltz.com` →
+  `http://192.168.166.169:9000` on the linuxg1 tunnel (772914b5…), no Access, cache bypass. Then code:
+  presign on that endpoint, CORS, multipart <100 MB parts (CF Free/Pro 413 limit).
 - **Next:** owner's signed-in smoke test of `/account/workspace` + Enhance → AI Restore; watch AISERVER
   for freezes (`/var/crash/`).
 
