@@ -1,5 +1,4 @@
 <!-- session-version: 7 -->
-<!-- pending-session-title: ClipWaltz v7 -->
 
 # ClipWaltz — session handoff
 
@@ -32,7 +31,8 @@ f22c126 docs(handoff): rotate to session v6
   creator fallback ONLY for workspace-less projects (prod integrity check = 0 orphans). E2E on dev
   (2 test users, cleaned up); Security Engineer review → 4 findings fixed.
 - **SES now works on prod:** SMTP user/pass added to linuxg1 `.env.local` (backup
-  `.env.local.bak-ses-*`); auth + simulator send `250 Ok`. **Sandbox status unchecked.**
+  `.env.local.bak-ses-*`); auth + simulator send `250 Ok`. **Out of sandbox** (2026-09-24: send to unverified
+  recipient accepted `250 Ok`). Note prod `.env.local` has CRLF on the SES lines (Next's dotenv copes).
 - **Watermark:** free-tier renders overlay `worker/WaterMark.png` (logo) **bottom-left**; worker on
   AI box redeployed; verified via new read-only `--wmtest <projectId>` on a real prod project.
 - **Deploy notes:** prod deploys work only outside auto mode (classifier blocks them). `ssh ai` logs
@@ -40,7 +40,7 @@ f22c126 docs(handoff): rotate to session v6
   lines "different slug names ('id' !== 'versionId')" predate this deploy.
 - ⚠️ Secrets from `_keys/clipwaltz.txt` (SES SMTP pass, Stripe test sk, Google client secret) were
   shown in the v6 transcript — owner advised to rotate SES + Google; update prod env if they do.
-- **Next:** owner's signed-in smoke test of `/account/workspace`; SES sandbox check; **SUPIR**.
+- **Next:** owner's signed-in smoke test of `/account/workspace`; **SUPIR**.
 
 ## Working state (2026-09-23) — v6: AI video-generation platform (all deployed + verified)
 

@@ -102,8 +102,9 @@ See [`env.example`](env.example) for the full list. Groups:
   workspace_members m where m.workspace_id=p.workspace_id and m.user_id=p.owner_id);`
 - **Invite email** goes through SES (`sendEmail`); link base = `NEXT_PUBLIC_APP_URL` (must be
   `https://www.clipwaltz.com` in prod). With SES unset (dev) the email + link are logged to the console.
-  In the SES sandbox only verified recipients receive it — the inviter can still copy the link from
-  the Workspace page right after sending.
+  The SES account (us-east-1) has **production access** — verified 2026-09-24 by a probe send to an
+  unverified recipient (accepted `250 Ok`; sandbox would reject with 554). The inviter can also copy
+  the link from the Workspace page right after sending.
 - **Support tasks:** revoke an invite → Workspace page (or set `revoked_at`); a user locked out of a
   shared workspace → check their `workspace_members` row; the owner row (`role='owner'`) must never be
   deleted or changed.
