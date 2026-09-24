@@ -40,7 +40,10 @@ f22c126 docs(handoff): rotate to session v6
   lines "different slug names ('id' !== 'versionId')" predate this deploy.
 - ⚠️ Secrets from `_keys/clipwaltz.txt` (SES SMTP pass, Stripe test sk, Google client secret) were
   shown in the v6 transcript — owner advised to rotate SES + Google; update prod env if they do.
-- **Next:** owner's signed-in smoke test of `/account/workspace`; **SUPIR**.
+- **AISERVER idle freezes (2026-09-24):** froze twice at idle with no kernel trace; mitigations applied —
+  `processor.max_cstate=1`, kdump armed (was `USE_KDUMP=0`), lockup→panic sysctls. Details in
+  server-inventory AISERVER section. Watch for 1–2 days before long GPU jobs; after any freeze check `/var/crash/`.
+- **Next:** owner's signed-in smoke test of `/account/workspace`; **SUPIR** (once AISERVER proves stable).
 
 ## Working state (2026-09-23) — v6: AI video-generation platform (all deployed + verified)
 
