@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import type { AssetSummary } from "@/lib/assets";
-import { reorderAssets, deleteAsset, setAssetDuration, setAssetTrim } from "@/lib/asset-actions";
+import { reorderAssets, deleteAsset, setAssetDuration, setAssetTrim, setClipReframe } from "@/lib/asset-actions";
 import { uploadProjectFile, isSupported } from "@/lib/upload-client";
 
 type InsertStatus = "uploading" | "done" | "error";
@@ -452,6 +452,12 @@ export function ProjectTimeline({
 
 /** Preview one specific clip (play/scrub) and either TRIM a video (choose the part to render) or
  *  set an image's manual screen time. */
+const REFRAME_VIEWS = [
+  { key: "follow", label: "Follow action", hint: "The camera turns to wherever the most movement is — best for action." },
+  { key: "flat", label: "Front", hint: "A steady view straight out of the lens." },
+  { key: "tiny", label: "Tiny planet", hint: "The whole scene wrapped into a little planet (needs a two-lens 360 file)." },
+];
+
 function ClipModal({
   projectId,
   asset,
@@ -481,9 +487,18 @@ function ClipModal({
   const clampEnd = (v: number) => Math.min(dur || v, Math.max(v, start + 0.4));
   const seek = (t: number) => { if (videoRef.current) { videoRef.current.currentTime = t; videoRef.current.pause(); } };
 
+  // 360 clips (Insta360 .insv/.lrv): which way the flat video looks.
+  const is360 = asset.sourceFormat === "insv" || asset.sourceFormat === "lrv";
+  const initialView = asset.reframeMode ?? "follow";
+  const [view, setView] = useState(initialView);
+
   async function save() {
     setSaving(true);
     try {
+      if (is360 && view !== initialView) {
+        await setClipReframe(projectId, asset.id, view);
+        toast.message("Re-making this 360 clip with the new view — it's ready in a few minutes.");
+      }
       if (isVideo) {
         await setAssetTrim(projectId, asset.id, trimmed ? start : null, trimmed ? end : null);
       } else {
@@ -520,6 +535,29 @@ function ClipModal({
             <img src={src} alt={asset.name} className="max-h-[50vh] w-full object-contain" />
           )}
         </div>
+
+        {is360 ? (
+          <div className="space-y-2 rounded-lg border border-border bg-background/50 p-3">
+            <div className="text-sm font-medium">360 view</div>
+            <div className="flex flex-wrap gap-2">
+              {REFRAME_VIEWS.map((v) => (
+                <button
+                  key={v.key}
+                  type="button"
+                  onClick={() => setView(v.key)}
+                  aria-pressed={view === v.key}
+                  className={cn(
+                    "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                    view === v.key ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10 text-foreground" : "border-border text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {v.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">{REFRAME_VIEWS.find((v) => v.key === view)?.hint}</p>
+          </div>
+        ) : null}
 
         {isVideo ? (
           <div className="space-y-3 rounded-lg border border-border bg-background/50 p-3">

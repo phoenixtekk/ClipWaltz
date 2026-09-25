@@ -1,0 +1,1 @@
+ALTER TABLE "media" ALTER COLUMN "reframe_mode" SET DEFAULT 'follow';

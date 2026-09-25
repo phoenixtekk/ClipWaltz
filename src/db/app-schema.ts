@@ -169,7 +169,7 @@ export const media = pgTable("media", {
   convertedKey: text(), // flat mp4/jpg for 360 sources
   sourceFormat: text(), // insv | lrv | insp | null
   conversionState: text().notNull().default("ready"), // ready | pending | converting | failed
-  reframeMode: text().notNull().default("flat"), // 360 reframe: flat | follow | tiny
+  reframeMode: text().notNull().default("follow"), // 360 reframe: flat | follow (default: track the action) | tiny
   driveFileId: text(), // Google Drive file id once backed up (null = not backed up)
   driveBackedAt: timestamp({ withTimezone: true }),
   sizeBytes: integer(),

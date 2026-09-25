@@ -23,6 +23,11 @@ ships. It will also surface in-app at `/help`.
 - Uploads are resumable — if your connection drops, they pick up where they left off.
 
 ## Editing & music
+- **360 clips (Insta360 .insv):** open the clip in the timeline and pick a **360 view** — *Follow action*
+  (the default: the view turns toward the movement), *Front* (a steady view out of the lens) or *Tiny planet*.
+  Changing it re-makes the clip, which takes a few minutes for long videos. Some Insta360 cameras save each lens
+  as a separate file (names ending `_00_…` and `_10_…`); each file then shows only what that lens saw, so upload
+  the one that faced the action.
 - Choosing an occasion template (or "Surprise me").
 - Reordering clips, setting length.
 - **Presets:** the **Presets** bar at the top of the editor. Pick a starter look (TikTok Punchy,

@@ -13,7 +13,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, createWriteStream, readdirSync, statSync, existsSync, mkdirSync, renameSync, copyFileSync, unlinkSync, cpSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, createWriteStream, readdirSync, statSync, existsSync, mkdirSync, renameSync, copyFileSync, unlinkSync, cpSync, openSync, readSync, closeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, extname, basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,7 +22,7 @@ import { pipeline } from "node:stream/promises";
 import { Agent as HttpAgent } from "node:http";
 import { Agent as HttpsAgent } from "node:https";
 import postgres from "postgres";
-import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, GetObjectCommand, PutObjectCommand, CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand } from "@aws-sdk/client-s3";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 
 const run = promisify(execFile);
@@ -138,6 +138,35 @@ async function download(key, file) {
   const readable = body instanceof Readable ? body : Readable.fromWeb(body);
   await pipeline(readable, createWriteStream(file));
 }
+// Upload a local file without ever holding it all in memory. Node Buffers top out at 2 GiB, so the
+// old `Body: readFileSync(file)` failed on long 360 conversions ("File size (5570655991) is greater
+// than 2 GiB"). Small files: one PutObject; large: S3 multipart in 64 MB parts read from disk.
+const UPLOAD_PART = 64 * 1024 * 1024;
+async function uploadFile(key, file, contentType) {
+  const size = statSync(file).size;
+  if (size <= UPLOAD_PART) {
+    await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: readFileSync(file), ContentType: contentType }));
+    return;
+  }
+  const { UploadId } = await s3.send(new CreateMultipartUploadCommand({ Bucket: BUCKET, Key: key, ContentType: contentType }));
+  const fd = openSync(file, "r");
+  try {
+    const parts = [];
+    const buf = Buffer.allocUnsafe(UPLOAD_PART);
+    for (let n = 1, pos = 0; pos < size; n++, pos += UPLOAD_PART) {
+      const len = readSync(fd, buf, 0, Math.min(UPLOAD_PART, size - pos), pos);
+      const out = await s3.send(new UploadPartCommand({ Bucket: BUCKET, Key: key, UploadId, PartNumber: n, Body: buf.subarray(0, len) }));
+      parts.push({ PartNumber: n, ETag: out.ETag });
+    }
+    await s3.send(new CompleteMultipartUploadCommand({ Bucket: BUCKET, Key: key, UploadId, MultipartUpload: { Parts: parts } }));
+  } catch (e) {
+    await s3.send(new AbortMultipartUploadCommand({ Bucket: BUCKET, Key: key, UploadId })).catch(() => {});
+    throw e;
+  } finally {
+    closeSync(fd);
+  }
+}
+
 async function ffmpeg(args) {
   await run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", ...args], { maxBuffer: 1024 * 1024 * 32 });
 }
@@ -275,7 +304,7 @@ function levelEquirect(streams, lvl) {
 // Motion-driven yaw path (deg over time) for AutoReframe "follow": sample small equirect
 // frames, track the busiest horizontal region, smooth + rate-limit into a pan. [] on failure.
 // `level` is the leveled-equirect filter so yaw values match the reframe stage's frame.
-async function computeYawPath(src, streams, level) {
+async function computeYawPath(src, streams, level, limit = 0) {
   const W = 64, H = 32, FPS = 2;
   const hstack = streams >= 2 ? "[0:v:0][0:v:1]hstack=inputs=2," : "[0:v:0]";
   const proj = level || (streams >= 2 ? "v360=dfisheye:e:ih_fov=200:iv_fov=200:roll=90" : "v360=fisheye:e:ih_fov=200:iv_fov=200");
@@ -303,24 +332,77 @@ async function computeYawPath(src, streams, level) {
       for (let x = 1; x < W; x++) if (col[x] > col[peak]) peak = x; // argmax column
       raw.push({ t: f / FPS, yaw: (peak / W) * 360 - 180 });
     }
-    // smooth (moving average) + rate-limit for a natural pan
+    // Smooth (circular moving average) + rate-limit for a natural pan. Yaw is an ANGLE: a plain
+    // average of 170° and -170° is 0° (the opposite direction), so average unit vectors and step
+    // along the shortest arc. `limit` (single-lens files) keeps the view inside the lens.
+    const rad = (d) => (d * Math.PI) / 180;
+    const wrap = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
     const out = [];
     const win = 4;
     const maxStep = 20 / FPS;
     for (let i = 0; i < raw.length; i++) {
-      let s = 0, c = 0;
-      for (let j = Math.max(0, i - win); j <= Math.min(raw.length - 1, i + win); j++) { s += raw[j].yaw; c++; }
-      let yaw = s / c;
+      let sx = 0, sy = 0;
+      for (let j = Math.max(0, i - win); j <= Math.min(raw.length - 1, i + win); j++) { sx += Math.cos(rad(raw[j].yaw)); sy += Math.sin(rad(raw[j].yaw)); }
+      let yaw = (Math.atan2(sy, sx) * 180) / Math.PI;
       if (out.length) {
         const p = out[out.length - 1].yaw;
-        yaw = Math.max(p - maxStep, Math.min(p + maxStep, yaw));
+        yaw = wrap(p + Math.max(-maxStep, Math.min(maxStep, wrap(yaw - p))));
       }
+      if (limit) yaw = Math.max(-limit, Math.min(limit, yaw));
       out.push({ t: raw[i].t, yaw });
     }
     return out;
   } catch {
     return [];
   }
+}
+
+// Flat 16:9 view: v_fov must match the frame's aspect or the picture is squashed
+// (the old fixed v_fov=100 at 1920×1080 compressed everything vertically ~1.3×).
+const FLAT_H_FOV = 110;
+const FLAT_V_FOV = ((2 * Math.atan(Math.tan((FLAT_H_FOV * Math.PI) / 360) * (1080 / 1920))) * 180) / Math.PI;
+const flatOut = (w = 1920, h = 1080) => `output=flat:h_fov=${FLAT_H_FOV}:v_fov=${FLAT_V_FOV.toFixed(2)}:w=${w}:h=${h}`;
+
+// Build the reframe filter graph for a 360 source (flat | follow | tiny).
+// • 2 lenses in one file (dual fisheye): auto-level the full sphere, then reframe.
+// • 1 lens (Insta360 split recordings save each lens to its own "_00_"/"_10_" file): there is only
+//   a hemisphere, so the full-sphere auto-level is meaningless — it produced e.g. "tilt 96°" and
+//   aimed the view at the lens edge (black + upside-down deck). Look along the lens axis instead.
+// Returns { vf, note } — `vf` ends in the reframed [unlabelled] stream.
+async function reframeGraph(src, streams, mode, isPhoto, dir, w = 1920, h = 1080) {
+  const single = streams < 2;
+  const hstack = single ? "[0:v:0]" : "[0:v:0][0:v:1]hstack=inputs=2,";
+  let level;
+  let note;
+  if (single) {
+    level = "v360=fisheye:e:ih_fov=200:iv_fov=200";
+    note = "1 lens: lens-axis view, no sphere level";
+  } else {
+    const lvl = await estimateLevel(src, streams, await probe(src));
+    level = levelEquirect(streams, lvl);
+    note = lvl ? `level yaw=${lvl.yaw.toFixed(1)} pitch=${lvl.pitch.toFixed(1)} (tilt ${lvl.beta.toFixed(0)}°)` : "level estimate failed → base roll=90";
+  }
+  if (mode === "tiny" && !single) return { vf: `${hstack}${level},v360=e:ball:w=${h}:h=${h}`, note: `${note}, tiny` };
+  // Follow needs the whole sphere. On one hemisphere the busiest region is the lens rim /
+  // housing edge (tested: the path pinned to the limit and framed half-black shots), so a
+  // single-lens file always gets the lens-axis view.
+  if (mode === "follow" && !isPhoto && !single) {
+    const path = await computeYawPath(src, streams, level);
+    if (path.length) {
+      const cmds = path.map((p) => `${p.t.toFixed(2)} v360@rf yaw ${p.yaw.toFixed(1)};`).join("\n");
+      writeFileSync(join(dir, "cmds.txt"), cmds);
+      const yaws = path.map((p) => p.yaw);
+      return {
+        vf: `${hstack}${level},sendcmd=f=${fwd(join(dir, "cmds.txt"))},v360@rf=input=e:${flatOut(w, h)}`,
+        note: `${note}, follow ${path.length} pts yaw ${Math.min(...yaws).toFixed(0)}…${Math.max(...yaws).toFixed(0)}`,
+        path,
+      };
+    }
+    note += ", follow path empty → front";
+  } else if (mode === "follow" && single) {
+    note += ", follow needs 2 lenses → front";
+  }
+  return { vf: `${hstack}${level},v360=e:${flatOut(w, h)}`, note: `${note}, front` };
 }
 
 // Reproject a library media file (Insta360 .insv/.lrv/.insp) to a flat clip/photo per its
@@ -334,33 +416,16 @@ async function convertMedia(m) {
     const isPhoto = m.source_format === "insp" || m.kind === "photo";
     const streams = await probeVideoStreams(src);
     const mode = m.reframe_mode || "flat";
-    const hstack = streams >= 2 ? "[0:v:0][0:v:1]hstack=inputs=2," : "[0:v:0]";
-    // Auto-level the sphere (horizon upright) instead of a fixed roll, then reframe in a 2nd
-    // stage. Leveling and view-direction are different rotations, so keep them separate.
-    const dur = await probe(src);
-    const lvl = await estimateLevel(src, streams, dur);
-    const level = levelEquirect(streams, lvl);
-    console.log(`[worker] 360 level ${lvl ? `yaw=${lvl.yaw.toFixed(1)} pitch=${lvl.pitch.toFixed(1)} (tilt ${lvl.beta.toFixed(0)}°)` : "estimate failed → base roll=90"}`);
-
-    let vf;
-    if (mode === "tiny") {
-      vf = `${hstack}${level},v360=e:ball:w=1080:h=1080`; // little-planet
-    } else if (mode === "follow" && !isPhoto) {
-      const path = await computeYawPath(src, streams, level);
-      if (path.length) {
-        const cmds = path.map((p) => `${p.t.toFixed(2)} v360@rf yaw ${p.yaw.toFixed(1)};`).join("\n");
-        writeFileSync(join(dir, "cmds.txt"), cmds);
-        vf = `${hstack}${level},sendcmd=f=${fwd(join(dir, "cmds.txt"))},v360@rf=input=e:output=flat:h_fov=110:v_fov=100:w=1920:h=1080`;
-      }
-    }
-    if (!vf) vf = `${hstack}${level},v360=e:flat:h_fov=110:v_fov=100:w=1920:h=1080`;
+    // Auto-level (2-lens only) + reframe; see reframeGraph for the single-lens case.
+    const { vf, note } = await reframeGraph(src, streams, mode, isPhoto, dir);
+    console.log(`[worker] 360 reframe ${m.id}: ${note}`);
 
     let outKey;
     if (isPhoto) {
       const out = join(dir, "flat.jpg");
       await ffmpeg(["-i", src, "-filter_complex", `${vf},format=yuvj420p`, "-frames:v", "1", "-q:v", "3", out]);
       outKey = `media/${m.id}-flat.jpg`;
-      await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: outKey, Body: readFileSync(out), ContentType: "image/jpeg" }));
+      await uploadFile(outKey, out, "image/jpeg");
       await sql`update media set converted_key=${outKey}, conversion_state='ready', kind='photo' where id=${m.id}`;
       await sql`update assets set converted_key=${outKey}, conversion_state='ready', kind='photo' where media_id=${m.id}`;
     } else {
@@ -374,7 +439,7 @@ async function convertMedia(m) {
         out,
       ]);
       outKey = `media/${m.id}-flat.mp4`;
-      await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: outKey, Body: readFileSync(out), ContentType: "video/mp4" }));
+      await uploadFile(outKey, out, "video/mp4");
       await sql`update media set converted_key=${outKey}, conversion_state='ready', kind='video' where id=${m.id}`;
       await sql`update assets set converted_key=${outKey}, conversion_state='ready', kind='video' where media_id=${m.id}`;
     }
@@ -1328,9 +1393,7 @@ async function processRender(r) {
     );
     const outFile = await assemble(dir, assets, music ?? null, r.watermark, lengthSec, aspect, style);
     const key = `renders/${r.project_id}/${r.id}.mp4`;
-    await s3.send(
-      new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: readFileSync(outFile), ContentType: "video/mp4" }),
-    );
+    await uploadFile(key, outFile, "video/mp4");
     // Ready-to-post description (best-effort) when the project opted in. Generated BEFORE marking
     // 'done' and folded into the same update, so it's present the moment the client sees "ready".
     let postText = null;
@@ -1499,20 +1562,16 @@ async function convtest() {
 async function followtest() {
   const i = process.argv.indexOf("--followtest");
   const src = process.argv[i + 1];
-  const secs = Number(process.argv[i + 2]) || 20;
-  if (!src) { console.error("usage: --followtest <insv> [seconds]"); process.exit(2); }
+  const mode = process.argv[i + 2] || "follow";
+  const secs = Number(process.argv[i + 3]) || 20;
+  if (!src) { console.error("usage: --followtest <insv> [flat|follow|tiny] [seconds]"); process.exit(2); }
   const streams = await probeVideoStreams(src);
-  const hstack = streams >= 2 ? "[0:v:0][0:v:1]hstack=inputs=2," : "[0:v:0]";
-  const lvl = await estimateLevel(src, streams, await probe(src));
-  const level = levelEquirect(streams, lvl);
-  const path = await computeYawPath(src, streams, level);
-  const yaws = path.map((p) => p.yaw);
-  console.log(`[followtest] streams=${streams} level=${lvl ? `${lvl.yaw.toFixed(1)}/${lvl.pitch.toFixed(1)}` : "roll90"} path=${path.length} yaw[min/max]=${yaws.length ? Math.min(...yaws).toFixed(0) + "/" + Math.max(...yaws).toFixed(0) : "n/a"}`);
   const dir = mkdtempSync(join(tmpdir(), "cw-ft-"));
-  const cmds = path.filter((p) => p.t <= secs).map((p) => `${p.t.toFixed(2)} v360@rf yaw ${p.yaw.toFixed(1)};`).join("\n");
-  writeFileSync(join(dir, "cmds.txt"), cmds);
+  // Same graph the conversion uses (whole-file yaw path; the preview renders the first `secs`).
+  const { vf, note } = await reframeGraph(src, streams, mode, false, dir, 1280, 720);
+  console.log(`[followtest] streams=${streams} mode=${mode}: ${note}`);
   const out = "/tmp/followtest.mp4";
-  await ffmpeg(["-t", String(secs), "-i", src, "-filter_complex", `${hstack}${level},sendcmd=f=${fwd(join(dir, "cmds.txt"))},v360@rf=input=e:output=flat:h_fov=110:v_fov=100:w=1280:h=720,format=yuv420p[v]`, "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p", "-c:a", "aac", out]);
+  await ffmpeg(["-t", String(secs), "-i", src, "-filter_complex", `${vf},format=yuv420p[v]`, "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p", "-c:a", "aac", out]);
   console.log(`[followtest] → ${out} dur=${(await probe(out)).toFixed(1)}s`);
   rmSync(dir, { recursive: true, force: true });
   await sql.end();
@@ -1704,7 +1763,7 @@ async function startBatchItem(b, group) {
     const kind = batchKind(f);
     const safe = basename(f).replace(/[^a-zA-Z0-9._-]/g, "_");
     const key = `projects/${projectId}/${randomUUID()}-${safe}`;
-    await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: readFileSync(f), ContentType: kind === "video" ? "video/mp4" : "image/jpeg" }));
+    await uploadFile(key, f, kind === "video" ? "video/mp4" : "image/jpeg");
     await sql`insert into assets (id, project_id, storage_key, kind, original_name, order_index, upload_state, conversion_state)
       values (${randomUUID()}, ${projectId}, ${key}, ${kind}, ${basename(f)}, ${idx}, 'uploaded', 'ready')`;
     idx++;
@@ -1771,6 +1830,18 @@ async function main() {
   if (process.argv.includes("--captest")) return captest();
   if (process.argv.includes("--xfadetest")) return xfadetest();
   if (process.argv.includes("--followtest")) return followtest();
+  if (process.argv.includes("--uploadtest")) {
+    // `--uploadtest <file>`: stream-upload to _upload-test/, verify the stored size, delete it.
+    const f = process.argv[process.argv.indexOf("--uploadtest") + 1];
+    const key = `_upload-test/${randomUUID()}.bin`;
+    const t0 = Date.now();
+    await uploadFile(key, f, "application/octet-stream");
+    const { HeadObjectCommand, DeleteObjectCommand } = await import("@aws-sdk/client-s3");
+    const head = await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }));
+    console.log(`[uploadtest] local=${statSync(f).size} stored=${head.ContentLength} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+    return sql.end();
+  }
   if (process.argv.includes("--selftest")) return selftest();
   if (process.argv.includes("--posttest")) return posttest();
   if (process.argv.includes("--filltest")) return filltest();

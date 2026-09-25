@@ -83,6 +83,28 @@ export async function setAssetTrim(
   revalidatePath(`/projects/${projectId}/edit`);
 }
 
+const REFRAME_MODES = ["flat", "follow", "tiny"] as const;
+
+/**
+ * Change how a 360 clip (Insta360 .insv/.lrv) is reframed — flat (front view), follow (tracks the
+ * action) or tiny (little planet) — and queue it for re-conversion. Editor-checked. The setting
+ * lives on the source media, so every project using that file gets the new view; renders wait
+ * until the re-conversion is ready (a few minutes for long clips).
+ */
+export async function setClipReframe(projectId: string, assetId: string, mode: string): Promise<void> {
+  const userId = await requireUserId();
+  if (!(REFRAME_MODES as readonly string[]).includes(mode)) throw new Error("Unknown 360 view");
+  const [row] = await db
+    .select({ mediaId: schema.assets.mediaId, sourceFormat: schema.assets.sourceFormat })
+    .from(schema.assets)
+    .where(and(eq(schema.assets.id, assetId), eq(schema.assets.projectId, projectId)));
+  if (!row || !(await userCanAccessProject(userId, projectId, "editor"))) throw new Error("Asset not found");
+  if (!row.mediaId || (row.sourceFormat !== "insv" && row.sourceFormat !== "lrv")) throw new Error("Only 360 videos have a 360 view");
+  await db.update(schema.media).set({ reframeMode: mode, conversionState: "pending" }).where(eq(schema.media.id, row.mediaId));
+  await db.update(schema.assets).set({ conversionState: "pending" }).where(eq(schema.assets.mediaId, row.mediaId));
+  revalidatePath(`/projects/${projectId}/edit`);
+}
+
 /**
  * Set the full clip order for a project (timeline drag-reorder + insert). Editor-checked;
  * only assets that belong to the project are (re)numbered, any omitted keep a stable tail.
