@@ -20,7 +20,8 @@ type Template = {
   active: boolean;
 };
 
-const KINDS = [["music", "Music video from my media"], ["ai", "AI video from a template"]] as const;
+// Product names (2026-09-25): AutoWaltz = media → music video; Waltz AI = AI-generated clips.
+const KINDS = [["music", "AutoWaltz", "music video from my media"], ["ai", "Waltz AI", "AI video from a template"]] as const;
 
 const TEMPLATES: Template[] = [
   { key: "trip", label: "Trip", glyph: "✈", desc: "Vacations, road trips, getaways", active: true },
@@ -107,10 +108,11 @@ export function NewProjectWizard({ workspaceId, aiTemplates = [] }: { workspaceI
 
       {/* music video (occasions) vs AI template (CW-MVP-150) */}
       <div className="inline-flex rounded-lg border border-border bg-muted/50 p-0.5 text-sm font-medium">
-        {KINDS.map(([k, label]) => (
+        {KINDS.map(([k, name, desc]) => (
           <button key={k} type="button" onClick={() => setKind(k)} aria-pressed={kind === k}
             className={cn("rounded-md px-3 py-1.5 transition-colors", kind === k ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground")}>
-            {label}
+            <span className="font-semibold">{name}</span>
+            <span className="hidden sm:inline"> · {desc}</span>
           </button>
         ))}
       </div>

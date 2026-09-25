@@ -582,7 +582,7 @@ export function GenerationPanel({
       <section className="space-y-5">
         <div className="flex items-center gap-2">
           <Wand2 className="size-4 text-[color:var(--cw-violet)]" />
-          <h2 className="text-sm font-semibold">Generate with AI</h2>
+          <h2 className="text-sm font-semibold">Waltz AI <span className="font-normal text-muted-foreground">· generate AI clips</span></h2>
           {studio ? <StudioPill status={studio} /> : null}
         </div>
 

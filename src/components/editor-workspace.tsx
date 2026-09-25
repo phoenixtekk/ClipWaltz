@@ -29,7 +29,7 @@ const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: "format", label: "Format", icon: <Ratio className="size-4" /> },
   { key: "style", label: "Style", icon: <Sparkles className="size-4" /> },
   { key: "overlays", label: "Overlays", icon: <Layers className="size-4" /> },
-  { key: "generate", label: "Generate", icon: <Wand2 className="size-4" /> },
+  { key: "generate", label: "Waltz AI", icon: <Wand2 className="size-4" /> },
 ];
 
 export function EditorWorkspace({

@@ -225,7 +225,7 @@ Runs alongside the music-video assembler (ADR-0001). Jobs go through Redis/BullM
 (`clipwaltz-gen-worker` on linuxg1) to the AISERVER GPU node (ComfyUI behind an authenticated
 wrapper; ADR-0002/0005).
 
-- **Generate tab** (project editor): image→video or text→video with Wan 2.2 TI2V-5B. Controls:
+- **Waltz AI tab** (project editor; was "Generate"): image→video or text→video with Wan 2.2 TI2V-5B. Controls:
   prompt, style, camera, motion, aspect (landscape 1280×720 / portrait 720×1280 / square 768×768),
   duration (3 / 5 / 8 s), seed and negative prompt. Live progress over SSE.
 - **Versions:** every result is a numbered version — preview, compare side by side, favourite, pick,

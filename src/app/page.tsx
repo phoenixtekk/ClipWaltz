@@ -310,7 +310,7 @@ function HowItWorks() {
     {
       icon: <Wand2 className="size-5" />,
       title: "We waltz it",
-      body: "The cloud auto-cuts to the beat, drops in licensed music, and sizes everything 9:16 for social.",
+      body: "AutoWaltz cuts to the beat in the cloud, drops in licensed music, and sizes everything 9:16 for social.",
     },
     {
       icon: <Share2 className="size-5" />,
@@ -347,7 +347,8 @@ function HowItWorks() {
 /* ----------------------------------------------------------- Features */
 function Features({ paidWatermarked }: { paidWatermarked: boolean }) {
   const items = [
-    { icon: <Clapperboard className="size-5" />, title: "Beat-synced cuts", body: "Clips land on the beat automatically, so every edit feels intentional." },
+    { icon: <Clapperboard className="size-5" />, title: "AutoWaltz", body: "Beat-synced cuts from your own photos and clips — every edit lands on the beat automatically." },
+    { icon: <Wand2 className="size-5" />, title: "Waltz AI", body: "Describe a scene or animate a photo and Waltz AI creates brand-new video clips — then enhance, storyboard and export them." },
     { icon: <Music className="size-5" />, title: "Licensed music", body: "A curated catalog of royalty-free tracks — safe to post, mood by mood." },
     { icon: <Play className="size-5" />, title: "Instant draft preview", body: "See the whole cut in the editor before you commit to a full render." },
     { icon: <Gauge className="size-5" />, title: "Cloud HD render", body: "1080p 9:16 rendered on our machines, not your laptop. Leave and come back." },

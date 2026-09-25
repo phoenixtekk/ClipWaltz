@@ -5,9 +5,11 @@ End-user documentation. Categories mirror the product's features (kept in sync w
 ships. It will also surface in-app at `/help`.
 
 ## Getting started
-- **New project:** give it a name (and a description if you like), then choose **Music video from my media**
-  (pick an occasion and upload your clips) or **AI video from a template** (Product Promo, Social Reel, Story,
-  Event Recap, Travel or Cinematic Intro — the Generate tab opens with the template's settings ready).
+- **Two tools, two names:** **AutoWaltz** turns your own photos and videos into a beat-synced music
+  video. **Waltz AI** creates brand-new video clips from a description or a photo.
+- **New project:** give it a name (and a description if you like), then choose **AutoWaltz** (music video from my media)
+  (pick an occasion and upload your clips) or **Waltz AI** (AI video from a template) (Product Promo, Social Reel, Story,
+  Event Recap, Travel or Cinematic Intro — the **Waltz AI** tab opens with the template's settings ready).
 - What ClipWaltz does: drop in your phone photos & videos, get a polished music video back.
 - Creating an account · signing in.
 - **Your dashboard** is the first thing you see after signing in: your stats (projects, videos
@@ -50,7 +52,7 @@ ships. It will also surface in-app at `/help`.
 - **Music side-panel:** browse or search the catalog on the right, tap **▶** to preview any
   track, and tap a track's name to set it as your soundtrack (all licensed, safe to post).
 
-## Rendering & export
+## AutoWaltz — rendering & export
 - **Render checkpoint:** when you tap **Render HD** or **Re-render**, a quick confirmation shows
   exactly what will be made — projected length, your Format/Style settings, what you changed since
   the last render, and any heads-up (e.g. no music picked, or clips that don't match the aspect).
@@ -96,8 +98,8 @@ them there, then come back. (These are in addition to the "video ready" email, w
 - **Monthly Theme Challenge:** each month has a theme. Enter one of your Public videos from the
   editor — likes are votes, and the month's most-liked entry wins **ClipWaltz Pro**.
 
-## Generating AI video
-- Open a project and switch to the **Generate** tab. Start from one of your photos (image → video) or
+## Waltz AI — generating AI video
+- Open a project and switch to the **Waltz AI** tab. Start from one of your photos (image → video) or
   just describe the scene (text → video), then pick style, camera, motion, shape (landscape,
   portrait or square) and length (3, 5 or 8 seconds) and press **Generate**. Progress updates live.
 - **Quality:** *Preview* is a fast draft for trying ideas, *Standard* is the everyday setting, and
