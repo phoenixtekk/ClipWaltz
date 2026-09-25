@@ -71,6 +71,14 @@ f22c126 docs(handoff): rotate to session v6
   stream in 64 MB parts (>2 GiB outputs used to fail). Owner's jet-ski clip re-converted + verified (wake + chasing
   rider). Known limit: 2-lens handheld clips keep a tilted horizon (single global level; gyro not used). Split-lens
   pairs (_00_+_10_) are not stitched together. Watermark = Free tier only (owner is Pro) — by design.
+- **Build-plan batch (`d9d0ee5` + proxy fix `380489a`, DEPLOYED 2026-09-25; migrations 0032+0033 prod):** 010/011/020/024/
+  080/093/101/112/121/132/150/151/160-162/171/172/173/192/193 + /help + Free retention (LIVE, `RETENTION_ENABLED=1`;
+  prod dry run: 0 free owners) + Drive backup + Stripe webhook order fix + Insta360 pair stitching (ADR-0010) + follow
+  `reset_rot` fix + GEN_CONCURRENCY=2. Code-reviewed (9 findings fixed). Verified on dev: billing (real test sub,
+  out-of-order), retention (7 cases), storyboard montage, stitched pair on the owner's real _00_/_10_ files.
+  **Not browser-verified (auth-gated):** new wizard, Generate-tab UI, scenes panel, tags, Drive button, /admin/ops UI.
+  **Gyro levelling:** prototype works (gyro2bb telemetry-parser in /opt/cw-tools on AI box; script /tmp/cwgyro) — NOT
+  wired; owner to decide. Owner to upload VID_20240602_113827_00_017.insv to the jet-ski project → auto-stitch.
 - **Next:** owner's signed-in smoke test of `/account/workspace` + Enhance → AI Restore; watch AISERVER
   for freezes (`/var/crash/`).
 
