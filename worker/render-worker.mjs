@@ -1366,12 +1366,17 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     const origVol = origIdx >= 0 ? clampVol(style.originalVolume, 1) : 0;
     const endFade = style.fadeOut && outDur > 1.6; // fade audio out with the picture
 
-    // Assemble the audio graph from whichever sources are present.
-    let fc = useWm
+    // Video and audio go in two SEPARATE filter graphs. On ffmpeg 7.1 one graph holding both the
+    // concat video and the music dropped 10-16 frames at random segment joins (freezes, 282-290 of
+    // 300 frames) even with trivial null/volume filters; two graphs gave 300/300 (verified
+    // 2026-09-25, 3 runs each).
+    const vfc = useWm
       ? `movie='${fwd(WATERMARK_PATH)}',scale=${wmW}:-1,format=rgba,colorchannelmixer=aa=0.9,loop=loop=-1:size=1:start=0,setpts=N/30/TB[wm];` +
         `[0:v]${look(useTitle)}[vlook];` +
         `[vlook][wm]overlay=x=${wmPad}:y=main_h-overlay_h-${wmPad}:format=auto:shortest=1,${fades(outDur)}[vout]`
       : `[0:v]${look(useTitle)},${fades(outDur)}[vout]`;
+    // Assemble the audio graph from whichever sources are present.
+    let fc = "";
     const stems = [];
     if (musicIdx >= 0 && musicVol > 0) { fc += `;[${musicIdx}:a]volume=${musicVol.toFixed(3)}[ma]`; stems.push("[ma]"); }
     if (origIdx >= 0 && origVol > 0) { fc += `;[${origIdx}:a]volume=${origVol.toFixed(3)}[oa]`; stems.push("[oa]"); }
@@ -1380,7 +1385,9 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     else if (stems.length === 1) { aLabel = stems[0]; }
     if (aLabel && endFade) { fc += `;${aLabel}afade=t=out:st=${(outDur - 0.7).toFixed(2)}:d=0.7[aout]`; aLabel = "[aout]"; }
 
-    args.push("-filter_complex", fc, "-map", "[vout]");
+    args.push("-filter_complex", vfc);
+    if (fc) args.push("-filter_complex", fc.slice(1));
+    args.push("-map", "[vout]");
     if (aLabel) args.push("-map", aLabel, "-shortest");
     args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p");
     if (aLabel) args.push("-c:a", "aac", "-b:a", "192k");

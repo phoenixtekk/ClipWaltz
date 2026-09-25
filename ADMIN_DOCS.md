@@ -297,6 +297,12 @@ logo after ~1.5–2 s, and `-loop 1` dropped frames at random (found 2026-09-25;
 videos rendered before then only carry the logo at the start). Check every frame, not one: crop the
 logo's text strip and count frames with `signalstats` YMAX < 200 (see the 2026-09-25 handoff).
 
+**Keep video and audio in separate `-filter_complex` graphs (render worker final pass).** On
+ffmpeg 7.1 one graph holding both the concat video and the music (even just `null` + `volume`)
+dropped 10–16 frames at random segment joins — 10 s renders came out at 282–290 of 300 frames with
+brief freezes. Two graphs give 300/300 (fixed 2026-09-25). Check: `ffprobe -select_streams v:0
+-show_entries stream=nb_frames out.mp4` should equal `secs × 30`.
+
 **Render worker logo file:** `worker/WaterMark.png` (transparent PNG, a copy of `public/WaterMark.png`)
 is overlaid bottom-left. **Deploy it with the worker** — scp it next to `render-worker.mjs`
 (`/home/lacy/clipwaltz/worker/` on the AI box, owned by `lacy`); override with `WATERMARK_PATH`.
