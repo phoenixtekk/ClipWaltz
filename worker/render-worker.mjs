@@ -1820,6 +1820,24 @@ function batchNextGroup(b, skip = new Set()) {
   const files = loose.map((f) => { const d = join(dir, f); renameSync(join(inbox, f), d); return d; });
   return { name: setName, files, srcPath: dir };
 }
+// Same rule as the app's shouldWatermark() (src/lib/watermark.ts + getEffectiveTier): free is
+// always watermarked; paid plans follow app_settings.watermark_paid_plans (default on).
+async function batchWatermark(ownerId) {
+  const [sub] = await sql`select tier, status, current_period_end from subscriptions where user_id = ${ownerId} order by updated_at desc limit 1`;
+  let tier;
+  if (sub) {
+    const active = sub.status === "active" || sub.status === "trialing";
+    const notExpired = !sub.current_period_end || new Date(sub.current_period_end).getTime() > Date.now();
+    tier = active && notExpired ? (sub.tier ?? "free") : "free";
+  } else {
+    const [u] = await sql`select plan from "user" where id = ${ownerId}`;
+    tier = u?.plan ?? "free";
+  }
+  if (tier === "free") return true;
+  const [row] = await sql`select value from app_settings where key = 'watermark_paid_plans'`;
+  return row ? row.value !== false : true;
+}
+
 async function startBatchItem(b, group) {
   const s = b.settings || {};
   const projectId = randomUUID();
@@ -1842,7 +1860,7 @@ async function startBatchItem(b, group) {
     idx++;
   }
   const renderId = randomUUID();
-  await sql`insert into renders (id, project_id, version, aspect, status, watermark) values (${renderId}, ${projectId}, 1, ${s.aspect ?? "9:16"}, 'queued', false)`;
+  await sql`insert into renders (id, project_id, version, aspect, status, watermark) values (${renderId}, ${projectId}, 1, ${s.aspect ?? "9:16"}, 'queued', ${await batchWatermark(b.owner_id)})`;
   await sql`insert into batch_items (id, batch_id, source_name, project_id, render_id, status) values (${randomUUID()}, ${b.id}, ${group.name}, ${projectId}, ${renderId}, 'queued')`;
   await sql`update batch_jobs set last_run_at=now() where id=${b.id}`;
   console.log(`[batch] ${b.name}: queued "${group.name}" (${group.files.length} files) → render ${renderId}`);

@@ -281,7 +281,7 @@ side, 3% padding, 90% opacity) on music-video renders AND every AI output: gener
 enhancements, storyboards (montage) and exports. **Free is always watermarked; paid plans are
 watermarked while `/admin → Watermark → "Watermark paid plans"` is on (default on).** The switch
 lives in `app_settings.watermark_paid_plans` (migration 0034; 30 s cache in `src/lib/watermark.ts`,
-the single rule `shouldWatermark(userId)`). The app decides **when the job is created**
+the single rule `shouldWatermark(userId)`). Auto-Batch renders (created by the render worker itself) apply the same rule via `batchWatermark()` in `worker/render-worker.mjs`. The app decides **when the job is created**
 (`renders.watermark`, `generation_jobs.request_json.watermark`, `export_jobs.watermark`), so the
 switch affects new videos only. AI versions that get the logo keep the unwatermarked master at
 `generations/…/<n>.clean.mp4` (`generation_versions.clean_key`); Enhance, Assemble and Export
