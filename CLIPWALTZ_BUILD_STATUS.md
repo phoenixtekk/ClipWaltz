@@ -129,6 +129,10 @@ Assembler (music-video) product is separate and shipping — see [ADR-0001](docs
       + disable/fallback on dev; dev worker E2E (preview → 10 steps, seed recorded + used, negative
       appended). Not browser-verified (auth-gated): /admin/ai UI, Retry button, greyed options.
 
+- [x] **Build-plan batch** (2026-09-25): 010 · 011 · 020 · 024 · 080 · 093 · 101 · 112 · 121 · 132 · 150 · 151 ·
+      160–162 · 171 · 172 · 173 · 192 · 193; Stripe webhook order bug; in-app Help Center; Free retention;
+      Drive backup restored; Insta360 pair stitching (ADR-0010). Gyro levelling prototyped (not wired).
+
 ## App-layer done (2026-09-23, verified: build passes; backfill tested on dev with real data)
 - [x] BullMQ queue module (`src/lib/queue.ts`, lazy Redis) — `bullmq`/`ioredis` added
 - [x] Provider abstraction `AIVideoProvider` + `ComfyUIAIServerProvider` (`src/lib/ai/*`) — coded to

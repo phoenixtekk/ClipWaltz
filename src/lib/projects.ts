@@ -43,6 +43,8 @@ export type ProjectDetail = ProjectSummary & {
   overlays: Overlay[];
   workspaceId: string | null;
   role: WorkspaceRole; // the caller's effective role — gates the editor UI (viewer = read-only)
+  description: string | null;
+  aiTemplateId: string | null;
 };
 
 /** A single project the current user can see (any workspace role), or null. */
@@ -60,6 +62,8 @@ export async function getProject(id: string): Promise<ProjectDetail | null> {
   const role = await getProjectRole(userId, r.id);
   if (!role) return null;
   return {
+    description: r.description,
+    aiTemplateId: r.aiTemplateId,
     id: r.id,
     title: r.title,
     status: r.status as ProjectStatus,
@@ -129,7 +133,7 @@ export async function listProjects(workspaceId?: string, includeLegacy = false):
     ? await db
         .select({ pid: schema.assets.projectId, n: sql<number>`count(*)::int` })
         .from(schema.assets)
-        .where(and(inArray(schema.assets.projectId, ids), eq(schema.assets.uploadState, "uploaded")))
+        .where(and(inArray(schema.assets.projectId, ids), eq(schema.assets.uploadState, "uploaded"), eq(schema.assets.hidden, false)))
         .groupBy(schema.assets.projectId)
     : [];
   const clipMap = new Map(counts.map((c) => [c.pid, c.n]));

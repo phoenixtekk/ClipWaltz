@@ -19,6 +19,7 @@ import { DraftPreview } from "@/components/draft-preview";
 import { RenderPanel } from "@/components/render-panel";
 import { MusicPanel } from "@/components/music-panel";
 import { GenerationPanel } from "@/components/generation-panel";
+import type { GenerationSettings } from "@/lib/generation-settings";
 import { NewProjectButton } from "@/components/new-project-button";
 
 type Tab = "timeline" | "clips" | "format" | "style" | "overlays" | "generate";
@@ -43,6 +44,8 @@ export function EditorWorkspace({
   contest,
   musicTrackTitle,
   backdropAssetId,
+  initialTab,
+  templateSettings,
 }: {
   projectId: string;
   project: ProjectDetail;
@@ -55,8 +58,10 @@ export function EditorWorkspace({
   contest: { theme: string; entered: boolean } | null;
   musicTrackTitle: string | null;
   backdropAssetId: string | null;
+  initialTab?: Tab;
+  templateSettings?: GenerationSettings | null;
 }) {
-  const [tab, setTab] = useState<Tab>("timeline");
+  const [tab, setTab] = useState<Tab>(initialTab ?? "timeline");
 
   const editorProps = {
     projectId,
@@ -159,6 +164,7 @@ export function EditorWorkspace({
                 <GenerationPanel
                   projectId={projectId}
                   photos={assets.filter((a) => a.kind === "photo" && a.uploadState === "uploaded")}
+                  templateSettings={templateSettings}
                 />
               ) : null}
             </div>

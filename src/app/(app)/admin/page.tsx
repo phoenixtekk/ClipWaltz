@@ -39,6 +39,9 @@ export default async function AdminPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <a href="/admin/ops" className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium hover:border-primary hover:text-primary">
+            📊 Operations
+          </a>
           <a href="/admin/ai" className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium hover:border-primary hover:text-primary">
             🤖 AI models
           </a>

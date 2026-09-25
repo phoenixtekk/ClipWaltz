@@ -248,13 +248,22 @@ async function probeVideoStreams(file) {
   }
 }
 
+// A 360 source is one file, or a [front, rear] PAIR of single-lens files (Insta360 split recordings
+// "…_00_N.insv" + "…_10_N.insv") that is stitched into one dual-fisheye sphere.
+const srcFiles = (src) => (Array.isArray(src) ? src : [src]);
+const inputArgs = (src, ss) => srcFiles(src).flatMap((f) => [...(ss != null ? ["-ss", String(ss)] : []), "-i", f]);
+const lensStack = (src, streams) =>
+  // v360 dfisheye puts the SECOND half at view-centre (yaw 0), so stack [rear][front] to make the
+  // _00_ front lens "straight ahead" (verified on a real pair: rider + lake ahead centred).
+  Array.isArray(src) && src.length === 2 ? "[1:v:0][0:v:0]hstack=inputs=2," : streams >= 2 ? "[0:v:0][0:v:1]hstack=inputs=2," : "[0:v:0]";
+
 // Auto-level a 360 sphere. "Up" (sky / main light) is the brightest hemisphere, so the
 // brightness²-weighted mean direction over the equirect approximates true up. Returns the
 // v360 rotation ({yaw:φ, pitch:-β}) that brings that direction to the zenith — verified to
 // null the tilt on real Insta360 footage. null → caller falls back to the fixed base roll.
 async function estimateLevel(src, streams, srcDur) {
   const W = 320, H = 160;
-  const hstack = streams >= 2 ? "[0:v:0][0:v:1]hstack=inputs=2," : "[0:v:0]";
+  const hstack = lensStack(src, streams);
   const proj = streams >= 2 ? "v360=dfisheye:e:ih_fov=200:iv_fov=200" : "v360=fisheye:e:ih_fov=200:iv_fov=200";
   const dur = srcDur > 0 ? srcDur : 8;
   const fracs = [0.1, 0.25, 0.4, 0.55, 0.7, 0.85];
@@ -264,7 +273,7 @@ async function estimateLevel(src, streams, srcDur) {
     try {
       const { stdout } = await run(
         "ffmpeg",
-        ["-ss", String(Math.max(0, fr * dur)), "-i", src, "-frames:v", "1", "-filter_complex", `${hstack}${proj},scale=${W}:${H},format=gray`, "-f", "rawvideo", "-"],
+        [...inputArgs(src, Math.max(0, fr * dur)), "-frames:v", "1", "-filter_complex", `${hstack}${proj},scale=${W}:${H},format=gray`, "-f", "rawvideo", "-"],
         { maxBuffer: 1024 * 1024 * 8, encoding: "buffer" },
       );
       const buf = Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout, "binary");
@@ -295,9 +304,10 @@ async function estimateLevel(src, streams, srcDur) {
 
 // v360 filter that reprojects the source to a LEVELED equirect. Uses the estimated horizon
 // when available; otherwise the legacy fixed base roll so behaviour never regresses.
-function levelEquirect(streams, lvl) {
+function levelEquirect(streams, lvl, pair = false) {
   const base = streams >= 2 ? "dfisheye" : "fisheye";
-  const rot = lvl ? `:yaw=${lvl.yaw.toFixed(2)}:pitch=${lvl.pitch.toFixed(2)}` : ":roll=90";
+  // The legacy base roll suits in-file dual fisheye; a stitched pair's lens images are upright.
+  const rot = lvl ? `:yaw=${lvl.yaw.toFixed(2)}:pitch=${lvl.pitch.toFixed(2)}` : pair ? "" : ":roll=90";
   return `v360=${base}:e:ih_fov=200:iv_fov=200${rot}`;
 }
 
@@ -306,12 +316,12 @@ function levelEquirect(streams, lvl) {
 // `level` is the leveled-equirect filter so yaw values match the reframe stage's frame.
 async function computeYawPath(src, streams, level, limit = 0) {
   const W = 64, H = 32, FPS = 2;
-  const hstack = streams >= 2 ? "[0:v:0][0:v:1]hstack=inputs=2," : "[0:v:0]";
+  const hstack = lensStack(src, streams);
   const proj = level || (streams >= 2 ? "v360=dfisheye:e:ih_fov=200:iv_fov=200:roll=90" : "v360=fisheye:e:ih_fov=200:iv_fov=200");
   try {
     const { stdout } = await run(
       "ffmpeg",
-      ["-i", src, "-filter_complex", `${hstack}${proj},scale=${W}:${H},format=gray,fps=${FPS}`, "-f", "rawvideo", "-"],
+      [...inputArgs(src), "-filter_complex", `${hstack}${proj},scale=${W}:${H},format=gray,fps=${FPS}`, "-f", "rawvideo", "-"],
       { maxBuffer: 1024 * 1024 * 512, encoding: "buffer" },
     );
     const buf = Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout, "binary");
@@ -363,6 +373,8 @@ const FLAT_H_FOV = 110;
 const FLAT_V_FOV = ((2 * Math.atan(Math.tan((FLAT_H_FOV * Math.PI) / 360) * (1080 / 1920))) * 180) / Math.PI;
 const flatOut = (w = 1920, h = 1080) => `output=flat:h_fov=${FLAT_H_FOV}:v_fov=${FLAT_V_FOV.toFixed(2)}:w=${w}:h=${h}`;
 
+const LEVEL_MAX_TILT = 35; // degrees — larger auto-level corrections are treated as bad estimates
+
 // Build the reframe filter graph for a 360 source (flat | follow | tiny).
 // • 2 lenses in one file (dual fisheye): auto-level the full sphere, then reframe.
 // • 1 lens (Insta360 split recordings save each lens to its own "_00_"/"_10_" file): there is only
@@ -370,17 +382,26 @@ const flatOut = (w = 1920, h = 1080) => `output=flat:h_fov=${FLAT_H_FOV}:v_fov=$
 //   aimed the view at the lens edge (black + upside-down deck). Look along the lens axis instead.
 // Returns { vf, note } — `vf` ends in the reframed [unlabelled] stream.
 async function reframeGraph(src, streams, mode, isPhoto, dir, w = 1920, h = 1080) {
+  const pair = Array.isArray(src) && src.length === 2;
+  if (pair) streams = 2; // [front _00_, rear _10_] single-lens files → one dual-fisheye sphere
   const single = streams < 2;
-  const hstack = single ? "[0:v:0]" : "[0:v:0][0:v:1]hstack=inputs=2,";
+  const hstack = lensStack(src, streams);
   let level;
   let note;
   if (single) {
     level = "v360=fisheye:e:ih_fov=200:iv_fov=200";
     note = "1 lens: lens-axis view, no sphere level";
   } else {
-    const lvl = await estimateLevel(src, streams, await probe(src));
-    level = levelEquirect(streams, lvl);
-    note = lvl ? `level yaw=${lvl.yaw.toFixed(1)} pitch=${lvl.pitch.toFixed(1)} (tilt ${lvl.beta.toFixed(0)}°)` : "level estimate failed → base roll=90";
+    let lvl = await estimateLevel(src, streams, await probe(srcFiles(src)[0]));
+    // The brightness "up" estimate can be pulled off by sun/glare on water: on a real stitched pair
+    // it returned a 51° tilt for an upright camera and aimed the view at the deck. Mounted/handheld
+    // clips are rarely tilted that far, so beyond the limit keep the camera's own orientation.
+    const rejected = lvl && lvl.beta > LEVEL_MAX_TILT ? lvl : null;
+    if (rejected) lvl = null;
+    level = levelEquirect(streams, lvl, pair);
+    note = (pair ? "stitched _00_+_10_ pair, " : "") +
+      (lvl ? `level yaw=${lvl.yaw.toFixed(1)} pitch=${lvl.pitch.toFixed(1)} (tilt ${lvl.beta.toFixed(0)}°)`
+        : rejected ? `level estimate tilt ${rejected.beta.toFixed(0)}° > ${LEVEL_MAX_TILT}° rejected → base orientation` : "level estimate failed → base orientation");
   }
   if (mode === "tiny" && !single) return { vf: `${hstack}${level},v360=e:ball:w=${h}:h=${h}`, note: `${note}, tiny` };
   // Follow needs the whole sphere. On one hemisphere the busiest region is the lens rim /
@@ -393,7 +414,9 @@ async function reframeGraph(src, streams, mode, isPhoto, dir, w = 1920, h = 1080
       writeFileSync(join(dir, "cmds.txt"), cmds);
       const yaws = path.map((p) => p.yaw);
       return {
-        vf: `${hstack}${level},sendcmd=f=${fwd(join(dir, "cmds.txt"))},v360@rf=input=e:${flatOut(w, h)}`,
+        // reset_rot=1: without it v360 ADDS each sendcmd rotation to the previous one (verified with
+        // ffmpeg 7.1: two "yaw 90" commands rendered as yaw 180), so the pan drifted off the path.
+        vf: `${hstack}${level},sendcmd=f=${fwd(join(dir, "cmds.txt"))},v360@rf=input=e:${flatOut(w, h)}:reset_rot=1`,
         note: `${note}, follow ${path.length} pts yaw ${Math.min(...yaws).toFixed(0)}…${Math.max(...yaws).toFixed(0)}`,
         path,
       };
@@ -407,15 +430,64 @@ async function reframeGraph(src, streams, mode, isPhoto, dir, w = 1920, h = 1080
 
 // Reproject a library media file (Insta360 .insv/.lrv/.insp) to a flat clip/photo per its
 // reframeMode (flat | follow | tiny) using ffmpeg v360. Convert once, reuse across projects.
+// Insta360 split recordings save each lens to its own file: "VID_<date>_<time>_00_<n>.insv" (front)
+// and "…_10_<n>.insv" (rear). Returns { lens, partnerName } or null.
+function splitLensName(name) {
+  const x = /^(.*_)(00|10)(_\d+\.insv)$/i.exec(name ?? "");
+  return x ? { lens: x[2], partnerName: `${x[1]}${x[2] === "00" ? "10" : "00"}${x[3]}` } : null;
+}
+// Newest single-lens partner file of the same owner whose upload has FINISHED (a media row exists
+// from the moment a multipart upload starts, so require an uploaded asset for it). null if none.
+async function findLensPartner(m, partnerName) {
+  const rows = await sql`select * from media where owner_id = ${m.owner_id} and original_name = ${partnerName}
+    and id <> ${m.id} and storage_key is not null
+    and exists (select 1 from assets a where a.media_id = media.id and a.upload_state = 'uploaded')
+    order by created_at desc limit 1`;
+  return rows[0] ?? null;
+}
+// Where both lenses of a pair are in the same project, hide the rear clip (the front is the full 360).
+async function hidePairedRear(frontId, rearId) {
+  await sql`update assets set hidden = true where media_id = ${rearId}
+    and project_id in (select project_id from assets where media_id = ${frontId})`;
+}
+
 async function convertMedia(m) {
   const dir = mkdtempSync(join(tmpdir(), "cw-conv-"));
   try {
     const inExt = (m.original_name?.split(".").pop() ?? "bin").replace(/[^a-z0-9]/gi, "") || "bin";
-    const src = join(dir, `src.${inExt}`);
+    let src = join(dir, `src.${inExt}`);
     await download(m.storage_key, src);
     const isPhoto = m.source_format === "insp" || m.kind === "photo";
     const streams = await probeVideoStreams(src);
     const mode = m.reframe_mode || "flat";
+
+    // Split-lens pair: stitch front (_00_) + rear (_10_) into one sphere on the FRONT media. A rear
+    // file keeps its own lens-axis clip (for projects without the front) and asks the front to
+    // re-stitch.
+    const split = streams < 2 && !isPhoto ? splitLensName(m.original_name) : null;
+    const partner = split ? await findLensPartner(m, split.partnerName) : null;
+    if (partner) {
+      const [front, rear] = split.lens === "00" ? [m, partner] : [partner, m];
+      if (split.lens === "00") {
+        // Link the pair only once the rear is actually usable (a failed download leaves nothing half-set).
+        const rearSrc = join(dir, "rear.insv");
+        await download(rear.storage_key, rearSrc);
+        if (await probeVideoStreams(rearSrc) === 1) {
+          src = [src, rearSrc];
+          await sql`update media set pair_media_id = ${rear.id} where id = ${front.id}`;
+          await sql`update media set pair_media_id = ${front.id} where id = ${rear.id}`;
+          await hidePairedRear(front.id, rear.id);
+        }
+      } else if ((front.pair_media_id !== rear.id || front.conversion_state === "failed") && front.conversion_state !== "converting") {
+        // The rear arrived after the front (or the front's stitch failed): re-stitch the front.
+        await sql`update media set conversion_state = 'pending' where id = ${front.id}`;
+        await sql`update assets set conversion_state = 'pending' where media_id = ${front.id}`;
+        console.log(`[worker] 360 pair: rear ${m.id} found front ${front.id} → re-stitch queued`);
+      } else if (front.pair_media_id === rear.id) {
+        await hidePairedRear(front.id, rear.id);
+      }
+    }
+
     // Auto-level (2-lens only) + reframe; see reframeGraph for the single-lens case.
     const { vf, note } = await reframeGraph(src, streams, mode, isPhoto, dir);
     console.log(`[worker] 360 reframe ${m.id}: ${note}`);
@@ -423,7 +495,7 @@ async function convertMedia(m) {
     let outKey;
     if (isPhoto) {
       const out = join(dir, "flat.jpg");
-      await ffmpeg(["-i", src, "-filter_complex", `${vf},format=yuvj420p`, "-frames:v", "1", "-q:v", "3", out]);
+      await ffmpeg([...inputArgs(src), "-filter_complex", `${vf},format=yuvj420p`, "-frames:v", "1", "-q:v", "3", out]);
       outKey = `media/${m.id}-flat.jpg`;
       await uploadFile(outKey, out, "image/jpeg");
       await sql`update media set converted_key=${outKey}, conversion_state='ready', kind='photo' where id=${m.id}`;
@@ -431,7 +503,7 @@ async function convertMedia(m) {
     } else {
       const out = join(dir, "flat.mp4");
       await ffmpeg([
-        "-i", src,
+        ...inputArgs(src),
         "-filter_complex", `${vf},format=yuv420p[v]`,
         "-map", "[v]", "-map", "0:a?",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
@@ -443,7 +515,7 @@ async function convertMedia(m) {
       await sql`update media set converted_key=${outKey}, conversion_state='ready', kind='video' where id=${m.id}`;
       await sql`update assets set converted_key=${outKey}, conversion_state='ready', kind='video' where media_id=${m.id}`;
     }
-    console.log(`[worker] converted 360 media ${m.id} (${streams} lens, ${mode}) → ${outKey}`);
+    console.log(`[worker] converted 360 media ${m.id} (${Array.isArray(src) ? "stitched pair" : `${streams} lens`}, ${mode}) → ${outKey}`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1343,7 +1415,7 @@ async function loadRenderInputs(projectId, aspectOverride) {
   const [project] = await sql`select * from projects where id = ${projectId}`;
   const assets = await sql`
     select * from assets
-    where project_id = ${projectId} and upload_state = 'uploaded'
+    where project_id = ${projectId} and upload_state = 'uploaded' and not hidden
       and (source_format is null or conversion_state = 'ready')
     order by order_index asc, created_at asc`;
   if (assets.length === 0) throw new Error("no uploaded assets");
@@ -1561,17 +1633,18 @@ async function convtest() {
 // a short follow-reframed clip to /tmp/followtest.mp4 (no DB).
 async function followtest() {
   const i = process.argv.indexOf("--followtest");
-  const src = process.argv[i + 1];
+  const arg = process.argv[i + 1];
   const mode = process.argv[i + 2] || "follow";
   const secs = Number(process.argv[i + 3]) || 20;
-  if (!src) { console.error("usage: --followtest <insv> [flat|follow|tiny] [seconds]"); process.exit(2); }
-  const streams = await probeVideoStreams(src);
+  if (!arg) { console.error("usage: --followtest <insv | front_00.insv,rear_10.insv> [flat|follow|tiny] [seconds]"); process.exit(2); }
+  const src = arg.includes(",") ? arg.split(",") : arg; // a comma pair = stitched split-lens files
+  const streams = await probeVideoStreams(srcFiles(src)[0]);
   const dir = mkdtempSync(join(tmpdir(), "cw-ft-"));
   // Same graph the conversion uses (whole-file yaw path; the preview renders the first `secs`).
   const { vf, note } = await reframeGraph(src, streams, mode, false, dir, 1280, 720);
   console.log(`[followtest] streams=${streams} mode=${mode}: ${note}`);
   const out = "/tmp/followtest.mp4";
-  await ffmpeg(["-t", String(secs), "-i", src, "-filter_complex", `${vf},format=yuv420p[v]`, "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p", "-c:a", "aac", out]);
+  await ffmpeg([...inputArgs(src), "-filter_complex", `${vf},format=yuv420p[v]`, "-map", "[v]", "-map", "0:a?", "-t", String(secs), "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p", "-c:a", "aac", out]);
   console.log(`[followtest] → ${out} dur=${(await probe(out)).toFixed(1)}s`);
   rmSync(dir, { recursive: true, force: true });
   await sql.end();

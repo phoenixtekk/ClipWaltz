@@ -15,7 +15,7 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 | Transactional email — Amazon SES | ✅ | `src/lib/email.ts` (nodemailer/SMTP 587); console fallback when unconfigured |
 | Database — Drizzle + Postgres | ✅ | Schema `src/db/schema.ts`; tables: user/session/account/verification + projects/assets/music_tracks/renders/subscriptions. Migration `drizzle/0000_*.sql` generated |
 | Object storage — MinIO (linuxg7) | ✅ | `src/lib/storage.ts` (S3 SDK, path-style). Dedicated `clipwaltz` bucket (versioned) + bucket-scoped service account. Upload/list/delete wired |
-| Billing module — Stripe (direct) | 🚧 | Isolated in `src/lib/billing/`; Checkout + webhook verify wired; webhook handler `/api/billing/webhook` stubbed (persist in P2). See [`BILLING.md`](BILLING.md) |
+| Billing module — Stripe (direct) | ✅ | Isolated in `src/lib/billing/`; hosted Checkout; webhook `/api/billing/webhook` persists subscriptions (tier, status, period end, Stripe ids + `user.plan`). Order-independent: `checkout.session.completed` fetches the subscription so a paid user can't stay Free when events arrive out of order; period end read from the subscription item (API 2026-08-26). Verified with a real test-mode subscription (2026-09-25). See [`BILLING.md`](BILLING.md) |
 | Canonical host (apex→www 308) | ✅ | `src/proxy.ts` redirects `clipwaltz.com` → `www.clipwaltz.com` |
 | Landing page (marketing home) | ✅ | `/` — full glass-metal marketing site in the brand spectrum (blue→violet→magenta→coral): frosted nav w/ logo, aurora hero + animated 9:16 phone mockup, "One App, Two Vibes" (vacations vs business), how-it-works, feature tiles, occasion templates, pricing teaser, CTA slab, footer. Brand assets `public/logo-2.png` (mark/favicon) + `public/logo-name-1.png` (wordmark). Responsive; `prefers-reduced-motion` aware. Scoped `cw-` `@layer components`. |
 | Light / dark theme toggle | ✅ | Nav toggle (`src/components/theme-toggle.tsx`, `useSyncExternalStore`) flips the `dark` class on `<html>`; theme-aware landing via CSS tokens; no-flash init script in the root layout (stored choice → else system preference); persisted to `localStorage`. Also themes the shadcn app pages. |
@@ -59,14 +59,14 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 | Title / caption placement | ✅ | The optional **Title / caption** field lives in the **Timeline tab** (`title-caption-field.tsx`), alongside the clips, rather than the Style card. Saves via `setProjectStyle({titleText})`. |
 | Community opt-in + remove | ✅ | Render panel Private/Unlisted/**Public** = opt-in to the community feed; owners get a **Remove from community** button on the watch page (sets it private). |
 | Cloud HD render (async) | ✅ | DB queue + worker + live status polling; download served (proxied). **"Video ready" email** on completion: the worker pings `POST /api/internal/render-ready` (shared-secret `WORKER_CALLBACK_SECRET`) and the app sends via SES — keeps SES creds only on linuxg1. |
-| Export / share (watermark on free) | 🚧 | Download ✅ (proxied). Free-tier watermark = the ClipWaltz logo PNG (`worker/WaterMark.png`, copy of `public/WaterMark.png`), **bottom-left**, ~22% of the short side, 90% opacity, fades with the picture (2026-09-24); public share link still to come |
+| Export / share (watermark on free) | ✅ | Download (direct, signed). Free-tier watermark = the ClipWaltz logo, bottom-left. **Share links:** Public/Unlisted renders get `/w/<id>` (Copy link in the render panel); private ones 404. |
 | Music catalog | ✅ | **83 licensed Pixabay tracks** live in prod (manifest-driven `scripts/seed-music.mjs`, Pixabay Content License, 0 placeholders). Sourcing/licensing in `MUSIC_CATALOG.md`. |
 | Music Provider Layer | ✅ | Provider-agnostic music sourcing (`src/lib/music-providers.ts`): `MusicProvider` interface + registry. **Pixabay** (DB-backed "Included") implemented; **Epidemic / Soundstripe / Artlist** adapters interface-ready (light up when their `*_API_KEY` + `listTracks()` are added — no editor/UI change). `music_tracks.provider/premium/providerTrackId` (0007). |
 | Music panel (tabs + favourites) | ✅ | Sticky side-panel (`music-panel.tsx`): tabs **For You / Browse / Premium / My Music / Upload**, search, **per-track ▶ audition**, **♥ favourites** (`music_favorites`, 0007 → My Music), provider-agnostic labels ("Included" / "Real Artist" + mood + BPM). For You = **WaltzMatch**. |
 | Custom music upload | ✅ | **Upload tab**: add your own audio (≤50 MB) from your computer — **MP3, MPA, MP2, M4A, AAC, WAV, OGG, OPUS, FLAC** (ffmpeg decodes any of them for rendering; the correct MIME is stored so in-browser audition works). Proxied to MinIO (`/api/music/upload`) as an **owner-scoped** `music_tracks` row (`ownerId`, provider `upload`, migration 0025). Visible only to you, auditioned/selected like catalog tracks, **deletable** (`deleteMusicTrack` → row + object; drops from any project using it). Owner-checked streaming; `getMusicTracks(userId)` merges catalog + uploads. |
 | Original video audio + mix | ✅ | **🔊 Use original video audio** toggle (`projects.originalAudio`, 0021): keeps each clip's own sound and mixes it with the in-app music. **Independent level sliders** (`musicVolume`/`originalVolume`, 0–150%) — music defaults to 65% when mixed so the clip audio stays clear; set music to 0 for original-audio-only, or original to 0 for music-only. Worker builds a timeline-matched original-audio track (each video slot's own audio from its window; silence for images/audio-less clips), then `amix`es it with the looped music (`volume` + `amix normalize=0` + end `afade`). Transitions render as **cuts** while original audio is on (crossfade would drift the audio). Verified: the full mix graph renders video+audio on the AI box. |
 | WaltzMatch (soundtrack matching) | ✅ | **For You** tab: analyzes the project's media (best-effort **AI-box vision** on photos → occasion/mood/energy; media-mix fallback) and ranks the catalog with a **% match**, plus **Surprise Me** (weighted-random top pick). Deterministic matcher (`src/lib/waltzmatch.ts`, mood + BPM); analysis in `waltzmatch-actions.ts`. Vision prompt verified against the AI box. |
-| Cloud backup — Google Drive | ⚠️ | Google Drive **OAuth connection** (own OAuth, least-privilege `drive.file` scope) is retained — `src/lib/drive.ts`, routes `/api/oauth/google/drive/*`, reuses `GOOGLE_CLIENT_ID/SECRET`. **The Back up / Back up all UI lived in the Media Library (removed 2026-09-22)**, so there is currently no user-facing backup action; `media.driveFileId` (0015) still records already-backed-up files. |
+| Cloud backup — Google Drive | ✅ | Timeline **Back up N originals to Drive** (or **Connect Google Drive** → OAuth → back to the project). Streams each original to the user's "ClipWaltz" folder in 16 MB resumable chunks (never buffered), in the background; the button counts progress. `drive.file` scope. (Restored 2026-09-25 — the old UI went with the Media Library; OAuth used to return to the removed `/library`.) |
 | Media library | ❌ | **Removed 2026-09-22** (per owner: "too heavy, not needed"). The user-facing `/library` page, nav link, `MediaLibrary` component, `getUserMedia`, `media-actions`/`drive-actions`, and the `/api/media/[id]` serving route are gone. The **`media` table is kept** — the asset-upload pipeline still writes/updates it (`assets.media_id`, 360 conversion state). Assets remain placements referencing media rows. |
 | Timeline (view + insert/reorder) | ✅ | Full-video **timeline** (`project-timeline.tsx`): clips laid left→right, widths scaled by draft duration; **drag a clip to reorder**, **+ between clips to insert/upload** a photo, video, **or Insta360 clip (.insv/.lrv/.insp)** at that exact spot, remove per clip. Insert uses the shared **resumable uploader** (`upload-client.ts` — single POST for small files, MinIO **multipart** for large videos) and shows a **prominent status banner** with filename + live progress bar, then an "Inserted ✓" / error state. `reorderAssets` server action. |
 | Clip thumbnails + preview | ✅ | Each clip shows an image/video thumbnail; **clicking any clip (image or video) opens a full preview** (image enlarges, video plays with controls) via a lightbox (`project-editor.tsx`). |
@@ -81,8 +81,8 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 | Cloud import — Google / Dropbox / OneDrive | ✅ | **Google Photos** via server OAuth + Photos Picker (`/api/oauth/google/*`, `/api/import/google/*`, tokens in `oauth_accounts`). **Dropbox** (Chooser) + **OneDrive** (OneDrive.js) via client pickers → shared SSRF-allowlisted `/api/import/urls` → MinIO. All on the import screen. |
 | iCloud Photos guidance | ✅ | Apple provides **no third-party API** to read a user's iCloud Photo Library (Sign in with Apple = auth only; CloudKit = own-app data only), so there's no OAuth connector. An **iCloud Photos** card (`icloud-import.tsx`) instead guides users to the working path: the OS file picker on iPhone/iPad/Mac already reaches iCloud Photos; on Windows, iCloud for Windows syncs to a local folder to pick from. |
 | Canonical host apex→www | ✅ | `clipwaltz.com` 308→`www.clipwaltz.com` (middleware, keyed off `x-forwarded-host` behind the tunnel). |
-| Help Center | ⬜ | Categories mirror features |
-| Retention: 7-day auto-delete (free) | ⬜ | Paid "Project Vault" keeps longer |
+| Help Center | ✅ | In-app **`/help`** renders `HELP_CENTER.md` (single source); linked from the account menu and every footer. |
+| Retention: 7-day auto-delete (free) | ✅ | Free plan: uploaded originals (+ 360 conversions) deleted 7 days after upload; owner emailed ~24 h before and nothing is deleted without a confirmed notice ≥ 20 h earlier. Projects, AI results and finished videos kept; paid/comp/trialing never touched; files shared with newer clips kept. `src/lib/retention.ts`, every 6 h. Switch: `RETENTION_ENABLED=1`. |
 
 ## Dashboard, presets & content batch (2026-09-20)
 
@@ -180,6 +180,27 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 - Stays per-person: categories, presets, music uploads, batches, dashboard stats. Sharing a render to
   the Community / entering a challenge stays with the project's creator (credit + prizes).
 - Data: `workspace_invites` (migration 0029). Actions: `src/lib/workspace-actions.ts`.
+
+## Build-plan batch (2026-09-25)
+
+- **Projects:** name (required) + description at creation (CW-MVP-010); start from **Music video** (occasions →
+  import) or an **AI template** (Product Promo · Social Reel · Story · Event Recap · Travel · Cinematic Intro →
+  opens Generate pre-filled; 150/151). Project cards show the first photo as a thumbnail (011).
+- **Uploads:** failed files show **Retry** and resume (020). **Clip tags** in the clip editor + tag filter above
+  the timeline (024).
+- **Generate tab:** version details — date, duration, resolution, mode, style, quality (112); **Edit** loads a
+  version's settings to change and regenerate (121); **Enhance presets** Clean · Smooth · Sharp · Max Quality +
+  Custom (132); **suggestions** for aspect/style/camera/motion from the photo shape + prompt (171); last-used
+  settings remembered (172); named **presets** (173); **AI studio status** pill (080); paid accounts get GPU
+  queue priority (093) and every queued job shows its place in line (101). Two generations run at once (one per GPU).
+- **Scenes / storyboard (160–162):** ordered scenes with a target length and a picked version each; reorder;
+  **Assemble** joins them into one new "Storyboard" version.
+- **Admin → Operations** (`/admin/ops`): live queue depths, per-GPU AISERVER status, render queue, the latest
+  60 AI jobs (wait/run time, errors) (192) and 7/30-day usage metrics (193).
+- **Insta360 split-lens pairs:** when both `…_00_N.insv` (front) and `…_10_N.insv` (rear) are uploaded they are
+  **stitched into one full 360°** clip on the front file (badge "360° ⧉"); the rear clip hides where both are in
+  a project. Implausible auto-level estimates (> 35° tilt) are ignored. Follow action fixed: ffmpeg v360 added up
+  each rotation (needed `reset_rot=1`), so the pan drifted instead of following the path.
 
 ## Direct media delivery — storage edge (2026-09-25, ADR-0003)
 

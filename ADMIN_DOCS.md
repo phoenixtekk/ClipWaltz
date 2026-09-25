@@ -142,6 +142,32 @@ See [`env.example`](env.example) for the full list. Groups:
   first failure a job shows `queued` again (error kept); only the last failure sets `failed`. A
   retry atomically marks the old job `retried` (so it can't be retried twice) and creates a new job.
 
+## Operations page (`/admin/ops`)
+Live BullMQ queue depths (generation / enhance / export; "-1" = Redis unreachable), AISERVER status per GPU,
+music-video render queue, the latest 60 AI jobs with wait/run time and errors (raw error on hover), and
+7/30-day usage (generations, enhancements, exports, renders + CPU-minutes, sign-ups, daily active users).
+Refreshes every 10 s. Code: `src/lib/ops-admin-actions.ts`, `src/components/admin-ops.tsx`.
+
+## Free-plan retention (7-day uploads)
+- `src/lib/retention.ts`, run by `POST /api/internal/retention` (header `x-worker-secret` =
+  `WORKER_CALLBACK_SECRET`), triggered every 6 h by the generation worker on linuxg1 (`APP_INTERNAL_URL`,
+  default `http://127.0.0.1:3100`). Result logged as `[retention] {...}` in both pm2 logs.
+- **Deletes only with `RETENTION_ENABLED=1`** in the app env; otherwise (or `?dryRun=1`) it reports what it would
+  do. Rules: project owner's effective tier must be Free; upload older than 7 days; a notice email to the owner
+  succeeded ≥ 20 h earlier (`assets.retention_notice_at`; a failed send is not recorded, so nothing is deleted).
+  Objects still referenced by another clip are kept. Projects, generation versions, exports and renders are never
+  touched. Dry run by hand: `curl -s -X POST -H "x-worker-secret: $WORKER_CALLBACK_SECRET" "http://127.0.0.1:3100/api/internal/retention?dryRun=1"`.
+
+## Google Drive backup
+Timeline button → `backupToDrive` (editor) → background, sequential, resumable 16 MB-chunk uploads
+(`uploadToDriveResumable`) into the user's "ClipWaltz" folder; `media.drive_file_id` marks done. Runs inside the app
+process — a restart mid-upload just leaves that file un-marked (press the button again). OAuth returns to the
+`returnTo` path (same-site paths only), default `/projects`.
+
+## Generation worker settings
+`GEN_CONCURRENCY` (default 2 = one per AISERVER GPU, ADR-0008). Paid accounts' jobs get BullMQ priority 1, free 5
+(`generation_jobs.priority` 10 / 0). Only the last BullMQ attempt marks a job `failed`.
+
 ## Storage edge for direct downloads/uploads (ADR-0003) — owner setup, then code
 
 Status: **LIVE (2026-09-25).** `media.clipwaltz.com` → linuxg1 tunnel → `192.168.166.169:9000`.

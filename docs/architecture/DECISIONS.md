@@ -4,6 +4,20 @@ Per `00_ClipWaltz_Build_Execution_Guide.md` §38. Newest first.
 
 ---
 
+## ADR-0010 — Insta360 split-lens stitching; level sanity limit; IMU levelling next
+- **Date:** 2026-09-25
+- **Decision:** Pair `…_00_N.insv` (front) + `…_10_N.insv` (rear) single-lens files of the same owner and stitch
+  them as one dual fisheye on the FRONT media (`media.pair_media_id`; rear `assets.hidden` where both are in a
+  project). v360 `dfisheye` centres the SECOND half, so the stack is `[rear][front]` (verified on the owner's pair:
+  rider + lake ahead centred; seams align at ih/iv_fov 200). Auto-level estimates above 35° tilt are rejected (the
+  brightness estimate returned 51° for an upright camera on sun-glared water and aimed at the deck).
+- **Also fixed:** follow mode's `sendcmd` yaw accumulated without `v360 reset_rot=1` (ffmpeg 7.1: two `yaw 90`
+  commands rendered as yaw 180 — verified by PSNR against static yaw 90/180).
+- **Next (prototyped, not wired):** IMU levelling — `gyro2bb` (telemetry-parser v0.3.0, MIT/Apache-2.0) extracts
+  ~1 kHz accel/gyro from `.insv` in < 1 s; a smoothed gravity vector gives a per-time roll/pitch applied with
+  `sendcmd` (10 Hz) and `reset_rot=1`. On a handheld X5 clip the horizon stayed flat where the global level
+  was tilted ~45°; render cost ≈ today's. Axis mapping fitted on one X5 file; split-lens files untested.
+
 ## ADR-0009 — DB-driven routing engine + admin AI registry
 - **Date:** 2026-09-24
 - **Decision:** Generation routing reads `routing_rules` (task + quality → workflow + sampler

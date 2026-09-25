@@ -7,11 +7,21 @@ import { getActiveContest, isRenderEntered } from "@/lib/contest";
 import { getAuthUserId } from "@/lib/auth";
 import { listPresets } from "@/lib/presets";
 import { EditorWorkspace } from "@/components/editor-workspace";
+import { eq } from "drizzle-orm";
+import { db, schema } from "@/db";
+import { normalizeSettings, type GenerationSettings } from "@/lib/generation-settings";
 
 export const metadata = { title: "Editor" };
 
-export default async function EditPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function EditPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ tab?: string }>;
+}) {
   const { id } = await params;
+  const { tab } = await searchParams;
   const project = await getProject(id);
   if (!project) notFound();
   const userId = await getAuthUserId();
@@ -24,6 +34,12 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
     getFavoriteTrackIds(userId),
     listPresets(),
   ]);
+  // CW-MVP-151: a project started from an AI template opens the Generate tab pre-filled.
+  let templateSettings: GenerationSettings | null = null;
+  if (project.aiTemplateId) {
+    const [tpl] = await db.select({ m: schema.templates.metadataJson }).from(schema.templates).where(eq(schema.templates.id, project.aiTemplateId));
+    if (tpl) templateSettings = normalizeSettings(tpl.m);
+  }
 
   const contest =
     activeContest && latestRender && latestRender.hasOutput
@@ -43,6 +59,8 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
       contest={contest}
       musicTrackTitle={tracks.find((t) => t.id === project.musicTrackId)?.title ?? null}
       backdropAssetId={assets.find((a) => a.uploadState === "uploaded")?.id ?? null}
+      initialTab={tab === "generate" ? "generate" : undefined}
+      templateSettings={templateSettings}
     />
   );
   if (project.role !== "viewer") return editor;

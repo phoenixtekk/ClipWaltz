@@ -18,7 +18,12 @@ export async function deleteAsset(projectId: string, assetId: string): Promise<v
     .where(and(eq(schema.assets.id, assetId), eq(schema.assets.projectId, projectId)));
   if (!row || !(await userCanAccessProject(userId, projectId, "editor"))) throw new Error("Asset not found");
 
-  await db.delete(schema.assets).where(eq(schema.assets.id, assetId));
+  const [gone] = await db.delete(schema.assets).where(eq(schema.assets.id, assetId)).returning({ mediaId: schema.assets.mediaId });
+  // Deleting the front clip of a stitched Insta360 pair brings its hidden rear clip back.
+  if (gone?.mediaId) {
+    const [m] = await db.select({ pair: schema.media.pairMediaId }).from(schema.media).where(eq(schema.media.id, gone.mediaId));
+    if (m?.pair) await db.update(schema.assets).set({ hidden: false }).where(and(eq(schema.assets.projectId, projectId), eq(schema.assets.mediaId, m.pair)));
+  }
   revalidatePath(`/projects/${projectId}/import`);
   revalidatePath(`/projects/${projectId}/edit`);
 }
@@ -81,6 +86,24 @@ export async function setAssetTrim(
   }
   await db.update(schema.assets).set({ trimStart: s, trimEnd: e }).where(eq(schema.assets.id, assetId));
   revalidatePath(`/projects/${projectId}/edit`);
+}
+
+/**
+ * CW-MVP-024: set a clip's tags (editor-checked). Normalised to lowercase, trimmed, de-duplicated;
+ * up to 10 tags of up to 24 characters.
+ */
+export async function setAssetTags(projectId: string, assetId: string, tags: string[]): Promise<string[]> {
+  const userId = await requireUserId();
+  if (!(await userCanAccessProject(userId, projectId, "editor"))) throw new Error("Asset not found");
+  const clean = [...new Set((Array.isArray(tags) ? tags : [])
+    .map((t) => String(t).trim().toLowerCase().replace(/\s+/g, " ").slice(0, 24))
+    .filter(Boolean))].slice(0, 10);
+  const r = await db.update(schema.assets).set({ tags: clean.length ? clean : null })
+    .where(and(eq(schema.assets.id, assetId), eq(schema.assets.projectId, projectId)))
+    .returning({ id: schema.assets.id });
+  if (!r.length) throw new Error("Asset not found");
+  revalidatePath(`/projects/${projectId}/edit`);
+  return clean;
 }
 
 const REFRAME_MODES = ["flat", "follow", "tiny"] as const;

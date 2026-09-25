@@ -7,10 +7,13 @@ export function LegalDoc({
   title,
   updated,
   children,
+  legal = true,
 }: {
   title: string;
   updated: string;
   children: React.ReactNode;
+  /** false for non-legal docs (Help Center): no "not legal advice" banner. */
+  legal?: boolean;
 }) {
   return (
     <div className="cw-landing min-h-screen">
@@ -30,18 +33,21 @@ export function LegalDoc({
 
       <article className="mx-auto max-w-3xl px-5 py-12">
         <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
-        <p className="cw-subtle mt-2 text-sm">Last updated {updated}</p>
-        <div className="cw-glass mb-6 mt-6 rounded-xl p-4 text-sm">
-          <span className="cw-muted">
-            This is a plain-language starting template, not legal advice. Have counsel review and
-            adapt it before relying on it in production.
-          </span>
-        </div>
+        <p className="cw-subtle mt-2 text-sm">{legal ? `Last updated ${updated}` : updated}</p>
+        {legal ? (
+          <div className="cw-glass mb-6 mt-6 rounded-xl p-4 text-sm">
+            <span className="cw-muted">
+              This is a plain-language starting template, not legal advice. Have counsel review and
+              adapt it before relying on it in production.
+            </span>
+          </div>
+        ) : <div className="mt-6" />}
         <div className="cw-legal space-y-2">{children}</div>
       </article>
 
       <footer className="cw-hair border-t px-5 py-8">
         <div className="cw-subtle mx-auto flex max-w-3xl flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm">
+          <Link href="/help" className="hover:text-[color:var(--cw-fg)]">Help</Link>
           <Link href="/terms" className="hover:text-[color:var(--cw-fg)]">Terms</Link>
           <Link href="/privacy" className="hover:text-[color:var(--cw-fg)]">Privacy</Link>
           <Link href="/refund" className="hover:text-[color:var(--cw-fg)]">Refunds</Link>

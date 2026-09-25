@@ -17,7 +17,7 @@ export async function getEffectiveTier(userId: string): Promise<Tier> {
     .orderBy(desc(schema.subscriptions.updatedAt))
     .limit(1);
   if (sub) {
-    const active = sub.status === "active";
+    const active = sub.status === "active" || sub.status === "trialing";
     const notExpired = !sub.currentPeriodEnd || sub.currentPeriodEnd.getTime() > Date.now();
     return active && notExpired ? ((sub.tier as Tier) ?? "free") : "free";
   }

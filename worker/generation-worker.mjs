@@ -74,6 +74,18 @@ function framesForSeconds(seconds) {
   return 4 * Math.round((s * WAN_FPS - 1) / 4) + 1;
 }
 
+// Next version number + insert under a per-project advisory lock: with GEN_CONCURRENCY=2 (and the
+// enhance queue in parallel) two jobs of one project could otherwise both take max+1.
+async function insertVersion(projectId, row) {
+  return sql.begin(async (tx) => {
+    await tx`select pg_advisory_xact_lock(hashtext(${projectId}))`;
+    const [{ maxv }] = await tx`select coalesce(max(version_number),0)::int maxv from generation_versions where project_id = ${projectId}`;
+    const version_number = (maxv ?? 0) + 1;
+    await tx`insert into generation_versions ${tx({ ...row, version_number })}`;
+    return version_number;
+  });
+}
+
 async function setStatus(id, fields) {
   await sql`update generation_jobs set ${sql(fields)}, updated_at = now() where id = ${id}`;
 }
@@ -192,15 +204,17 @@ async function processJob(genJobId) {
   await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: outputKey, Body: videoBytes, ContentType: "video/mp4" }));
 
   const versionId = randomUUID();
-  await sql`insert into generation_versions ${sql({
+  const meta = await probeVideo(videoBytes).catch(() => ({})); // CW-MVP-112 output metadata
+  await insertVersion(j.project_id, {
     id: versionId,
     generation_job_id: genJobId,
     project_id: j.project_id,
     scene_id: j.scene_id ?? null,
     version_number: versionNumber,
     output_key: outputKey,
-    settings: req,
-  })}`;
+    duration_sec: meta.duration ?? null,
+    settings: { ...req, width: meta.width || null, height: meta.height || null, fps: meta.fps ?? null },
+  });
   await setStatus(genJobId, { status: "completed", progress: 100, completed_at: new Date() });
   console.log(`[gen] ${genJobId} done → ${outputKey} (v${versionNumber}, ${videoBytes.length} bytes)`);
 }
@@ -209,7 +223,8 @@ const connection = new IORedis(REDIS_URL, { maxRetriesPerRequest: null });
 const worker = new Worker(
   GENERATION_QUEUE,
   async (job) => { await processJob(job.data.generationJobId); },
-  { connection, concurrency: 1, lockDuration: 5 * 60 * 1000 }, // single GPU node → serialize
+  // One job per ComfyUI instance: the AISERVER runs one per GPU and load-balances (ADR-0008).
+  { connection, concurrency: Number(process.env.GEN_CONCURRENCY ?? 2), lockDuration: 5 * 60 * 1000 },
 );
 
 worker.on("failed", async (job, err) => {
@@ -294,6 +309,8 @@ async function ffmpegEnhance(req) {
     const filters = [];
     if (req.interpolate) filters.push("minterpolate=fps=48:mi_mode=mci:mc_mode=obmc");
     if (req.upscale) filters.push("scale=iw*2:ih*2:flags=lanczos", "unsharp=5:5:0.8:5:5:0.0");
+    // "Clean" preset (CW-MVP-132): light temporal/spatial denoise + gentle sharpen.
+    if (req.denoise) filters.push("hqdn3d=2:1.5:3:3", "unsharp=5:5:0.5:5:5:0.0");
     const args = ["-y", "-i", srcPath];
     if (filters.length) args.push("-vf", filters.join(","));
     args.push("-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "18", "-movflags", "+faststart", "-an", outPath);
@@ -347,9 +364,12 @@ async function probeVideo(bytes) {
     const p = join(dir, "v.mp4");
     writeFileSync(p, bytes);
     const { stdout } = await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-count_packets",
-      "-show_entries", "stream=width,height,nb_read_packets", "-of", "json", p]);
-    const s = JSON.parse(stdout).streams?.[0] ?? {};
-    return { width: Number(s.width), height: Number(s.height), frames: Number(s.nb_read_packets) };
+      "-show_entries", "stream=width,height,nb_read_packets,r_frame_rate:format=duration", "-of", "json", p]);
+    const j = JSON.parse(stdout);
+    const s = j.streams?.[0] ?? {};
+    const [fn, fd] = String(s.r_frame_rate ?? "0/1").split("/").map(Number);
+    return { width: Number(s.width), height: Number(s.height), frames: Number(s.nb_read_packets),
+      duration: Number(j.format?.duration) || null, fps: fd ? Math.round((fn / fd) * 100) / 100 : null };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -389,11 +409,46 @@ async function aiEnhance(req, genJobId) {
   return bytes;
 }
 
+// CW-MVP-160..162 storyboard: join each scene's picked version in order, trimmed to the scene's
+// target length, normalised to the first clip's size at 24 fps. Returns the output bytes.
+async function assembleMontage(req, genJobId) {
+  const parts = Array.isArray(req.parts) ? req.parts : [];
+  if (parts.length < 2) throw new Error("storyboard needs at least two picked scenes");
+  const dir = mkdtempSync(join(tmpdir(), "cw-montage-"));
+  try {
+    let size = null;
+    const list = [];
+    for (let i = 0; i < parts.length; i++) {
+      const [cur] = await sql`select status from generation_jobs where id = ${genJobId}`;
+      if (cur?.status === "cancelled") throw new Error("cancelled");
+      const src = join(dir, `in${i}.mp4`), out = join(dir, `n${i}.mp4`);
+      writeFileSync(src, await getBytes(parts[i].key));
+      if (!size) {
+        const m = await probeVideo(readFileSync(src));
+        size = { w: (m.width || 1280) & ~1, h: (m.height || 720) & ~1 };
+      }
+      const t = Number(parts[i].durationTarget) > 0 ? ["-t", String(parts[i].durationTarget)] : [];
+      await run("ffmpeg", ["-y", "-i", src, ...t,
+        "-vf", `scale=${size.w}:${size.h}:force_original_aspect_ratio=decrease,pad=${size.w}:${size.h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24,format=yuv420p`,
+        "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", out], { maxBuffer: 1 << 26 });
+      list.push(`file '${out.replace(/'/g, "'\\''")}'`);
+      await setStatus(genJobId, { progress: Math.min(80, 20 + Math.round((60 * (i + 1)) / parts.length)) });
+    }
+    const listFile = join(dir, "list.txt"), final = join(dir, "storyboard.mp4");
+    writeFileSync(listFile, list.join("\n"));
+    await run("ffmpeg", ["-y", "-f", "concat", "-safe", "0", "-i", listFile, "-c", "copy", "-movflags", "+faststart", final], { maxBuffer: 1 << 26 });
+    return readFileSync(final);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 async function processEnhance(genJobId) {
   const [j] = await sql`select * from generation_jobs where id = ${genJobId}`;
   if (!j) { console.warn("[enh] job gone", genJobId); return; }
   if (j.status === "cancelled" || j.status === "retried") return;
   const req = j.request_json ?? {};
+  if (j.job_type === "montage") return processMontage(j, req, genJobId);
   if (!req.sourceKey) throw new Error("no sourceKey on enhancement job");
   const ai = req.engine === "ai" || req.engine === "restore";
   await setStatus(genJobId, { status: ai ? "generating" : "enhancing", progress: 40, started_at: new Date() });
@@ -405,13 +460,34 @@ async function processEnhance(genJobId) {
   const versionNumber = (maxv ?? 0) + 1;
   const outKey = `generations/${j.project_id}/${genJobId}/${versionNumber}.mp4`;
   await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: outKey, Body: videoBytes, ContentType: "video/mp4" }));
-  await sql`insert into generation_versions ${sql({
+  const meta = await probeVideo(videoBytes).catch(() => ({})); // CW-MVP-112 output metadata
+  await insertVersion(j.project_id, {
     id: randomUUID(), generation_job_id: genJobId, project_id: j.project_id, scene_id: j.scene_id ?? null,
     version_number: versionNumber, output_key: outKey,
-    settings: { enhancedFrom: req.sourceVersionId, engine: ai ? req.engine : "ffmpeg", interpolate: !!req.interpolate, upscale: !!req.upscale || req.engine === "restore" },
-  })}`;
+    duration_sec: meta.duration ?? null,
+    settings: { enhancedFrom: req.sourceVersionId, engine: ai ? req.engine : "ffmpeg", interpolate: !!req.interpolate, upscale: !!req.upscale || req.engine === "restore",
+      denoise: !!req.denoise, preset: req.preset ?? null, width: meta.width || null, height: meta.height || null, fps: meta.fps },
+  });
   await setStatus(genJobId, { status: "completed", progress: 100, completed_at: new Date() });
   console.log(`[enh] ${genJobId} done → ${outKey} (engine=${ai ? req.engine : "ffmpeg"})`);
+}
+
+async function processMontage(j, req, genJobId) {
+  await setStatus(genJobId, { status: "encoding", progress: 10, started_at: new Date() });
+  const videoBytes = await assembleMontage(req, genJobId);
+  await setStatus(genJobId, { status: "uploading_output", progress: 85 });
+  const [{ maxv }] = await sql`select coalesce(max(version_number),0)::int maxv from generation_versions where project_id = ${j.project_id}`;
+  const versionNumber = (maxv ?? 0) + 1;
+  const outKey = `generations/${j.project_id}/${genJobId}/${versionNumber}.mp4`;
+  await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: outKey, Body: videoBytes, ContentType: "video/mp4" }));
+  const meta = await probeVideo(videoBytes).catch(() => ({}));
+  await insertVersion(j.project_id, {
+    id: randomUUID(), generation_job_id: genJobId, project_id: j.project_id, scene_id: null,
+    version_number: versionNumber, output_key: outKey, duration_sec: meta.duration ?? null,
+    settings: { montage: true, scenes: (req.parts ?? []).length, width: meta.width || null, height: meta.height || null, fps: meta.fps ?? null },
+  });
+  await setStatus(genJobId, { status: "completed", progress: 100, completed_at: new Date() });
+  console.log(`[enh] storyboard ${genJobId} done → ${outKey} (${(req.parts ?? []).length} scenes)`);
 }
 
 const enhanceWorker = new Worker(
@@ -429,3 +505,20 @@ enhanceWorker.on("failed", async (job, err) => {
   }
 });
 console.log(`[enh] ClipWaltz enhance worker up (queue=${ENHANCE_QUEUE})`);
+
+// Free-plan upload retention (notice ~24 h ahead, delete after 7 days) runs in the app, which holds
+// the SES creds; this worker (same host, linuxg1) just triggers it every 6 h. See src/lib/retention.ts.
+const APP_INTERNAL_URL = (process.env.APP_INTERNAL_URL ?? "http://127.0.0.1:3100").replace(/\/$/, "");
+async function triggerRetention() {
+  if (!process.env.WORKER_CALLBACK_SECRET) return;
+  try {
+    const r = await fetch(`${APP_INTERNAL_URL}/api/internal/retention`, {
+      method: "POST", headers: { "x-worker-secret": process.env.WORKER_CALLBACK_SECRET }, signal: AbortSignal.timeout(10 * 60_000),
+    });
+    console.log(`[retention] ${r.status} ${(await r.text()).slice(0, 300)}`);
+  } catch (e) {
+    console.error("[retention] trigger failed:", e?.message ?? e);
+  }
+}
+setTimeout(triggerRetention, 5 * 60_000);
+setInterval(triggerRetention, 6 * 60 * 60_000);

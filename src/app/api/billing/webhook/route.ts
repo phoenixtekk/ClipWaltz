@@ -2,45 +2,42 @@ import { NextResponse, type NextRequest } from "next/server";
 import { randomUUID } from "crypto";
 import { desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { verifyWebhook, tierForPriceId } from "@/lib/billing";
+import { verifyWebhook, summarizeSubscription, fetchSubscriptionSummary, type SubscriptionSummary } from "@/lib/billing";
 
 export const runtime = "nodejs";
 
-// Minimal shapes we read off Stripe events (avoids importing the full Stripe types here).
+// Minimal shape we read off checkout sessions (avoids importing Stripe types outside lib/billing).
 type CheckoutSession = {
   client_reference_id?: string | null;
   customer?: string | null;
   subscription?: string | null;
 };
-type Subscription = {
-  id: string;
-  customer: string;
-  status: string;
-  current_period_end?: number;
-  items?: { data?: { price?: { id?: string } }[] };
-};
 
-async function upsertByUser(userId: string, patch: Partial<typeof schema.subscriptions.$inferInsert>) {
-  const [existing] = await db
-    .select({ id: schema.subscriptions.id })
-    .from(schema.subscriptions)
-    .where(eq(schema.subscriptions.userId, userId))
-    .orderBy(desc(schema.subscriptions.updatedAt))
-    .limit(1);
+async function latestRowFor(where: ReturnType<typeof eq>) {
+  const [row] = await db.select({ id: schema.subscriptions.id, userId: schema.subscriptions.userId })
+    .from(schema.subscriptions).where(where).orderBy(desc(schema.subscriptions.updatedAt)).limit(1);
+  return row ?? null;
+}
+
+// Write a Stripe subscription onto the user's subscriptions row + user.plan. Idempotent (Stripe
+// retries and may deliver events in any order).
+async function applySummary(userId: string, s: SubscriptionSummary, deleted = false) {
+  const tier = deleted || ["canceled", "incomplete_expired", "unpaid"].includes(s.status) ? "free" : s.tier;
+  const patch = {
+    tier,
+    status: deleted ? "canceled" : s.status,
+    stripeCustomerId: s.customerId,
+    stripeSubscriptionId: s.subscriptionId,
+    currentPeriodEnd: s.currentPeriodEnd ?? undefined,
+    updatedAt: new Date(),
+  };
+  const existing = await latestRowFor(eq(schema.subscriptions.userId, userId));
   if (existing) {
-    await db
-      .update(schema.subscriptions)
-      .set({ ...patch, updatedAt: new Date() })
-      .where(eq(schema.subscriptions.id, existing.id));
+    await db.update(schema.subscriptions).set(patch).where(eq(schema.subscriptions.id, existing.id));
   } else {
-    await db.insert(schema.subscriptions).values({
-      id: randomUUID(),
-      userId,
-      tier: patch.tier ?? "free",
-      status: patch.status ?? "active",
-      ...patch,
-    });
+    await db.insert(schema.subscriptions).values({ id: randomUUID(), userId, ...patch });
   }
+  await db.update(schema.user).set({ plan: tier, updatedAt: new Date() }).where(eq(schema.user.id, userId));
 }
 
 export async function POST(req: NextRequest) {
@@ -57,45 +54,28 @@ export async function POST(req: NextRequest) {
 
   try {
     switch (event.type) {
+      // The session carries our user id; the subscription's tier is fetched from Stripe so the
+      // outcome doesn't depend on whether customer.subscription.* arrived first (Stripe doesn't
+      // guarantee event order — a paid user used to stay "free" when it didn't).
       case "checkout.session.completed": {
         const s = event.data.object as unknown as CheckoutSession;
-        if (s.client_reference_id) {
-          await upsertByUser(s.client_reference_id, {
-            stripeCustomerId: s.customer ?? undefined,
-            stripeSubscriptionId: s.subscription ?? undefined,
-            status: "active",
-          });
+        if (s.client_reference_id && s.subscription) {
+          await applySummary(s.client_reference_id, await fetchSubscriptionSummary(s.subscription));
         }
         break;
       }
       case "customer.subscription.created":
       case "customer.subscription.updated":
       case "customer.subscription.deleted": {
-        const sub = event.data.object as unknown as Subscription;
-        const priceId = sub.items?.data?.[0]?.price?.id;
-        const tier = event.type === "customer.subscription.deleted" ? "free" : tierForPriceId(priceId);
-        const patch = {
-          tier,
-          status: sub.status,
-          stripeSubscriptionId: sub.id,
-          currentPeriodEnd: sub.current_period_end
-            ? new Date(sub.current_period_end * 1000)
-            : undefined,
-        };
-        await db
-          .update(schema.subscriptions)
-          .set({ ...patch, updatedAt: new Date() })
-          .where(eq(schema.subscriptions.stripeCustomerId, sub.customer));
-        const [row] = await db
-          .select({ userId: schema.subscriptions.userId })
-          .from(schema.subscriptions)
-          .where(eq(schema.subscriptions.stripeCustomerId, sub.customer));
-        if (row) {
-          await db
-            .update(schema.user)
-            .set({ plan: tier, updatedAt: new Date() })
-            .where(eq(schema.user.id, row.userId));
-        }
+        // Re-fetch the CURRENT state: Stripe retries/reorders events, so an old "updated(active)" must
+        // not resurrect a subscription that a later "deleted" already ended.
+        const evSub = summarizeSubscription(event.data.object as unknown as Parameters<typeof summarizeSubscription>[0]);
+        const sum = await fetchSubscriptionSummary(evSub.subscriptionId).catch(() => evSub);
+        const row =
+          (await latestRowFor(eq(schema.subscriptions.stripeSubscriptionId, sum.subscriptionId))) ??
+          (await latestRowFor(eq(schema.subscriptions.stripeCustomerId, sum.customerId)));
+        // Unknown yet = the checkout.session.completed event hasn't linked the user; it will.
+        if (row) await applySummary(row.userId, sum, sum.status === "canceled");
         break;
       }
       default:

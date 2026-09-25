@@ -23,19 +23,27 @@ function transport(): Transporter | null {
   return _tx;
 }
 
-export async function sendEmail(mail: Mail): Promise<void> {
+/** True when SES is configured (retention must never treat the console fallback as a sent notice). */
+export function emailConfigured(): boolean {
+  return !!(process.env.SES_SMTP_HOST && process.env.SES_SMTP_USER && process.env.SES_SMTP_PASS);
+}
+
+/** Sends via SES; returns false if the send failed (callers that must know — retention notices — check it). */
+export async function sendEmail(mail: Mail): Promise<boolean> {
   const from = process.env.EMAIL_FROM || "ClipWaltz <noreply@clipwaltz.com>";
   const tx = transport();
   if (!tx) {
     console.log(
       `[email:dev] (SES not configured) to=${mail.to} subject="${mail.subject}"\n${mail.text ?? mail.html}`,
     );
-    return;
+    return true;
   }
   try {
     await tx.sendMail({ from, to: mail.to, subject: mail.subject, html: mail.html, text: mail.text });
+    return true;
   } catch (err) {
     console.error("[email] send error", err);
+    return false;
   }
 }
 

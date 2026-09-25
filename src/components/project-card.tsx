@@ -1,5 +1,5 @@
 "use client";
-import { useTransition } from "react";
+import { useTransition, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -56,6 +56,7 @@ export function ProjectCard({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const [thumbOk, setThumbOk] = useState(true);
   const status = STATUS[project.status] ?? STATUS.draft;
   const wide = project.aspect === "16:9";
   const editHref = `/projects/${project.id}/edit`;
@@ -100,7 +101,13 @@ export function ProjectCard({
       {/* Uniform 16:9 thumbnail for every card so the grid stays even; orientation shown as an icon. */}
       <Link href={editHref} className="block" aria-label={`Open ${displayName}`}>
         <div className="relative flex aspect-video items-center justify-center overflow-hidden bg-gradient-to-br from-[color:var(--cw-blue)]/20 via-[color:var(--cw-magenta)]/15 to-[color:var(--cw-coral)]/15">
-          <div className="flex size-9 items-center justify-center rounded-full bg-background/70 backdrop-blur-sm transition-transform group-hover:scale-110">
+          {/* CW-MVP-011: first photo as the thumbnail; hides itself (gradient stays) if there is none. */}
+          {thumbOk ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={`/api/projects/${project.id}/thumbnail`} alt="" loading="lazy" onError={() => setThumbOk(false)}
+              className="absolute inset-0 size-full object-cover" />
+          ) : null}
+          <div className="relative flex size-9 items-center justify-center rounded-full bg-background/70 backdrop-blur-sm transition-transform group-hover:scale-110">
             <Play className="size-4 translate-x-0.5 fill-foreground text-foreground" />
           </div>
           <span className={cn("absolute left-2 top-2 rounded-full border px-2 py-0.5 text-[10px] font-semibold backdrop-blur-sm", status.className)}>

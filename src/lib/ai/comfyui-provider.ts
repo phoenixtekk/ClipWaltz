@@ -89,6 +89,7 @@ export class ComfyUIAIServerProvider implements AIVideoProvider {
       gpu_count: number;
       active_jobs: number;
       disk_free_gb: number;
+      backends?: { url: string; online: boolean; active_jobs: number }[];
     }>("/health");
     return {
       status: out.status,
@@ -96,6 +97,7 @@ export class ComfyUIAIServerProvider implements AIVideoProvider {
       gpuCount: out.gpu_count,
       activeJobs: out.active_jobs,
       diskFreeGb: out.disk_free_gb,
+      backends: (out.backends ?? []).map((b) => ({ url: b.url, online: b.online, activeJobs: b.active_jobs })),
     };
   }
 }

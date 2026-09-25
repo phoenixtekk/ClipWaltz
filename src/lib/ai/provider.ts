@@ -46,6 +46,8 @@ export type ProviderHealth = {
   gpuCount: number;
   activeJobs: number;
   diskFreeGb: number;
+  /** One entry per ComfyUI instance / GPU (ADR-0008). */
+  backends?: { url: string; online: boolean; activeJobs: number }[];
 };
 
 /** The stable contract every AI video provider implements. */

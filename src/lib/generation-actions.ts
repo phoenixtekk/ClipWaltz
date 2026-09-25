@@ -1,6 +1,6 @@
 "use server";
 import { randomUUID } from "crypto";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
@@ -8,9 +8,30 @@ import { enqueueGeneration, enqueueEnhance, generationQueue } from "./queue";
 import { deleteObject } from "./storage";
 import { userCanAccessProject } from "./workspace";
 import { friendlyJobError } from "./ai/errors";
+import { queuePositionOf } from "./ai/queue-position";
 import { resolveGenerationRoute, resolveEnhanceWorkflow, getAiAvailability, RouteUnavailableError, QUALITIES, type Quality } from "./ai/routing";
+import { normalizeSettings, type GenerationSettings } from "./generation-settings";
+import { getEffectiveTier } from "./tier";
 
 const PROMPT_MAX = 2000;
+
+// CW-MVP-093: paid accounts go ahead of free ones in the GPU queue. Stored on the job (higher =
+// sooner) and mapped to BullMQ's priority (lower number = sooner; 0 would bypass prioritisation).
+async function priorityFor(userId: string): Promise<number> {
+  return (await getEffectiveTier(userId)) === "free" ? 0 : 10;
+}
+function bullPriority(priority: number): number {
+  return priority >= 10 ? 1 : 5;
+}
+
+// CW-MVP-172: one auto-saved "recent settings" row per user.
+async function rememberRecentSettings(userId: string, raw: GenerationSettings): Promise<void> {
+  const settings = normalizeSettings(raw);
+  const updated = await db.update(schema.generationPresets).set({ settings, updatedAt: new Date() })
+    .where(and(eq(schema.generationPresets.userId, userId), eq(schema.generationPresets.isRecent, true)))
+    .returning({ id: schema.generationPresets.id });
+  if (!updated.length) await db.insert(schema.generationPresets).values({ id: randomUUID(), userId, isRecent: true, settings });
+}
 
 // The wrapper accepts 0 … 2^53-1; anything else becomes null (the worker picks a random seed).
 function validSeed(seed: unknown): number | null {
@@ -64,6 +85,12 @@ export type CreateGenerationInput = {
   durationSec?: number;
   motion?: string;
   seed?: number | null;
+  /** Style / camera chip keys and the raw prompt, kept so a version can be re-opened (CW-MVP-121). */
+  style?: string | null;
+  camera?: string | null;
+  userPrompt?: string;
+  /** Form settings to remember as this user's "recent settings" (CW-MVP-172). */
+  settings?: GenerationSettings;
 };
 
 /**
@@ -101,6 +128,7 @@ export async function createGenerationJob(input: CreateGenerationInput): Promise
   const quality: Quality = QUALITIES.includes(input.quality as Quality) ? (input.quality as Quality) : "standard";
   const motion = MOTION_PHRASE[input.motion ?? ""] !== undefined ? input.motion! : "balanced";
   const route = await routeOrUserError(input.jobType, quality);
+  const priority = await priorityFor(userId);
 
   const id = randomUUID();
   await db.insert(schema.generationJobs).values({
@@ -129,10 +157,15 @@ export async function createGenerationJob(input: CreateGenerationInput): Promise
       durationSec: input.durationSec ?? null,
       motion,
       seed: validSeed(input.seed),
+      style: input.style ?? null,
+      camera: input.camera ?? null,
+      userPrompt: input.userPrompt?.slice(0, PROMPT_MAX) ?? null,
     },
+    priority,
   });
 
-  await enqueueGeneration(id);
+  await enqueueGeneration(id, { priority: bullPriority(priority) });
+  if (input.settings) await rememberRecentSettings(userId, input.settings).catch(() => {});
   revalidatePath(`/projects/${input.projectId}/edit`);
   return id;
 }
@@ -145,7 +178,21 @@ export type GenerationVersionItem = {
   selected: boolean;
   favorite: boolean;
   createdAt: string;
+  /** CW-MVP-112 output metadata — user-facing, no raw model parameters. */
+  durationSec: number | null;
+  width: number | null;
+  height: number | null;
+  mode: string; // "Image → video" | "Text → video" | "Enhanced — …"
+  style: string | null;
+  quality: string | null;
 };
+
+const STYLE_LABEL: Record<string, string> = {
+  cinematic: "Cinematic", commercial: "Commercial", documentary: "Documentary",
+  social: "Social", action: "Action", dreamlike: "Dreamlike",
+};
+const PRESET_LABEL: Record<string, string> = { clean: "Clean", smooth: "Smooth", sharp: "Sharp", max: "Max Quality" };
+const ENGINE_LABEL: Record<string, string> = { ffmpeg: "Fast", ai: "AI upscale", restore: "AI Restore" };
 
 /** List a project's generated versions, newest first (owner-checked) — for the version browser. */
 export async function listGenerationVersions(projectId: string): Promise<GenerationVersionItem[]> {
@@ -164,19 +211,38 @@ export async function listGenerationVersions(projectId: string): Promise<Generat
       selected: schema.generationVersions.selected,
       favorite: schema.generationVersions.favorite,
       createdAt: schema.generationVersions.createdAt,
+      durationSec: schema.generationVersions.durationSec,
+      settings: schema.generationVersions.settings,
+      jobType: schema.generationJobs.jobType,
+      request: schema.generationJobs.requestJson,
     })
     .from(schema.generationVersions)
+    .leftJoin(schema.generationJobs, eq(schema.generationVersions.generationJobId, schema.generationJobs.id))
     .where(eq(schema.generationVersions.projectId, projectId))
     .orderBy(desc(schema.generationVersions.createdAt));
-  return rows.map((r) => ({
-    id: r.id,
-    jobId: r.jobId,
-    versionNumber: r.versionNumber,
-    hasOutput: !!r.outputKey,
-    selected: r.selected,
-    favorite: r.favorite,
-    createdAt: r.createdAt.toISOString(),
-  }));
+  return rows.map((r) => {
+    const st = (r.settings ?? {}) as Record<string, unknown>;
+    const rq = (r.request ?? {}) as Record<string, unknown>;
+    const mode = r.jobType === "text_to_video" ? "Text → video"
+      : r.jobType === "image_to_video" ? "Image → video"
+      : r.jobType === "montage" ? "Storyboard"
+      : `Enhanced — ${PRESET_LABEL[String(rq.preset)] ?? ENGINE_LABEL[String(rq.engine)] ?? "Fast"}`;
+    return {
+      id: r.id,
+      jobId: r.jobId,
+      versionNumber: r.versionNumber,
+      hasOutput: !!r.outputKey,
+      selected: r.selected,
+      favorite: r.favorite,
+      createdAt: r.createdAt.toISOString(),
+      durationSec: r.durationSec,
+      width: typeof st.width === "number" ? st.width : null,
+      height: typeof st.height === "number" ? st.height : null,
+      mode,
+      style: STYLE_LABEL[String(rq.style)] ?? null,
+      quality: typeof rq.quality === "string" ? rq.quality[0].toUpperCase() + rq.quality.slice(1) : null,
+    };
+  });
 }
 
 /**
@@ -249,9 +315,10 @@ async function requeueGenerationCopy(
     negativePrompt: job.negativePrompt ?? null,
     requestJson,
     retryCount,
+    priority: job.priority,
   });
-  if (job.jobType === "enhancement") await enqueueEnhance(id);
-  else await enqueueGeneration(id);
+  if (job.jobType === "enhancement" || job.jobType === "montage") await enqueueEnhance(id, { priority: bullPriority(job.priority) });
+  else await enqueueGeneration(id, { priority: bullPriority(job.priority) });
   return id;
 }
 
@@ -310,12 +377,18 @@ export async function enhanceVersion(input: {
    * "restore" = SeedVR2 diffusion restoration + 2× upscale on AISERVER (always upscales; ADR-0007).
    */
   engine?: "ffmpeg" | "ai" | "restore";
+  /** Fast engine only: light denoise + sharpen (the "Clean" preset, CW-MVP-132). */
+  denoise?: boolean;
+  /** Preset name for display: clean | smooth | sharp | max. */
+  preset?: string | null;
 }): Promise<string> {
   const userId = await requireUserId();
   const engine = input.engine ?? "ffmpeg";
   if (!["ffmpeg", "ai", "restore"].includes(engine)) throw new Error("Unknown enhancement engine");
+  if (input.preset != null && !["clean", "smooth", "sharp", "max"].includes(input.preset)) throw new Error("Unknown preset");
+  if (input.denoise && engine !== "ffmpeg") throw new Error("Denoise is part of the Fast engine");
   const upscale = engine === "restore" ? true : input.upscale;
-  if (!input.interpolate && !upscale) {
+  if (!input.interpolate && !upscale && !input.denoise) {
     throw new Error("Pick at least one enhancement");
   }
   const [ver] = await db
@@ -333,6 +406,7 @@ export async function enhanceVersion(input: {
   if (!ver || !(await userCanAccessProject(userId, ver.projectId, "editor"))) throw new Error("Version not found");
   if (!ver.outputKey) throw new Error("This version has no output to enhance yet");
   const workflows = await assertEnhanceAvailable(engine, input.interpolate, upscale);
+  const priority = await priorityFor(userId);
 
   const id = randomUUID();
   await db.insert(schema.generationJobs).values({
@@ -350,9 +424,12 @@ export async function enhanceVersion(input: {
       interpolate: input.interpolate,
       upscale,
       workflows, // resolved wrapper workflow ids for the AI steps (worker falls back to defaults)
+      denoise: !!input.denoise,
+      preset: input.preset ?? null,
     },
+    priority,
   });
-  await enqueueEnhance(id);
+  await enqueueEnhance(id, { priority: bullPriority(priority) });
   revalidatePath(`/projects/${ver.projectId}/edit`);
   return id;
 }
@@ -432,11 +509,17 @@ export async function getGenerationJob(jobId: string) {
       progress: schema.generationJobs.progress,
       jobType: schema.generationJobs.jobType,
       errorMessage: schema.generationJobs.errorMessage,
+      priority: schema.generationJobs.priority,
+      createdAt: schema.generationJobs.createdAt,
     })
     .from(schema.generationJobs)
     .where(eq(schema.generationJobs.id, jobId));
   if (!row || !(await userCanAccessProject(userId, row.projectId))) throw new Error("Job not found");
-  return { ...row, errorMessage: friendlyJobError(row.errorMessage), errorDetail: row.errorMessage };
+  const queuePosition = await queuePositionOf(row);
+  return {
+    id: row.id, projectId: row.projectId, status: row.status, progress: row.progress, jobType: row.jobType,
+    errorMessage: friendlyJobError(row.errorMessage), errorDetail: row.errorMessage, queuePosition,
+  };
 }
 
 /**
@@ -467,4 +550,102 @@ export async function cancelGenerationJob(jobId: string): Promise<void> {
     .remove(jobId)
     .catch(() => {});
   revalidatePath(`/projects/${row.projectId}/edit`);
+}
+
+/**
+ * CW-MVP-121 "Edit & regenerate": the Generate-tab settings that produced a version, so the form can
+ * be re-opened with them, changed, and generated as a new version. Viewer access is enough to read.
+ */
+export async function getVersionSettings(versionId: string): Promise<GenerationSettings & { sourceAssetId: string | null }> {
+  const userId = await requireUserId();
+  const [row] = await db
+    .select({
+      projectId: schema.generationVersions.projectId,
+      jobType: schema.generationJobs.jobType,
+      prompt: schema.generationJobs.prompt,
+      negativePrompt: schema.generationJobs.negativePrompt,
+      request: schema.generationJobs.requestJson,
+    })
+    .from(schema.generationVersions)
+    .innerJoin(schema.generationJobs, eq(schema.generationVersions.generationJobId, schema.generationJobs.id))
+    .where(eq(schema.generationVersions.id, versionId));
+  if (!row || !(await userCanAccessProject(userId, row.projectId))) throw new Error("Version not found");
+  if (row.jobType !== "text_to_video" && row.jobType !== "image_to_video") throw new Error("Only generated versions have settings to edit");
+  const rq = (row.request ?? {}) as Record<string, unknown>;
+  const w = Number(rq.width), h = Number(rq.height);
+  const aspect = w && h ? (w > h ? "16:9" : h > w ? "9:16" : "1:1") : "16:9";
+  const settings = normalizeSettings({
+    mode: row.jobType === "text_to_video" ? "text" : "image",
+    // Older jobs only have the folded prompt (style/camera phrases appended) — use it as-is.
+    prompt: typeof rq.userPrompt === "string" ? rq.userPrompt : (row.prompt ?? ""),
+    negativePrompt: row.negativePrompt ?? "",
+    style: rq.style, camera: rq.camera, motion: rq.motion, aspect,
+    duration: rq.durationSec, quality: rq.quality,
+    seed: rq.seed ?? "",
+  });
+  return { ...settings, sourceAssetId: typeof rq.sourceAssetId === "string" ? rq.sourceAssetId : null };
+}
+
+export type GenerationPresetItem = { id: string; name: string; settings: GenerationSettings };
+
+/** CW-MVP-172: the current user's last-used Generate settings (null if none yet). */
+export async function getRecentGenerationSettings(): Promise<GenerationSettings | null> {
+  const userId = await requireUserId();
+  const [r] = await db.select({ settings: schema.generationPresets.settings }).from(schema.generationPresets)
+    .where(and(eq(schema.generationPresets.userId, userId), eq(schema.generationPresets.isRecent, true)));
+  return r ? normalizeSettings(r.settings) : null;
+}
+
+/** CW-MVP-173: the current user's named favourite presets, newest first. */
+export async function listGenerationPresets(): Promise<GenerationPresetItem[]> {
+  const userId = await requireUserId();
+  const rows = await db.select().from(schema.generationPresets)
+    .where(and(eq(schema.generationPresets.userId, userId), eq(schema.generationPresets.isRecent, false)))
+    .orderBy(desc(schema.generationPresets.updatedAt));
+  return rows.map((r) => ({ id: r.id, name: r.name ?? "Preset", settings: normalizeSettings(r.settings) }));
+}
+
+export async function saveGenerationPreset(name: string, settings: GenerationSettings): Promise<string> {
+  const userId = await requireUserId();
+  const clean = name.trim().slice(0, 40);
+  if (!clean) throw new Error("Give the preset a name");
+  const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.generationPresets)
+    .where(and(eq(schema.generationPresets.userId, userId), eq(schema.generationPresets.isRecent, false)));
+  if (n >= 30) throw new Error("You can keep up to 30 presets — delete one first");
+  const id = randomUUID();
+  await db.insert(schema.generationPresets).values({ id, userId, name: clean, settings: normalizeSettings(settings) });
+  return id;
+}
+
+export async function deleteGenerationPreset(id: string): Promise<void> {
+  const userId = await requireUserId();
+  await db.delete(schema.generationPresets)
+    .where(and(eq(schema.generationPresets.id, id), eq(schema.generationPresets.userId, userId), eq(schema.generationPresets.isRecent, false)));
+}
+
+export type AiStudioStatus = { state: "online" | "busy" | "degraded" | "offline"; gpus: number; activeJobs: number };
+
+// Cached so a page full of Generate tabs doesn't hammer the AISERVER (30 s).
+let studioCache: { at: number; value: AiStudioStatus } | null = null;
+/** CW-MVP-080: AI studio (AISERVER) health for the Generate tab's status pill. */
+export async function getAiStudioStatus(): Promise<AiStudioStatus> {
+  await requireUserId();
+  if (studioCache && Date.now() - studioCache.at < 30_000) return studioCache.value;
+  let value: AiStudioStatus;
+  try {
+    const { aiProvider } = await import("./ai/comfyui-provider");
+    const h = await Promise.race([
+      aiProvider.healthCheck(),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), 5000)),
+    ]);
+    const online = h.comfyui === "online";
+    value = {
+      state: !online && h.comfyui !== "partial" ? "offline" : h.status !== "healthy" ? "degraded" : h.activeJobs >= h.gpuCount ? "busy" : "online",
+      gpus: h.gpuCount, activeJobs: h.activeJobs,
+    };
+  } catch {
+    value = { state: "offline", gpus: 0, activeJobs: 0 };
+  }
+  studioCache = { at: Date.now(), value };
+  return value;
 }

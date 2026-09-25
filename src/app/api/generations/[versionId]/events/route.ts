@@ -4,6 +4,7 @@ import { db, schema } from "@/db";
 import { getAuthUserId } from "@/lib/auth";
 import { userCanAccessProject } from "@/lib/workspace";
 import { friendlyJobError } from "@/lib/ai/errors";
+import { queuePositionOf } from "@/lib/ai/queue-position";
 
 export const runtime = "nodejs";
 
@@ -49,14 +50,19 @@ export async function GET(req: Request, ctx: { params: Promise<{ versionId: stri
               status: schema.generationJobs.status,
               progress: schema.generationJobs.progress,
               errorMessage: schema.generationJobs.errorMessage,
+              id: schema.generationJobs.id,
+              jobType: schema.generationJobs.jobType,
+              priority: schema.generationJobs.priority,
+              createdAt: schema.generationJobs.createdAt,
             })
             .from(schema.generationJobs)
             .where(eq(schema.generationJobs.id, id));
           if (!row) { send({ status: "gone" }); close(); return; }
-          const key = `${row.status}:${row.progress}`;
+          const queuePosition = await queuePositionOf(row);
+          const key = `${row.status}:${row.progress}:${queuePosition}`;
           if (key !== last) {
             last = key;
-            send({ status: row.status, progress: row.progress ?? 0, errorMessage: friendlyJobError(row.errorMessage), errorDetail: row.errorMessage ?? null });
+            send({ status: row.status, progress: row.progress ?? 0, errorMessage: friendlyJobError(row.errorMessage), errorDetail: row.errorMessage ?? null, queuePosition });
           }
           if (TERMINAL.has(row.status)) close();
         } catch {

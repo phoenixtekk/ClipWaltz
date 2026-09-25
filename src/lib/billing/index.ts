@@ -64,6 +64,41 @@ export function tierForPriceId(priceId: string | null | undefined): Tier {
   return "free";
 }
 
+export type SubscriptionSummary = {
+  subscriptionId: string;
+  customerId: string;
+  status: string;
+  tier: Tier;
+  currentPeriodEnd: Date | null;
+};
+
+/**
+ * Normalise a Stripe subscription object (webhook payload or API response). API 2025-03+ (this SDK:
+ * 2026-08-26.dahlia) moved `current_period_end` from the subscription onto its ITEMS, so read the
+ * price and the period end from the first item.
+ */
+export function summarizeSubscription(sub: {
+  id: string;
+  customer: string | { id: string };
+  status: string;
+  items?: { data?: { price?: { id?: string } | null; current_period_end?: number | null }[] };
+}): SubscriptionSummary {
+  const item = sub.items?.data?.[0];
+  return {
+    subscriptionId: sub.id,
+    customerId: typeof sub.customer === "string" ? sub.customer : sub.customer.id,
+    status: sub.status,
+    tier: tierForPriceId(item?.price?.id),
+    currentPeriodEnd: item?.current_period_end ? new Date(item.current_period_end * 1000) : null,
+  };
+}
+
+/** Fetch + normalise a subscription by id (used when a webhook arrives before we know the tier). */
+export async function fetchSubscriptionSummary(subscriptionId: string): Promise<SubscriptionSummary> {
+  const sub = await getStripe().subscriptions.retrieve(subscriptionId);
+  return summarizeSubscription(sub as unknown as Parameters<typeof summarizeSubscription>[0]);
+}
+
 /** Stripe-hosted billing portal (manage/cancel a subscription). */
 export async function createPortalSession(customerId: string) {
   return getStripe().billingPortal.sessions.create({

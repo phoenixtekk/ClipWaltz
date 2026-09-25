@@ -554,6 +554,7 @@ function Footer() {
           <a href="#how" className="transition-colors hover:text-[color:var(--cw-fg)]">How it works</a>
           <a href="#features" className="transition-colors hover:text-[color:var(--cw-fg)]">Features</a>
           <a href="#pricing" className="transition-colors hover:text-[color:var(--cw-fg)]">Pricing</a>
+          <Link href="/help" className="transition-colors hover:text-[color:var(--cw-fg)]">Help</Link>
           <Link href="/terms" className="transition-colors hover:text-[color:var(--cw-fg)]">Terms</Link>
           <Link href="/privacy" className="transition-colors hover:text-[color:var(--cw-fg)]">Privacy</Link>
           <Link href="/refund" className="transition-colors hover:text-[color:var(--cw-fg)]">Refunds</Link>

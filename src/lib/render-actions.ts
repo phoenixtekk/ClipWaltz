@@ -59,7 +59,7 @@ export async function createRender(projectId: string): Promise<string> {
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(schema.assets)
-    .where(and(eq(schema.assets.projectId, projectId), eq(schema.assets.uploadState, "uploaded")));
+    .where(and(eq(schema.assets.projectId, projectId), eq(schema.assets.uploadState, "uploaded"), eq(schema.assets.hidden, false)));
   if (!count) throw new Error("Add at least one clip before rendering");
 
   const { getEffectiveTier } = await import("./tier");
@@ -142,7 +142,7 @@ export async function getRenderCheckpoint(projectId: string): Promise<RenderChec
       height: schema.assets.height,
     })
     .from(schema.assets)
-    .where(and(eq(schema.assets.projectId, projectId), eq(schema.assets.uploadState, "uploaded")))
+    .where(and(eq(schema.assets.projectId, projectId), eq(schema.assets.uploadState, "uploaded"), eq(schema.assets.hidden, false)))
     .orderBy(asc(schema.assets.orderIndex));
   const clips = assets.length;
 

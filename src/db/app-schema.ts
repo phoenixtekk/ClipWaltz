@@ -60,6 +60,9 @@ export const projects = pgTable("projects", {
   // personal workspace, then enforced. ownerId is retained (existing owner-scoped queries).
   workspaceId: text().references(() => workspaces.id, { onDelete: "cascade" }),
   title: text().notNull().default("Untitled project"),
+  description: text(), // optional project description (CW-MVP-010)
+  // AI template the project was started from (CW-MVP-151); pre-fills the Generate tab.
+  aiTemplateId: text(),
   template: text().notNull().default("surprise"), // trip | event | birthday | surprise
   aspect: text().notNull().default("9:16"), // 9:16 only at MVP
   lengthSec: integer().notNull().default(30),
@@ -170,6 +173,9 @@ export const media = pgTable("media", {
   sourceFormat: text(), // insv | lrv | insp | null
   conversionState: text().notNull().default("ready"), // ready | pending | converting | failed
   reframeMode: text().notNull().default("follow"), // 360 reframe: flat | follow (default: track the action) | tiny
+  // Insta360 split recordings: the other lens of this clip ("…_00_N" front ↔ "…_10_N" rear). The front
+  // media holds the stitched 360 conversion; the rear is hidden where both are in a project.
+  pairMediaId: text(),
   driveFileId: text(), // Google Drive file id once backed up (null = not backed up)
   driveBackedAt: timestamp({ withTimezone: true }),
   sizeBytes: integer(),
@@ -203,6 +209,12 @@ export const assets = pgTable("assets", {
   // use the whole clip / auto window. Takes precedence over smart-cut windowing + durationOverride.
   trimStart: real(),
   trimEnd: real(),
+  // Hidden from the timeline + renders: the rear lens of a stitched Insta360 pair whose front clip is in
+  // the same project (the front shows the full 360). See worker convertMedia.
+  hidden: boolean().notNull().default(false),
+  tags: jsonb(), // string[] — user labels for filtering clips (CW-MVP-024); null = none
+  // Free-tier retention: when the owner was emailed that this upload is deleted in ~24 h.
+  retentionNoticeAt: timestamp({ withTimezone: true }),
   width: integer(),
   height: integer(),
   qualityScore: real(), // blur/brightness heuristic for smart trim/selection
@@ -502,6 +514,20 @@ export const workspaceInvites = pgTable("workspace_invites", {
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
 
+// Saved Generate-tab settings per user. `isRecent` = the auto-saved last-used settings (one row per
+// user, CW-MVP-172); named rows are favourite presets (CW-MVP-173).
+export const generationPresets = pgTable("generation_presets", {
+  id: text().primaryKey(),
+  userId: text()
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  name: text(),
+  isRecent: boolean().notNull().default(false),
+  settings: jsonb().notNull(), // { mode, prompt, negativePrompt, style, camera, motion, aspect, duration, quality, seed }
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
 // An ordered scene within a project (storyboard unit). Generation jobs/versions attach to a scene.
 export const scenes = pgTable("scenes", {
   id: text().primaryKey(),
@@ -512,6 +538,7 @@ export const scenes = pgTable("scenes", {
   title: text(),
   description: text(),
   durationTarget: real(), // desired seconds
+  selectedVersionId: text(), // generation version used for this scene in the assembled storyboard
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });

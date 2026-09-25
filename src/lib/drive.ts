@@ -151,6 +151,45 @@ export async function ensureClipWaltzFolder(token: string): Promise<string> {
   return (await create.json()).id as string;
 }
 
+/**
+ * Resumable Drive upload that never holds the whole file: `read(start, end)` supplies each chunk
+ * (16 MB, a multiple of Drive's required 256 KB). Returns the new file id. Use this for videos —
+ * `uploadToDrive` below buffers everything and is only safe for small files.
+ */
+export async function uploadToDriveResumable(
+  token: string,
+  folderId: string,
+  name: string,
+  mimeType: string,
+  size: number,
+  read: (start: number, end: number) => Promise<Uint8Array>,
+): Promise<string> {
+  const init = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`, "content-type": "application/json; charset=UTF-8",
+      "x-upload-content-type": mimeType, "x-upload-content-length": String(size),
+    },
+    body: JSON.stringify({ name, parents: [folderId] }),
+  });
+  const session = init.headers.get("location");
+  if (!init.ok || !session) throw new Error(`Drive upload init failed: ${init.status} ${await init.text()}`);
+  const CHUNK = 16 * 1024 * 1024;
+  for (let start = 0; start < size; start += CHUNK) {
+    const end = Math.min(size, start + CHUNK) - 1;
+    const bytes = await read(start, end);
+    const res = await fetch(session, {
+      method: "PUT",
+      headers: { "content-length": String(bytes.length), "content-range": `bytes ${start}-${end}/${size}` },
+      body: bytes as unknown as BodyInit,
+    });
+    if (res.status === 308) continue; // chunk accepted, more to come
+    if (res.ok) return (await res.json()).id as string;
+    throw new Error(`Drive upload failed at ${start}: ${res.status} ${await res.text()}`);
+  }
+  throw new Error("Drive upload ended without a file id");
+}
+
 /** Upload bytes to the given Drive folder (multipart). Returns the new file id. */
 export async function uploadToDrive(
   token: string,

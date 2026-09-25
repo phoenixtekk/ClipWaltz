@@ -5,6 +5,9 @@ End-user documentation. Categories mirror the product's features (kept in sync w
 ships. It will also surface in-app at `/help`.
 
 ## Getting started
+- **New project:** give it a name (and a description if you like), then choose **Music video from my media**
+  (pick an occasion and upload your clips) or **AI video from a template** (Product Promo, Social Reel, Story,
+  Event Recap, Travel or Cinematic Intro — the Generate tab opens with the template's settings ready).
 - What ClipWaltz does: drop in your phone photos & videos, get a polished music video back.
 - Creating an account · signing in.
 - **Your dashboard** is the first thing you see after signing in: your stats (projects, videos
@@ -13,6 +16,7 @@ ships. It will also surface in-app at `/help`.
   to explore what others are making.
 
 ## Importing your media
+- If an upload fails, press **Retry** next to the file — large files pick up where they stopped.
 - **Drag & drop** files, or use the **file/folder picker**.
 - **Connect your phone (USB):** ClipWaltz imports files your computer can see — it does **not**
   read your phone directly.
@@ -23,6 +27,12 @@ ships. It will also surface in-app at `/help`.
 - Uploads are resumable — if your connection drops, they pick up where they left off.
 
 ## Editing & music
+- **Tags:** open a clip and add tags (e.g. "sunset, cesar"). The **Tags** row above the timeline highlights the
+  clips with a tag.
+- **Google Drive backup:** in the timeline, **Connect Google Drive** once, then **Back up … to Drive** copies your
+  original uploads to a "ClipWaltz" folder in your Drive (big videos take a few minutes; the button shows progress).
+- **Insta360 two-file clips:** some cameras save each lens separately (`…_00_…` and `…_10_…`). Upload **both** and
+  ClipWaltz stitches them into one full 360° clip (marked **360° ⧉**); the second file is tucked away.
 - **360 clips (Insta360 .insv):** open the clip in the timeline and pick a **360 view** — *Follow action*
   (the default: the view turns toward the movement), *Front* (a steady view out of the lens) or *Tiny planet*.
   Changing it re-makes the clip, which takes a few minutes for long videos. Some Insta360 cameras save each lens
@@ -95,6 +105,11 @@ them there, then come back. (These are in addition to the "video ready" email, w
 - If a generation fails you'll see what went wrong in plain words and a **Retry** button that runs
   it again with the same settings. If an option is greyed out it's temporarily switched off — pick
   another quality or check back soon.
+- **Presets & suggestions:** your last settings come back next time; **Save current** keeps a named preset you
+  can apply with one click. A **Suggested** bar offers a shape, style, camera and motion that fit your photo and
+  wording — **Apply** takes them.
+- **Edit** on a version loads exactly the settings that made it, so you can change one thing and generate again.
+- While a clip is queued you'll see your place in line. The dot at the top shows whether the AI studio is online.
 - Every result is saved as a **version**. Preview, compare two side by side, favourite the ones you
   like, **pick** the one to use, or regenerate for a new take.
 - **Enhance** a version to make a better copy (your original is kept):
@@ -104,6 +119,10 @@ them there, then come back. (These are in addition to the "video ready" email, w
     (up to 1080p). It takes several minutes per clip. It works best on real camera footage; on
     AI-generated clips it can look over-sharpened — compare it with the original and keep the one you
     prefer. Add **Smoother motion** for a higher frame rate.
+- **Enhance presets:** **Clean** (removes grain), **Smooth** (fluid motion), **Sharp** (2× detail) or **Max Quality**
+  (AI Restore + smooth motion — slowest). **Custom** lets you choose the engine yourself.
+- **Scenes:** plan a short story as scenes (each with a length), pick a version for each with **Use vN**, reorder
+  them, then **Assemble** — they're joined into one new "Storyboard" version.
 - **Export** any version as MP4 or WebM at its native size, 720p or 1080p, then download it.
 
 ## Working with others (workspaces)

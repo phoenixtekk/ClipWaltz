@@ -6,7 +6,8 @@ import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import type { AssetSummary } from "@/lib/assets";
-import { reorderAssets, deleteAsset, setAssetDuration, setAssetTrim, setClipReframe } from "@/lib/asset-actions";
+import { DriveBackupButton } from "@/components/drive-backup-button";
+import { reorderAssets, deleteAsset, setAssetDuration, setAssetTrim, setClipReframe, setAssetTags } from "@/lib/asset-actions";
 import { uploadProjectFile, isSupported } from "@/lib/upload-client";
 
 type InsertStatus = "uploading" | "done" | "error";
@@ -45,6 +46,8 @@ export function ProjectTimeline({
   const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [clip, setClip] = useState<AssetSummary | null>(null); // clip open in the preview/duration modal
   const [trim, setTrim] = useState<{ id: string; side: "start" | "end" } | null>(null);
+  // CW-MVP-024: highlight clips with a tag (others dim); null = no filter.
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
 
   // Drag-to-trim on a video block. Video blocks are sized by SOURCE duration (below), so the
   // handle X maps linearly to a source second. Commit on release; a full-range trim clears it.
@@ -291,6 +294,29 @@ export function ProjectTimeline({
         </div>
       )}
 
+      <div className="flex justify-end">
+        <DriveBackupButton
+          projectId={projectId}
+          total={order.filter((a) => a.uploadState === "uploaded").length}
+          backedUp={order.filter((a) => a.uploadState === "uploaded" && a.driveBackedUp).length}
+        />
+      </div>
+
+      {(() => {
+        const allTags = [...new Set(order.flatMap((a) => a.tags ?? []))].sort();
+        return allTags.length ? (
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-muted-foreground">Tags:</span>
+            {[null, ...allTags].map((t) => (
+              <button key={t ?? "__all"} type="button" onClick={() => setTagFilter(t)} aria-pressed={tagFilter === t}
+                className={cn("rounded-full border px-2 py-0.5", tagFilter === t ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10" : "border-border text-muted-foreground hover:text-foreground")}>
+                {t ?? "All"}
+              </button>
+            ))}
+          </div>
+        ) : null;
+      })()}
+
       {order.length === 0 ? (
         <div className="flex items-center gap-2 rounded-lg border border-dashed border-border p-4">
           <InsertButton onClick={() => openInsert(0)} busy={status === "uploading"} pct={uploadPct} />
@@ -314,8 +340,10 @@ export function ProjectTimeline({
                 }}
                 onDrop={(e) => { if (dragId == null) return; e.preventDefault(); onDrop(overIdx ?? i); }}
                 style={{ width: blockWidth(a) }}
+                title={a.tags?.length ? `Tags: ${a.tags.join(", ")}` : undefined}
                 className={cn(
                   "group relative h-20 shrink-0 cursor-grab overflow-hidden rounded-md border border-border bg-muted active:cursor-grabbing",
+                  tagFilter && !(a.tags ?? []).includes(tagFilter) && "opacity-30",
                   dragId === a.id && "opacity-40 ring-2 ring-[color:var(--cw-violet)]",
                 )}
               >
@@ -337,6 +365,9 @@ export function ProjectTimeline({
                   </div>
                 )}
                 <span className="absolute left-1 top-1 rounded bg-black/60 px-1 text-[10px] font-semibold text-white">{i + 1}</span>
+                {a.stitchedPair ? (
+                  <span title="Both Insta360 lens files stitched into one full 360° clip" className="absolute bottom-1 left-1 rounded bg-[color:var(--cw-violet)]/90 px-1 text-[9px] font-semibold text-white">360° ⧉</span>
+                ) : null}
                 {/* Reposition this clip left / right (also draggable). */}
                 <div className="absolute left-1/2 top-1 z-30 flex -translate-x-1/2 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                   <button
@@ -491,10 +522,15 @@ function ClipModal({
   const is360 = asset.sourceFormat === "insv" || asset.sourceFormat === "lrv";
   const initialView = asset.reframeMode ?? "follow";
   const [view, setView] = useState(initialView);
+  const initialTags = (asset.tags ?? []).join(", ");
+  const [tagText, setTagText] = useState(initialTags);
 
   async function save() {
     setSaving(true);
     try {
+      if (tagText !== initialTags) {
+        await setAssetTags(projectId, asset.id, tagText.split(","));
+      }
       if (is360 && view !== initialView) {
         await setClipReframe(projectId, asset.id, view);
         toast.message("Re-making this 360 clip with the new view — it's ready in a few minutes.");
@@ -606,6 +642,18 @@ function ClipModal({
             )}
           </div>
         )}
+
+        <label className="block space-y-1 rounded-lg border border-border bg-background/50 p-3">
+          <span className="text-sm font-medium">Tags</span>
+          <input
+            value={tagText}
+            onChange={(e) => setTagText(e.target.value)}
+            placeholder="e.g. jet ski, sunset, cesar"
+            maxLength={300}
+            className="h-8 w-full rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-[color:var(--cw-violet)]"
+          />
+          <span className="block text-xs text-muted-foreground">Separate with commas. Use tags to find clips fast in the timeline.</span>
+        </label>
 
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>

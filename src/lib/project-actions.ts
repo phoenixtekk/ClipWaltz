@@ -22,11 +22,30 @@ const DEFAULT_TITLE: Record<string, string> = {
 
 const ASPECTS = new Set(["9:16", "16:9"]);
 
-/** Create a new draft project for the current user. Returns its id. */
-export async function createProject(template?: string, aspect?: string, inWorkspaceId?: string): Promise<string> {
+/**
+ * Create a new draft project for the current user. Returns its id. CW-MVP-010: a name (required when
+ * given via `opts`) and an optional description; CW-MVP-151: `aiTemplateId` starts the project from
+ * an AI template (the Generate tab opens pre-filled with its settings).
+ */
+export async function createProject(
+  template?: string,
+  aspect?: string,
+  inWorkspaceId?: string,
+  opts: { title?: string; description?: string; aiTemplateId?: string } = {},
+): Promise<string> {
   const userId = await requireUserId();
   const t = template && ACTIVE_TEMPLATES.has(template) ? template : "surprise";
   const a = aspect && ASPECTS.has(aspect) ? aspect : "9:16";
+  const title = opts.title?.trim().slice(0, 100);
+  if (opts.title !== undefined && !title) throw new Error("Give the project a name");
+  const description = opts.description?.trim().slice(0, 500) || null;
+  let aiTemplateId: string | null = null;
+  if (opts.aiTemplateId) {
+    const [tpl] = await db.select({ id: schema.templates.id }).from(schema.templates)
+      .where(and(eq(schema.templates.id, opts.aiTemplateId), eq(schema.templates.enabled, true)));
+    if (!tpl) throw new Error("That template isn't available");
+    aiTemplateId = tpl.id;
+  }
   let workspaceId: string;
   if (inWorkspaceId) {
     // Creating inside a shared workspace needs editor rights there.
@@ -43,7 +62,9 @@ export async function createProject(template?: string, aspect?: string, inWorksp
     workspaceId,
     template: t,
     aspect: a,
-    title: DEFAULT_TITLE[t] ?? "Untitled project",
+    title: title || (DEFAULT_TITLE[t] ?? "Untitled project"),
+    description,
+    aiTemplateId,
   });
 
   // If the user has a default preset, start the new project from it (Format + Style + overlays).

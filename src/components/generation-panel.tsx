@@ -19,6 +19,8 @@ import {
   Clapperboard,
   Bookmark,
   RotateCcw,
+  Pencil,
+  Lightbulb,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
@@ -36,9 +38,19 @@ import {
   setVersionSelected,
   retryGenerationJob,
   getGenerationAvailability,
+  getVersionSettings,
+  getRecentGenerationSettings,
+  listGenerationPresets,
+  saveGenerationPreset,
+  deleteGenerationPreset,
+  getAiStudioStatus,
   type GenerationVersionItem,
+  type GenerationPresetItem,
+  type AiStudioStatus,
 } from "@/lib/generation-actions";
+import { recommendSettings, normalizeSettings, type GenerationSettings } from "@/lib/generation-settings";
 import type { AiAvailability, Quality } from "@/lib/ai/routing";
+import { ScenesPanel } from "@/components/scenes-panel";
 import {
   createExportJob,
   listExportJobs,
@@ -86,6 +98,15 @@ const ASPECTS: { key: string; label: string; w: number; h: number; box: string }
   { key: "16:9", label: "Landscape", w: 1280, h: 720, box: "h-6 w-10" },
   { key: "9:16", label: "Portrait", w: 720, h: 1280, box: "h-10 w-6" },
   { key: "1:1", label: "Square", w: 768, h: 768, box: "h-8 w-8" },
+];
+
+// CW-MVP-132 enhancement presets → engine + options (the Custom choice keeps the raw engines).
+type EnhancePresetKey = "clean" | "smooth" | "sharp" | "max";
+const ENHANCE_PRESETS: { key: EnhancePresetKey; label: string; note: string; hint: string; engine: "ffmpeg" | "ai" | "restore"; interpolate: boolean; upscale: boolean }[] = [
+  { key: "clean", label: "Clean", note: "Less noise", hint: "Clean: removes grain and noise and gently sharpens (fast).", engine: "ffmpeg", interpolate: false, upscale: false },
+  { key: "smooth", label: "Smooth", note: "Fluid motion", hint: "Smooth: AI frame interpolation doubles the frame rate for fluid motion.", engine: "ai", interpolate: true, upscale: false },
+  { key: "sharp", label: "Sharp", note: "2× detail", hint: "Sharp: AI super-resolution doubles the resolution.", engine: "ai", interpolate: false, upscale: true },
+  { key: "max", label: "Max Quality", note: "Slowest", hint: "Max Quality: AI Restore rebuilds detail (up to 1080p), then smooths motion — several minutes per clip.", engine: "restore", interpolate: true, upscale: true },
 ];
 
 // §9 Quality cards → routing rules (default Preview 10 / Standard 20 / High 30 sampler steps,
@@ -142,6 +163,8 @@ type Job = {
   errorMessage: string | null;
   /** Raw worker error, kept for support (shown as a tooltip). */
   errorDetail?: string | null;
+  /** CW-MVP-101: place in the GPU queue while queued. */
+  queuePosition?: number | null;
 };
 
 function relTime(iso: string): string {
@@ -159,9 +182,12 @@ function relTime(iso: string): string {
 export function GenerationPanel({
   projectId,
   photos,
+  templateSettings,
 }: {
   projectId: string;
   photos: AssetSummary[];
+  /** Settings from the AI template the project was started from (CW-MVP-151); wins over "recent". */
+  templateSettings?: GenerationSettings | null;
 }) {
   // Create-panel state
   const [mode, setMode] = useState<"image" | "text">(photos.length ? "image" : "text");
@@ -199,6 +225,13 @@ export function GenerationPanel({
   const [enhanceInterp, setEnhanceInterp] = useState(true);
   const [enhanceUpscale, setEnhanceUpscale] = useState(true);
   const enhanceUpscaleEffective = enhanceEngine === "restore" || enhanceUpscale; // restore always upscales
+  // CW-MVP-132 presets over the engines; null = Custom (pick the engine + options yourself).
+  const [enhancePreset, setEnhancePreset] = useState<EnhancePresetKey | null>("sharp");
+  function pickPreset(k: EnhancePresetKey | null) {
+    setEnhancePreset(k);
+    const p = k ? ENHANCE_PRESETS.find((x) => x.key === k) : null;
+    if (p) { setEnhanceEngine(p.engine); setEnhanceInterp(p.interpolate); setEnhanceUpscale(p.upscale); }
+  }
 
   const refreshVersions = useCallback(async () => {
     try {
@@ -232,7 +265,85 @@ export function GenerationPanel({
   useEffect(() => {
     getGenerationAvailability().then(setAvail, () => { /* keep everything enabled */ });
   }, []);
+  // ── Settings snapshot / apply (recent settings, presets, templates, Edit & regenerate) ──
+  function currentSettings(): GenerationSettings {
+    return normalizeSettings({
+      mode, prompt, negativePrompt, style: styleKey, camera: cameraKey, motion: MOTIONS[motionIdx],
+      aspect: aspectKey, duration: durationSec, quality: qualityKey, seed,
+    });
+  }
+  function applySettings(raw: GenerationSettings) {
+    const st = normalizeSettings(raw);
+    setMode(st.mode === "image" && !photos.length ? "text" : st.mode);
+    setPrompt(st.prompt);
+    setNegativePrompt(st.negativePrompt);
+    setStyleKey(st.style);
+    setCameraKey(st.camera);
+    setMotionIdx(Math.max(0, MOTIONS.indexOf(st.motion)));
+    setAspectKey(st.aspect);
+    setDurationSec(st.duration);
+    setQualityKey(st.quality);
+    setSeed(st.seed);
+    if (st.seed || st.negativePrompt) setAdvancedOpen(true);
+  }
+
+  // Template settings (project started from a template) or else the user's last-used settings.
+  const [presets, setPresets] = useState<GenerationPresetItem[]>([]);
+  const [studio, setStudio] = useState<AiStudioStatus | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const initial = templateSettings ? Promise.resolve(templateSettings) : getRecentGenerationSettings().catch(() => null);
+    initial.then((st) => { if (alive && st) applySettings(st); });
+    listGenerationPresets().then((l) => { if (alive) setPresets(l); }, () => {});
+    const poll = () => getAiStudioStatus().then((st) => { if (alive) setStudio(st); }, () => {});
+    poll();
+    const t = setInterval(poll, 60_000);
+    return () => { alive = false; clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once per mount
+  }, []);
+
+  function savePreset() {
+    const name = window.prompt("Name this preset (e.g. “Jet ski action”):")?.trim();
+    if (!name) return;
+    saveGenerationPreset(name, currentSettings())
+      .then(() => listGenerationPresets().then(setPresets))
+      .then(() => toast.success(`Saved “${name}”.`), (e) => toast.error((e as Error).message || "Could not save the preset."));
+  }
+  function removePreset(id: string) {
+    deleteGenerationPreset(id).then(() => setPresets((cur) => cur.filter((p) => p.id !== id)), () => toast.error("Could not delete the preset."));
+  }
+
+  // CW-MVP-171 suggestions from the source photo's shape + the prompt's wording.
+  const sourcePhoto = mode === "image" ? photos.find((p) => p.id === sourceAssetId) ?? null : null;
+  const rec = recommendSettings({ prompt, photo: sourcePhoto ? { width: sourcePhoto.width ?? null, height: sourcePhoto.height ?? null } : null });
+  const recDiff = {
+    aspect: rec.aspect && rec.aspect !== aspectKey ? rec.aspect : null,
+    style: rec.style && rec.style !== styleKey ? rec.style : null,
+    motion: rec.motion && rec.motion !== MOTIONS[motionIdx] ? rec.motion : null,
+    camera: rec.camera && rec.camera !== cameraKey ? rec.camera : null,
+  };
+  const hasRec = !!(recDiff.aspect || recDiff.style || recDiff.motion || recDiff.camera);
+  function applyRec() {
+    if (recDiff.aspect) setAspectKey(recDiff.aspect);
+    if (recDiff.style) setStyleKey(recDiff.style);
+    if (recDiff.motion) setMotionIdx(MOTIONS.indexOf(recDiff.motion as Motion));
+    if (recDiff.camera) setCameraKey(recDiff.camera);
+  }
+
+  // CW-MVP-121: load a version's settings into the form to change and generate again.
+  function editFrom(versionId: string) {
+    getVersionSettings(versionId).then((st) => {
+      applySettings(st);
+      if (st.sourceAssetId && photos.some((p) => p.id === st.sourceAssetId)) setSourceAssetId(st.sourceAssetId);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      toast.message("Settings loaded — change what you like, then Generate.");
+    }, (e) => toast.error((e as Error).message || "Could not load that version's settings."));
+  }
+
   const qualityAvailable = (q: Quality) => !avail || (mode === "text" ? avail.textToVideo : avail.imageToVideo)[q];
+  const presetAvailable = (p: (typeof ENHANCE_PRESETS)[number]) =>
+    !avail || (p.engine === "ffmpeg" ? true : p.engine === "restore" ? avail.restore && (!p.interpolate || avail.interpolate)
+      : (!p.upscale || avail.upscale) && (!p.interpolate || avail.interpolate));
   const engineAvailable = (e: "ffmpeg" | "ai" | "restore") =>
     !avail || e === "ffmpeg" || (e === "restore" ? avail.restore : avail.upscale || avail.interpolate);
 
@@ -252,10 +363,10 @@ export function GenerationPanel({
     if (!activeJobId) return;
     const es = new EventSource(`/api/generations/${activeJobId}/events`);
     es.onmessage = (ev) => {
-      let d: { status?: string; progress?: number; errorMessage?: string | null; errorDetail?: string | null };
+      let d: { status?: string; progress?: number; errorMessage?: string | null; errorDetail?: string | null; queuePosition?: number | null };
       try { d = JSON.parse(ev.data); } catch { return; }
       if (!d.status || d.status === "gone") { es.close(); return; }
-      setJob({ id: activeJobId, status: d.status, progress: d.progress ?? 0, errorMessage: d.errorMessage ?? null, errorDetail: d.errorDetail ?? null });
+      setJob({ id: activeJobId, status: d.status, progress: d.progress ?? 0, errorMessage: d.errorMessage ?? null, errorDetail: d.errorDetail ?? null, queuePosition: d.queuePosition ?? null });
       if (d.status === "completed") {
         es.close();
         void refreshVersions().then((list) => {
@@ -323,6 +434,10 @@ export function GenerationPanel({
           sourceAssetId: mode === "text" ? undefined : sourceAssetId ?? undefined,
           prompt: buildPrompt() || undefined,
           negativePrompt: negativePrompt.trim() || undefined,
+          style: styleKey,
+          camera: cameraKey,
+          userPrompt: prompt.trim(),
+          settings: currentSettings(),
           width: aspect.w,
           height: aspect.h,
           durationSec,
@@ -396,7 +511,8 @@ export function GenerationPanel({
   // Enhance the selected version (ffmpeg interpolate/upscale → new version). It's an enhancement
   // generation_job, so the existing job poller tracks it and refreshes the versions on completion.
   function runEnhance() {
-    if (!enhanceInterp && !enhanceUpscaleEffective) {
+    const denoise = enhancePreset === "clean";
+    if (!enhanceInterp && !enhanceUpscaleEffective && !denoise) {
       toast.error("Pick at least one enhancement.");
       return;
     }
@@ -405,7 +521,10 @@ export function GenerationPanel({
     setEnhanceOpen(false);
     start(async () => {
       try {
-        const jobId = await enhanceVersion({ versionId, engine: enhanceEngine, interpolate: enhanceInterp, upscale: enhanceUpscaleEffective });
+        const jobId = await enhanceVersion({
+          versionId, engine: enhanceEngine, interpolate: enhanceInterp, upscale: enhanceUpscaleEffective,
+          denoise, preset: enhancePreset,
+        });
         setCompareId(null);
         setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null });
         toast.message("Enhancing this version…");
@@ -464,6 +583,25 @@ export function GenerationPanel({
         <div className="flex items-center gap-2">
           <Wand2 className="size-4 text-[color:var(--cw-violet)]" />
           <h2 className="text-sm font-semibold">Generate with AI</h2>
+          {studio ? <StudioPill status={studio} /> : null}
+        </div>
+
+        {/* Favourite presets (CW-MVP-173) */}
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="text-muted-foreground">Presets:</span>
+          {presets.map((pr) => (
+            <span key={pr.id} className="inline-flex items-center rounded-full border border-border">
+              <button type="button" onClick={() => { applySettings(pr.settings); toast.message(`Applied “${pr.name}”.`); }} className="py-0.5 pl-2.5 pr-1 hover:text-[color:var(--cw-violet)]">
+                {pr.name}
+              </button>
+              <button type="button" onClick={() => removePreset(pr.id)} aria-label={`Delete preset ${pr.name}`} className="px-1.5 py-0.5 text-muted-foreground hover:text-destructive">
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+          <button type="button" onClick={savePreset} className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2.5 py-0.5 text-muted-foreground hover:text-foreground">
+            <Bookmark className="size-3" /> Save current
+          </button>
         </div>
 
         {/* Mode: image→video vs text→video */}
@@ -545,6 +683,20 @@ export function GenerationPanel({
           <div className="mt-1 text-right text-[11px] text-muted-foreground">
             {prompt.length}/{PROMPT_MAX}
           </div>
+          {hasRec ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs">
+              <Lightbulb className="size-3.5 text-amber-600" />
+              <span className="text-muted-foreground">Suggested:</span>
+              <span className="font-medium">
+                {[recDiff.aspect, recDiff.style && STYLES.find((x) => x.key === recDiff.style)?.label,
+                  recDiff.camera && CAMERAS.find((x) => x.key === recDiff.camera)?.label,
+                  recDiff.motion && `${recDiff.motion} motion`].filter(Boolean).join(" · ")}
+              </span>
+              <button type="button" onClick={applyRec} className="ml-auto rounded-full border border-border px-2 py-0.5 hover:border-[color:var(--cw-violet)] hover:text-[color:var(--cw-violet)]">
+                Apply
+              </button>
+            </div>
+          ) : null}
         </Field>
 
         {/* Style chips */}
@@ -746,6 +898,11 @@ export function GenerationPanel({
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">{compare ? "Compare" : "Preview"}</h3>
             <div className="flex items-center gap-1">
+              {!selected.mode.startsWith("Enhanced") && selected.mode !== "Storyboard" ? (
+                <Button variant="outline" size="sm" onClick={() => editFrom(selected.id)} disabled={isGenerating || pending} title="Load this version's settings into the form to change and generate again">
+                  <Pencil className="size-3.5" /> Edit
+                </Button>
+              ) : null}
               <Button variant="outline" size="sm" onClick={() => regenFrom(selected.id, false)} disabled={isGenerating || pending} title="Make an exact copy (same settings + seed)">
                 <Copy className="size-3.5" /> Duplicate
               </Button>
@@ -783,6 +940,44 @@ export function GenerationPanel({
           {/* Inline enhance chooser — smoother motion / upscale, then confirm. */}
           {enhanceOpen ? (
             <div className="space-y-3 rounded-xl border border-[color:var(--cw-violet)]/40 bg-[color:var(--cw-violet)]/5 p-3">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                {ENHANCE_PRESETS.map((p) => {
+                  const ok = presetAvailable(p);
+                  return (
+                    <button
+                      key={p.key}
+                      type="button"
+                      onClick={() => pickPreset(p.key)}
+                      aria-pressed={enhancePreset === p.key}
+                      disabled={!ok}
+                      title={ok ? p.hint : "Temporarily unavailable"}
+                      className={cn(
+                        "rounded-xl border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                        enhancePreset === p.key ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10" : "border-border hover:border-border/80",
+                      )}
+                    >
+                      <div className="text-sm font-semibold">{p.label}</div>
+                      <div className="text-[11px] text-muted-foreground">{p.note}</div>
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => pickPreset(null)}
+                  aria-pressed={enhancePreset === null}
+                  className={cn(
+                    "rounded-xl border px-3 py-2 text-left transition-colors",
+                    enhancePreset === null ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10" : "border-border hover:border-border/80",
+                  )}
+                >
+                  <div className="text-sm font-semibold">Custom</div>
+                  <div className="text-[11px] text-muted-foreground">Choose the engine</div>
+                </button>
+              </div>
+              {enhancePreset ? (
+                <p className="text-[11px] text-muted-foreground">{ENHANCE_PRESETS.find((p) => p.key === enhancePreset)?.hint} Creates a new version.</p>
+              ) : (
+              <>
               <div className="inline-flex rounded-lg border border-border bg-muted/50 p-0.5 text-sm font-medium">
                 {(["ffmpeg", "ai", "restore"] as const).map((e) => (
                   <button
@@ -818,11 +1013,13 @@ export function GenerationPanel({
                     ? "AI (GPU): smoother motion uses RIFE frame interpolation; upscale uses Real-ESRGAN 2× super-resolution. Best quality, takes longer. Creates a new version."
                     : "Fast (ffmpeg): smoother motion interpolates to a higher frame rate; upscale doubles the resolution. Creates a new version."}
               </p>
+              </>
+              )}
               <div className="flex items-center justify-end gap-1">
                 <Button variant="ghost" size="sm" onClick={() => setEnhanceOpen(false)} disabled={pending}>
                   <X className="size-3.5" /> Cancel
                 </Button>
-                <Button size="sm" onClick={runEnhance} disabled={pending || (!enhanceInterp && !enhanceUpscaleEffective)}>
+                <Button size="sm" onClick={runEnhance} disabled={pending || (!enhanceInterp && !enhanceUpscaleEffective && enhancePreset !== "clean")}>
                   <Sparkles className="size-3.5" /> Enhance
                 </Button>
               </div>
@@ -907,7 +1104,15 @@ export function GenerationPanel({
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                Version {selected.versionNumber} · {relTime(selected.createdAt)}
+                {[
+                  `Version ${selected.versionNumber}`,
+                  new Date(selected.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }),
+                  selected.durationSec ? `${selected.durationSec.toFixed(1)}s` : null,
+                  selected.width && selected.height ? `${selected.width}×${selected.height}` : null,
+                  selected.mode,
+                  selected.style,
+                  selected.quality ? `${selected.quality} quality` : null,
+                ].filter(Boolean).join(" · ")}
               </p>
             </>
           )}
@@ -923,6 +1128,12 @@ export function GenerationPanel({
         onDelete={removeVersion}
         onFavorite={favVersion}
         onPick={pickVersion}
+      />
+
+      <ScenesPanel
+        projectId={projectId}
+        selectedVersion={selected && selected.hasOutput ? { id: selected.id, versionNumber: selected.versionNumber } : null}
+        onAssembleStarted={(jobId) => setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null })}
       />
 
       {exports.length > 0 ? <ExportCenter exports={exports} onDelete={removeExport} /> : null}
@@ -1003,7 +1214,9 @@ function ExportCenter({
 
 /** §11 Generation progress — friendly phase name, progress bar, cancel action. */
 function GenerationProgress({ job, onCancel }: { job: Job; onCancel: () => void }) {
-  const phase = PHASE[job.status] ?? "Working…";
+  const phase = job.status === "queued" && job.queuePosition
+    ? job.queuePosition === 1 ? "Queued — you're next" : `Queued — #${job.queuePosition} in line`
+    : PHASE[job.status] ?? "Working…";
   const pct = Math.max(0, Math.min(100, Math.round(job.progress ?? 0)));
   return (
     <div className="space-y-3 rounded-xl border border-[color:var(--cw-violet)]/40 bg-[color:var(--cw-violet)]/10 p-4">
@@ -1184,6 +1397,21 @@ function VersionBrowser({
 }
 
 /** Small labelled field wrapper to keep the create panel consistent. */
+/** CW-MVP-080: AI studio (AISERVER) status. */
+function StudioPill({ status }: { status: AiStudioStatus }) {
+  const look = {
+    online: { dot: "bg-emerald-500", text: "AI studio online" },
+    busy: { dot: "bg-amber-500", text: "AI studio busy — jobs will queue" },
+    degraded: { dot: "bg-amber-500", text: "AI studio running on reduced capacity" },
+    offline: { dot: "bg-red-500", text: "AI studio offline — jobs wait until it's back" },
+  }[status.state];
+  return (
+    <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground" title={`${status.gpus} GPU${status.gpus === 1 ? "" : "s"} · ${status.activeJobs} active job${status.activeJobs === 1 ? "" : "s"}`}>
+      <span className={cn("size-1.5 rounded-full", look.dot)} /> {look.text}
+    </span>
+  );
+}
+
 function Field({
   label,
   hint,

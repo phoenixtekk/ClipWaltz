@@ -102,6 +102,18 @@ export async function presignGet(key: string, expiresIn = 3600): Promise<string>
   return getSignedUrl(s3(), new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }), { expiresIn });
 }
 
+/** Size + content type of an object (no body). */
+export async function headObject(key: string): Promise<{ size: number; contentType: string | null }> {
+  const h = await s3().send(new HeadObjectCommand({ Bucket: S3_BUCKET, Key: key }));
+  return { size: Number(h.ContentLength ?? 0), contentType: h.ContentType ?? null };
+}
+
+/** Bytes [start, end] (inclusive) of an object — for chunked copies that must not buffer whole files. */
+export async function getObjectRange(key: string, start: number, end: number): Promise<Uint8Array> {
+  const out = await s3().send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: key, Range: `bytes=${start}-${end}` }));
+  return (out.Body as unknown as { transformToByteArray: () => Promise<Uint8Array> }).transformToByteArray();
+}
+
 // ---- Storage edge: direct browser ↔ MinIO via presigned URLs (ADR-0003) --------------------------
 // S3_PUBLIC_ENDPOINT (e.g. https://media.clipwaltz.com) is MinIO's API published through the
 // Cloudflare tunnel (no Access; bucket private). URLs are SIGNED FOR THAT HOST — SigV4 covers the

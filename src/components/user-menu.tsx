@@ -1,6 +1,6 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { LogOut, User as UserIcon, CreditCard, Bell, Users } from "lucide-react";
+import { LogOut, User as UserIcon, CreditCard, Bell, Users, LifeBuoy } from "lucide-react";
 import { authClient, useSession } from "@/lib/auth-client";
 import {
   DropdownMenu,
@@ -59,6 +59,9 @@ export function UserMenu() {
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => router.push("/account/notifications")}>
           <Bell className="size-4" /> Notifications
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => router.push("/help")}>
+          <LifeBuoy className="size-4" /> Help Center
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={handleSignOut} className="text-destructive focus:bg-destructive/10">

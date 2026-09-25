@@ -59,6 +59,15 @@ export function ImportUploader({
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("drop");
   const [items, setItems] = useState<Item[]>([]);
+  // CW-MVP-020: keep each File so a failed upload can retry on its own (multipart resumes from the
+  // parts already stored — progress is remembered in localStorage).
+  const files = useRef(new Map<string, File>());
+  function retryItem(localId: string) {
+    const file = files.current.get(localId);
+    if (!file) return;
+    setStatus(localId, "uploading", 0);
+    uploadOne(file, localId);
+  }
   const [dragging, setDragging] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
@@ -214,7 +223,7 @@ export function ImportUploader({
       const reason = err instanceof Error ? err.message : "unknown error";
       console.error(`[upload] ${file.name} failed:`, reason);
       setStatus(localId, "error");
-      toast.error(`Upload failed: ${file.name} — ${reason}. Re-add the file to resume.`);
+      toast.error(`Upload failed: ${file.name} — ${reason}. Press Retry to resume.`);
     }
   }
 
@@ -234,6 +243,7 @@ export function ImportUploader({
           ? "video"
           : "photo";
       setItems((prev) => [...prev, { localId, name: file.name, kind, progress: 0, status: "uploading" }]);
+      files.current.set(localId, file);
       uploadOne(file, localId);
     }
   }
@@ -380,7 +390,12 @@ export function ImportUploader({
               ) : i.status === "done" ? (
                 <Check className="size-4 text-emerald-600 dark:text-emerald-400" />
               ) : (
-                <X className="size-4 text-destructive" />
+                <span className="flex items-center gap-2">
+                  <X className="size-4 text-destructive" />
+                  <button type="button" onClick={() => retryItem(i.localId)} className="rounded-full border border-border px-2 py-0.5 text-xs hover:border-primary hover:text-primary">
+                    Retry
+                  </button>
+                </span>
               )}
             </li>
           ))}

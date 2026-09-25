@@ -46,9 +46,11 @@ row that redeems on signup (Better Auth after-create hook).
 - [x] Products **Plus** ($15/mo) + **Pro** ($39/mo) with recurring prices — created via MCP; ids in env.
 - [x] Webhook endpoint `we_1UGra1CexeLlxm8EZjhfzk6j` created; signing secret in env (`STRIPE_WEBHOOK_SECRET`).
 - [x] Account id recorded above (`acct_1UGiVjCexeLlxm8E`).
-- [ ] **`STRIPE_SECRET_KEY`** — still needed: paste the ClipWaltz sandbox **test** secret key (or a
-      restricted key with product/price/checkout/customer/subscription scopes) into env
-      (dev `.env.local`, prod `/home/lacy/clipwaltz/.env.local`, `_keys/clipwaltz.txt`), then
-      `pm2 restart clipwaltz`. Until then `isStripeConfigured()` is false and the billing page
-      degrades gracefully; comp/admin grants still work (they don't touch Stripe).
+- [x] **`STRIPE_SECRET_KEY`** present in dev + prod env (test mode). Verified 2026-09-25: key → account
+      `acct_1UGiVdER5GAokxDi` (matches above).
+- [x] **Webhook handling fixed + verified (2026-09-25):** `checkout.session.completed` now fetches the
+      subscription (tier + period end from the subscription ITEM, API `2026-08-26.dahlia`), so the result no
+      longer depends on event order (before: a subscription event arriving first was dropped and the paid user
+      stayed Free). `trialing` counts as active. Tested with a real test-mode subscription (`pm_card_visa`),
+      events delivered out of order to the handler, replay + forged-signature + cancel cases; cleaned up.
 - Going live later needs **live** keys + a live-mode webhook + business/KYC from the dashboard.
