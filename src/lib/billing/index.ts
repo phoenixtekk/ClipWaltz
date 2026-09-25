@@ -16,7 +16,7 @@ export const TIERS: Record<
   plus: {
     name: "Plus",
     priceId: process.env.STRIPE_PRICE_PLUS ?? null,
-    blurb: "No watermark · 1080p · longer videos · full music library",
+    blurb: "1080p · longer videos · full music library",
   },
   pro: {
     name: "Pro",

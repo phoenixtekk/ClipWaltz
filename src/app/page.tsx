@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { connection } from "next/server";
+import { watermarkPaidPlans } from "@/lib/watermark";
 import Image from "next/image";
 import {
   ArrowRight,
@@ -26,7 +28,14 @@ export const metadata = {
     "Drop in the photos and clips from your trip, event, or launch and ClipWaltz auto-edits them into a beat-synced, share-ready music video in under a minute. No editing required.",
 };
 
-export default function Home() {
+// "No watermark" is only promised while the admin has paid plans exempt (/admin → Watermark).
+async function paidPlansWatermarked(): Promise<boolean> {
+  await connection();
+  try { return await watermarkPaidPlans(); } catch { return true; }
+}
+
+export default async function Home() {
+  const paidWatermarked = await paidPlansWatermarked();
   return (
     <main className="cw-landing relative min-h-screen w-full overflow-hidden">
       {/* aurora field */}
@@ -50,9 +59,9 @@ export default function Home() {
         <Hero />
         <TwoVibes />
         <HowItWorks />
-        <Features />
+        <Features paidWatermarked={paidWatermarked} />
         <Templates />
-        <Pricing />
+        <Pricing paidWatermarked={paidWatermarked} />
         <FinalCta />
         <Footer />
       </div>
@@ -336,7 +345,7 @@ function HowItWorks() {
 }
 
 /* ----------------------------------------------------------- Features */
-function Features() {
+function Features({ paidWatermarked }: { paidWatermarked: boolean }) {
   const items = [
     { icon: <Clapperboard className="size-5" />, title: "Beat-synced cuts", body: "Clips land on the beat automatically, so every edit feels intentional." },
     { icon: <Music className="size-5" />, title: "Licensed music", body: "A curated catalog of royalty-free tracks — safe to post, mood by mood." },
@@ -344,7 +353,7 @@ function Features() {
     { icon: <Gauge className="size-5" />, title: "Cloud HD render", body: "1080p 9:16 rendered on our machines, not your laptop. Leave and come back." },
     { icon: <Palette className="size-5" />, title: "Occasion templates", body: "Trip, event, birthday, or ‘surprise me’ — start from a vibe that fits." },
     { icon: <Aperture className="size-5" />, title: "360 camera ready", body: "Drop in Insta360 (.insv) & 360 footage — we reframe it into a normal, shareable video. No desktop software." },
-    { icon: <ShieldCheck className="size-5" />, title: "Watermark-free", body: "Upgrade to export clean, full-length videos with no watermark." },
+    ...(paidWatermarked ? [] : [{ icon: <ShieldCheck className="size-5" />, title: "Watermark-free", body: "Upgrade to export clean, full-length videos with no watermark." }]),
   ];
   return (
     <section id="features" className="mx-auto max-w-6xl scroll-mt-24 px-5 py-16">
@@ -415,7 +424,7 @@ function Templates() {
 }
 
 /* ------------------------------------------------------------ Pricing */
-function Pricing() {
+function Pricing({ paidWatermarked }: { paidWatermarked: boolean }) {
   const tiers = [
     {
       name: "Free",
@@ -432,7 +441,7 @@ function Pricing() {
       price: "$15",
       period: "/mo",
       tagline: "For creators who post",
-      features: ["Everything in Free", "No watermark", "HD 1080p render", "30 videos / mo", "Up to 60s", "Priority in the queue"],
+      features: ["Everything in Free", ...(paidWatermarked ? [] : ["No watermark"]), "HD 1080p render", "30 videos / mo", "Up to 60s", "Priority in the queue"],
       cta: "Choose Plus",
       href: "/sign-up",
       featured: true,

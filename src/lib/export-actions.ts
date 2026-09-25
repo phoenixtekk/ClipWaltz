@@ -7,6 +7,7 @@ import { requireUserId } from "./auth";
 import { enqueueExport } from "./queue";
 import { deleteObject } from "./storage";
 import { userCanAccessProject } from "./workspace";
+import { shouldWatermark } from "./watermark";
 
 export type ExportFormat = "mp4" | "webm";
 export type ExportResolution = "native" | "720p" | "1080p";
@@ -53,6 +54,7 @@ export async function createExportJob(input: {
     status: "queued",
     outputFormat: input.outputFormat,
     resolution: input.resolution,
+    watermark: await shouldWatermark(userId),
   });
   await enqueueExport(id);
   revalidatePath(`/projects/${ver.projectId}/edit`);

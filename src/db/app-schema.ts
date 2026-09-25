@@ -514,6 +514,14 @@ export const workspaceInvites = pgTable("workspace_invites", {
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
 
+// Global admin settings (key → JSON value). E.g. "watermark_paid_plans": true = paid plans are
+// watermarked too (admin toggle on /admin).
+export const appSettings = pgTable("app_settings", {
+  key: text().primaryKey(),
+  value: jsonb().notNull(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
 // Saved Generate-tab settings per user. `isRecent` = the auto-saved last-used settings (one row per
 // user, CW-MVP-172); named rows are favourite presets (CW-MVP-173).
 export const generationPresets = pgTable("generation_presets", {
@@ -589,7 +597,10 @@ export const generationVersions = pgTable("generation_versions", {
   sceneId: text().references(() => scenes.id, { onDelete: "set null" }),
   versionNumber: integer().notNull().default(1),
   outputAssetId: text().references(() => assets.id, { onDelete: "set null" }),
-  outputKey: text(), // MinIO object key of the generated video
+  outputKey: text(), // MinIO object key of the generated video (watermarked when the job was)
+  // Unwatermarked master (only when outputKey carries the logo). Enhance / Assemble / Export read
+  // this so a logo is never processed or stacked twice.
+  cleanKey: text(),
   thumbnailKey: text(),
   durationSec: real(),
   qualityScore: real(),
@@ -612,6 +623,7 @@ export const exportJobs = pgTable("export_jobs", {
   status: text().notNull().default("queued"), // queued | processing | completed | failed | cancelled
   outputFormat: text().notNull().default("mp4"), // mp4 | webm | mov
   resolution: text(), // e.g. 1080x1920
+  watermark: boolean().notNull().default(false), // stamp the ClipWaltz logo on the export
   aspectRatio: text(), // 9:16 | 16:9 | 1:1
   presetName: text(),
   outputAssetId: text().references(() => assets.id, { onDelete: "set null" }),

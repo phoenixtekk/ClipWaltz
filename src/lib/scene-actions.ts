@@ -1,11 +1,12 @@
 "use server";
 import { randomUUID } from "crypto";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
 import { userCanAccessProject } from "./workspace";
 import { enqueueEnhance } from "./queue";
+import { shouldWatermark } from "./watermark";
 
 // CW-MVP-160..162 scenes: a simple ordered storyboard per project. Each scene has a title, a target
 // length and the generated version picked for it; "Assemble" joins the picks in order into one new
@@ -108,7 +109,7 @@ export async function assembleScenes(projectId: string): Promise<string> {
   const scenes = await listScenes(projectId);
   const picked = scenes.filter((s) => s.selectedVersionId);
   if (picked.length < 2) throw new Error("Pick a version for at least two scenes first");
-  const versions = await db.select({ id: schema.generationVersions.id, key: schema.generationVersions.outputKey })
+  const versions = await db.select({ id: schema.generationVersions.id, key: sql<string | null>`coalesce(${schema.generationVersions.cleanKey}, ${schema.generationVersions.outputKey})` })
     .from(schema.generationVersions)
     .where(and(eq(schema.generationVersions.projectId, projectId), inArray(schema.generationVersions.id, picked.map((s) => s.selectedVersionId!))));
   const keyOf = new Map(versions.map((v) => [v.id, v.key]));
@@ -118,7 +119,7 @@ export async function assembleScenes(projectId: string): Promise<string> {
   const id = randomUUID();
   await db.insert(schema.generationJobs).values({
     id, projectId, workspaceId: proj?.workspaceId ?? null, requestedBy: userId, jobType: "montage", status: "queued",
-    requestJson: { parts },
+    requestJson: { parts, watermark: await shouldWatermark(userId) },
   });
   await enqueueEnhance(id);
   touch(projectId);

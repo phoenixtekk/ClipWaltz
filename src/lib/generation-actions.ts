@@ -12,6 +12,7 @@ import { queuePositionOf } from "./ai/queue-position";
 import { resolveGenerationRoute, resolveEnhanceWorkflow, getAiAvailability, RouteUnavailableError, QUALITIES, type Quality } from "./ai/routing";
 import { normalizeSettings, type GenerationSettings } from "./generation-settings";
 import { getEffectiveTier } from "./tier";
+import { shouldWatermark } from "./watermark";
 
 const PROMPT_MAX = 2000;
 
@@ -160,6 +161,7 @@ export async function createGenerationJob(input: CreateGenerationInput): Promise
       style: input.style ?? null,
       camera: input.camera ?? null,
       userPrompt: input.userPrompt?.slice(0, PROMPT_MAX) ?? null,
+      watermark: await shouldWatermark(userId),
     },
     priority,
   });
@@ -301,6 +303,7 @@ async function requeueGenerationCopy(
     );
     requestJson = { ...requestJson, workflows };
   }
+  requestJson = { ...requestJson, watermark: await shouldWatermark(userId) };
   const id = randomUUID();
   await db.insert(schema.generationJobs).values({
     id,
@@ -397,6 +400,7 @@ export async function enhanceVersion(input: {
       projectId: schema.generationVersions.projectId,
       sceneId: schema.generationVersions.sceneId,
       outputKey: schema.generationVersions.outputKey,
+      cleanKey: schema.generationVersions.cleanKey,
       workspaceId: schema.projects.workspaceId,
       ownerId: schema.projects.ownerId,
     })
@@ -419,7 +423,9 @@ export async function enhanceVersion(input: {
     status: "queued",
     requestJson: {
       sourceVersionId: ver.id,
-      sourceKey: ver.outputKey,
+      // Enhance the unwatermarked master when there is one (never upscale/smooth a logo).
+      sourceKey: ver.cleanKey ?? ver.outputKey,
+      watermark: await shouldWatermark(userId),
       engine,
       interpolate: input.interpolate,
       upscale,
@@ -486,6 +492,7 @@ export async function deleteGenerationVersion(versionId: string): Promise<void> 
     .select({
       id: schema.generationVersions.id,
       key: schema.generationVersions.outputKey,
+      cleanKey: schema.generationVersions.cleanKey,
       projectId: schema.generationVersions.projectId,
       ownerId: schema.projects.ownerId,
     })
@@ -495,6 +502,7 @@ export async function deleteGenerationVersion(versionId: string): Promise<void> 
   if (!row || !(await userCanAccessProject(userId, row.projectId, "editor"))) throw new Error("Version not found");
   await db.delete(schema.generationVersions).where(eq(schema.generationVersions.id, versionId));
   if (row.key) await deleteObject(row.key).catch(() => {});
+  if (row.cleanKey) await deleteObject(row.cleanKey).catch(() => {});
   revalidatePath(`/projects/${row.projectId}/edit`);
 }
 

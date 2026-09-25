@@ -62,8 +62,8 @@ export async function createRender(projectId: string): Promise<string> {
     .where(and(eq(schema.assets.projectId, projectId), eq(schema.assets.uploadState, "uploaded"), eq(schema.assets.hidden, false)));
   if (!count) throw new Error("Add at least one clip before rendering");
 
-  const { getEffectiveTier } = await import("./tier");
-  const watermark = (await getEffectiveTier(userId)) === "free";
+  const { shouldWatermark } = await import("./watermark");
+  const watermark = await shouldWatermark(userId); // every plan by default; admin can exempt paid plans
 
   const [{ maxv }] = await db
     .select({ maxv: sql<number>`coalesce(max(version),0)::int` })

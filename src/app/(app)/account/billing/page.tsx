@@ -1,12 +1,14 @@
 import { getMyBilling } from "@/lib/billing-data";
 import { isStripeConfigured } from "@/lib/billing";
 import { BillingClient } from "@/components/billing-client";
+import { watermarkPaidPlans } from "@/lib/watermark";
 
 export const metadata = { title: "Billing" };
 
 export default async function BillingPage() {
   const billing = await getMyBilling();
   const configured = isStripeConfigured();
+  const paidWatermarked = await watermarkPaidPlans();
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -21,6 +23,7 @@ export default async function BillingPage() {
         currentTier={billing.tier}
         configured={configured}
         hasCustomer={billing.hasCustomer}
+        paidWatermarked={paidWatermarked}
       />
 
       <p className="text-xs text-muted-foreground">

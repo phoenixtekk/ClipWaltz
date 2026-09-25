@@ -3,6 +3,7 @@ import { FolderOpen, Film, Clock, Heart, MessageCircle, Sparkles, Users, ArrowRi
 import { getSession, requireUserId } from "@/lib/auth";
 import { listProjects } from "@/lib/projects";
 import { getDashboardStats } from "@/lib/dashboard";
+import { watermarkPaidPlans } from "@/lib/watermark";
 import { getPublicFeed } from "@/lib/feed";
 import { listActiveAnnouncements } from "@/lib/announcements";
 import { NewProjectButton } from "@/components/new-project-button";
@@ -19,6 +20,7 @@ export default async function DashboardPage() {
     listProjects(),
     getPublicFeed(8),
   ]);
+  const paidWatermarked = stats.tier === "free" ? await watermarkPaidPlans() : true;
   const [banners, cards] = await Promise.all([
     listActiveAnnouncements("dashboard_banner", stats.tier),
     listActiveAnnouncements("dashboard_card", stats.tier),
@@ -79,7 +81,7 @@ export default async function DashboardPage() {
                   href="/account/billing"
                   className="inline-flex items-center gap-1 text-xs font-semibold text-[color:var(--cw-violet)] hover:underline"
                 >
-                  <Sparkles className="size-3.5" /> Upgrade for more renders &amp; no watermark
+                  <Sparkles className="size-3.5" /> Upgrade for more renders{paidWatermarked ? "" : " & no watermark"}
                 </Link>
               </div>
             ) : null}

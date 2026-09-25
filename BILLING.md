@@ -20,7 +20,7 @@ so no App Store / Play IAP at launch.
 | Tier | Env var → price id (test) | Price | What it unlocks |
 |---|---|---|---|
 | Free | — | $0 | Watermark · 1080p · ~30s · 3 videos/mo · 7-day source retention |
-| Plus | `STRIPE_PRICE_PLUS` = `price_1UH457ER5GAokxDibb6v4Ftu` | $15/mo | No watermark · 1080p HD · 30 videos/mo · up to 60s · priority queue · 30-day retention |
+| Plus | `STRIPE_PRICE_PLUS` = `price_1UH457ER5GAokxDibb6v4Ftu` | $15/mo | No watermark *(only while /admin → "Watermark paid plans" is off; default on since 2026-09-25 — pricing copy follows the switch)* · 1080p HD · 30 videos/mo · up to 60s · priority queue · 30-day retention |
 | Pro | `STRIPE_PRICE_PRO` = `price_1UH458ER5GAokxDidE9Wrdc9` | $39/mo | Everything in Plus · fastest render · 100 videos/mo · up to 3 min · Project Vault |
 
 > **Pricing decided 2026-09-17** ($0 / $15 / $39). Rationale: renders run on owned hardware

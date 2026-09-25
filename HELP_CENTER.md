@@ -64,7 +64,10 @@ ships. It will also surface in-app at `/help`.
 - Your draft appears in ~30–60s; the HD render runs in the background.
 - We'll notify you (in the app and by email) when your video is ready — and, if you turn it on,
   with a desktop notification (see **Account → Notifications** below).
-- Downloading and sharing. Free videos include a watermark.
+- Downloading and sharing. Videos carry the small ClipWaltz logo in the bottom-left corner —
+  music videos, AI clips, enhanced versions, storyboards and exports alike. Free videos always
+  have it; whether Plus and Pro videos do is shown on **Account → Billing**. Enhancing,
+  assembling or exporting a clip never adds a second logo.
 
 ## Notifications
 Renders run in the background, so ClipWaltz can pop a notification the moment yours is done. Open

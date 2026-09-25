@@ -239,6 +239,13 @@
       "when": 1790314714122,
       "tag": "0033_retention_notice",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790351495500,
+      "tag": "0034_watermark_everywhere",
+      "breakpoints": true
     }
   ]
 }

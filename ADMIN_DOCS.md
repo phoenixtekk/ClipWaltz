@@ -276,7 +276,21 @@ project's clips from MinIO, FFmpeg-assembles a 1080p 9:16 video (photos 2s, vide
 music from `music_tracks`, optional watermark), uploads to `renders/<projectId>/<renderId>.mp4`,
 and marks the row `done` (+ project `ready`). Reuses the app's `postgres` + S3 deps.
 
-**Watermark (free tier):** `worker/WaterMark.png` (transparent PNG, a copy of `public/WaterMark.png`)
+**Watermark — every video (2026-09-25):** the ClipWaltz logo goes bottom-left (22% of the short
+side, 3% padding, 90% opacity) on music-video renders AND every AI output: generations,
+enhancements, storyboards (montage) and exports. **Free is always watermarked; paid plans are
+watermarked while `/admin → Watermark → "Watermark paid plans"` is on (default on).** The switch
+lives in `app_settings.watermark_paid_plans` (migration 0034; 30 s cache in `src/lib/watermark.ts`,
+the single rule `shouldWatermark(userId)`). The app decides **when the job is created**
+(`renders.watermark`, `generation_jobs.request_json.watermark`, `export_jobs.watermark`), so the
+switch affects new videos only. AI versions that get the logo keep the unwatermarked master at
+`generations/…/<n>.clean.mp4` (`generation_versions.clean_key`); Enhance, Assemble and Export
+always read `clean_key ?? output_key` and add the logo once at the end — never stacked, never
+upscaled. Deleting a version deletes both objects. The generation worker (linuxg1,
+`pm2 clipwaltz-gen-worker`) reads the logo from `worker/WaterMark.png` next to it and **fails the
+job** if it is missing (it never silently ships an unwatermarked video).
+
+**Render worker logo file:** `worker/WaterMark.png` (transparent PNG, a copy of `public/WaterMark.png`)
 is overlaid bottom-left. **Deploy it with the worker** — scp it next to `render-worker.mjs`
 (`/home/lacy/clipwaltz/worker/` on the AI box, owned by `lacy`); override with `WATERMARK_PATH`.
 If the file is missing the worker logs a warning and renders without a watermark. To change the

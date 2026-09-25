@@ -103,3 +103,13 @@ export async function revokeAccess(userId: string) {
   await applyGrant(userId, "free", null);
   revalidatePath("/admin");
 }
+
+/** Admin: watermark paid plans (Plus/Pro) too? Free is always watermarked. Affects new videos only. */
+export async function setWatermarkPaidPlans(on: boolean): Promise<void> {
+  await requireAdmin();
+  const { setWatermarkPaidPlansSetting } = await import("./watermark");
+  await setWatermarkPaidPlansSetting(!!on);
+  revalidatePath("/admin");
+  revalidatePath("/account/billing");
+  revalidatePath("/");
+}

@@ -13,9 +13,10 @@
 import { randomUUID, randomInt } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Agent as HttpAgent } from "node:http";
 import { Agent as HttpsAgent } from "node:https";
 import postgres from "postgres";
@@ -72,6 +73,52 @@ const WAN_FPS = 24;
 function framesForSeconds(seconds) {
   const s = Math.min(12, Math.max(1, Number(seconds) || 5));
   return 4 * Math.round((s * WAN_FPS - 1) / 4) + 1;
+}
+
+// ─── Watermark (owner decision 2026-09-25: every video, bottom-left; admin can exempt paid plans) ──
+// The app decides per job (request_json.watermark / export_jobs.watermark); same logo, size and
+// placement as the music-video render worker: 22% of the short side, 3% padding, 90% opacity.
+const WATERMARK_PATH = process.env.WATERMARK_PATH || join(dirname(fileURLToPath(import.meta.url)), "WaterMark.png");
+const wmGeometry = (w, h) => {
+  const s = Math.min(w, h) || 480;
+  return { wmW: Math.max(32, Math.round(s * 0.22)), pad: Math.round(s * 0.03) };
+};
+// Overlay chain taking [base] → [out] (the logo is input `wmIdx`).
+const wmChain = (base, wmIdx, w, h) => {
+  const { wmW, pad } = wmGeometry(w, h);
+  return `[${wmIdx}:v]scale=${wmW}:-1,format=rgba,colorchannelmixer=aa=0.9[wm];` +
+    `[${base}][wm]overlay=x=${pad}:y=main_h-overlay_h-${pad}:format=auto,format=yuv420p[out]`;
+};
+
+/** Burn the logo into an MP4 (audio copied if present). */
+async function watermarkBytes(bytes) {
+  if (!existsSync(WATERMARK_PATH)) throw new Error(`watermark image missing at ${WATERMARK_PATH}`);
+  const meta = await probeVideo(bytes).catch(() => ({}));
+  const dir = mkdtempSync(join(tmpdir(), "cw-wm-"));
+  try {
+    const src = join(dir, "in.mp4"), out = join(dir, "out.mp4");
+    writeFileSync(src, bytes);
+    // Single-frame logo input: overlay repeats its last frame for the whole clip (as the render worker).
+    await run("ffmpeg", ["-y", "-i", src, "-i", WATERMARK_PATH,
+      "-filter_complex", wmChain("0:v", 1, meta.width, meta.height), "-map", "[out]", "-map", "0:a?",
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-c:a", "copy", "-movflags", "+faststart", out], { maxBuffer: 1 << 26 });
+    return readFileSync(out);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Store a finished version's video. Watermarked jobs keep the clean master next to it
+ * (<n>.clean.mp4 → clean_key) so Enhance / Assemble / Export never process or stack the logo.
+ */
+async function storeVersionVideo(projectId, genJobId, n, bytes, watermark) {
+  const base = `generations/${projectId}/${genJobId}/${n}`;
+  const put = (Key, Body) => s3.send(new PutObjectCommand({ Bucket: BUCKET, Key, Body, ContentType: "video/mp4" }));
+  if (!watermark) { await put(`${base}.mp4`, bytes); return { output_key: `${base}.mp4`, clean_key: null }; }
+  await put(`${base}.clean.mp4`, bytes);
+  await put(`${base}.mp4`, await watermarkBytes(bytes));
+  return { output_key: `${base}.mp4`, clean_key: `${base}.clean.mp4` };
 }
 
 // Next version number + insert under a per-project advisory lock: with GEN_CONCURRENCY=2 (and the
@@ -200,8 +247,7 @@ async function processJob(genJobId) {
   const videoBytes = Buffer.from(await dl.arrayBuffer());
   const [{ maxv }] = await sql`select coalesce(max(version_number),0)::int maxv from generation_versions where project_id = ${j.project_id}`;
   const versionNumber = (maxv ?? 0) + 1;
-  const outputKey = `generations/${j.project_id}/${genJobId}/${versionNumber}.mp4`;
-  await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: outputKey, Body: videoBytes, ContentType: "video/mp4" }));
+  const { output_key: outputKey, clean_key } = await storeVersionVideo(j.project_id, genJobId, versionNumber, videoBytes, !!req.watermark);
 
   const versionId = randomUUID();
   const meta = await probeVideo(videoBytes).catch(() => ({})); // CW-MVP-112 output metadata
@@ -212,6 +258,7 @@ async function processJob(genJobId) {
     scene_id: j.scene_id ?? null,
     version_number: versionNumber,
     output_key: outputKey,
+    clean_key,
     duration_sec: meta.duration ?? null,
     settings: { ...req, width: meta.width || null, height: meta.height || null, fps: meta.fps ?? null },
   });
@@ -247,10 +294,18 @@ function scaleFilter(res) {
   return null; // native
 }
 
+// Frame size after scaleFilter (short side → 720/1080, aspect kept, even width).
+function scaledSize(w, h, res) {
+  const t = res === "720p" ? 720 : res === "1080p" ? 1080 : 0;
+  if (!t || !w || !h) return { w, h };
+  return w > h ? { w: Math.round((w * t) / h / 2) * 2, h: t } : { w: t, h: Math.round((h * t) / w / 2) * 2 };
+}
+
 async function processExport(exportJobId) {
   const [ej] = await sql`select * from export_jobs where id = ${exportJobId}`;
   if (!ej) { console.warn("[exp] job gone", exportJobId); return; }
-  const [ver] = await sql`select output_key from generation_versions where id = ${ej.source_version_id}`;
+  // Always start from the clean master; the logo (if due) is added once, after scaling.
+  const [ver] = await sql`select coalesce(clean_key, output_key) output_key from generation_versions where id = ${ej.source_version_id}`;
   if (!ver?.output_key) throw new Error("source version has no output");
 
   await sql`update export_jobs set status='processing', started_at=now() where id=${exportJobId}`;
@@ -262,7 +317,14 @@ async function processExport(exportJobId) {
     writeFileSync(srcPath, await getBytes(ver.output_key));
     const vf = scaleFilter(ej.resolution);
     const args = ["-y", "-i", srcPath];
-    if (vf) args.push("-vf", vf);
+    if (ej.watermark) {
+      if (!existsSync(WATERMARK_PATH)) throw new Error(`watermark image missing at ${WATERMARK_PATH}`);
+      // Logo size follows the OUTPUT frame: probe the scaled size via the same filter.
+      const meta = await probeVideo(readFileSync(srcPath)).catch(() => ({}));
+      const scaled = scaledSize(meta.width, meta.height, ej.resolution);
+      args.push("-i", WATERMARK_PATH, "-filter_complex",
+        `[0:v]${vf ?? "null"}[base];${wmChain("base", 1, scaled.w, scaled.h)}`, "-map", "[out]");
+    } else if (vf) args.push("-vf", vf);
     if (fmt === "webm") args.push("-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "32", "-an");
     else args.push("-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "20", "-movflags", "+faststart", "-an");
     args.push(outPath);
@@ -458,12 +520,11 @@ async function processEnhance(genJobId) {
   await setStatus(genJobId, { status: "uploading_output", progress: 85 });
   const [{ maxv }] = await sql`select coalesce(max(version_number),0)::int maxv from generation_versions where project_id = ${j.project_id}`;
   const versionNumber = (maxv ?? 0) + 1;
-  const outKey = `generations/${j.project_id}/${genJobId}/${versionNumber}.mp4`;
-  await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: outKey, Body: videoBytes, ContentType: "video/mp4" }));
+  const { output_key: outKey, clean_key } = await storeVersionVideo(j.project_id, genJobId, versionNumber, videoBytes, !!req.watermark);
   const meta = await probeVideo(videoBytes).catch(() => ({})); // CW-MVP-112 output metadata
   await insertVersion(j.project_id, {
     id: randomUUID(), generation_job_id: genJobId, project_id: j.project_id, scene_id: j.scene_id ?? null,
-    version_number: versionNumber, output_key: outKey,
+    version_number: versionNumber, output_key: outKey, clean_key,
     duration_sec: meta.duration ?? null,
     settings: { enhancedFrom: req.sourceVersionId, engine: ai ? req.engine : "ffmpeg", interpolate: !!req.interpolate, upscale: !!req.upscale || req.engine === "restore",
       denoise: !!req.denoise, preset: req.preset ?? null, width: meta.width || null, height: meta.height || null, fps: meta.fps },
@@ -478,12 +539,11 @@ async function processMontage(j, req, genJobId) {
   await setStatus(genJobId, { status: "uploading_output", progress: 85 });
   const [{ maxv }] = await sql`select coalesce(max(version_number),0)::int maxv from generation_versions where project_id = ${j.project_id}`;
   const versionNumber = (maxv ?? 0) + 1;
-  const outKey = `generations/${j.project_id}/${genJobId}/${versionNumber}.mp4`;
-  await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: outKey, Body: videoBytes, ContentType: "video/mp4" }));
+  const { output_key: outKey, clean_key } = await storeVersionVideo(j.project_id, genJobId, versionNumber, videoBytes, !!req.watermark);
   const meta = await probeVideo(videoBytes).catch(() => ({}));
   await insertVersion(j.project_id, {
     id: randomUUID(), generation_job_id: genJobId, project_id: j.project_id, scene_id: null,
-    version_number: versionNumber, output_key: outKey, duration_sec: meta.duration ?? null,
+    version_number: versionNumber, output_key: outKey, clean_key, duration_sec: meta.duration ?? null,
     settings: { montage: true, scenes: (req.parts ?? []).length, width: meta.width || null, height: meta.height || null, fps: meta.fps ?? null },
   });
   await setStatus(genJobId, { status: "completed", progress: 100, completed_at: new Date() });
