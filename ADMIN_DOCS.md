@@ -160,10 +160,14 @@ forced-download filename; 8 MB part PUT + complete; real browser on `www.clipwal
 (`.mp4` HIT) — the signed GET now sets `response-cache-control=private, max-age=3600`, which
 Cloudflare honours (`cf-cache-status: BYPASS`), so expired URLs can't be served from edge cache.
 
-**Known gaps:** MinIO's CORS is its global default (reflects any origin) — safe here because every
-object needs a signature and MinIO uses no cookies, but the ADR's "CORS locked to ClipWaltz" would
-need a Cloudflare response-header Transform Rule on `media.clipwaltz.com` (MinIO's setting is shared
-with other apps on linuxg7). The zone's Browser Cache TTL raises browser `max-age` to 14400.
+**CORS lock (2026-09-25):** MinIO's own CORS is its global default (reflects any origin; shared with
+other linuxg7 apps), so the lock lives at Cloudflare: **Rules → Transform Rules → Modify Response
+Header**, rule "media CORS lock to www", `http.host eq "media.clipwaltz.com"` → **Set static**
+`Access-Control-Allow-Origin: https://www.clipwaltz.com`. Verified: every response (GET, 403, OPTIONS
+preflight, any Origin) carries exactly one ACAO = www; a browser on `example.com` is blocked
+("Failed to fetch") while `www.clipwaltz.com` direct PUT + Range GET still work. If the app ever
+serves from another origin, update this rule. The zone's Browser Cache TTL raises browser
+`max-age` to 14400.
 
 Setup (done — kept for rebuilds):
 

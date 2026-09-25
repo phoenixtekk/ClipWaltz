@@ -64,7 +64,7 @@ f22c126 docs(handoff): rotate to session v6
   upload parts PUT direct via presigned UploadPart, per-part fallback to the proxy. Prod env
   `S3_PUBLIC_ENDPOINT` (backup `.env.local.bak-edge-*`); kill switch `MEDIA_DIRECT=0`. Verified live on prod
   (public render 302→206 BYPASS; private render still 404/sign-in) + real-browser CORS PUT/ETag + Range GET.
-  Open: MinIO CORS is its global `*` default (shared server) — optional CF Transform Rule to lock it.
+  CORS locked to www via a CF Response Header Transform Rule (verified: example.com blocked in-browser).
 - **Next:** owner's signed-in smoke test of `/account/workspace` + Enhance → AI Restore; watch AISERVER
   for freezes (`/var/crash/`).
 
