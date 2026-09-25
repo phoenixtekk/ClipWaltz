@@ -3,9 +3,41 @@ import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { userCanAccessProject } from "@/lib/workspace";
 import { requireUserId } from "@/lib/auth";
-import { uploadPart } from "@/lib/storage";
+import { uploadPart, directMediaEnabled, presignUploadPart } from "@/lib/storage";
 
 export const runtime = "nodejs";
+
+// Storage edge (ADR-0003): a presigned URL so the browser PUTs this part straight to MinIO via
+// media.clipwaltz.com. Same editor + asset checks as the proxied PUT below, which remains the
+// fallback. 404 { direct: false } when the edge is off.
+export async function GET(
+  req: NextRequest,
+  ctx: { params: Promise<{ id: string; assetId: string }> },
+) {
+  const { id: projectId, assetId } = await ctx.params;
+  let userId: string;
+  try {
+    userId = await requireUserId();
+  } catch {
+    return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+  }
+  if (!directMediaEnabled()) return NextResponse.json({ direct: false }, { status: 404 });
+
+  const url = new URL(req.url);
+  const uploadId = url.searchParams.get("uploadId") ?? "";
+  const partNumber = Number(url.searchParams.get("partNumber"));
+  if (!uploadId || !Number.isInteger(partNumber) || partNumber < 1 || partNumber > 10000) {
+    return NextResponse.json({ error: "bad part params" }, { status: 400 });
+  }
+  const [row] = await db
+    .select({ key: schema.assets.storageKey, state: schema.assets.uploadState })
+    .from(schema.assets)
+    .where(and(eq(schema.assets.id, assetId), eq(schema.assets.projectId, projectId)));
+  if (!row || !(await userCanAccessProject(userId, projectId, "editor"))) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (row.state !== "uploading") return NextResponse.json({ error: "upload already finished" }, { status: 409 });
+
+  return NextResponse.json({ url: await presignUploadPart(row.key, uploadId, partNumber) });
+}
 
 // Upload one part of a resumable multipart upload. Idempotent per part number, so a
 // client can safely retry a failed/interrupted part. Returns the part's ETag.

@@ -29,6 +29,8 @@ See [`env.example`](env.example) for the full list. Groups:
 - **Auth:** `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `AUTH_REQUIRE_EMAIL_VERIFICATION`, optional social creds
 - **DB:** `DATABASE_URL`
 - **Storage (MinIO):** `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_REGION`
+- **Storage edge (ADR-0003):** `S3_PUBLIC_ENDPOINT=https://media.clipwaltz.com` turns on direct
+  browser ↔ MinIO media (presigned URLs); unset it (or `MEDIA_DIRECT=0`) to fall back to proxying.
 - **Email (SES):** `SES_SMTP_HOST/PORT/USER/PASS`, `EMAIL_FROM`
 - **Billing (Stripe):** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_PLUS`, `STRIPE_PRICE_PRO`
 - **AI generation queue (BullMQ):** `REDIS_URL` (default `redis://127.0.0.1:6379`; Redis runs on linuxg1, localhost-only). Used by the app (enqueue) and the generation worker (consume).
@@ -142,7 +144,28 @@ See [`env.example`](env.example) for the full list. Groups:
 
 ## Storage edge for direct downloads/uploads (ADR-0003) — owner setup, then code
 
-Status: **not built.** Needs an owner-created Cloudflare public hostname first.
+Status: **LIVE (2026-09-25).** `media.clipwaltz.com` → linuxg1 tunnel → `192.168.166.169:9000`.
+
+**How it works:** every media route still authorizes in the app (`serveObject` callers: render
+watch/download, generation watch, export download, asset, music), then answers **302 → a presigned
+GET** on the media host (1 h). Uploads: `GET /api/projects/:id/assets/:assetId/part?uploadId&partNumber`
+(editor + asset must still be `uploading`) returns a presigned UploadPart URL (15 min); the browser
+PUTs the 8 MB part there and reads the `ETag`. **Any** direct failure falls back per part to the
+proxied `PUT …/part`, so uploads never get worse than before. Kill switch: `MEDIA_DIRECT=0` (or unset
+`S3_PUBLIC_ENDPOINT`) in `.env.local` + `pm2 restart clipwaltz` → everything is proxied again.
+
+**Verified 2026-09-25:** bucket + objects anonymous 403; tampered signature 403; GET 200 / Range 206 /
+forced-download filename; 8 MB part PUT + complete; real browser on `www.clipwaltz.com`: direct PUT
+200 with readable ETag, cross-origin Range GET 206. Cloudflare **cached** media by default
+(`.mp4` HIT) — the signed GET now sets `response-cache-control=private, max-age=3600`, which
+Cloudflare honours (`cf-cache-status: BYPASS`), so expired URLs can't be served from edge cache.
+
+**Known gaps:** MinIO's CORS is its global default (reflects any origin) — safe here because every
+object needs a signature and MinIO uses no cookies, but the ADR's "CORS locked to ClipWaltz" would
+need a Cloudflare response-header Transform Rule on `media.clipwaltz.com` (MinIO's setting is shared
+with other apps on linuxg7). The zone's Browser Cache TTL raises browser `max-age` to 14400.
+
+Setup (done — kept for rebuilds):
 
 1. **Cloudflare dashboard → Zero Trust → Networks → Tunnels** → the **linuxg1** tunnel (ID starts
    `772914b5`, the one already serving `www.clipwaltz.com`) → **Public Hostnames → Add**:

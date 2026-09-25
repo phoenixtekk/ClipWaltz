@@ -102,6 +102,65 @@ export async function presignGet(key: string, expiresIn = 3600): Promise<string>
   return getSignedUrl(s3(), new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }), { expiresIn });
 }
 
+// ---- Storage edge: direct browser ↔ MinIO via presigned URLs (ADR-0003) --------------------------
+// S3_PUBLIC_ENDPOINT (e.g. https://media.clipwaltz.com) is MinIO's API published through the
+// Cloudflare tunnel (no Access; bucket private). URLs are SIGNED FOR THAT HOST — SigV4 covers the
+// Host header, which cloudflared forwards unchanged — so this client only presigns, never sends.
+// The app still authorizes every request first; MEDIA_DIRECT=0 falls back to proxying.
+const publicEndpoint = (process.env.S3_PUBLIC_ENDPOINT ?? "").replace(/\/$/, "");
+const DOWNLOAD_TTL = 3600; // 1 h — covers a long watch session (seeks reuse the same URL)
+const UPLOAD_PART_TTL = 900; // 15 min per 8 MB part
+
+let _s3Public: S3Client | null = null;
+function s3Public(): S3Client {
+  if (!_s3Public) {
+    _s3Public = new S3Client({
+      endpoint: publicEndpoint,
+      region,
+      forcePathStyle: true,
+      // Presigning happens before the browser has the bytes: the SDK's default flexible checksums
+      // would bake the CRC32 of an EMPTY body into UploadPart URLs (x-amz-checksum-crc32=AAAAAA==).
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
+      credentials: {
+        accessKeyId: process.env.S3_ACCESS_KEY ?? "",
+        secretAccessKey: process.env.S3_SECRET_KEY ?? "",
+      },
+    });
+  }
+  return _s3Public;
+}
+
+/** True when browsers should move media bytes directly to/from MinIO (storage edge configured). */
+export function directMediaEnabled(): boolean {
+  return !!publicEndpoint && process.env.MEDIA_DIRECT !== "0";
+}
+
+/** Presigned GET on the public media host; `download` forces a Save-as with that filename. */
+export async function presignPublicGet(key: string, opts: { download?: string } = {}): Promise<string> {
+  return getSignedUrl(
+    s3Public(),
+    new GetObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+      ResponseContentDisposition: opts.download ? `attachment; filename="${opts.download.replace(/["\\\r\n]/g, "_")}"` : undefined,
+      // `private` keeps Cloudflare from caching signed media (it serves cache hits without
+      // re-checking the signature, so an expired URL would keep working); browsers may still cache.
+      ResponseCacheControl: "private, max-age=3600",
+    }),
+    { expiresIn: DOWNLOAD_TTL },
+  );
+}
+
+/** Presigned UploadPart on the public media host (the browser PUTs the part and reads its ETag). */
+export async function presignUploadPart(key: string, uploadId: string, partNumber: number): Promise<string> {
+  return getSignedUrl(
+    s3Public(),
+    new UploadPartCommand({ Bucket: S3_BUCKET, Key: key, UploadId: uploadId, PartNumber: partNumber }),
+    { expiresIn: UPLOAD_PART_TTL },
+  );
+}
+
 /** Fetch an object's raw bytes (small objects only — e.g. a photo for WaltzMatch analysis). */
 export async function getObjectBytes(key: string): Promise<Uint8Array> {
   const out = await s3().send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }));
@@ -162,6 +221,12 @@ export async function serveObject(
   fallbackType: string,
   opts: { download?: string; cacheControl?: string } = {},
 ): Promise<Response> {
+  // Storage edge: the caller has already authorized — hand the browser a short-lived signed URL
+  // so the bytes flow MinIO → Cloudflare → browser instead of through this process.
+  if (directMediaEnabled()) {
+    const url = await presignPublicGet(key, { download: opts.download });
+    return new Response(null, { status: 302, headers: { location: url, "cache-control": "private, no-store" } });
+  }
   const cacheControl = opts.cacheControl ?? "private, max-age=3600";
   const rangeHeader = req.headers.get("range");
   const m = rangeHeader ? /bytes=(\d+)-(\d*)/.exec(rangeHeader) : null;

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import type { AssetSummary } from "@/lib/assets";
+import { putPartDirect } from "@/lib/upload-client";
 
 type Item = {
   localId: string;
@@ -105,7 +106,21 @@ export function ImportUploader({
   }
 
   // Upload one part via XHR (progress + resolves with ETag), retrying transient failures.
+  // Direct-to-storage first (ADR-0003), then the proxied /part upload with retries as the fallback.
   function putPart(
+    assetId: string,
+    uploadId: string,
+    partNumber: number,
+    chunk: Blob,
+    onProgress: (loaded: number) => void,
+  ): Promise<string> {
+    return putPartDirect(projectId, assetId, uploadId, partNumber, chunk, onProgress, PART_TIMEOUT_MS).catch((err) => {
+      console.warn(`[upload] direct part ${partNumber} failed, using proxy:`, (err as Error).message);
+      return putPartProxied(assetId, uploadId, partNumber, chunk, onProgress);
+    });
+  }
+
+  function putPartProxied(
     assetId: string,
     uploadId: string,
     partNumber: number,

@@ -103,7 +103,7 @@ Per `00_ClipWaltz_Build_Execution_Guide.md` §38. Newest first.
   A data migration backfills a default workspace for every existing user and their projects.
 
 ## ADR-0003 — Direct-to-object-storage signed URLs (replacing app-proxied media)
-- **Date:** 2026-09-23
+- **Date:** 2026-09-23 · **Status:** implemented 2026-09-25 (`media.clipwaltz.com`; see ADMIN_DOCS "Storage edge")
 - **Decision:** Adopt presigned direct-to-MinIO upload/download URLs per the architecture
   (doc 01 §12/§17, Guide §22), replacing the current app-proxied media model for the generation
   path.

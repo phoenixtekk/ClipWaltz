@@ -181,6 +181,15 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
   the Community / entering a challenge stays with the project's creator (credit + prizes).
 - Data: `workspace_invites` (migration 0029). Actions: `src/lib/workspace-actions.ts`.
 
+## Direct media delivery — storage edge (2026-09-25, ADR-0003)
+
+- Videos, photos and music now stream **directly from storage** (`media.clipwaltz.com`, Cloudflare)
+  instead of through the app server: the app checks access, then redirects to a 1-hour signed link
+  (seeking works; downloads keep their filename). Large uploads send each 8 MB part straight to
+  storage too, falling back automatically to the old path if a part can't go direct.
+- Private by design: no link works without a valid, unexpired signature, and signed media is never
+  cached at Cloudflare's edge.
+
 ## AI video generation (2026-09-23) + AI Restore (2026-09-24)
 
 Runs alongside the music-video assembler (ADR-0001). Jobs go through Redis/BullMQ

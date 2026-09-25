@@ -53,7 +53,63 @@ function simplePost(projectId: string, file: File, onProgress?: (pct: number) =>
   });
 }
 
+// Storage edge (ADR-0003): PUT a part straight to MinIO via a presigned media.clipwaltz.com URL and
+// return its ETag. Rejects on ANY problem so callers fall back to the proxied /part upload; after
+// the server says the edge is off, stop asking for this page load.
+let directOff = false;
+export function putPartDirect(
+  projectId: string,
+  assetId: string,
+  uploadId: string,
+  partNumber: number,
+  chunk: Blob,
+  onProgress: (loaded: number) => void,
+  timeoutMs = 10 * 60 * 1000,
+): Promise<string> {
+  if (directOff) return Promise.reject(new Error("direct upload off"));
+  const q = new URLSearchParams({ uploadId, partNumber: String(partNumber) });
+  return fetch(`/api/projects/${projectId}/assets/${assetId}/part?${q.toString()}`)
+    .then(async (res) => {
+      if (res.status === 404 && (await res.clone().json().catch(() => ({}))).direct === false) directOff = true;
+      if (!res.ok) throw new Error(`presign ${res.status}`);
+      return ((await res.json()) as { url: string }).url;
+    })
+    .then(
+      (url) =>
+        new Promise<string>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("PUT", url);
+          xhr.timeout = timeoutMs;
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) onProgress(e.loaded);
+          };
+          xhr.onload = () => {
+            const etag = xhr.getResponseHeader("ETag");
+            if (xhr.status >= 200 && xhr.status < 300 && etag) resolve(etag);
+            else reject(new Error(`direct part ${partNumber}: HTTP ${xhr.status}${etag ? "" : " (no ETag)"}`));
+          };
+          xhr.onerror = () => reject(new Error(`direct part ${partNumber}: network error`));
+          xhr.ontimeout = () => reject(new Error(`direct part ${partNumber}: timed out`));
+          xhr.send(chunk);
+        }),
+    );
+}
+
 function putPart(
+  projectId: string,
+  assetId: string,
+  uploadId: string,
+  partNumber: number,
+  chunk: Blob,
+  onProgress: (loaded: number) => void,
+): Promise<string> {
+  return putPartDirect(projectId, assetId, uploadId, partNumber, chunk, onProgress).catch((err) => {
+    if (!directOff) console.warn(`[upload] direct part ${partNumber} failed, using proxy:`, (err as Error).message);
+    return putPartProxied(projectId, assetId, uploadId, partNumber, chunk, onProgress);
+  });
+}
+
+function putPartProxied(
   projectId: string,
   assetId: string,
   uploadId: string,
