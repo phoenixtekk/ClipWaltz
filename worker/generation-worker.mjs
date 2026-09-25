@@ -83,11 +83,13 @@ const wmGeometry = (w, h) => {
   const s = Math.min(w, h) || 480;
   return { wmW: Math.max(32, Math.round(s * 0.22)), pad: Math.round(s * 0.03) };
 };
-// Overlay chain taking [base] → [out] (the logo is input `wmIdx`).
-const wmChain = (base, wmIdx, w, h) => {
+// Overlay chain taking [base] → [out]. The logo is generated inside the graph (movie + loop +
+// regular timestamps): on ffmpeg 7.x a PNG *input* drops the logo (single frame) or drops frames
+// at random (-loop 1) — verified 2026-09-25 on the render worker.
+const wmChain = (base, w, h) => {
   const { wmW, pad } = wmGeometry(w, h);
-  return `[${wmIdx}:v]scale=${wmW}:-1,format=rgba,colorchannelmixer=aa=0.9[wm];` +
-    `[${base}][wm]overlay=x=${pad}:y=main_h-overlay_h-${pad}:format=auto,format=yuv420p[out]`;
+  return `movie='${WATERMARK_PATH}',scale=${wmW}:-1,format=rgba,colorchannelmixer=aa=0.9,loop=loop=-1:size=1:start=0,setpts=N/30/TB[wm];` +
+    `[${base}][wm]overlay=x=${pad}:y=main_h-overlay_h-${pad}:format=auto:shortest=1,format=yuv420p[out]`;
 };
 
 /** Burn the logo into an MP4 (audio copied if present). */
@@ -98,9 +100,8 @@ async function watermarkBytes(bytes) {
   try {
     const src = join(dir, "in.mp4"), out = join(dir, "out.mp4");
     writeFileSync(src, bytes);
-    // Single-frame logo input: overlay repeats its last frame for the whole clip (as the render worker).
-    await run("ffmpeg", ["-y", "-i", src, "-i", WATERMARK_PATH,
-      "-filter_complex", wmChain("0:v", 1, meta.width, meta.height), "-map", "[out]", "-map", "0:a?",
+    await run("ffmpeg", ["-y", "-i", src,
+      "-filter_complex", wmChain("0:v", meta.width, meta.height), "-map", "[out]", "-map", "0:a?",
       "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-c:a", "copy", "-movflags", "+faststart", out], { maxBuffer: 1 << 26 });
     return readFileSync(out);
   } finally {
@@ -322,8 +323,7 @@ async function processExport(exportJobId) {
       // Logo size follows the OUTPUT frame: probe the scaled size via the same filter.
       const meta = await probeVideo(readFileSync(srcPath)).catch(() => ({}));
       const scaled = scaledSize(meta.width, meta.height, ej.resolution);
-      args.push("-i", WATERMARK_PATH, "-filter_complex",
-        `[0:v]${vf ?? "null"}[base];${wmChain("base", 1, scaled.w, scaled.h)}`, "-map", "[out]");
+      args.push("-filter_complex", `[0:v]${vf ?? "null"}[base];${wmChain("base", scaled.w, scaled.h)}`, "-map", "[out]");
     } else if (vf) args.push("-vf", vf);
     if (fmt === "webm") args.push("-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "32", "-an");
     else args.push("-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "20", "-movflags", "+faststart", "-an");

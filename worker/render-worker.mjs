@@ -1355,8 +1355,10 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     let origIdx = -1;
     if (musicFile) { args.push("-ss", musicOffset.toFixed(3), "-stream_loop", "-1", "-i", fwd(musicFile)); musicIdx = idx++; }
     if (origAudioFile) { args.push("-i", fwd(origAudioFile)); origIdx = idx++; }
-    let wmIdx = -1;
-    if (useWatermark && wmOk) { args.push("-i", fwd(WATERMARK_PATH)); wmIdx = idx++; }
+    // The logo is generated INSIDE the filter graph (movie + loop + regular 30 fps timestamps),
+    // not as an ffmpeg input. On ffmpeg 7.1 a PNG input dropped the logo: a single frame vanished
+    // after ~2 s, and `-loop 1` dropped frames at random (verified 2026-09-25, 3 runs each).
+    const useWm = useWatermark && wmOk;
 
     // Levels (0–1); default 1. Music dips a touch by default when mixed with original audio so the
     // clip's own sound stays intelligible; the user can override both with the level sliders.
@@ -1365,10 +1367,10 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     const endFade = style.fadeOut && outDur > 1.6; // fade audio out with the picture
 
     // Assemble the audio graph from whichever sources are present.
-    // Single-frame PNG input: overlay repeats its last frame (eof_action=repeat) for the whole video.
-    let fc = wmIdx >= 0
-      ? `[0:v]${look(useTitle)}[vlook];[${wmIdx}:v]scale=${wmW}:-1,format=rgba,colorchannelmixer=aa=0.9[wm];` +
-        `[vlook][wm]overlay=x=${wmPad}:y=main_h-overlay_h-${wmPad}:format=auto,${fades(outDur)}[vout]`
+    let fc = useWm
+      ? `movie='${fwd(WATERMARK_PATH)}',scale=${wmW}:-1,format=rgba,colorchannelmixer=aa=0.9,loop=loop=-1:size=1:start=0,setpts=N/30/TB[wm];` +
+        `[0:v]${look(useTitle)}[vlook];` +
+        `[vlook][wm]overlay=x=${wmPad}:y=main_h-overlay_h-${wmPad}:format=auto:shortest=1,${fades(outDur)}[vout]`
       : `[0:v]${look(useTitle)},${fades(outDur)}[vout]`;
     const stems = [];
     if (musicIdx >= 0 && musicVol > 0) { fc += `;[${musicIdx}:a]volume=${musicVol.toFixed(3)}[ma]`; stems.push("[ma]"); }

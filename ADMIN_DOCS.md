@@ -290,6 +290,13 @@ upscaled. Deleting a version deletes both objects. The generation worker (linuxg
 `pm2 clipwaltz-gen-worker`) reads the logo from `worker/WaterMark.png` next to it and **fails the
 job** if it is missing (it never silently ships an unwatermarked video).
 
+**How the logo is drawn (both workers):** inside the ffmpeg filter graph —
+`movie='<WaterMark.png>',scale,…,loop=loop=-1:size=1,setpts=N/30/TB` → `overlay=…:shortest=1`.
+Do NOT feed the PNG as an ffmpeg input: on ffmpeg 7.1 (AI box) a single-frame PNG input dropped the
+logo after ~1.5–2 s, and `-loop 1` dropped frames at random (found 2026-09-25; free-tier music
+videos rendered before then only carry the logo at the start). Check every frame, not one: crop the
+logo's text strip and count frames with `signalstats` YMAX < 200 (see the 2026-09-25 handoff).
+
 **Render worker logo file:** `worker/WaterMark.png` (transparent PNG, a copy of `public/WaterMark.png`)
 is overlaid bottom-left. **Deploy it with the worker** — scp it next to `render-worker.mjs`
 (`/home/lacy/clipwaltz/worker/` on the AI box, owned by `lacy`); override with `WATERMARK_PATH`.
