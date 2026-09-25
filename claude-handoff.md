@@ -65,6 +65,12 @@ f22c126 docs(handoff): rotate to session v6
   `S3_PUBLIC_ENDPOINT` (backup `.env.local.bak-edge-*`); kill switch `MEDIA_DIRECT=0`. Verified live on prod
   (public render 302→206 BYPASS; private render still 404/sign-in) + real-browser CORS PUT/ETag + Range GET.
   CORS locked to www via a CF Response Header Transform Rule (verified: example.com blocked in-browser).
+- **360 fix (`6490dfe`, DEPLOYED app + AI-box worker, migration 0031):** single-lens `.insv` (split `_00_`/`_10_`
+  recordings) now lens-axis view (full-sphere level had aimed it at the lens edge: "tilt 96°"); follow = default,
+  2-lens only; circular yaw smoothing; aspect-correct FOV; per-clip **360 view** in the clip editor; worker uploads
+  stream in 64 MB parts (>2 GiB outputs used to fail). Owner's jet-ski clip re-converted + verified (wake + chasing
+  rider). Known limit: 2-lens handheld clips keep a tilted horizon (single global level; gyro not used). Split-lens
+  pairs (_00_+_10_) are not stitched together. Watermark = Free tier only (owner is Pro) — by design.
 - **Next:** owner's signed-in smoke test of `/account/workspace` + Enhance → AI Restore; watch AISERVER
   for freezes (`/var/crash/`).
 
