@@ -59,9 +59,12 @@ f22c126 docs(handoff): rotate to session v6
   seed); friendly errors + Retry (atomic `retried`); only the final BullMQ attempt sets `failed`.
   Verified on dev: routing matrix/fallback/disable, worker E2E (10 steps, recorded seed, neg appended),
   attempt-aware failure. **Not browser-verified** (auth-gated): /admin/ai UI, Retry button, greyed options.
-- **ADR-0003 storage edge:** owner steps in ADMIN_DOCS ("Storage edge…"): `media.clipwaltz.com` →
-  `http://192.168.166.169:9000` on the linuxg1 tunnel (772914b5…), no Access, cache bypass. Then code:
-  presign on that endpoint, CORS, multipart <100 MB parts (CF Free/Pro 413 limit).
+- **Storage edge LIVE (ADR-0003, `99e7de5`, 2026-09-25):** `media.clipwaltz.com` → MinIO. Media routes auth
+  then 302 → 1 h presigned GET (`response-cache-control=private` → CF BYPASS; CF cached `.mp4` by default);
+  upload parts PUT direct via presigned UploadPart, per-part fallback to the proxy. Prod env
+  `S3_PUBLIC_ENDPOINT` (backup `.env.local.bak-edge-*`); kill switch `MEDIA_DIRECT=0`. Verified live on prod
+  (public render 302→206 BYPASS; private render still 404/sign-in) + real-browser CORS PUT/ETag + Range GET.
+  Open: MinIO CORS is its global `*` default (shared server) — optional CF Transform Rule to lock it.
 - **Next:** owner's signed-in smoke test of `/account/workspace` + Enhance → AI Restore; watch AISERVER
   for freezes (`/var/crash/`).
 
