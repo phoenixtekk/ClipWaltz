@@ -12,6 +12,7 @@ const PUBLIC_PATHS = [
   /^\/terms(?:\/|$)/,
   /^\/privacy(?:\/|$)/,
   /^\/refund(?:\/|$)/,
+  /^\/help(?:\/|$)/, // in-app Help Center
   /^\/community(?:\/|$)/, // public community feed
   /^\/feed(?:\/|$)/, // legacy → redirects to /community
   /^\/w\/[^/]+$/, // public watch page
@@ -20,6 +21,7 @@ const PUBLIC_PATHS = [
   /^\/api\/auth(?:\/|$)/,
   /^\/api\/billing\/webhook(?:\/|$)/, // Stripe posts here with no cookie
   /^\/api\/internal\/render-ready(?:\/|$)/, // worker callback (shared-secret gated)
+  /^\/api\/internal\/retention(?:\/|$)/, // worker-triggered retention (shared-secret gated)
   /^\/api\/oauth\/microsoft\/callback(?:\/|$)/, // OneDrive.js picker redirect (SDK loader)
 ];
 
