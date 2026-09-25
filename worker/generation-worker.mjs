@@ -77,11 +77,13 @@ function framesForSeconds(seconds) {
 
 // ─── Watermark (owner decision 2026-09-25: every video, bottom-left; admin can exempt paid plans) ──
 // The app decides per job (request_json.watermark / export_jobs.watermark); same logo, size and
-// placement as the music-video render worker: 22% of the short side, 3% padding, 90% opacity.
+// placement as the music-video render worker: 15.4% of the short side (30% smaller than the original 22%), 3% padding, 90% opacity.
+// Keep WM_SCALE in sync with worker/render-worker.mjs.
+const WM_SCALE = 0.154;
 const WATERMARK_PATH = process.env.WATERMARK_PATH || join(dirname(fileURLToPath(import.meta.url)), "WaterMark.png");
 const wmGeometry = (w, h) => {
   const s = Math.min(w, h) || 480;
-  return { wmW: Math.max(32, Math.round(s * 0.22)), pad: Math.round(s * 0.03) };
+  return { wmW: Math.max(24, Math.round(s * WM_SCALE)), pad: Math.round(s * 0.03) };
 };
 // Overlay chain taking [base] → [out]. The logo is generated inside the graph (movie + loop +
 // regular timestamps): on ffmpeg 7.x a PNG *input* drops the logo (single frame) or drops frames

@@ -276,7 +276,7 @@ project's clips from MinIO, FFmpeg-assembles a 1080p 9:16 video (photos 2s, vide
 music from `music_tracks`, optional watermark), uploads to `renders/<projectId>/<renderId>.mp4`,
 and marks the row `done` (+ project `ready`). Reuses the app's `postgres` + S3 deps.
 
-**Watermark — every video (2026-09-25):** the ClipWaltz logo goes bottom-left (22% of the short
+**Watermark — every video (2026-09-25):** the ClipWaltz logo goes bottom-left (15.4% of the short
 side, 3% padding, 90% opacity) on music-video renders AND every AI output: generations,
 enhancements, storyboards (montage) and exports. **Free is always watermarked; paid plans are
 watermarked while `/admin → Watermark → "Watermark paid plans"` is on (default on).** The switch

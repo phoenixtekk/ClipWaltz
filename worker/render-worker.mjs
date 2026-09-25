@@ -71,6 +71,8 @@ const VISION_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS ?? 20000);
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "").replace(/\/$/, "");
 // Free-tier watermark image (the ClipWaltz logo + URL, transparent PNG), shipped next to this file.
 // Override with WATERMARK_PATH. Missing file → renders proceed without a watermark (logged).
+// Logo width as a share of the frame's short side. Keep in sync with worker/generation-worker.mjs.
+const WM_SCALE = 0.154;
 const WATERMARK_PATH = process.env.WATERMARK_PATH || join(dirname(fileURLToPath(import.meta.url)), "WaterMark.png");
 
 const WORKER_CALLBACK_SECRET = process.env.WORKER_CALLBACK_SECRET ?? "";
@@ -1303,11 +1305,11 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
   // Crossfade overlaps segments (shortens the video); original audio is a straight concat matching
   // the CUT timeline, so the two would drift. When original audio is on, force cut transitions.
   const wantCross = style.transition === "crossfade" && segments.length > 1 && !style.originalAudio;
-  // Watermark: the logo PNG, bottom-left, sized to ~22% of the frame's short side, slightly
+  // Watermark: the logo PNG, bottom-left, sized to ~15.4% of the frame's short side (owner: 30% smaller than the original 22%, 2026-09-25), slightly
   // translucent. Overlaid before the fades so it fades in/out with the picture.
   const wmOk = existsSync(WATERMARK_PATH);
   if (watermark && !wmOk) console.warn(`[worker] watermark image missing at ${WATERMARK_PATH} — rendering without it`);
-  const wmW = Math.round(Math.min(W, H) * 0.22);
+  const wmW = Math.round(Math.min(W, H) * WM_SCALE);
   const wmPad = Math.round(Math.min(W, H) * 0.03);
   const titleT = safeText(style.titleText);
 
