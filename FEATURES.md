@@ -4,6 +4,14 @@ Living inventory of implemented capabilities. A feature isn't "done" until it's 
 operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 [Help Center](HELP_CENTER.md).
 
+## Product names (owner decision 2026-09-25)
+| Name | What it is | Code |
+|---|---|---|
+| **AutoWaltz** | Your photos + videos → a beat-synced music video (the original feature; includes Auto-Batch). | `renders`, `src/lib/render-actions.ts`, `worker/render-worker.mjs` (AI box) |
+| **Waltz AI** | New AI clips from a prompt or image (text/image-to-video), plus Enhance, storyboard assembly and exports of those clips. | `generation_jobs` / `generation_versions`, `src/lib/generation-actions.ts`, `worker/generation-worker.mjs` (linuxg1) → AISERVER |
+
+Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
+
 ## Status legend
 ✅ implemented · 🚧 scaffolded (stub/wiring only) · ⬜ planned (MVP) · 🔭 later
 
