@@ -4,7 +4,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
-import { enqueueGeneration, enqueueEnhance, generationQueue } from "./queue";
+import { enqueueGeneration, enqueueEnhance, generationQueue, enhanceQueue } from "./queue";
 import { deleteObject } from "./storage";
 import { userCanAccessProject } from "./workspace";
 import { friendlyJobError } from "./ai/errors";
@@ -129,6 +129,12 @@ export async function createGenerationJob(input: CreateGenerationInput): Promise
   const quality: Quality = QUALITIES.includes(input.quality as Quality) ? (input.quality as Quality) : "standard";
   const motion = MOTION_PHRASE[input.motion ?? ""] !== undefined ? input.motion! : "balanced";
   const route = await routeOrUserError(input.jobType, quality);
+  // CW-MVP-051: only lengths the routed workflow is validated for.
+  if (input.durationSec != null) {
+    if ((route.durationMax != null && input.durationSec > route.durationMax) || (route.durationMin != null && input.durationSec < route.durationMin)) {
+      throw new Error(`This model makes clips of ${route.durationMin ?? 1}–${route.durationMax ?? "any"} seconds. Pick a length in that range.`);
+    }
+  }
   const priority = await priorityFor(userId);
 
   const id = randomUUID();
@@ -542,6 +548,7 @@ export async function cancelGenerationJob(jobId: string): Promise<void> {
       id: schema.generationJobs.id,
       projectId: schema.generationJobs.projectId,
       status: schema.generationJobs.status,
+      jobType: schema.generationJobs.jobType,
       ownerId: schema.projects.ownerId,
     })
     .from(schema.generationJobs)
@@ -549,14 +556,17 @@ export async function cancelGenerationJob(jobId: string): Promise<void> {
     .where(eq(schema.generationJobs.id, jobId));
   if (!row || !(await userCanAccessProject(userId, row.projectId, "editor"))) throw new Error("Job not found");
 
-  await db
+  // Only a job that is still running can be cancelled — never overwrite a finished one (CW-MVP-084).
+  const [hit] = await db
     .update(schema.generationJobs)
     .set({ status: "cancelled", updatedAt: new Date() })
-    .where(eq(schema.generationJobs.id, jobId));
-  // Remove it from BullMQ if it hasn't been claimed yet (best-effort).
-  await generationQueue()
-    .remove(jobId)
-    .catch(() => {});
+    .where(and(eq(schema.generationJobs.id, jobId), sql`${schema.generationJobs.status} not in ('completed', 'failed', 'cancelled', 'retried')`))
+    .returning({ id: schema.generationJobs.id });
+  if (!hit) throw new Error("This job has already finished");
+  // Remove it from its BullMQ queue if it hasn't been claimed yet (best-effort). Enhancements and
+  // storyboards run on the enhance queue, generations on the generation queue.
+  const queue = row.jobType === "enhancement" || row.jobType === "montage" ? enhanceQueue() : generationQueue();
+  await queue.remove(jobId).catch(() => {});
   revalidatePath(`/projects/${row.projectId}/edit`);
 }
 

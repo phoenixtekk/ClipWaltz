@@ -136,6 +136,12 @@ async function insertVersion(projectId, row) {
   });
 }
 
+// A job cancelled while ffmpeg/AI work was running: drop the result instead of completing it.
+async function wasCancelled(id) {
+  const [r] = await sql`select status from generation_jobs where id = ${id}`;
+  return r?.status === "cancelled" || r?.status === "retried";
+}
+
 async function setStatus(id, fields) {
   await sql`update generation_jobs set ${sql(fields)}, updated_at = now() where id = ${id}`;
 }
@@ -518,6 +524,7 @@ async function processEnhance(genJobId) {
   await setStatus(genJobId, { status: ai ? "generating" : "enhancing", progress: 40, started_at: new Date() });
 
   const videoBytes = ai ? await aiEnhance(req, genJobId) : await ffmpegEnhance(req);
+  if (await wasCancelled(genJobId)) { console.log("[enh] cancelled mid-run, result dropped", genJobId); return; }
 
   await setStatus(genJobId, { status: "uploading_output", progress: 85 });
   const [{ maxv }] = await sql`select coalesce(max(version_number),0)::int maxv from generation_versions where project_id = ${j.project_id}`;
@@ -538,6 +545,7 @@ async function processEnhance(genJobId) {
 async function processMontage(j, req, genJobId) {
   await setStatus(genJobId, { status: "encoding", progress: 10, started_at: new Date() });
   const videoBytes = await assembleMontage(req, genJobId);
+  if (await wasCancelled(genJobId)) { console.log("[enh] storyboard cancelled mid-run, result dropped", genJobId); return; }
   await setStatus(genJobId, { status: "uploading_output", progress: 85 });
   const [{ maxv }] = await sql`select coalesce(max(version_number),0)::int maxv from generation_versions where project_id = ${j.project_id}`;
   const versionNumber = (maxv ?? 0) + 1;

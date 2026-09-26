@@ -21,6 +21,7 @@ import {
   RotateCcw,
   Pencil,
   Lightbulb,
+  Maximize2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
@@ -89,8 +90,7 @@ const CAMERAS: { key: string; label: string; phrase: string }[] = [
 const MOTIONS = ["subtle", "balanced", "dynamic"] as const;
 type Motion = (typeof MOTIONS)[number];
 
-// §9 Duration pills. The backend currently uses a fixed clip length, but we pass durationSec for
-// forward-compat (documented in the task brief).
+// §9 Duration pills. Lengths above the routed workflow's validated maximum are disabled (CW-MVP-051).
 const DURATIONS = [3, 5, 8] as const;
 
 // §9 Aspect icons → width/height passed to createGenerationJob (all divisible by 16).
@@ -179,6 +179,21 @@ function relTime(iso: string): string {
   return `${d}d ago`;
 }
 
+// CW-MVP-111: an explicit fullscreen control on the preview (the native one is easy to miss).
+function FullscreenButton({ target }: { target: React.RefObject<HTMLVideoElement | null> }) {
+  return (
+    <button
+      type="button"
+      aria-label="Fullscreen"
+      title="Fullscreen"
+      onClick={() => void target.current?.requestFullscreen?.().catch(() => {})}
+      className="absolute right-2 top-2 rounded-md bg-black/55 p-1.5 text-white opacity-80 transition-opacity hover:opacity-100 focus-visible:opacity-100"
+    >
+      <Maximize2 className="size-4" />
+    </button>
+  );
+}
+
 export function GenerationPanel({
   projectId,
   photos,
@@ -190,6 +205,7 @@ export function GenerationPanel({
   templateSettings?: GenerationSettings | null;
 }) {
   // Create-panel state
+  const previewRef = useRef<HTMLVideoElement>(null);
   const [mode, setMode] = useState<"image" | "text">(photos.length ? "image" : "text");
   const [sourceAssetId, setSourceAssetId] = useState<string | null>(photos[0]?.id ?? null);
   const [prompt, setPrompt] = useState("");
@@ -341,6 +357,10 @@ export function GenerationPanel({
   }
 
   const qualityAvailable = (q: Quality) => !avail || (mode === "text" ? avail.textToVideo : avail.imageToVideo)[q];
+  const durationAvailable = (d: number) => {
+    const max = avail ? (mode === "text" ? avail.textToVideoMaxSec : avail.imageToVideoMaxSec)?.[qualityKey] : null;
+    return max == null || d <= max;
+  };
   const presetAvailable = (p: (typeof ENHANCE_PRESETS)[number]) =>
     !avail || (p.engine === "ffmpeg" ? true : p.engine === "restore" ? avail.restore && (!p.interpolate || avail.interpolate)
       : (!p.upscale || avail.upscale) && (!p.interpolate || avail.interpolate));
@@ -760,7 +780,8 @@ export function GenerationPanel({
           <Field label="Duration">
             <div className="flex gap-2">
               {DURATIONS.map((d) => (
-                <Chip key={d} active={durationSec === d} onClick={() => setDurationSec(d)}>
+                <Chip key={d} active={durationSec === d} onClick={() => setDurationSec(d)} disabled={!durationAvailable(d)}
+                  title={durationAvailable(d) ? undefined : "Longer than this model supports"}>
                   {d}s
                 </Chip>
               ))}
@@ -1093,8 +1114,10 @@ export function GenerationPanel({
             </div>
           ) : (
             <>
-              <div className="overflow-hidden rounded-xl border border-border bg-black">
+              <div className="relative overflow-hidden rounded-xl border border-border bg-black">
+                <FullscreenButton target={previewRef} />
                 <video
+                  ref={previewRef}
                   key={selected.id}
                   src={`/api/generations/${selected.id}/watch`}
                   controls
@@ -1437,18 +1460,24 @@ function Chip({
   active,
   onClick,
   children,
+  disabled,
+  title,
 }: {
   active: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={active}
+      disabled={disabled}
+      title={title}
       className={cn(
-        "rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
+        "rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
         active
           ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10 text-foreground"
           : "border-border text-muted-foreground hover:text-foreground",

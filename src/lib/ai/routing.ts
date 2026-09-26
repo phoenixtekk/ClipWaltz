@@ -18,6 +18,9 @@ export type GenerationRoute = {
   workflowVersion: string;
   modelName: string | null;
   steps: number | null;
+  /** Clip-length range the workflow is validated for (workflow_registry; null = no limit). CW-MVP-051. */
+  durationMin: number | null;
+  durationMax: number | null;
 };
 
 /** Thrown when nothing enabled can serve a request; the message is safe to show users. */
@@ -34,6 +37,8 @@ export async function resolveGenerationRoute(task: GenerationTask, quality: Qual
       workflowId: schema.workflowRegistry.workflowId,
       version: schema.workflowRegistry.version,
       modelName: schema.workflowRegistry.modelName,
+      durationMin: schema.workflowRegistry.durationMin,
+      durationMax: schema.workflowRegistry.durationMax,
     })
     .from(schema.routingRules)
     .innerJoin(schema.workflowRegistry, eq(schema.routingRules.workflowRegistryId, schema.workflowRegistry.id))
@@ -55,7 +60,8 @@ export async function resolveGenerationRoute(task: GenerationTask, quality: Qual
     const what = task === "text_to_video" ? "Text-to-video" : "Image-to-video";
     throw new RouteUnavailableError(`${what} at ${quality} quality is temporarily unavailable. Try another quality or check back soon.`);
   }
-  return { ruleId: r.ruleId, workflow: wrapperId(r), workflowVersion: r.version, modelName: r.modelName, steps: r.steps };
+  return { ruleId: r.ruleId, workflow: wrapperId(r), workflowVersion: r.version, modelName: r.modelName, steps: r.steps,
+    durationMin: r.durationMin, durationMax: r.durationMax };
 }
 
 /** The enabled wrapper workflow for an enhancement task, or null if none is enabled. */
@@ -79,6 +85,9 @@ export async function resolveEnhanceWorkflow(task: EnhanceTask): Promise<string 
 export type AiAvailability = {
   textToVideo: Record<Quality, boolean>;
   imageToVideo: Record<Quality, boolean>;
+  /** Longest clip (seconds) each task's route allows per quality; null = unavailable or no limit. */
+  textToVideoMaxSec: Record<Quality, number | null>;
+  imageToVideoMaxSec: Record<Quality, number | null>;
   upscale: boolean;
   interpolate: boolean;
   restore: boolean;
@@ -86,16 +95,23 @@ export type AiAvailability = {
 
 /** What the Generate tab can offer right now (drives which options are enabled in the UI). */
 export async function getAiAvailability(): Promise<AiAvailability> {
-  const can = async (task: GenerationTask, q: Quality) =>
-    resolveGenerationRoute(task, q).then(() => true, () => false);
-  const per = async (task: GenerationTask) =>
-    Object.fromEntries(await Promise.all(QUALITIES.map(async (q) => [q, await can(task, q)] as const))) as Record<Quality, boolean>;
-  const [textToVideo, imageToVideo, upscale, interpolate, restore] = await Promise.all([
+  const route = async (task: GenerationTask, q: Quality) => resolveGenerationRoute(task, q).catch(() => null);
+  const per = async (task: GenerationTask) => {
+    const routes = await Promise.all(QUALITIES.map(async (q) => [q, await route(task, q)] as const));
+    return {
+      ok: Object.fromEntries(routes.map(([q, r]) => [q, !!r])) as Record<Quality, boolean>,
+      max: Object.fromEntries(routes.map(([q, r]) => [q, r?.durationMax ?? null])) as Record<Quality, number | null>,
+    };
+  };
+  const [t2v, i2v, upscale, interpolate, restore] = await Promise.all([
     per("text_to_video"),
     per("image_to_video"),
     resolveEnhanceWorkflow("upscale"),
     resolveEnhanceWorkflow("interpolate"),
     resolveEnhanceWorkflow("restore"),
   ]);
-  return { textToVideo, imageToVideo, upscale: !!upscale, interpolate: !!interpolate, restore: !!restore };
+  return {
+    textToVideo: t2v.ok, imageToVideo: i2v.ok, textToVideoMaxSec: t2v.max, imageToVideoMaxSec: i2v.max,
+    upscale: !!upscale, interpolate: !!interpolate, restore: !!restore,
+  };
 }

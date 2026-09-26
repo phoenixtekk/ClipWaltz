@@ -12,6 +12,15 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## Backlog gap fixes (2026-09-25)
+- **Cancel (084):** only a job that's still running can be cancelled — a finished one is never overwritten
+  ("This job has already finished"); enhancements/storyboards are removed from the enhance queue (they
+  were only removed from the generation queue), and one cancelled mid-run has its result dropped.
+- **Clip library (021):** video thumbnails show the clip length (m:ss).
+- **Fullscreen (111):** explicit fullscreen button on the Waltz AI preview.
+- **Clip length vs model (051):** the routed workflow's validated range (`workflow_registry.duration_min/max`)
+  is enforced server-side and lengths above it are greyed out in the Waltz AI tab.
+
 ## Status legend
 ✅ implemented · 🚧 scaffolded (stub/wiring only) · ⬜ planned (MVP) · 🔭 later
 

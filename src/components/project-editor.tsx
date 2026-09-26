@@ -7,6 +7,12 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { AssetSummary } from "@/lib/assets";
+
+// 7 → "0:07", 83.4 → "1:23"
+const fmtClipLen = (sec: number) => {
+  const t = Math.max(1, Math.round(sec));
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+};
 import { deleteAsset } from "@/lib/asset-actions";
 import {
   setProjectLength,
@@ -193,8 +199,9 @@ export function ProjectEditor({
                       <Eye className="size-4 text-white" />
                     </span>
                     {a.kind === "video" ? (
-                      <span className="absolute bottom-0.5 right-0.5 rounded bg-black/60 p-0.5">
-                        <Film className="size-2.5 text-white" />
+                      // Clip length on the thumbnail (CW-MVP-021); the film icon until it's known.
+                      <span className="absolute bottom-0.5 right-0.5 rounded bg-black/60 px-0.5 text-[9px] font-medium leading-tight text-white tabular-nums">
+                        {a.durationSec ? fmtClipLen(a.durationSec) : <Film className="size-2.5" />}
                       </span>
                     ) : null}
                   </button>
