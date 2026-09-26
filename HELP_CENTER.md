@@ -142,6 +142,11 @@ them there, then come back. (These are in addition to the "video ready" email, w
 - Change someone's role or remove them from the Workspace page at any time — removal takes effect
   immediately. If you were invited, you can **Leave** a workspace from the same page.
 
+## Feedback
+- Open the account menu (your initial, top right) → **Send feedback**. Pick Idea, Something's broken,
+  I like this or Other, write a line or two and press **Send**. The page you were on is included so we
+  can see what you mean. Every message is read.
+
 ## Account
 - Profile, password reset, retention (free sources auto-delete after 7 days; paid "Project Vault"
   keeps them).

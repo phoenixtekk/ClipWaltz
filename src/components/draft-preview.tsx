@@ -5,6 +5,7 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import type { AssetSummary } from "@/lib/assets";
 import { buildDraftTimeline } from "@/lib/draft";
+import { trackClientEvent } from "@/lib/analytics-actions";
 
 function fmt(sec: number) {
   const s = Math.max(0, Math.round(sec));
@@ -51,6 +52,14 @@ export function DraftPreview({
     () => clips.map((c) => `${c.id}:${c.durationSec}`).join("|") + `#${musicTrackId ?? ""}`,
     [clips, musicTrackId],
   );
+
+  // Time-to-first-draft-preview (beta metric): the server records only the first per project.
+  const reported = useRef(false);
+  useEffect(() => {
+    if (reported.current || clips.length === 0) return;
+    reported.current = true;
+    void trackClientEvent("draft_preview_shown", projectId, { clips: clips.length }).catch(() => {});
+  }, [clips.length, projectId]);
 
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);

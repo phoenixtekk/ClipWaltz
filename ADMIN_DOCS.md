@@ -276,6 +276,18 @@ project's clips from MinIO, FFmpeg-assembles a 1080p 9:16 video (photos 2s, vide
 music from `music_tracks`, optional watermark), uploads to `renders/<projectId>/<renderId>.mp4`,
 and marks the row `done` (+ project `ready`). Reuses the app's `postgres` + S3 deps.
 
+**Beta instrumentation (2026-09-25):** `analytics_events` (name, user_id, project_id, props jsonb,
+created_at) is append-only; `track()` in `src/lib/analytics.ts` never throws. Server events:
+`upload_completed` (upload routes), `render_requested`, `render_downloaded` / `export_downloaded`
+(one per download — ranged continuations skipped; `bytes` from a HEAD), `plan_changed`
+(Stripe webhook + admin grants: `from`, `to`, `source`), `storage_snapshot` (once per UTC day from
+the 6-hourly retention tick: bytes/objects per top-level bucket prefix). Browser events via
+`trackClientEvent` (allow-list): `upload_started`, `upload_failed`, `upload_resumed`,
+`draft_preview_shown` (first per project; seconds since creation / first upload). Renders record
+`started_at`, and failures record `cpu_seconds` + `error_message`. `cpu_seconds` is worker
+**wall-clock**, not CPU time. Metrics: `src/lib/beta-metrics.ts` → /admin/ops "Beta metrics".
+Feedback: `feedback` table, `src/lib/feedback-actions.ts`, inbox on /admin.
+
 **Watermark — every video (2026-09-25):** the ClipWaltz logo goes bottom-left (15.4% of the short
 side, 3% padding, 90% opacity) on music-video renders AND every AI output: generations,
 enhancements, storyboards (montage) and exports. **Free is always watermarked; paid plans are

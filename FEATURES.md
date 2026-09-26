@@ -12,6 +12,16 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## Beta instrumentation + feedback (2026-09-25)
+- **Events** (`analytics_events`, migration 0035; `src/lib/analytics.ts`): upload started/completed/failed/resumed,
+  first draft preview per project, render requested, render/export downloads (+bytes), plan changes
+  (free → paid history), daily storage snapshot. Browser events go through an allow-listed server action.
+- **Renders** now record `started_at` (queue wait) and, on failure, the time spent and `error_message`.
+- **/admin/ops → Beta metrics**: cost (render time, worker time, AI GPU time, storage now + GB-days,
+  download egress), funnel (upload success, time to first draft, renders, share/download rate,
+  free → paid) and reliability (render/AI failure rates, queue wait, top failure reasons), 30 vs 7 days.
+- **Send feedback** in the user menu (idea / bug / praise / other, with the page it came from); inbox on /admin.
+
 ## Backlog gap fixes (2026-09-25)
 - **Cancel (084):** only a job that's still running can be cancelled — a finished one is never overwritten
   ("This job has already finished"); enhancements/storyboards are removed from the enhance queue (they

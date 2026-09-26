@@ -7,6 +7,7 @@ import {
   timestamp,
   unique,
   jsonb,
+  index,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth-schema";
 
@@ -236,8 +237,10 @@ export const renders = pgTable("renders", {
   status: text().notNull().default("queued"), // queued | rendering | done | failed
   outputKey: text(), // MinIO object key of the finished video
   watermark: boolean().notNull().default(true), // free tier = watermark
-  cpuSeconds: real(), // instrumentation → cost-per-render
+  cpuSeconds: real(), // instrumentation → cost-per-render: worker wall-clock seconds (success AND failure)
   costCents: integer(),
+  startedAt: timestamp({ withTimezone: true }), // worker claimed it → queue wait = startedAt − createdAt
+  errorMessage: text(), // why a failed render failed (beta reliability metrics)
   visibility: text().notNull().default("private"), // private | unlisted | public (community feed)
   settings: jsonb(), // snapshot of the effective Format+Style settings at render time (audit + "what changed")
   description: text(), // AI-generated YouTube description (when project.describe is on)
@@ -719,4 +722,33 @@ export const routingRules = pgTable("routing_rules", {
   enabled: boolean().notNull().default(true),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+// Beta instrumentation (DESIGN_BUILD_PLAN §3). Append-only product events: the funnel (uploads,
+// first draft preview, renders, downloads, shares, exports), plan changes (free → paid history, which
+// `subscriptions` overwrites) and daily storage snapshots. Server-written (src/lib/analytics.ts);
+// the client can only send an allow-listed set. No FK on project: events outlive deleted projects.
+export const analyticsEvents = pgTable(
+  "analytics_events",
+  {
+    id: text().primaryKey(),
+    name: text().notNull(),
+    userId: text().references(() => user.id, { onDelete: "set null" }),
+    projectId: text(),
+    props: jsonb(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("analytics_events_name_created_idx").on(t.name, t.createdAt), index("analytics_events_user_idx").on(t.userId)],
+);
+
+// In-app feedback (beta): the Feedback button in the user menu. Reviewed in /admin.
+export const feedback = pgTable("feedback", {
+  id: text().primaryKey(),
+  userId: text().references(() => user.id, { onDelete: "set null" }),
+  email: text(), // snapshot, so feedback stays readable after an account is deleted
+  page: text(), // path the user was on
+  kind: text().notNull().default("idea"), // idea | bug | praise | other
+  message: text().notNull(),
+  status: text().notNull().default("new"), // new | read | done
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });

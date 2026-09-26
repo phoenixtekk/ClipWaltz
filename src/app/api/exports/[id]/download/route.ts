@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { serveObject } from "@/lib/storage";
+import { trackDownload } from "@/lib/analytics";
 import { getAuthUserId } from "@/lib/auth";
 import { userCanAccessProject } from "@/lib/workspace";
 
@@ -26,6 +27,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   if (!row || !row.key || !(await userCanAccessProject(userId, row.projectId))) {
     return new NextResponse("not found", { status: 404 });
   }
+  await trackDownload(req, "export_downloaded", { userId, projectId: row.projectId, key: row.key, id });
   const ext = row.format === "webm" ? "webm" : "mp4";
   const type = row.format === "webm" ? "video/webm" : "video/mp4";
   return serveObject(req, row.key, type, {

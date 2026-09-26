@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { randomUUID } from "crypto";
 import { desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { track } from "@/lib/analytics";
 import { verifyWebhook, summarizeSubscription, fetchSubscriptionSummary, type SubscriptionSummary } from "@/lib/billing";
 
 export const runtime = "nodejs";
@@ -32,12 +33,15 @@ async function applySummary(userId: string, s: SubscriptionSummary, deleted = fa
     updatedAt: new Date(),
   };
   const existing = await latestRowFor(eq(schema.subscriptions.userId, userId));
+  const [before] = await db.select({ plan: schema.user.plan }).from(schema.user).where(eq(schema.user.id, userId));
   if (existing) {
     await db.update(schema.subscriptions).set(patch).where(eq(schema.subscriptions.id, existing.id));
   } else {
     await db.insert(schema.subscriptions).values({ id: randomUUID(), userId, ...patch });
   }
   await db.update(schema.user).set({ plan: tier, updatedAt: new Date() }).where(eq(schema.user.id, userId));
+  // Free → paid history (subscriptions keeps only the latest state).
+  if (before && before.plan !== tier) await track("plan_changed", { userId, props: { from: before.plan, to: tier, source: "stripe", status: s.status } });
 }
 
 export async function POST(req: NextRequest) {

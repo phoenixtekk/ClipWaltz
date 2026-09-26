@@ -34,6 +34,7 @@ export async function getEffectiveTier(userId: string): Promise<Tier> {
  */
 export async function applyGrant(userId: string, tier: Tier, expiresAt: Date | null) {
   const status = tier === "free" ? "canceled" : "active";
+  const [before] = await db.select({ plan: schema.user.plan }).from(schema.user).where(eq(schema.user.id, userId));
   const [existing] = await db
     .select({ id: schema.subscriptions.id })
     .from(schema.subscriptions)
@@ -55,4 +56,8 @@ export async function applyGrant(userId: string, tier: Tier, expiresAt: Date | n
     });
   }
   await db.update(schema.user).set({ plan: tier, updatedAt: new Date() }).where(eq(schema.user.id, userId));
+  if (before && before.plan !== tier) {
+    const { track } = await import("./analytics");
+    await track("plan_changed", { userId, props: { from: before.plan, to: tier, source: "grant", expires: expiresAt ? expiresAt.toISOString() : null } });
+  }
 }

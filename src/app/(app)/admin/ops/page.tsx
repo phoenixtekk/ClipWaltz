@@ -3,13 +3,15 @@ import Link from "next/link";
 import { getAdminSession } from "@/lib/admin";
 import { getOpsQueue, getUsageMetrics } from "@/lib/ops-admin-actions";
 import { AdminOps } from "@/components/admin-ops";
+import { getBetaMetrics } from "@/lib/beta-metrics";
+import { BetaMetricsPanel } from "@/components/beta-metrics-panel";
 
 export const metadata = { title: "Operations" };
 
 export default async function AdminOpsPage() {
   const admin = await getAdminSession();
   if (!admin) redirect("/projects");
-  const [queue, usage] = await Promise.all([getOpsQueue(), getUsageMetrics(30)]);
+  const [queue, usage, betaWeek, betaMonth] = await Promise.all([getOpsQueue(), getUsageMetrics(30), getBetaMetrics(7), getBetaMetrics(30)]);
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -21,6 +23,7 @@ export default async function AdminOpsPage() {
         <Link href="/admin" className="text-sm text-muted-foreground hover:text-foreground">← Admin</Link>
       </div>
       <AdminOps initialQueue={queue} initialUsage={usage} />
+      <BetaMetricsPanel week={betaWeek} month={betaMonth} />
     </div>
   );
 }

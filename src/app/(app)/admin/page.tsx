@@ -7,6 +7,8 @@ import { AdminGrantForm, RevokeButton } from "@/components/admin-grant-form";
 import { AdminContest } from "@/components/admin-contest";
 import { AdminAnnouncements } from "@/components/admin-announcements";
 import { AdminWatermark } from "@/components/admin-watermark";
+import { AdminFeedback } from "@/components/admin-feedback";
+import { listFeedback } from "@/lib/feedback-actions";
 import { watermarkPaidPlans } from "@/lib/watermark";
 
 export const metadata = { title: "Admin" };
@@ -21,13 +23,14 @@ export default async function AdminPage() {
   const admin = await getAdminSession();
   if (!admin) redirect("/projects");
 
-  const [users, invites, contests, active, announcements, paidWatermarked] = await Promise.all([
+  const [users, invites, contests, active, announcements, paidWatermarked, feedbackItems] = await Promise.all([
     listUsersAdmin(),
     listInvitesAdmin(),
     getContestsAdmin(),
     getActiveContest(),
     listAllAnnouncements(),
     watermarkPaidPlans(),
+    listFeedback(50),
   ]);
   const pending = invites.filter((i) => !i.redeemedAt);
   const activeEntries = active ? await getContestBoard(active.id) : [];
@@ -53,6 +56,13 @@ export default async function AdminPage() {
           </a>
         </div>
       </div>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-medium">
+          Feedback{feedbackItems.filter((f) => f.status === "new").length ? ` · ${feedbackItems.filter((f) => f.status === "new").length} new` : ""}
+        </h2>
+        <AdminFeedback items={feedbackItems} />
+      </section>
 
       <section className="space-y-3">
         <h2 className="text-sm font-medium">Watermark</h2>

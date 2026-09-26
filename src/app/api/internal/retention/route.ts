@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runRetention } from "@/lib/retention";
+import { snapshotStorageDaily } from "@/lib/analytics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,5 +14,8 @@ export async function POST(req: Request) {
   const dryRun = new URL(req.url).searchParams.get("dryRun") === "1" || process.env.RETENTION_ENABLED !== "1";
   const report = await runRetention({ dryRun });
   console.log(`[retention] ${JSON.stringify(report)}`);
+  // Same 6-hourly tick: the daily storage snapshot for the beta cost metrics (GB-days).
+  const snap = await snapshotStorageDaily().catch((e) => { console.error("[analytics] storage snapshot failed:", (e as Error).message); return false; });
+  if (snap) console.log("[analytics] storage snapshot recorded");
   return NextResponse.json(report);
 }

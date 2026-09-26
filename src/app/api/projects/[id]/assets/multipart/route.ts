@@ -4,7 +4,8 @@ import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { userCanAccessProject } from "@/lib/workspace";
 import { requireUserId } from "@/lib/auth";
-import { createMultipart, completeMultipart, abortMultipart, deleteObject } from "@/lib/storage";
+import { createMultipart, completeMultipart, abortMultipart, deleteObject, headObject } from "@/lib/storage";
+import { track } from "@/lib/analytics";
 
 export const runtime = "nodejs";
 
@@ -86,8 +87,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       return NextResponse.json({ error: `storage error: ${(err as Error).message}` }, { status: 502 });
     }
     const conv = asset.sourceFormat ? "pending" : "ready";
+    // Size is only known once the parts are assembled (storage accounting + upload metrics).
+    const size = await headObject(asset.key).then((h) => h.size, () => null);
     await db.update(schema.assets).set({ uploadState: "uploaded", conversionState: conv }).where(eq(schema.assets.id, assetId));
-    if (asset.mediaId) await db.update(schema.media).set({ conversionState: conv }).where(eq(schema.media.id, asset.mediaId));
+    if (asset.mediaId) await db.update(schema.media).set({ conversionState: conv, ...(size != null ? { sizeBytes: size } : {}) }).where(eq(schema.media.id, asset.mediaId));
+    await track("upload_completed", { userId, projectId, props: { method: "multipart", bytes: size, parts: body.parts.length } });
     return NextResponse.json({ id: assetId, uploaded: true });
   }
 

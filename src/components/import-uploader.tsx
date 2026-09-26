@@ -7,6 +7,7 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import type { AssetSummary } from "@/lib/assets";
 import { putPartDirect } from "@/lib/upload-client";
+import { trackClientEvent } from "@/lib/analytics-actions";
 
 type Item = {
   localId: string;
@@ -65,6 +66,8 @@ export function ImportUploader({
   function retryItem(localId: string) {
     const file = files.current.get(localId);
     if (!file) return;
+    // Large files log their resume in uploadResumable (saved progress found) — don't count twice.
+    if (file.size <= MULTIPART_THRESHOLD) note("upload_resumed", file);
     setStatus(localId, "uploading", 0);
     uploadOne(file, localId);
   }
@@ -81,6 +84,10 @@ export function ImportUploader({
     setItems((prev) =>
       prev.map((i) => (i.localId === localId ? { ...i, status, ...(progress != null ? { progress } : {}) } : i)),
     );
+
+  // Beta instrumentation (upload success / resume rates). Fire-and-forget: never blocks an upload.
+  const note = (name: string, file: File, extra: Record<string, unknown> = {}) =>
+    void trackClientEvent(name, projectId, { bytes: file.size, method: file.size > MULTIPART_THRESHOLD ? "multipart" : "simple", ...extra }).catch(() => {});
 
   function uploadOne(file: File, localId: string) {
     if (file.size > MULTIPART_THRESHOLD) {
@@ -104,11 +111,13 @@ export function ImportUploader({
       if (!ok) {
         const reason = `HTTP ${xhr.status} ${(xhr.responseText || "").slice(0, 160)}`;
         console.error(`[upload] ${file.name} failed:`, reason);
+        note("upload_failed", file, { reason });
         toast.error(`Upload failed: ${file.name} — ${reason}`);
       } else router.refresh();
     };
     xhr.onerror = () => {
       setStatus(localId, "error");
+      note("upload_failed", file, { reason: "network error" });
       toast.error(`Upload failed: ${file.name} — network error`);
     };
     xhr.send(file);
@@ -185,6 +194,9 @@ export function ImportUploader({
         const j = (await res.json()) as { assetId: string; uploadId: string };
         state = { assetId: j.assetId, uploadId: j.uploadId, parts: {} };
         lsSet(lsKey, state);
+      } else {
+        // Resuming a multipart upload saved in this browser (e.g. after a reload).
+        note("upload_resumed", file, { partsDone: Object.keys(state.parts).length });
       }
 
       const totalParts = Math.ceil(file.size / PART_SIZE);
@@ -222,6 +234,7 @@ export function ImportUploader({
     } catch (err) {
       const reason = err instanceof Error ? err.message : "unknown error";
       console.error(`[upload] ${file.name} failed:`, reason);
+      note("upload_failed", file, { reason });
       setStatus(localId, "error");
       toast.error(`Upload failed: ${file.name} — ${reason}. Press Retry to resume.`);
     }
@@ -244,6 +257,7 @@ export function ImportUploader({
           : "photo";
       setItems((prev) => [...prev, { localId, name: file.name, kind, progress: 0, status: "uploading" }]);
       files.current.set(localId, file);
+      note("upload_started", file);
       uploadOne(file, localId);
     }
   }

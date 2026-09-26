@@ -1,6 +1,7 @@
 "use client";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, User as UserIcon, CreditCard, Bell, Users, LifeBuoy } from "lucide-react";
+import { LogOut, User as UserIcon, CreditCard, Bell, Users, LifeBuoy, MessageSquare } from "lucide-react";
 import { authClient, useSession } from "@/lib/auth-client";
 import {
   DropdownMenu,
@@ -12,6 +13,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { FeedbackDialog } from "@/components/feedback-dialog";
 
 export function UserMenu() {
   const router = useRouter();
@@ -19,6 +21,7 @@ export function UserMenu() {
   const email = data?.user?.email;
   const name = data?.user?.name;
   const initial = (name || email || "?").charAt(0).toUpperCase();
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   async function handleSignOut() {
     await authClient.signOut();
@@ -27,6 +30,7 @@ export function UserMenu() {
   }
 
   return (
+    <>
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
@@ -63,11 +67,16 @@ export function UserMenu() {
         <DropdownMenuItem onClick={() => router.push("/help")}>
           <LifeBuoy className="size-4" /> Help Center
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setFeedbackOpen(true)}>
+          <MessageSquare className="size-4" /> Send feedback
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={handleSignOut} className="text-destructive focus:bg-destructive/10">
           <LogOut className="size-4" /> Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+    <FeedbackDialog open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
+    </>
   );
 }

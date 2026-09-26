@@ -4,6 +4,7 @@ import { db, schema } from "@/db";
 import { userCanAccessProject } from "@/lib/workspace";
 import { requireUserId } from "@/lib/auth";
 import { serveObject } from "@/lib/storage";
+import { trackDownload } from "@/lib/analytics";
 
 export const runtime = "nodejs";
 
@@ -36,5 +37,6 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   // Name the download after the Style Title (falls back to the project title).
   const base = (row.titleText || row.title || "clipwaltz").trim().replace(/[^a-zA-Z0-9._ -]/g, "_").slice(0, 100) || "clipwaltz";
+  await trackDownload(_req, "render_downloaded", { userId, projectId: row.projectId, key: row.key, id });
   return serveObject(_req, row.key, "video/mp4", { download: `${base}.mp4` });
 }

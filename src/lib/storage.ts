@@ -8,6 +8,7 @@ import {
   UploadPartCommand,
   CompleteMultipartUploadCommand,
   AbortMultipartUploadCommand,
+  ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
@@ -291,4 +292,21 @@ export async function serveObject(
     out.Body as unknown as { transformToWebStream: () => ReadableStream<Uint8Array> }
   ).transformToWebStream();
   return new Response(webStream as unknown as BodyInit, { status, headers });
+}
+
+/** Bytes + object count per top-level prefix ("projects", "media", "renders", …) — storage metrics. */
+export async function bucketUsage(): Promise<Record<string, { bytes: number; objects: number }>> {
+  const out: Record<string, { bytes: number; objects: number }> = {};
+  let token: string | undefined;
+  do {
+    const r = await s3().send(new ListObjectsV2Command({ Bucket: S3_BUCKET, ContinuationToken: token, MaxKeys: 1000 }));
+    for (const o of r.Contents ?? []) {
+      const top = (o.Key ?? "").split("/")[0] || "(root)";
+      const e = (out[top] ??= { bytes: 0, objects: 0 });
+      e.bytes += Number(o.Size ?? 0);
+      e.objects++;
+    }
+    token = r.IsTruncated ? r.NextContinuationToken : undefined;
+  } while (token);
+  return out;
 }

@@ -6,6 +6,7 @@ import { db, schema } from "@/db";
 import { userCanAccessProject } from "./workspace";
 import { requireUserId } from "./auth";
 import { deleteObject } from "./storage";
+import { track } from "./analytics";
 import type { RenderSettings, RenderCheckpoint, CheckWarning } from "./render";
 
 /** Delete a saved render (the DB row + its MinIO object), editor-checked. */
@@ -84,6 +85,7 @@ export async function createRender(projectId: string): Promise<string> {
     .update(schema.projects)
     .set({ status: "rendering", updatedAt: new Date() })
     .where(eq(schema.projects.id, projectId));
+  await track("render_requested", { userId, projectId, props: { renderId: id, version: (maxv ?? 0) + 1, clips: count, watermark } });
 
   revalidatePath(`/projects/${projectId}/edit`);
   revalidatePath(`/projects`);

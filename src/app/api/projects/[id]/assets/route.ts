@@ -5,6 +5,7 @@ import { db, schema } from "@/db";
 import { userCanAccessProject } from "@/lib/workspace";
 import { requireUserId } from "@/lib/auth";
 import { putObject } from "@/lib/storage";
+import { track } from "@/lib/analytics";
 
 export const runtime = "nodejs";
 
@@ -78,5 +79,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     conversionState,
   });
 
+  await track("upload_completed", { userId, projectId, props: { method: "simple", bytes: buf.byteLength } });
   return NextResponse.json({ id: assetId, name, kind, bytes: buf.byteLength, sourceFormat, conversionState });
 }
