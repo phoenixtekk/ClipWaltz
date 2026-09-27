@@ -2,6 +2,7 @@
 import { randomUUID } from "crypto";
 import { and, asc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
 import { assertProjectRole, getProjectRole, getWorkspaceRole, roleAtLeast } from "./workspace";
@@ -115,7 +116,13 @@ export async function deleteProject(projectId: string): Promise<void> {
   if (!p || !(roleAtLeast(role, "admin") || (roleAtLeast(role, "editor") && p.ownerId === userId))) {
     throw new Error("Project not found");
   }
+  // Collect the project's objects + library rows first (the cascade removes the rows that name them),
+  // then purge storage after the response so the UI isn't held up by MinIO.
+  const { collectProjectStorage, purgeProjectStorage } = await import("./project-storage");
+  const plan = await collectProjectStorage(projectId);
   await db.delete(schema.projects).where(eq(schema.projects.id, projectId));
+  after(() => purgeProjectStorage(plan).catch((e) =>
+    console.error(`[project-purge] ${projectId} failed:`, (e as Error).message)));
   revalidatePath("/projects");
 }
 

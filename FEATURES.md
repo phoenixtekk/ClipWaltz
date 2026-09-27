@@ -27,6 +27,18 @@ Both carry the bottom-left logo watermark (Free always; paid per the `/admin` sw
   draft preview and clip-library badge fell back to guesses. The render worker now measures missing lengths when
   idle (ffprobe over a signed URL, no download) and backfills existing clips.
 
+## Storage cleanup on project delete (2026-09-27)
+- Deleting a project used to remove only the DB rows (cascade): its MinIO objects and the library `media`
+  rows uploaded into it were left behind. `deleteProject` now collects the project's keys first (clip
+  originals + 360 conversions, render outputs, AI version outputs + clean masters + thumbnails, export
+  outputs, and the library media rows its clips use or that were uploaded into it), deletes the row, then
+  purges storage **in the background** (`after()`, so the UI isn't held up) — `src/lib/project-storage.ts`.
+- The purge also sweeps `projects/<id>/`, `renders/<id>/`, `generations/<id>/`, `exports/<id>/` for objects
+  no row recorded. **Nothing still referenced by any row is deleted** (the media library shares one upload
+  across projects; a media row another project's clip uses is kept). Failures are logged, never thrown.
+- One-off cleanup of projects deleted before this: `scripts/storage-orphans.mjs` (dry run by default,
+  `--apply` to delete, `--project <id>` to limit). See ADMIN_DOCS "Project delete & orphaned storage".
+
 ## Beta instrumentation + feedback (2026-09-25)
 - **Events** (`analytics_events`, migration 0035; `src/lib/analytics.ts`): upload started/completed/failed/resumed,
   first draft preview per project, render requested, render/export downloads (+bytes), plan changes
@@ -66,7 +78,7 @@ Both carry the bottom-left logo watermark (Free always; paid per the `/admin` sw
 ## MVP application features (planned — from the Design & Build Plan)
 | Feature | Status | Notes |
 |---|---|---|
-| Projects + dashboard | ✅ | `/projects` (auth-gated app shell). Lists user's projects with Draft/Rendering/Ready/Failed badges; create/rename/duplicate/delete via server actions (owner-checked); empty state + free-tier retention banner. "New Project" → wizard. Verified E2E. |
+| Projects + dashboard | ✅ | `/projects` (auth-gated app shell). Lists user's projects with Draft/Rendering/Ready/Failed badges; create/rename/duplicate/delete via server actions (owner-checked; delete also purges the project's storage — see "Storage cleanup on project delete"); empty state + free-tier retention banner. "New Project" → wizard. Verified E2E. |
 | Projects board (organise) | ✅ | `/projects` is a **card board** (`projects-board.tsx`): **uniform, wider cards** (`auto-fill minmax(210px)`) with a fixed 16:9 thumbnail and an **orientation icon** (portrait/landscape) so the grid stays even and names are readable. **Search** box (name + tags), a **tag filter** row (`projects.tags`, AND-filter), and **categories** (`projects.category`) rendered as sections. **Click-hold drag** a card between sections to move it (HTML5 DnD → `setProjectCategory`, optimistic); also a card-menu **Move to** submenu + **Edit tags…**. Migration 0022. |
 | Server-side categories | ✅ | Categories are **persisted per-account** (`project_categories` table, 0023) — shared across devices, ordered, with an optional **accent colour**. Each category header has **rename / move up-down / colour / delete** (deleting moves its projects to Uncategorized); a **New category** button creates one. `category-actions.ts` (create/rename/delete/setColor/move), `listCategories`. Renames re-point every project in the category. Legacy free-text categories still render until formalised. |
 | Per-clip screen time | ✅ | Set **how long each image shows** (`assets.durationOverride`, 0024): open a clip from the Timeline strip → a modal **plays it** (scrub/preview) with a **manual time slider + number** (0.4–60s) or **Auto**. Timeline block widths + labels reflect the manual time (violet badge). Worker: pinned slots use the exact time (excluded from stretch-to-fill). `setAssetDuration`. |

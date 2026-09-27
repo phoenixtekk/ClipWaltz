@@ -310,3 +310,15 @@ export async function bucketUsage(): Promise<Record<string, { bytes: number; obj
   } while (token);
   return out;
 }
+
+/** Every object key under a prefix (e.g. "renders/<projectId>/"), paging through ListObjectsV2. */
+export async function listObjectKeys(prefix: string): Promise<string[]> {
+  const keys: string[] = [];
+  let token: string | undefined;
+  do {
+    const r = await s3().send(new ListObjectsV2Command({ Bucket: S3_BUCKET, Prefix: prefix, ContinuationToken: token, MaxKeys: 1000 }));
+    for (const o of r.Contents ?? []) if (o.Key) keys.push(o.Key);
+    token = r.IsTruncated ? r.NextContinuationToken : undefined;
+  } while (token);
+  return keys;
+}

@@ -56,6 +56,7 @@ See [`env.example`](env.example) for the full list. Groups:
 | `npm run db:migrate` | Apply migrations |
 | `npm run db:push` | Push schema directly (dev only) |
 | `npm run lint` | ESLint |
+| `node --env-file=.env.worker scripts/storage-orphans.mjs [--project <id>] [--verbose] [--apply]` | Find/delete MinIO objects + media rows of deleted projects (dry run unless `--apply`) |
 
 ## Build note
 `next build` needs `BETTER_AUTH_SECRET` and `DATABASE_URL` present in the environment
@@ -157,6 +158,21 @@ Refreshes every 10 s. Code: `src/lib/ops-admin-actions.ts`, `src/components/admi
   succeeded ≥ 20 h earlier (`assets.retention_notice_at`; a failed send is not recorded, so nothing is deleted).
   Objects still referenced by another clip are kept. Projects, generation versions, exports and renders are never
   touched. Dry run by hand: `curl -s -X POST -H "x-worker-secret: $WORKER_CALLBACK_SECRET" "http://127.0.0.1:3100/api/internal/retention?dryRun=1"`.
+
+## Project delete & orphaned storage
+- `deleteProject` (`src/lib/project-actions.ts`) → `collectProjectStorage` before the row delete, then
+  `purgeProjectStorage` via Next `after()` (`src/lib/project-storage.ts`). Each purge logs one line in the app's
+  pm2 log: `[project-purge] {"projectId":…,"mediaDeleted":…,"mediaKept":…,"objectsDeleted":…,"objectsKeptShared":…,"objectsFailed":…}`;
+  per-object failures log `[project-purge] <id>: delete <key> failed: …`. A failed purge leaves orphans for the script below.
+- Keep rule: an object is deleted only if **no row** in assets, media, renders, generation_versions, export_jobs,
+  music_tracks or templates still references it. Library `media` rows go only when no remaining clip uses them.
+- **Orphan finder** (for projects deleted before 2026-09-27, crashed purges, or a worker finishing a job
+  into a just-deleted project). Run on the AI box, which has the DB + MinIO env:
+  `cd ~/clipwaltz && sudo -u lacy node --env-file=.env.worker scripts/storage-orphans.mjs` — **dry run**: counts
+  per prefix, orphan media rows, kept (still referenced) and to-delete totals. `--verbose` lists keys,
+  `--project <id>` limits to one id, **`--apply`** deletes (media rows first, then objects). A bucket-wide `--apply` refuses when over half the project ids in the bucket are missing from the DB (`--force` overrides). Never run it with a
+  `DATABASE_URL` other than prod's against the shared `clipwaltz` bucket: with the dev DB every prod project looks
+  deleted (the dry run would report the whole bucket; `--apply` would delete it).
 
 ## Google Drive backup
 Timeline button → `backupToDrive` (editor) → background, sequential, resumable 16 MB-chunk uploads
