@@ -286,6 +286,16 @@ that made a 6 s window take >25 min). No IMU data → brightness `estimateLevel`
 --followtest <insv | front_00,rear_10> [flat|follow|tiny] [secs] [start]` (start = output-side seek;
 `FOLLOWTEST_OUT` sets the output path). Missing binary = silent fallback, so keep gyro2bb installed.
 
+**Render worker dependencies (AI box):** `/home/lacy/clipwaltz` on the AI box has its OWN minimal
+`package.json` (`@aws-sdk/client-s3`, `postgres`, and since 2026-09-27 `@aws-sdk/s3-request-presigner`
+for the clip-length backfill). Deploying a worker that imports a new package means `npm install` there
+first — and **load-test before restarting**: `sudo -u lacy node --env-file=.env.worker
+worker/render-worker.next.mjs --selftest` must print its usage line (an import error crash-loops the
+service; that happened once on 2026-09-27 for ~2 min and was rolled back).
+**Clip lengths:** `durTick()` (lowest priority in the worker loop) ffprobes videos with no
+`assets.duration_sec` via a 10-min signed URL and writes assets + media; unreadable keys are logged once
+("clip length … unreadable") and skipped until the next restart.
+
 **Beta instrumentation (2026-09-25):** `analytics_events` (name, user_id, project_id, props jsonb,
 created_at) is append-only; `track()` in `src/lib/analytics.ts` never throws. Server events:
 `upload_completed` (upload routes), `render_requested`, `render_downloaded` / `export_downloaded`

@@ -14,6 +14,21 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
+## Working state (2026-09-27) — build plan closed out
+All deployed + verified on prod. Commits `6b4978b` (backlog gaps) · `adcf401` (beta instrumentation) ·
+`fbb5393` (gyro levelling + release-gate fixes + marketing handoff) · `ccfa686` (clip lengths).
+- **Release gate (backlog §23) run in the browser as lacy@clipwaltz.com — all pass:** auth, projects,
+  multi-file upload, text- and image-to-video, AI server + queue, live status, cancel, retry after a real
+  failure, preview + versions, AI upscale (from the clean master), MP4 export (1080p, watermark on every frame).
+  Fullscreen button calls the API correctly but the in-app browser pane never completes fullscreen — check in a real browser.
+- **Fixed during the gate:** upload counter double count · feedback dialog off-screen (portal) · "Building motion"
+  shown for enhancements · `assets.duration_sec` never written (backfill in the render worker).
+- **Gyro levelling live:** gyro+accel fusion (accel-only followed the bank in turns). AI box got
+  `@aws-sdk/s3-request-presigner` (see ADMIN_DOCS: load-test worker before restart).
+- **Owner decisions:** no closed beta (sign-up stays open); tool names AutoWaltz / Waltz AI in the UI;
+  marketing handoff written (`PRODUCT_PROFILE.md`, `product.marketing.json`).
+- Test projects "Watermark test (AI)" / "(AutoWaltz)" on lacy@clipwaltz.com are throwaway.
+
 ## Working state (2026-09-24) — v7 start: member management + watermark (all deployed + verified)
 
 Tree **clean** @ `87547a0`, pushed to `github.com/phoenixtekk/ClipWaltz` main. Type-check + lint green.
