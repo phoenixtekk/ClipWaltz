@@ -12,6 +12,18 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## Gyro horizon levelling for 360 clips (2026-09-27)
+- Two-lens Insta360 clips (one-file dual-lens and stitched `_00_`/`_10_` pairs) are levelled **per moment**
+  from the camera's own motion data: `gyro2bb` (telemetry-parser, `/opt/cw-tools` on the AI box) extracts
+  the gyro + accelerometer; a complementary filter carries "up" with the gyro and corrects it slowly
+  (τ 5 s) with the accelerometer only while it reads ~1 g — accelerometer-only levelling followed the
+  jet ski's bank in turns. Axis map IMU → raw sphere `[a2, −a0, a1]`, measured by matching gyro rotation to
+  the scene's visual rotation (X5 0.97, X3 pair 0.88). The rotation is applied in the final projection
+  (dual fisheye → output frame) so it's fast (6 s window: 6 s vs 14 s before) and resampled once.
+  Front, Follow action (level + pan combined) and Tiny planet all use it; files without motion data fall
+  back to the brightness auto-level. Verified on the tilted moments of an X5 clip and your X3 jet-ski pair.
+- Render worker also records render start time and failure reason (beta metrics).
+
 ## Beta instrumentation + feedback (2026-09-25)
 - **Events** (`analytics_events`, migration 0035; `src/lib/analytics.ts`): upload started/completed/failed/resumed,
   first draft preview per project, render requested, render/export downloads (+bytes), plan changes

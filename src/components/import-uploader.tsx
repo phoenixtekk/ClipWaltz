@@ -75,7 +75,10 @@ export function ImportUploader({
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
 
-  const uploadedCount = initial.length + items.filter((i) => i.status === "done").length;
+  // `initial` is refreshed from the server after each upload (router.refresh), so it already
+  // includes files finished here — count them once (was double-counted: 3 uploads showed "6 ready").
+  const [initialAtMount] = useState(initial.length);
+  const uploadedCount = Math.max(initial.length, initialAtMount + items.filter((i) => i.status === "done").length);
   const anyUploading = items.some((i) => i.status === "uploading");
 
   const setProgress = (localId: string, pct: number) =>

@@ -521,7 +521,7 @@ async function processEnhance(genJobId) {
   if (j.job_type === "montage") return processMontage(j, req, genJobId);
   if (!req.sourceKey) throw new Error("no sourceKey on enhancement job");
   const ai = req.engine === "ai" || req.engine === "restore";
-  await setStatus(genJobId, { status: ai ? "generating" : "enhancing", progress: 40, started_at: new Date() });
+  await setStatus(genJobId, { status: "enhancing", progress: 40, started_at: new Date() }); // UI: "Enhancing detail" (was "Building motion" for AI engines)
 
   const videoBytes = ai ? await aiEnhance(req, genJobId) : await ffmpegEnhance(req);
   if (await wasCancelled(genJobId)) { console.log("[enh] cancelled mid-run, result dropped", genJobId); return; }

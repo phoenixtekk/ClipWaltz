@@ -18,6 +18,8 @@ import { tmpdir } from "node:os";
 import { join, extname, basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
+import { createReadStream } from "node:fs";
+import { createInterface } from "node:readline";
 import { pipeline } from "node:stream/promises";
 import { Agent as HttpAgent } from "node:http";
 import { Agent as HttpsAgent } from "node:https";
@@ -304,6 +306,141 @@ async function estimateLevel(src, streams, srcDur) {
   return { yaw: phi, pitch: -beta, beta };
 }
 
+// ─── Gyro horizon levelling (IMU) ─────────────────────────────────────────────────────────────
+// Insta360 files carry the camera's accelerometer + gyro. gyro2bb (telemetry-parser, MIT/Apache,
+// /opt/cw-tools) extracts it to CSV in ~1 s; the smoothed accelerometer gives "up" at every moment,
+// so the horizon stays level through handheld/mounted motion (the brightness estimate below is
+// one correction for the whole clip). Axis mapping IMU → raw dfisheye equirect U = [a2, -a0, a1],
+// measured 2026-09-25 by matching gyro rotation to the scene's visual rotation (median cosine
+// 0.97 on an X5 dual-lens file, 0.88 on an X3 _00_/_10_ pair; clock offset ≈ 0). Split pairs:
+// only the front (_00_) file carries IMU data.
+const GYRO2BB = process.env.GYRO2BB_PATH || "/opt/cw-tools/telemetry-parser-0.3.0/gyro2bb";
+const IMU_RATE = 15; // sendcmd updates per second (the path is smoothed over ~0.3 s)
+const D2R = Math.PI / 180;
+const mat3 = (A, B) => A.map((r) => [0, 1, 2].map((j) => r[0] * B[0][j] + r[1] * B[1][j] + r[2] * B[2][j]));
+// v360 rotation (default rorder=ypr, verified empirically): d_in = Y(yaw)·P(pitch)·R(roll)·d_out.
+function toYPR(M) {
+  const p = Math.asin(Math.max(-1, Math.min(1, M[2][0])));
+  const y = Math.atan2(M[1][0], M[0][0]);
+  const cy = Math.cos(y), sy = Math.sin(y), cp = Math.cos(p), sp = Math.sin(p);
+  const YT = [[cy, sy, 0], [-sy, cy, 0], [0, 0, 1]], PT = [[cp, 0, sp], [0, 1, 0], [-sp, 0, cp]];
+  const R = mat3(PT, mat3(YT, M));
+  return { yaw: y / D2R, pitch: p / D2R, roll: Math.atan2(R[1][2], R[1][1]) / D2R };
+}
+function rotBetween(u, v) { // minimal rotation taking unit u to unit v (Rodrigues)
+  const k = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+  const s = Math.hypot(...k), c = u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+  if (s < 1e-9) return [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  const [x, y, z] = k.map((e) => e / s), C = 1 - c;
+  return [[c + x * x * C, x * y * C - z * s, x * z * C + y * s], [y * x * C + z * s, c + y * y * C, y * z * C - x * s], [z * x * C - y * s, z * y * C + x * s, c + z * z * C]];
+}
+// Stream the gyro2bb CSV into ~100 Hz bins of gyro (deg/s) + accelerometer (a 29-min clip is
+// ~230 MB of CSV, so it is never held in memory whole).
+async function readImu(csv) {
+  const rl = createInterface({ input: createReadStream(csv), crlfDelay: Infinity });
+  let header = false, bin = null;
+  const T = [], G = [], A = [];
+  const flush = () => { if (bin) { const n = bin.n; T.push(bin.t / n); G.push([bin.g0 / n, bin.g1 / n, bin.g2 / n]); A.push([bin.a0 / n, bin.a1 / n, bin.a2 / n]); } };
+  for await (const line of rl) {
+    if (!header) { header = line.startsWith('"loopIteration"'); continue; }
+    const p = line.split(",");
+    if (p.length < 8) continue;
+    const t = +p[1] / 1e6, b = Math.floor(t * 100);
+    if (!bin || bin.b !== b) { flush(); bin = { b, n: 0, t: 0, g0: 0, g1: 0, g2: 0, a0: 0, a1: 0, a2: 0 }; }
+    bin.n++; bin.t += t; bin.g0 += +p[2]; bin.g1 += +p[3]; bin.g2 += +p[4]; bin.a0 += +p[5]; bin.a1 += +p[6]; bin.a2 += +p[7];
+  }
+  flush();
+  return { T, G, A };
+}
+// Gyro + accelerometer fusion (complementary filter). The accelerometer alone is NOT "up" on a
+// moving vehicle: in a banked turn it leans with the turn (tested 2026-09-26: accel-only levelling
+// tilted jet-ski horizons by up to ~70°). So "up" is carried by the gyro (precise short-term) and
+// only slowly (τ = IMU_TAU s) pulled toward the accelerometer, and only while it reads ~1 g.
+// Verified on an X5 file and an X3 pair: level horizon through hard turns.
+const IMU_TAU = 5;
+const axisMap = (v) => [v[2], -v[0], v[1]]; // IMU → raw dfisheye equirect (same map for gyro + accel)
+function rotVec(w) { // Rodrigues: rotation by rotation-vector w (radians)
+  const th = Math.hypot(...w);
+  if (th < 1e-12) return [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  const [x, y, z] = w.map((e) => e / th), c = Math.cos(th), sn = Math.sin(th), C = 1 - c;
+  return [[c + x * x * C, x * y * C - z * sn, x * z * C + y * sn], [y * x * C + z * sn, c + y * y * C, y * z * C - x * sn], [z * x * C - y * sn, z * y * C + x * sn, c + z * z * C]];
+}
+const mv = (M, v) => [0, 1, 2].map((i) => M[i][0] * v[0] + M[i][1] * v[1] + M[i][2] * v[2]);
+const unit = (v) => { const m = Math.hypot(...v); return v.map((e) => e / m); };
+function fuseUp(T, G, A) {
+  const n = T.length;
+  const Ar = A.map(axisMap), mags = Ar.map((v) => Math.hypot(...v));
+  const g1 = [...mags].sort((a, b) => a - b)[n >> 1];
+  // Start from the average accelerometer direction over the first ~2 s.
+  let U = unit(Ar.slice(0, Math.min(n, 200)).reduce((s, v) => s.map((e, k) => e + v[k]), [0, 0, 0]));
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const dt = i ? T[i] - T[i - 1] : 0;
+    if (dt > 0) U = mv(rotVec(axisMap(G[i]).map((e) => e * D2R * dt)), U); // scene rotation (calibrated sign)
+    const dev = Math.abs(mags[i] / g1 - 1), gate = dev < 0.05 ? 1 : dev < 0.2 ? 0.1 : 0;
+    const k = Math.min(1, (dt / IMU_TAU) * gate), a = unit(Ar[i]);
+    U = unit(U.map((e, j) => e + k * (a[j] - e)));
+    out[i] = U;
+  }
+  return out;
+}
+// Per-moment level rotations L(t) (level world → raw sphere) at IMU_RATE. null = no IMU data.
+async function imuLevel(file, dur) {
+  // gyro2bb writes <input>.csv next to its input (the conversion's temp dir holds the source).
+  const csv = `${file}.csv`;
+  try {
+    await run(GYRO2BB, [file], { timeout: 180_000, maxBuffer: 1024 * 1024 });
+  } catch { try { unlinkSync(csv); } catch { /* ignore */ } return null; }
+  if (!existsSync(csv)) return null;
+  let imu;
+  try { imu = await readImu(csv); } finally { try { unlinkSync(csv); } catch { /* ignore */ } }
+  const { T, G, A } = imu;
+  const n = T.length;
+  if (n < 200) return null;
+  const Up = fuseUp(T, G, A);
+  const frames = [];
+  let L = null, prevU = null, j = 0, maxTilt = 0;
+  const end = dur > 0 ? dur : T[n - 1];
+  for (let t = 0; t <= end + 1e-6; t += 1 / IMU_RATE) {
+    while (j < n - 1 && T[j + 1] <= t) j++;
+    const U = Up[j];
+    if (!U.every(Number.isFinite)) return null;
+    maxTilt = Math.max(maxTilt, Math.acos(Math.max(-1, Math.min(1, U[2]))) / D2R);
+    // Parallel transport keeps the heading continuous (no gimbal jumps between samples).
+    L = L ? mat3(rotBetween(prevU, U), L) : rotBetween([0, 0, 1], U);
+    prevU = U;
+    frames.push({ t, L });
+  }
+  return { frames, maxTilt };
+}
+
+// Yaw rotation about the level vertical (the Follow pan), same convention as toYPR.
+const yawMat = (deg) => { const c = Math.cos(deg * D2R), s = Math.sin(deg * D2R); return [[c, -s, 0], [s, c, 0], [0, 0, 1]]; };
+// Follow path → yaw at any time (linear on the shortest arc between the 2 Hz track points).
+function yawAtFn(path) {
+  return (t) => {
+    if (t <= path[0].t) return path[0].yaw;
+    for (let i = 1; i < path.length; i++) {
+      if (t <= path[i].t) {
+        const a = path[i - 1], b = path[i], f = (t - a.t) / (b.t - a.t);
+        const d = ((((b.yaw - a.yaw + 180) % 360) + 360) % 360) - 180;
+        return a.yaw + d * f;
+      }
+    }
+    return path[path.length - 1].yaw;
+  };
+}
+// sendcmd file for v360 instance `target`: rotation L(t)·Yaw(ψ(t)) at each IMU moment.
+function writeRotCmds(dir, name, target, frames, yawAt = null) {
+  const lines = frames.map(({ t, L }) => {
+    const r = toYPR(yawAt ? mat3(L, yawMat(yawAt(t))) : L);
+    return `${t.toFixed(3)} ${target} yaw ${r.yaw.toFixed(2)}, ${target} pitch ${r.pitch.toFixed(2)}, ${target} roll ${r.roll.toFixed(2)};`;
+  });
+  const f = join(dir, name);
+  writeFileSync(f, lines.join("\n") + "\n");
+  return fwd(f);
+}
+
 // v360 filter that reprojects the source to a LEVELED equirect. Uses the estimated horizon
 // when available; otherwise the legacy fixed base roll so behaviour never regresses.
 function levelEquirect(streams, lvl, pair = false) {
@@ -390,9 +527,33 @@ async function reframeGraph(src, streams, mode, isPhoto, dir, w = 1920, h = 1080
   const hstack = lensStack(src, streams);
   let level;
   let note;
+  let imu = null;
   if (single) {
     level = "v360=fisheye:e:ih_fov=200:iv_fov=200";
     note = "1 lens: lens-axis view, no sphere level";
+  } else if (!isPhoto && (imu = await imuLevel(srcFiles(src)[0], await probe(srcFiles(src)[0])).catch(() => null))) {
+    // Gyro level. The per-moment rotation goes on the FINAL projection (dual fisheye → output frame
+    // in one v360): rebuilding v360's remap for a full 5760×2880 intermediate sphere at IMU_RATE made
+    // conversions >25 min for a 6 s window (2026-09-25); on the output-sized map it's cheap, and the
+    // picture is resampled once instead of twice. reset_rot=1: each command sets, not adds.
+    note = (pair ? "stitched _00_+_10_ pair, " : "") + `gyro level (${imu.frames.length} pts @${IMU_RATE}/s, max tilt ${imu.maxTilt.toFixed(0)}°)`;
+    const g = "v360@g=input=dfisheye:ih_fov=200:iv_fov=200";
+    const at = (name, yawAt) => `sendcmd=f=${writeRotCmds(dir, name, "v360@g", imu.frames, yawAt)}`;
+    if (mode === "tiny") return { vf: `${hstack}${at("g-tiny.txt")},${g}:output=ball:w=${h}:h=${h}:reset_rot=1`, note: `${note}, tiny` };
+    if (mode === "follow") {
+      // Track motion on a small LEVELED equirect, then combine level + pan in the output projection.
+      const path = await computeYawPath(src, streams, `${at("g-sample.txt")},${g}:output=e:w=64:h=32:reset_rot=1`);
+      if (path.length) {
+        const yaws = path.map((p) => p.yaw);
+        return {
+          vf: `${hstack}${at("g-follow.txt", yawAtFn(path))},${g}:${flatOut(w, h)}:reset_rot=1`,
+          note: `${note}, follow ${path.length} pts yaw ${Math.min(...yaws).toFixed(0)}…${Math.max(...yaws).toFixed(0)}`,
+          path,
+        };
+      }
+      note += ", follow path empty → front";
+    }
+    return { vf: `${hstack}${at("g-front.txt")},${g}:${flatOut(w, h)}:reset_rot=1`, note: `${note}, front` };
   } else {
     let lvl = await estimateLevel(src, streams, await probe(srcFiles(src)[0]));
     // The brightness "up" estimate can be pulled off by sun/glare on water: on a real stitched pair
@@ -1515,7 +1676,7 @@ async function processRender(r) {
 
 async function claimOne() {
   const rows = await sql`
-    update renders set status='rendering'
+    update renders set status='rendering', started_at=now()
     where id = (select id from renders where status='queued' order by created_at asc limit 1 for update skip locked)
     returning *`;
   return rows[0] ?? null;
@@ -1528,7 +1689,7 @@ async function claimOne() {
 // Fail them (+ their projects) so the UI shows "try again". (A multi-worker deployment would need
 // a per-render heartbeat/lease instead of a blanket startup sweep.)
 async function reapStaleRenders() {
-  const rows = await sql`update renders set status='failed' where status='rendering' returning id, project_id`;
+  const rows = await sql`update renders set status='failed', error_message='worker restarted mid-render (orphan reaped)' where status='rendering' returning id, project_id`;
   if (rows.length === 0) return;
   for (const row of rows) {
     await sql`update projects set status='failed', updated_at=now() where id=${row.project_id}`.catch(() => {});
@@ -1538,11 +1699,14 @@ async function reapStaleRenders() {
 async function tick() {
   const r = await claimOne();
   if (!r) return false;
+  const t0 = Date.now();
   try {
     await processRender(r);
   } catch (e) {
     console.error(`[worker] render ${r.id} FAILED:`, e.message);
-    await sql`update renders set status='failed' where id=${r.id}`;
+    // Beta metrics: failed renders cost time too, and the reason drives the reliability view.
+    const secs = Math.round((Date.now() - t0) / 100) / 10;
+    await sql`update renders set status='failed', cpu_seconds=${secs}, error_message=${String(e?.message ?? e).slice(0, 500)}, completed_at=now() where id=${r.id}`;
     await sql`update projects set status='failed', updated_at=now() where id=${r.project_id}`;
     await failBatchItem(r.id).catch(() => {});
   }
@@ -1647,15 +1811,16 @@ async function followtest() {
   const arg = process.argv[i + 1];
   const mode = process.argv[i + 2] || "follow";
   const secs = Number(process.argv[i + 3]) || 20;
-  if (!arg) { console.error("usage: --followtest <insv | front_00.insv,rear_10.insv> [flat|follow|tiny] [seconds]"); process.exit(2); }
+  const start = Number(process.argv[i + 4]) || 0; // output-side seek: keeps source timestamps (gyro/follow commands)
+  if (!arg) { console.error("usage: --followtest <insv | front_00.insv,rear_10.insv> [flat|follow|tiny] [seconds] [start]"); process.exit(2); }
   const src = arg.includes(",") ? arg.split(",") : arg; // a comma pair = stitched split-lens files
   const streams = await probeVideoStreams(srcFiles(src)[0]);
   const dir = mkdtempSync(join(tmpdir(), "cw-ft-"));
   // Same graph the conversion uses (whole-file yaw path; the preview renders the first `secs`).
   const { vf, note } = await reframeGraph(src, streams, mode, false, dir, 1280, 720);
   console.log(`[followtest] streams=${streams} mode=${mode}: ${note}`);
-  const out = "/tmp/followtest.mp4";
-  await ffmpeg([...inputArgs(src), "-filter_complex", `${vf},format=yuv420p[v]`, "-map", "[v]", "-map", "0:a?", "-t", String(secs), "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p", "-c:a", "aac", out]);
+  const out = process.env.FOLLOWTEST_OUT || "/tmp/followtest.mp4";
+  await ffmpeg([...inputArgs(src), "-filter_complex", `${vf},format=yuv420p[v]`, "-map", "[v]", "-map", "0:a?", ...(start ? ["-ss", String(start)] : []), "-t", String(secs), "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p", "-c:a", "aac", out]);
   console.log(`[followtest] → ${out} dur=${(await probe(out)).toFixed(1)}s`);
   rmSync(dir, { recursive: true, force: true });
   await sql.end();

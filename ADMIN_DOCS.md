@@ -276,6 +276,16 @@ project's clips from MinIO, FFmpeg-assembles a 1080p 9:16 video (photos 2s, vide
 music from `music_tracks`, optional watermark), uploads to `renders/<projectId>/<renderId>.mp4`,
 and marks the row `done` (+ project `ready`). Reuses the app's `postgres` + S3 deps.
 
+**Gyro horizon levelling (render worker, 2026-09-27):** `imuLevel()` runs `GYRO2BB_PATH`
+(default `/opt/cw-tools/telemetry-parser-0.3.0/gyro2bb`, 180 s timeout) on the source (pairs: the `_00_`
+file — the rear carries no IMU), streams the CSV into 100 Hz bins, fuses gyro + accelerometer
+(`fuseUp`, τ = `IMU_TAU` 5 s, accel gated to ~1 g) and writes per-moment `v360@g` rotations at
+`IMU_RATE` 15/s for `sendcmd` on the FINAL projection (never on a full-size intermediate sphere —
+that made a 6 s window take >25 min). No IMU data → brightness `estimateLevel` fallback. Note shows
+`gyro level (N pts …)` in the worker log. Check: `node --env-file=.env.worker worker/render-worker.mjs
+--followtest <insv | front_00,rear_10> [flat|follow|tiny] [secs] [start]` (start = output-side seek;
+`FOLLOWTEST_OUT` sets the output path). Missing binary = silent fallback, so keep gyro2bb installed.
+
 **Beta instrumentation (2026-09-25):** `analytics_events` (name, user_id, project_id, props jsonb,
 created_at) is append-only; `track()` in `src/lib/analytics.ts` never throws. Server events:
 `upload_completed` (upload routes), `render_requested`, `render_downloaded` / `export_downloaded`

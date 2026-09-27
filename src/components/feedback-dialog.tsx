@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 import { Loader2, X } from "lucide-react";
 import { toast } from "sonner";
@@ -30,7 +31,7 @@ export function FeedbackDialog({ open, onClose }: { open: boolean; onClose: () =
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
   const send = () =>
     start(async () => {
       try {
@@ -43,8 +44,10 @@ export function FeedbackDialog({ open, onClose }: { open: boolean; onClose: () =
       }
     });
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+  // Portal to <body>: the menu lives in the header, whose backdrop blur makes `fixed` relative to
+  // the header box (the dialog rendered 140 px above the top of the window, unreachable).
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:items-center" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-labelledby="fb-title" onClick={(e) => e.stopPropagation()}
         className="w-full max-w-md space-y-4 rounded-2xl border border-border bg-background p-5 shadow-xl">
         <div className="flex items-center justify-between">
@@ -71,6 +74,7 @@ export function FeedbackDialog({ open, onClose }: { open: boolean; onClose: () =
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -35,11 +35,12 @@ ships. It will also surface in-app at `/help`.
   original uploads to a "ClipWaltz" folder in your Drive (big videos take a few minutes; the button shows progress).
 - **Insta360 two-file clips:** some cameras save each lens separately (`…_00_…` and `…_10_…`). Upload **both** and
   ClipWaltz stitches them into one full 360° clip (marked **360° ⧉**); the second file is tucked away.
+- **Level horizon on 360 clips:** ClipWaltz reads your Insta360's built-in motion sensor, so the horizon stays
+  level even when the camera tilts, bumps or leans through a turn. Nothing to switch on.
 - **360 clips (Insta360 .insv):** open the clip in the timeline and pick a **360 view** — *Follow action*
   (the default: the view turns toward the movement), *Front* (a steady view out of the lens) or *Tiny planet*.
-  Changing it re-makes the clip, which takes a few minutes for long videos. Some Insta360 cameras save each lens
-  as a separate file (names ending `_00_…` and `_10_…`); each file then shows only what that lens saw, so upload
-  the one that faced the action.
+  Changing it re-makes the clip, which takes a few minutes for long videos. If your camera saved each lens as a
+  separate file, upload both (see above) to get the full 360°.
 - Choosing an occasion template (or "Surprise me").
 - Reordering clips, setting length.
 - **Presets:** the **Presets** bar at the top of the editor. Pick a starter look (TikTok Punchy,
