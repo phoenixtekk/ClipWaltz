@@ -170,7 +170,7 @@ Refreshes every 10 s. Code: `src/lib/ops-admin-actions.ts`, `src/components/admi
   into a just-deleted project). Run on the AI box, which has the DB + MinIO env:
   `cd ~/clipwaltz && sudo -u lacy node --env-file=.env.worker scripts/storage-orphans.mjs` — **dry run**: counts
   per prefix, orphan media rows, kept (still referenced) and to-delete totals. `--verbose` lists keys,
-  `--project <id>` limits to one id, **`--apply`** deletes (media rows first, then objects). A bucket-wide `--apply` refuses when over half the project ids in the bucket are missing from the DB (`--force` overrides). Never run it with a
+  `--project <id>` limits to one id, **`--apply`** deletes (media rows first, then objects). A bucket-wide `--apply` refuses unless the database name equals the bucket name (prod: both `clipwaltz`; `--force` overrides). Never run it with a
   `DATABASE_URL` other than prod's against the shared `clipwaltz` bucket: with the dev DB every prod project looks
   deleted (the dry run would report the whole bucket; `--apply` would delete it).
 

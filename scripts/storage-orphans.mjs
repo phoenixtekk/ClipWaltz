@@ -84,13 +84,11 @@ try {
   // 2) Objects under per-project prefixes whose project is gone.
   const report = {};
   const candidates = []; // { key, size }
-  const seen = new Set(); // every project id with objects in the bucket
   for (const p of PREFIXES) {
     const objs = await list(onlyProject ? `${p}/${onlyProject}/` : `${p}/`);
     const e = (report[p] = { projectsGone: new Set(), objects: 0, bytes: 0 });
     for (const o of objs) {
       const pid = o.key.split("/")[1];
-      if (pid) seen.add(pid);
       if (!pid || existing.has(pid)) continue;
       e.projectsGone.add(pid);
       e.objects++;
@@ -129,11 +127,12 @@ try {
   console.log(`  to delete: ${doomed.length} objects, ${mb(doomed.reduce((s, k) => s + (sizeOf.get(k) ?? 0), 0))} (conversion sizes not counted)`);
   if (verbose) for (const k of doomed) console.log(`    ${k}`);
 
-  // Wrong-DB guard: pointed at a DB that doesn't hold this bucket's projects (e.g. dev vs the shared prod
-  // bucket), nearly every prefix looks deleted. Refuse a bucket-wide apply that would wipe most of it.
-  const gone = new Set(Object.values(report).flatMap((e) => [...e.projectsGone]));
-  if (apply && !onlyProject && seen.size >= 10 && gone.size > seen.size / 2 && !force) {
-    console.error(`REFUSING: ${gone.size} of ${seen.size} project ids in the bucket are missing from this DB — wrong DATABASE_URL? (--force overrides)`);
+  // Wrong-DB guard: dev (clipwaltz_dev) shares the prod bucket, and against it every prod project looks
+  // deleted. A bucket-wide apply only runs when the DB is the bucket's own (prod: DB `clipwaltz`, bucket
+  // `clipwaltz`); --project <id> or --force skip the check.
+  const [{ db: dbName }] = await sql`select current_database() db`;
+  if (apply && !onlyProject && dbName !== BUCKET && !force) {
+    console.error(`REFUSING: database "${dbName}" is not "${BUCKET}" — every project in the bucket this DB doesn't know would be deleted. Use --project <id>, or --force if this really is the bucket's DB.`);
     process.exitCode = 1;
   } else if (!apply) {
     console.log("Nothing deleted. Re-run with --apply to delete.");
