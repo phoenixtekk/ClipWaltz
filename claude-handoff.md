@@ -14,6 +14,16 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
+## Storage cleanup on project delete (2026-09-27) — deployed + verified on prod
+- `83222aa`/`2bae54c`: `deleteProject` now collects the project's keys + library media rows, deletes the row,
+  then purges MinIO via `after()` (`src/lib/project-storage.ts`); anything any row still references is kept.
+  Prod E2E: throwaway project + 1 upload → delete in UI → `[project-purge] … mediaDeleted:1, objectsDeleted:1`,
+  object HEAD 404, media row gone. **Deployed as a file overlay** (not a full tarball) because the main
+  checkout had uncommitted Waltz AI Remix work whose worker was already on linuxg1.
+- `scripts/storage-orphans.mjs` (on the AI box too). Prod dry run: **202 objects / ~14.1 GB** from 98–99 deleted
+  test projects (Sep 20–24), 2 orphan media rows, 0 shared. **Not applied** — owner's call:
+  `ssh ai` → `cd ~/clipwaltz && sudo -u lacy node --env-file=.env.worker scripts/storage-orphans.mjs --apply`.
+
 ## Working state (2026-09-27) — build plan closed out
 Tree **clean** @ `0626c43`, pushed. Type-check green (lint: 1 pre-existing error in generation-panel.tsx set-state-in-effect).
 ```
