@@ -1,4 +1,5 @@
-<!-- session-version: 7 -->
+<!-- session-version: 8 -->
+<!-- pending-session-title: ClipWaltz v8 -->
 
 # ClipWaltz — session handoff
 
@@ -15,6 +16,17 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 ---
 
 ## Working state (2026-09-27) — build plan closed out
+Tree **clean** @ `0626c43`, pushed. Type-check green (lint: 1 pre-existing error in generation-panel.tsx set-state-in-effect).
+```
+0626c43 docs: release gate results, AI box worker dependency, handoff
+ccfa686 fix(worker): measure and store video clip lengths (assets.duration_sec was never written)
+fbb5393 feat(360): gyro horizon levelling; release-gate fixes; marketing handoff
+adcf401 feat(beta): instrumentation events, /admin/ops beta metrics, in-app feedback
+6b4978b fix: backlog gaps — cancel guard + right queue (084), clip length on thumbnails (021), fullscreen button (111), clip length within the model's range (051)
+```
+**Next focus / open:** owner to click the Waltz AI fullscreen button in a real browser; confirm brand voice +
+competitors in PRODUCT_PROFILE.md; clip-length backfill was 221/342 at hand-off (check it finished);
+optional: flip /admin watermark switch once to test it. No build-plan items remain.
 All deployed + verified on prod. Commits `6b4978b` (backlog gaps) · `adcf401` (beta instrumentation) ·
 `fbb5393` (gyro levelling + release-gate fixes + marketing handoff) · `ccfa686` (clip lengths).
 - **Release gate (backlog §23) run in the browser as lacy@clipwaltz.com — all pass:** auth, projects,
