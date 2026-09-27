@@ -15,13 +15,14 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { Agent as HttpAgent } from "node:http";
 import { Agent as HttpsAgent } from "node:https";
 import postgres from "postgres";
 import IORedis from "ioredis";
 import { Worker } from "bullmq";
+import { WATERMARK_PATH, wmChain } from "./watermark.mjs";
+import { composeRemix } from "./remix-compose.mjs";
 import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 
@@ -75,24 +76,7 @@ function framesForSeconds(seconds) {
   return 4 * Math.round((s * WAN_FPS - 1) / 4) + 1;
 }
 
-// ─── Watermark (owner decision 2026-09-25: every video, bottom-left; admin can exempt paid plans) ──
-// The app decides per job (request_json.watermark / export_jobs.watermark); same logo, size and
-// placement as the music-video render worker: 15.4% of the short side (30% smaller than the original 22%), 3% padding, 90% opacity.
-// Keep WM_SCALE in sync with worker/render-worker.mjs.
-const WM_SCALE = 0.154;
-const WATERMARK_PATH = process.env.WATERMARK_PATH || join(dirname(fileURLToPath(import.meta.url)), "WaterMark.png");
-const wmGeometry = (w, h) => {
-  const s = Math.min(w, h) || 480;
-  return { wmW: Math.max(24, Math.round(s * WM_SCALE)), pad: Math.round(s * 0.03) };
-};
-// Overlay chain taking [base] → [out]. The logo is generated inside the graph (movie + loop +
-// regular timestamps): on ffmpeg 7.x a PNG *input* drops the logo (single frame) or drops frames
-// at random (-loop 1) — verified 2026-09-25 on the render worker.
-const wmChain = (base, w, h) => {
-  const { wmW, pad } = wmGeometry(w, h);
-  return `movie='${WATERMARK_PATH}',scale=${wmW}:-1,format=rgba,colorchannelmixer=aa=0.9,loop=loop=-1:size=1:start=0,setpts=N/30/TB[wm];` +
-    `[${base}][wm]overlay=x=${pad}:y=main_h-overlay_h-${pad}:format=auto:shortest=1,format=yuv420p[out]`;
-};
+// Watermark: see worker/watermark.mjs (shared with the remix composer).
 
 /** Burn the logo into an MP4 (audio copied if present). */
 async function watermarkBytes(bytes) {
@@ -664,90 +648,18 @@ async function processRemix(j, req, genJobId) {
       console.log(`[remix] ${genJobId} music offset ${off == null ? "not found (AI parts get silence)" : off.toFixed(3) + "s"}`);
     }
 
-    // Compose: [lead-in] + [source with moments overlaid in place] + [extension].
+    // Compose: [lead-in] + [source with moments overlaid in place] + [extension] (worker/remix-compose.mjs:
+    // re-encodes only the changed spans and stream-copies the rest; full re-encode as the fallback).
     await setStatus(genJobId, { status: "encoding", progress: 80 });
     const lead = segs.find((g) => g.kind === "lead"), ext = segs.find((g) => g.kind === "ext");
     const mom = segs.filter((g) => g.kind === "moment");
-    const L = lead ? lead.seconds : 0, E = ext ? ext.seconds : 0, B = t1 - t0;
-    const norm = (s) => `fps=${F},scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,format=yuv420p,trim=duration=${s}`;
-    const aFmt = "aformat=sample_rates=48000:channel_layouts=stereo";
-    const args = ["-y", "-i", srcPath];
-    let idx = 1;
-    let fc = `[0:v]trim=start=${t0}:end=${t1.toFixed(3)},setpts=PTS-STARTPTS,fps=${F},scale=${W}:${H},setsar=1,format=yuv420p[b0];`;
-    mom.forEach((g, i) => {
-      args.push("-i", g.file);
-      const k = idx++, at = g.at - t0, d = Math.min(g.seconds, B - at);
-      fc += `[${k}:v]${norm(d)},format=yuva420p,fade=t=out:st=${Math.max(0, d - 0.35).toFixed(3)}:d=0.35:alpha=1,setpts=PTS-STARTPTS+${at.toFixed(3)}/TB[m${i}];`;
-      fc += `[b${i}][m${i}]overlay=enable='between(t,${at.toFixed(3)},${(at + d).toFixed(3)})':eof_action=pass,format=yuv420p[b${i + 1}];`;
+    const composeStart = Date.now();
+    const { outPath, brandedPath, mode, encodedFrames, copiedFrames } = await composeRemix({
+      dir, srcPath, S, t0, t1, lead, ext, moments: mom,
+      music: musicPath ? { path: musicPath, off, dur: (await probeFile(musicPath)).duration || 0 } : null,
+      watermark: !!req.watermark, srcWatermarked: !!src.watermarked,
     });
-    let mIdx = -1;
-    const musicTaps = [];
-    if (musicPath) {
-      args.push("-i", musicPath); mIdx = idx++;
-      // One input can feed only one filter pad — split it for the lead-in and the extension.
-      fc += `[${mIdx}:a]asplit=2[mlead][mext];`;
-    }
-    const vparts = [], aparts = [];
-    if (lead) {
-      args.push("-i", lead.file);
-      const k = idx++;
-      fc += `[${k}:v]${norm(L)},reverse,setpts=PTS-STARTPTS,fade=t=in:st=0:d=0.5[lv];`;
-      vparts.push("[lv]");
-      // The song from L seconds before the first real frame. If the render started the song less than
-      // L seconds in, pad the gap with silence and play the song from its start.
-      const mStart = off == null ? null : off + t0 - L;
-      if (mIdx >= 0 && mStart != null && mStart > -L + 0.2) {
-        const pad = Math.max(0, -mStart);
-        fc += `[mlead]atrim=start=${Math.max(0, mStart).toFixed(3)}:duration=${(L - pad).toFixed(3)},asetpts=PTS-STARTPTS,${aFmt}` +
-          (pad ? `,adelay=${Math.round(pad * 1000)}:all=1` : "") + `,apad=whole_dur=${L},atrim=duration=${L},afade=t=in:st=0:d=1[la];`;
-        musicTaps.push("lead");
-      } else fc += `anullsrc=r=48000:cl=stereo,atrim=duration=${L}[la];`;
-      aparts.push("[la]");
-    }
-    vparts.push(`[b${mom.length}]`);
-    const fadeBase = ext && !musicPath ? `,afade=t=out:st=${Math.max(0, B - 1).toFixed(3)}:d=1` : "";
-    fc += S.hasAudio
-      ? `[0:a]atrim=start=${t0}:end=${t1.toFixed(3)},asetpts=PTS-STARTPTS,${aFmt}${fadeBase}[ba];`
-      : `anullsrc=r=48000:cl=stereo,atrim=duration=${B.toFixed(3)}[ba];`;
-    aparts.push("[ba]");
-    if (ext) {
-      args.push("-i", ext.file);
-      const k = idx++;
-      fc += `[${k}:v]${norm(E)},setpts=PTS-STARTPTS,fade=t=out:st=${Math.max(0, E - 0.7).toFixed(3)}:d=0.7[ev];`;
-      vparts.push("[ev]");
-      if (mIdx >= 0 && off != null) {
-        // Where the song is at the extension point. Renders loop a short song (`-ss off -stream_loop
-        // -1`): after the first pass it restarts from 0, so wrap past the end (a 9-min render on a
-        // 3-min song went silent here in testing).
-        const md = (await probeFile(musicPath)).duration || Infinity;
-        let at = off + t1;
-        if (at >= md) at = (at - md) % md;
-        if (md - at < E) at = 0; // too close to the end for the whole extension: start the song over
-        fc += `[mext]atrim=start=${at.toFixed(3)}:duration=${E},asetpts=PTS-STARTPTS,${aFmt},apad=whole_dur=${E},atrim=duration=${E},afade=t=out:st=${Math.max(0, E - 1.5).toFixed(3)}:d=1.5[ea];`;
-        musicTaps.push("ext");
-      } else fc += `anullsrc=r=48000:cl=stereo,atrim=duration=${E}[ea];`;
-      aparts.push("[ea]");
-    }
-    for (const tap of ["lead", "ext"]) if (mIdx >= 0 && !musicTaps.includes(tap)) fc += `[m${tap}]anullsink;`;
-    fc += vparts.map((v, i) => v + aparts[i]).join("") + `concat=n=${vparts.length}:v=1:a=1[vout][aout]`;
-    // Logo in the SAME pass (clean master + branded copy written together — one decode, no second
-    // full encode). A watermarked render already shows its own logo: brand only the AI ranges then.
-    const total = L + B + E;
-    const ranges = [...(L ? [[0, L]] : []), ...mom.map((g) => [L + g.at - t0, L + g.at - t0 + g.seconds]), ...(E ? [[L + B, total]] : [])];
-    const outPath = join(dir, "remix.mp4"), brandedPath = join(dir, "remix-branded.mp4");
-    const enc = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"];
-    if (req.watermark) {
-      if (!existsSync(WATERMARK_PATH)) throw new Error(`watermark image missing at ${WATERMARK_PATH}`);
-      const en = src.watermarked ? `:enable='${ranges.map(([a, b]) => `between(t,${a.toFixed(3)},${b.toFixed(3)})`).join("+")}'` : "";
-      fc += `;[vout]split=2[vclean][vpre];[aout]asplit=2[aclean][abrand];` + wmChain("vpre", W, H).replace(":shortest=1", `:shortest=1${en}`);
-      args.push("-filter_complex", fc, "-map", "[vclean]", "-map", "[aclean]", ...enc, outPath, "-map", "[out]", "-map", "[abrand]", ...enc, brandedPath);
-    } else {
-      args.push("-filter_complex", fc, "-map", "[vout]", "-map", "[aout]", ...enc, outPath);
-    }
-    // linuxg1 has 4 cores and also serves the website: encode at low priority with 3 threads.
-    // (A long render — e.g. 9 min — takes many minutes here; moving remix encoding to the AI box is
-    // the follow-up.)
-    await run("nice", ["-n", "15", "ffmpeg", "-threads", "3", ...args], { maxBuffer: 1 << 26 });
+    console.log(`[remix] ${genJobId} composed (${mode}${mode === "splice" ? `: ${encodedFrames} frames encoded, ${copiedFrames} copied` : ""}) in ${Math.round((Date.now() - composeStart) / 1000)}s`);
     if (await wasCancelled(genJobId)) { console.log("[remix] cancelled before save", genJobId); return; }
 
     // Store (clean master + logo) and add the version.
