@@ -23,6 +23,9 @@ Both carry the bottom-left logo watermark (Free always; paid per the `/admin` sw
   Front, Follow action (level + pan combined) and Tiny planet all use it; files without motion data fall
   back to the brightness auto-level. Verified on the tilted moments of an X5 clip and your X3 jet-ski pair.
 - Render worker also records render start time and failure reason (beta metrics).
+- **Clip lengths (fix):** `assets.duration_sec` was never written (0 of 342 videos), so the timeline, trim limits,
+  draft preview and clip-library badge fell back to guesses. The render worker now measures missing lengths when
+  idle (ffprobe over a signed URL, no download) and backfills existing clips.
 
 ## Beta instrumentation + feedback (2026-09-25)
 - **Events** (`analytics_events`, migration 0035; `src/lib/analytics.ts`): upload started/completed/failed/resumed,

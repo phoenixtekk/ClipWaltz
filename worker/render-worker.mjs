@@ -26,6 +26,7 @@ import { Agent as HttpsAgent } from "node:https";
 import postgres from "postgres";
 import { S3Client, GetObjectCommand, PutObjectCommand, CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand } from "@aws-sdk/client-s3";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const run = promisify(execFile);
 const ONCE = process.argv.includes("--once");
@@ -2041,6 +2042,37 @@ async function startBatchItem(b, group) {
   await sql`update batch_jobs set last_run_at=now() where id=${b.id}`;
   console.log(`[batch] ${b.name}: queued "${group.name}" (${group.files.length} files) → render ${renderId}`);
 }
+// ─── Clip length backfill ───────────────────────────────────────────────────────────────────────
+// assets.duration_sec drives the editor (timeline widths, trim limits, "source clip is N s", the
+// clip-library badge, draft timing) but nothing ever wrote it (found 2026-09-27: 0 of 342 videos).
+// When idle, measure a few videos per tick with ffprobe over a short-lived signed URL (range reads —
+// never downloads multi-GB files) and store the length on every asset + media row for that object.
+const durFailed = new Set(); // keys ffprobe couldn't read this run (no retry loop)
+async function durTick() {
+  const rows = await sql`
+    select distinct coalesce(converted_key, storage_key) as key from assets
+    where kind = 'video' and duration_sec is null and upload_state = 'uploaded'
+      and (source_format is null or conversion_state = 'ready')
+    limit 20`;
+  const todo = rows.map((r) => r.key).filter((k) => k && !durFailed.has(k)).slice(0, 4);
+  if (!todo.length) return false;
+  for (const key of todo) {
+    try {
+      const url = await getSignedUrl(s3, new GetObjectCommand({ Bucket: BUCKET, Key: key }), { expiresIn: 600 });
+      const { stdout } = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", url], { timeout: 60_000 });
+      const d = parseFloat(String(stdout).trim());
+      if (!(d > 0)) throw new Error(`no duration (${String(stdout).trim() || "empty"})`);
+      const secs = Math.round(d * 1000) / 1000;
+      await sql`update assets set duration_sec = ${secs} where kind = 'video' and duration_sec is null and coalesce(converted_key, storage_key) = ${key}`;
+      await sql`update media set duration_sec = ${secs} where duration_sec is null and coalesce(converted_key, storage_key) = ${key}`;
+    } catch (e) {
+      durFailed.add(key);
+      console.warn(`[worker] clip length for ${key} unreadable: ${e.message}`);
+    }
+  }
+  return true;
+}
+
 async function batchTick() {
   const jobs = await sql`select * from batch_jobs where status='active' order by created_at asc`;
   let worked = false;
@@ -2132,6 +2164,7 @@ async function main() {
       worked = await tick();
       if (!worked) worked = await convTick(); // 360 reprojection queue
       if (!worked) worked = await batchTick(); // Auto-Batch: queue the next folder group
+      if (!worked) worked = await durTick(); // lowest priority: fill in missing clip lengths
     } catch (e) {
       console.error("[worker] tick error:", e.message);
     }
