@@ -47,6 +47,7 @@ editor: markdown
 | Occasion templates | Trip, event/wedding, birthday, "surprise me", plus saved presets | Start from a vibe that fits |
 | 360 camera support | Insta360 .insv/.insp files, split-lens pairs stitched, gyro horizon levelling, Front / Follow action / Tiny planet views | Use 360 footage with no desktop software |
 | Waltz AI | Text-to-video and image-to-video clips with style, camera, motion, length and quality controls | Create shots you didn't film |
+| Waltz AI Remix | Pick any video you've made and weave AI into it: an AI lead-in that flows into the first shot, "moment magic" where a frame comes alive in place, and an AI extension past the last frame, with the song carried on under the AI parts | Turn a finished video into something new without re-editing it |
 | Enhance | Clean, Smooth (frame interpolation), Sharp (AI upscale) and Max Quality (AI Restore) | Better-looking clips in one click |
 | Versions, compare & scenes | Version history, side-by-side compare, storyboard scenes assembled into one video | Iterate and build longer stories |
 | Exports | MP4/WebM at native, 720p or 1080p | Deliverables for any platform |

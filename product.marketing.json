@@ -18,40 +18,148 @@
     "A real auto-edit: beat-synced cuts, smart trim, Waltz to the Music pacing",
     "Licensed music catalog that's safe to post",
     "Insta360 support: split-lens pairs stitched, gyro horizon levelling, Front / Follow action / Tiny planet views",
-    "Waltz AI clip generation on self-hosted GPUs, in the same project as your own footage"
+    "Waltz AI clip generation on self-hosted GPUs, in the same project as your own footage",
+    "Waltz AI Remix: AI lead-ins, living moments and extensions woven into your own finished videos, on the beat"
   ],
-  "competitors": ["CapCut templates", "Google Photos Memories", "Apple Memories", "VivaVideo", "Manual editing in a video editor"],
+  "competitors": [
+    "CapCut templates",
+    "Google Photos Memories",
+    "Apple Memories",
+    "VivaVideo",
+    "Manual editing in a video editor"
+  ],
   "features": [
-    { "name": "AutoWaltz auto-edit", "whatItDoes": "Assembles uploaded photos and videos into a music video with beat-synced cuts, smart trim, motion, transitions, filters, titles and fades.", "benefit": "A finished video without editing." },
-    { "name": "Instant draft preview", "whatItDoes": "Plays the whole cut in the editor before rendering.", "benefit": "See and tweak it before committing." },
-    { "name": "Cloud HD render", "whatItDoes": "Renders 1080p 9:16 or 16:9 on ClipWaltz servers and notifies you (in-app, email, desktop) when ready.", "benefit": "Nothing to install; no waiting at the screen." },
-    { "name": "Licensed music catalog", "whatItDoes": "Curated royalty-free tracks by mood.", "benefit": "Safe to post, no takedowns." },
-    { "name": "Occasion templates", "whatItDoes": "Trip, event/wedding, birthday and 'surprise me' starting points plus saved presets.", "benefit": "Start from a vibe that fits." },
-    { "name": "360 camera support", "whatItDoes": "Converts Insta360 .insv/.insp files, stitches split-lens pairs, levels the horizon from the camera's gyro and reframes to Front, Follow action or Tiny planet.", "benefit": "Use 360 footage with no desktop software." },
-    { "name": "Waltz AI", "whatItDoes": "Text-to-video and image-to-video clips with style, camera, motion, length and quality controls.", "benefit": "Create shots you didn't film." },
-    { "name": "Enhance", "whatItDoes": "Clean, Smooth (frame interpolation), Sharp (AI upscale) and Max Quality (AI Restore).", "benefit": "Better-looking clips in one click." },
-    { "name": "Versions, compare & scenes", "whatItDoes": "Version history, side-by-side compare, and storyboard scenes assembled into one video.", "benefit": "Iterate and build longer stories." },
-    { "name": "Exports", "whatItDoes": "MP4 or WebM at native, 720p or 1080p.", "benefit": "Deliverables for any platform." },
-    { "name": "Share & community", "whatItDoes": "Share links, public feed, likes and comments, monthly theme challenge.", "benefit": "Get views and inspiration." },
-    { "name": "Post text", "whatItDoes": "AI-written description and hashtags for the post.", "benefit": "Ready to publish with copy and paste." },
-    { "name": "Workspaces", "whatItDoes": "Invite teammates with owner, admin, editor or viewer roles.", "benefit": "Team collaboration on projects." },
-    { "name": "Google Drive backup", "whatItDoes": "Backs up original uploads to the user's Google Drive.", "benefit": "Keep originals safe." }
+    {
+      "name": "AutoWaltz auto-edit",
+      "whatItDoes": "Assembles uploaded photos and videos into a music video with beat-synced cuts, smart trim, motion, transitions, filters, titles and fades.",
+      "benefit": "A finished video without editing."
+    },
+    {
+      "name": "Instant draft preview",
+      "whatItDoes": "Plays the whole cut in the editor before rendering.",
+      "benefit": "See and tweak it before committing."
+    },
+    {
+      "name": "Cloud HD render",
+      "whatItDoes": "Renders 1080p 9:16 or 16:9 on ClipWaltz servers and notifies you (in-app, email, desktop) when ready.",
+      "benefit": "Nothing to install; no waiting at the screen."
+    },
+    {
+      "name": "Licensed music catalog",
+      "whatItDoes": "Curated royalty-free tracks by mood.",
+      "benefit": "Safe to post, no takedowns."
+    },
+    {
+      "name": "Occasion templates",
+      "whatItDoes": "Trip, event/wedding, birthday and 'surprise me' starting points plus saved presets.",
+      "benefit": "Start from a vibe that fits."
+    },
+    {
+      "name": "360 camera support",
+      "whatItDoes": "Converts Insta360 .insv/.insp files, stitches split-lens pairs, levels the horizon from the camera's gyro and reframes to Front, Follow action or Tiny planet.",
+      "benefit": "Use 360 footage with no desktop software."
+    },
+    {
+      "name": "Waltz AI",
+      "whatItDoes": "Text-to-video and image-to-video clips with style, camera, motion, length and quality controls.",
+      "benefit": "Create shots you didn't film."
+    },
+    {
+      "name": "Waltz AI Remix",
+      "whatItDoes": "Pick any video you've made and weave AI into it: an AI lead-in that flows into the first shot, moments where a frame comes alive in place, and an AI extension past the last frame, with the song carried on under the AI parts.",
+      "benefit": "Turn a finished video into something new without re-editing it."
+    },
+    {
+      "name": "Enhance",
+      "whatItDoes": "Clean, Smooth (frame interpolation), Sharp (AI upscale) and Max Quality (AI Restore).",
+      "benefit": "Better-looking clips in one click."
+    },
+    {
+      "name": "Versions, compare & scenes",
+      "whatItDoes": "Version history, side-by-side compare, and storyboard scenes assembled into one video.",
+      "benefit": "Iterate and build longer stories."
+    },
+    {
+      "name": "Exports",
+      "whatItDoes": "MP4 or WebM at native, 720p or 1080p.",
+      "benefit": "Deliverables for any platform."
+    },
+    {
+      "name": "Share & community",
+      "whatItDoes": "Share links, public feed, likes and comments, monthly theme challenge.",
+      "benefit": "Get views and inspiration."
+    },
+    {
+      "name": "Post text",
+      "whatItDoes": "AI-written description and hashtags for the post.",
+      "benefit": "Ready to publish with copy and paste."
+    },
+    {
+      "name": "Workspaces",
+      "whatItDoes": "Invite teammates with owner, admin, editor or viewer roles.",
+      "benefit": "Team collaboration on projects."
+    },
+    {
+      "name": "Google Drive backup",
+      "whatItDoes": "Backs up original uploads to the user's Google Drive.",
+      "benefit": "Keep originals safe."
+    }
   ],
   "pricing": {
     "model": "tiered",
     "tiers": [
-      { "name": "Free", "price": "$0", "interval": "na" },
-      { "name": "Plus", "price": "$15", "interval": "month" },
-      { "name": "Pro", "price": "$39", "interval": "month" }
+      {
+        "name": "Free",
+        "price": "$0",
+        "interval": "na"
+      },
+      {
+        "name": "Plus",
+        "price": "$15",
+        "interval": "month"
+      },
+      {
+        "name": "Pro",
+        "price": "$39",
+        "interval": "month"
+      }
     ],
     "processor": "stripe"
   },
-  "stack": ["Next.js", "React", "TypeScript", "Tailwind CSS", "shadcn/Base UI", "Better Auth", "Drizzle ORM", "PostgreSQL", "BullMQ", "Redis", "MinIO (S3)", "ffmpeg", "ComfyUI (Wan 2.2, Real-ESRGAN, RIFE, SeedVR2)", "Ollama"],
-  "integrations": ["Stripe", "Amazon SES", "Google Drive", "Web Push", "Cloudflare Tunnel + media edge", "Insta360 telemetry (gyro2bb)"],
+  "stack": [
+    "Next.js",
+    "React",
+    "TypeScript",
+    "Tailwind CSS",
+    "shadcn/Base UI",
+    "Better Auth",
+    "Drizzle ORM",
+    "PostgreSQL",
+    "BullMQ",
+    "Redis",
+    "MinIO (S3)",
+    "ffmpeg",
+    "ComfyUI (Wan 2.2, Real-ESRGAN, RIFE, SeedVR2)",
+    "Ollama"
+  ],
+  "integrations": [
+    "Stripe",
+    "Amazon SES",
+    "Google Drive",
+    "Web Push",
+    "Cloudflare Tunnel + media edge",
+    "Insta360 telemetry (gyro2bb)"
+  ],
   "deployment": "linuxg1 (pm2 clipwaltz :3100 + generation worker) behind a Cloudflare Tunnel at www.clipwaltz.com (apex → www 308); render worker on the AI box; AI inference on AISERVER; MinIO on linuxg7 with the media.clipwaltz.com edge",
   "brand": {
     "voice": "Warm, playful and confident (inferred from site copy: 'Let's Waltz', 'We waltz it', 'Done before your coffee'); confirm.",
-    "colors": ["#4f7cff", "#8b5cf6", "#e05bd6", "#ff7a59", "#08061a"],
+    "colors": [
+      "#4f7cff",
+      "#8b5cf6",
+      "#e05bd6",
+      "#ff7a59",
+      "#08061a"
+    ],
     "logoPath": "public/logo-2.png"
   },
   "videoAssets": [],
