@@ -24,6 +24,15 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
   test projects (Sep 20–24), 2 orphan media rows, 0 shared. **Not applied** — owner's call:
   `ssh ai` → `cd ~/clipwaltz && sudo -u lacy node --env-file=.env.worker scripts/storage-orphans.mjs --apply`.
 
+## Waltz AI Remix (2026-09-27, later) — live
+`ec74ca1` + watch-route fix. Waltz AI tab → **Remix a video**: library of all renders + AI clips; lead-in
+(reversed i2v into the first frame), moment magic (in-place overlay), extend; song continuity via
+onset alignment. Verified on prod (3 runs incl. UI). Throwaway project "Remix test (throwaway)" holds
+the test remixes. Follow-up chips: move remix encoding off linuxg1 (slow for long renders); sideways
+phone clips seen in "Lake Day v2" v6 render (cause unverified). Test projects "Watermark test (…)"
+deleted (+ their 28 storage objects). ⚠ Another session (v8) was active on this repo the same day —
+`git fetch` before deploying; deploy only restarts pm2 after a successful build.
+
 ## Working state (2026-09-27) — build plan closed out
 Tree **clean** @ `0626c43`, pushed. Type-check green (lint: 1 pre-existing error in generation-panel.tsx set-state-in-effect).
 ```

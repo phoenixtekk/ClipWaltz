@@ -28,6 +28,12 @@ version in the current project (the "import"); the original is untouched.
   run two at a time (one per GPU). Watermark: whole video for clean sources; for already-watermarked
   renders only the AI parts get the logo (never doubled). Clean master kept.
 - Job type `remix` on the enhance queue (`processRemix`); Cancel/Retry/live status like other jobs.
+- Verified on prod (2026-09-27): a 197 s render (3 parts), a 536 s render with a looped song (lead-in
+  audio padded, extension wrapped), and a UI-built remix (Dreamlike, moment with prompt) — joins
+  seamless, song continuous, logo on every frame. Encoding runs on linuxg1 at low priority; long
+  sources are slow (536 s ≈ 30 min) — moving it off the web server is a follow-up.
+- Private renders now play for people who can open the project (`/api/renders/[id]/watch` was
+  public-only), so the remix library and player can show them.
 - Not possible on this hardware (needs a larger model): frame-by-frame restyle of a whole video, and
   morphing between two given frames.
 
