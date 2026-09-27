@@ -234,6 +234,7 @@ export async function listGenerationVersions(projectId: string): Promise<Generat
     const mode = r.jobType === "text_to_video" ? "Text → video"
       : r.jobType === "image_to_video" ? "Image → video"
       : r.jobType === "montage" ? "Storyboard"
+      : r.jobType === "remix" ? `Remix — ${String(((r.request ?? {}) as Record<string, unknown>).summary ?? "AI")}`
       : `Enhanced — ${PRESET_LABEL[String(rq.preset)] ?? ENGINE_LABEL[String(rq.engine)] ?? "Fast"}`;
     return {
       id: r.id,
@@ -326,7 +327,7 @@ async function requeueGenerationCopy(
     retryCount,
     priority: job.priority,
   });
-  if (job.jobType === "enhancement" || job.jobType === "montage") await enqueueEnhance(id, { priority: bullPriority(job.priority) });
+  if (job.jobType === "enhancement" || job.jobType === "montage" || job.jobType === "remix") await enqueueEnhance(id, { priority: bullPriority(job.priority) });
   else await enqueueGeneration(id, { priority: bullPriority(job.priority) });
   return id;
 }
@@ -565,7 +566,7 @@ export async function cancelGenerationJob(jobId: string): Promise<void> {
   if (!hit) throw new Error("This job has already finished");
   // Remove it from its BullMQ queue if it hasn't been claimed yet (best-effort). Enhancements and
   // storyboards run on the enhance queue, generations on the generation queue.
-  const queue = row.jobType === "enhancement" || row.jobType === "montage" ? enhanceQueue() : generationQueue();
+  const queue = row.jobType === "enhancement" || row.jobType === "montage" || row.jobType === "remix" ? enhanceQueue() : generationQueue();
   await queue.remove(jobId).catch(() => {});
   revalidatePath(`/projects/${row.projectId}/edit`);
 }

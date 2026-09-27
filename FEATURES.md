@@ -12,6 +12,25 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## Waltz AI Remix (2026-09-27)
+Waltz AI tab → **Remix a video**: pick any finished video you can open — AutoWaltz renders and Waltz AI
+clips across all your projects (`listRemixSources`) — and weave AI into it. The result lands as a new
+version in the current project (the "import"); the original is untouched.
+- **Lead-in** (3/5 s): AI clip generated from the first real frame (inside a render's fade-in) and
+  **played in reverse**, so the opening flows into your first shot.
+- **Moment magic** (up to 3, 3/5 s each): pause on a frame → AI brings it to life **in place** (overlay
+  with an alpha fade back), so the length and the beat-synced cuts don't change.
+- **Extend** (3/5/8 s): AI continues from the last real frame (inside the fade-out), then fades out.
+- **Music carries on:** the render's position in its song is found by matching onset curves of the
+  render audio against the track (`musicOffsetOf`); lead-in plays the bars before, extend the bars
+  after. No confident match → the AI parts are silent.
+- Style + quality (routed `image_to_video` workflow; clip lengths within the model's range). AI parts
+  run two at a time (one per GPU). Watermark: whole video for clean sources; for already-watermarked
+  renders only the AI parts get the logo (never doubled). Clean master kept.
+- Job type `remix` on the enhance queue (`processRemix`); Cancel/Retry/live status like other jobs.
+- Not possible on this hardware (needs a larger model): frame-by-frame restyle of a whole video, and
+  morphing between two given frames.
+
 ## Gyro horizon levelling for 360 clips (2026-09-27)
 - Two-lens Insta360 clips (one-file dual-lens and stitched `_00_`/`_10_` pairs) are levelled **per moment**
   from the camera's own motion data: `gyro2bb` (telemetry-parser, `/opt/cw-tools` on the AI box) extracts

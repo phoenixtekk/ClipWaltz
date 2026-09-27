@@ -52,6 +52,7 @@ import {
 import { recommendSettings, normalizeSettings, type GenerationSettings } from "@/lib/generation-settings";
 import type { AiAvailability, Quality } from "@/lib/ai/routing";
 import { ScenesPanel } from "@/components/scenes-panel";
+import { RemixPanel } from "@/components/remix-panel";
 import {
   createExportJob,
   listExportJobs,
@@ -206,7 +207,7 @@ export function GenerationPanel({
 }) {
   // Create-panel state
   const previewRef = useRef<HTMLVideoElement>(null);
-  const [mode, setMode] = useState<"image" | "text">(photos.length ? "image" : "text");
+  const [mode, setMode] = useState<"image" | "text" | "remix">(photos.length ? "image" : "text");
   const [sourceAssetId, setSourceAssetId] = useState<string | null>(photos[0]?.id ?? null);
   const [prompt, setPrompt] = useState("");
   const [negativePrompt, setNegativePrompt] = useState("");
@@ -284,13 +285,16 @@ export function GenerationPanel({
   // ── Settings snapshot / apply (recent settings, presets, templates, Edit & regenerate) ──
   function currentSettings(): GenerationSettings {
     return normalizeSettings({
-      mode, prompt, negativePrompt, style: styleKey, camera: cameraKey, motion: MOTIONS[motionIdx],
+      mode: mode === "remix" ? "image" : mode, prompt, negativePrompt, style: styleKey, camera: cameraKey, motion: MOTIONS[motionIdx],
       aspect: aspectKey, duration: durationSec, quality: qualityKey, seed,
     });
   }
-  function applySettings(raw: GenerationSettings) {
+  // Set when the user picks a mode, so the on-open settings load (which can land a second or two
+  // later) doesn't flip them back — it reset "Remix a video" to "From text" in testing.
+  const modeTouched = useRef(false);
+  function applySettings(raw: GenerationSettings, opts: { keepMode?: boolean } = {}) {
     const st = normalizeSettings(raw);
-    setMode(st.mode === "image" && !photos.length ? "text" : st.mode);
+    if (!opts.keepMode) setMode(st.mode === "image" && !photos.length ? "text" : st.mode);
     setPrompt(st.prompt);
     setNegativePrompt(st.negativePrompt);
     setStyleKey(st.style);
@@ -309,7 +313,7 @@ export function GenerationPanel({
   useEffect(() => {
     let alive = true;
     const initial = templateSettings ? Promise.resolve(templateSettings) : getRecentGenerationSettings().catch(() => null);
-    initial.then((st) => { if (alive && st) applySettings(st); });
+    initial.then((st) => { if (alive && st) applySettings(st, { keepMode: modeTouched.current }); });
     listGenerationPresets().then((l) => { if (alive) setPresets(l); }, () => {});
     const poll = () => getAiStudioStatus().then((st) => { if (alive) setStudio(st); }, () => {});
     poll();
@@ -626,22 +630,30 @@ export function GenerationPanel({
 
         {/* Mode: image→video vs text→video */}
         <div className="inline-flex rounded-lg border border-border bg-muted/50 p-0.5 text-sm font-medium">
-          {(["image", "text"] as const).map((m) => (
+          {(["image", "text", "remix"] as const).map((m) => (
             <button
               key={m}
               type="button"
-              onClick={() => setMode(m)}
+              onClick={() => { modeTouched.current = true; setMode(m); }}
               aria-pressed={mode === m}
               className={cn(
                 "rounded-md px-3 py-1.5 transition-colors",
                 mode === m ? "bg-[color:var(--cw-violet)] text-white shadow" : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {m === "image" ? "From image" : "From text"}
+              {m === "image" ? "From image" : m === "text" ? "From text" : "Remix a video"}
             </button>
           ))}
         </div>
 
+        {mode === "remix" ? (
+          <RemixPanel
+            projectId={projectId}
+            busy={isGenerating}
+            maxSec={avail ? avail.imageToVideoMaxSec?.[qualityKey] ?? null : null}
+            onStarted={(jobId) => setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null })}
+          />
+        ) : (<>
         {/* Source photo picker (image→video only) */}
         {mode === "image" ? (
           <Field label="Source photo" hint="Pick a photo to bring to life.">
@@ -880,6 +892,8 @@ export function GenerationPanel({
           ) : null}
         </div>
 
+        </>)}
+
         {/* CTA (§9) — dominant Generate button, or the §11 progress state while running */}
         {job?.status === "failed" ? (
           <div className="flex items-start justify-between gap-3 rounded-xl border border-destructive/40 bg-destructive/5 p-3">
@@ -893,7 +907,7 @@ export function GenerationPanel({
         ) : null}
         {isGenerating ? (
           <GenerationProgress job={job!} onCancel={cancel} />
-        ) : (
+        ) : mode === "remix" ? null : (
           <Button
             onClick={generate}
             disabled={pending || (mode === "image" ? !sourceAssetId : !prompt.trim())}

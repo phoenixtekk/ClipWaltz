@@ -513,12 +513,281 @@ async function assembleMontage(req, genJobId) {
   }
 }
 
+// ─── Waltz AI Remix ─────────────────────────────────────────────────────────────────────────────
+// Weave AI into a finished video (src/lib/remix-actions.ts): an AI LEAD-IN generated from the first
+// frame and played in reverse, so it flows INTO the video's opening shot; AI MOMENTS that start on
+// a chosen frame and replace a few seconds in place (same length, cuts stay on the beat); and an AI
+// EXTENSION generated from the last frame. The song carries on under the AI parts: the source's
+// position in its music track is found by matching the render's audio against the track.
+
+// Image → AI clip on the AISERVER (same wrapper contract as processJob). null = job cancelled.
+async function aiClipFromImage(png, { prompt, width, height, seconds, steps, workflow }, genJobId) {
+  const fd = new FormData();
+  fd.append("file", new Blob([png], { type: "image/png" }), "seed.png");
+  const st = await fetch(`${AISERVER_URL}/inputs`, { method: "POST", headers: aiHeaders, body: fd });
+  if (!st.ok) throw new Error(`stage /inputs ${st.status}: ${(await st.text()).slice(0, 200)}`);
+  const sourceImage = (await st.json()).filename;
+  const body = { workflow, inputs: {
+    prompt, source_image: sourceImage, width, height, duration: seconds, length: framesForSeconds(seconds),
+    motion: "balanced", seed: randomInt(0, 2 ** 32), negative_prompt: null, steps: steps ?? null,
+  } };
+  const sub = await fetch(`${AISERVER_URL}/jobs`, { method: "POST", headers: { ...aiHeaders, "content-type": "application/json" }, body: JSON.stringify(body) });
+  if (!sub.ok) throw new Error(`/jobs ${sub.status}: ${(await sub.text()).slice(0, 200)}`);
+  const providerJobId = (await sub.json()).job_id;
+  const clock = providerClock(JOB_TIMEOUT_MS);
+  let out = null;
+  while (!clock.expired()) {
+    await new Promise((r) => setTimeout(r, POLL_MS));
+    if (await wasCancelled(genJobId)) {
+      await fetch(`${AISERVER_URL}/jobs/${providerJobId}/cancel`, { method: "POST", headers: aiHeaders }).catch(() => {});
+      return null;
+    }
+    const pr = await fetch(`${AISERVER_URL}/jobs/${providerJobId}`, { headers: aiHeaders });
+    if (!pr.ok) continue;
+    const s = await pr.json();
+    clock.observe(s.status);
+    if (s.status === "completed") { out = s.outputs?.[0] ?? null; break; }
+    if (s.status === "failed") throw new Error(`provider failed: ${s.error ?? "unknown"}`);
+  }
+  if (!out) throw new Error("AI clip timed out");
+  const rel = out.subfolder ? `${out.subfolder}/${out.filename}` : out.filename;
+  const dl = await fetch(`${AISERVER_URL}/outputs/${rel}`, { headers: aiHeaders });
+  if (!dl.ok) throw new Error(`/outputs ${dl.status}`);
+  return Buffer.from(await dl.arrayBuffer());
+}
+
+// AI working size for a frame shape (divisible by 16; same shapes the Waltz AI tab offers).
+function aiDims(w, h) {
+  const r = w / h;
+  return Math.abs(r - 1) < 0.15 ? { w: 768, h: 768 } : r > 1 ? { w: 1280, h: 720 } : { w: 720, h: 1280 };
+}
+
+async function probeFile(p) {
+  const { stdout } = await run("ffprobe", ["-v", "error", "-show_entries", "stream=codec_type,width,height,r_frame_rate:format=duration", "-of", "json", p]);
+  const j = JSON.parse(stdout);
+  const v = (j.streams ?? []).find((s) => s.codec_type === "video") ?? {};
+  const [fn, fd] = String(v.r_frame_rate ?? "30/1").split("/").map(Number);
+  return { width: Number(v.width), height: Number(v.height), fps: fd ? fn / fd : 30,
+    duration: Number(j.format?.duration) || 0, hasAudio: (j.streams ?? []).some((s) => s.codec_type === "audio") };
+}
+
+// Onset curve (8 ms hops) of an audio span, mean-removed — for aligning a render with its song.
+async function onsetCurve(file, start, dur) {
+  const { stdout } = await run("ffmpeg", ["-v", "error", "-ss", String(start), "-t", String(dur), "-i", file, "-ac", "1", "-ar", "8000", "-f", "s16le", "-"],
+    { maxBuffer: 1 << 26, encoding: "buffer" });
+  const b = Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout, "binary");
+  const n = Math.floor(b.length / 2), hop = 64, env = [];
+  for (let i = 0; i + hop <= n; i += hop) { let s = 0; for (let k = 0; k < hop; k++) s += Math.abs(b.readInt16LE((i + k) * 2)); env.push(Math.log1p(s / hop)); }
+  const on = env.map((e, i) => (i ? Math.max(0, e - env[i - 1]) : 0));
+  const m = on.reduce((a, x) => a + x, 0) / (on.length || 1);
+  return on.map((x) => x - m);
+}
+// Where in `music` the render's audio is playing: the music time at render t=0, or null.
+async function musicOffsetOf(renderFile, musicFile, t = 1.0) {
+  const win = 8, search = 20, hopSec = 64 / 8000;
+  const a = await onsetCurve(renderFile, t, win);
+  const m = await onsetCurve(musicFile, 0, t + win + search);
+  if (a.length < 50 || m.length < a.length) return null;
+  const na = Math.hypot(...a);
+  let best = -1, bestLag = 0;
+  const score = [];
+  for (let lag = 0; lag + a.length <= m.length; lag++) {
+    let dot = 0, nm = 0;
+    for (let i = 0; i < a.length; i++) { dot += a[i] * m[lag + i]; nm += m[lag + i] * m[lag + i]; }
+    const c = dot / (na * Math.sqrt(nm) + 1e-9);
+    score.push(c);
+    if (c > best) { best = c; bestLag = lag; }
+  }
+  const second = Math.max(-1, ...score.filter((_, lag) => Math.abs(lag - bestLag) > 40));
+  if (best < 0.5 || best - second < 0.1) return null; // no confident match (e.g. original audio dominates)
+  return bestLag * hopSec - t;
+}
+
+async function processRemix(j, req, genJobId) {
+  const src = req.source;
+  await setStatus(genJobId, { status: "preparing", progress: 5, started_at: new Date() });
+  const dir = mkdtempSync(join(tmpdir(), "cw-remix-"));
+  try {
+    const srcPath = join(dir, "src.mp4");
+    writeFileSync(srcPath, await getBytes(src.key));
+    const S = await probeFile(srcPath);
+    if (!S.width || !S.duration) throw new Error("source video unreadable");
+    const W = S.width - (S.width % 2), H = S.height - (S.height % 2), F = Math.round(S.fps * 1000) / 1000;
+    const ai = aiDims(W, H);
+    // Renders fade in from / out to black: seed from just inside the fades and trim them off.
+    const isRender = src.kind === "render";
+    const t0 = req.leadIn ? (isRender ? 0.6 : 0.05) : 0;
+    const t1 = req.extend ? Math.max(t0 + 1, S.duration - (isRender ? 0.8 : 0.05)) : S.duration;
+    const moments = (req.moments ?? []).filter((m) => m.at >= t0 && m.at + 0.5 < t1);
+
+    const style = req.stylePhrase ? `, ${req.stylePhrase}` : "";
+    const segs = [];
+    if (req.leadIn) segs.push({ kind: "lead", at: t0, seconds: req.leadIn.seconds,
+      prompt: `${req.leadIn.prompt || "the camera slowly pulls back, revealing the wider scene"}${style}` });
+    for (const m of moments) segs.push({ kind: "moment", at: m.at, seconds: m.seconds,
+      prompt: `${m.prompt || "the scene comes alive with vivid, natural motion"}${style}` });
+    if (req.extend) segs.push({ kind: "ext", at: t1 - 1 / F, seconds: req.extend.seconds,
+      prompt: `${req.extend.prompt || "the action continues naturally, the camera keeps moving forward"}${style}` });
+    if (!segs.length) throw new Error("nothing to remix (moments fall outside the video)");
+
+    // Seed frames (cropped to the AI working shape).
+    for (const [i, g] of segs.entries()) {
+      g.png = join(dir, `seed${i}.png`);
+      await run("ffmpeg", ["-y", "-v", "error", "-ss", Math.max(0, g.at).toFixed(3), "-i", srcPath, "-frames:v", "1",
+        "-vf", `scale=${ai.w}:${ai.h}:force_original_aspect_ratio=increase,crop=${ai.w}:${ai.h}`, g.png]);
+    }
+
+    // Generate the AI parts, two at a time (one per GPU).
+    await setStatus(genJobId, { status: "generating", progress: 15 });
+    let done = 0;
+    const pending = [...segs];
+    const lanes = Array.from({ length: Math.min(2, pending.length) }, async () => {
+      for (let g = pending.shift(); g; g = pending.shift()) {
+        const bytes = await aiClipFromImage(readFileSync(g.png), { prompt: g.prompt, width: ai.w, height: ai.h, seconds: g.seconds, steps: req.steps, workflow: req.workflow }, genJobId);
+        if (!bytes) { g.cancelled = true; return; }
+        g.file = join(dir, `ai-${segs.indexOf(g)}.mp4`);
+        writeFileSync(g.file, bytes);
+        done++;
+        await setStatus(genJobId, { progress: 15 + Math.round((done / segs.length) * 60) });
+      }
+    });
+    await Promise.all(lanes);
+    if (segs.some((g) => g.cancelled) || await wasCancelled(genJobId)) { console.log("[remix] cancelled", genJobId); return; }
+
+    // Music continuity (renders with a known track).
+    let musicPath = null, off = null;
+    if (src.musicKey && S.hasAudio) {
+      musicPath = join(dir, "music" + (src.musicKey.match(/\.[a-z0-9]+$/i)?.[0] ?? ".mp3"));
+      writeFileSync(musicPath, await getBytes(src.musicKey));
+      off = await musicOffsetOf(srcPath, musicPath).catch(() => null);
+      if (off == null) musicPath = null;
+      console.log(`[remix] ${genJobId} music offset ${off == null ? "not found (AI parts get silence)" : off.toFixed(3) + "s"}`);
+    }
+
+    // Compose: [lead-in] + [source with moments overlaid in place] + [extension].
+    await setStatus(genJobId, { status: "encoding", progress: 80 });
+    const lead = segs.find((g) => g.kind === "lead"), ext = segs.find((g) => g.kind === "ext");
+    const mom = segs.filter((g) => g.kind === "moment");
+    const L = lead ? lead.seconds : 0, E = ext ? ext.seconds : 0, B = t1 - t0;
+    const norm = (s) => `fps=${F},scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,format=yuv420p,trim=duration=${s}`;
+    const aFmt = "aformat=sample_rates=48000:channel_layouts=stereo";
+    const args = ["-y", "-i", srcPath];
+    let idx = 1;
+    let fc = `[0:v]trim=start=${t0}:end=${t1.toFixed(3)},setpts=PTS-STARTPTS,fps=${F},scale=${W}:${H},setsar=1,format=yuv420p[b0];`;
+    mom.forEach((g, i) => {
+      args.push("-i", g.file);
+      const k = idx++, at = g.at - t0, d = Math.min(g.seconds, B - at);
+      fc += `[${k}:v]${norm(d)},format=yuva420p,fade=t=out:st=${Math.max(0, d - 0.35).toFixed(3)}:d=0.35:alpha=1,setpts=PTS-STARTPTS+${at.toFixed(3)}/TB[m${i}];`;
+      fc += `[b${i}][m${i}]overlay=enable='between(t,${at.toFixed(3)},${(at + d).toFixed(3)})':eof_action=pass,format=yuv420p[b${i + 1}];`;
+    });
+    let mIdx = -1;
+    const musicTaps = [];
+    if (musicPath) {
+      args.push("-i", musicPath); mIdx = idx++;
+      // One input can feed only one filter pad — split it for the lead-in and the extension.
+      fc += `[${mIdx}:a]asplit=2[mlead][mext];`;
+    }
+    const vparts = [], aparts = [];
+    if (lead) {
+      args.push("-i", lead.file);
+      const k = idx++;
+      fc += `[${k}:v]${norm(L)},reverse,setpts=PTS-STARTPTS,fade=t=in:st=0:d=0.5[lv];`;
+      vparts.push("[lv]");
+      // The song from L seconds before the first real frame. If the render started the song less than
+      // L seconds in, pad the gap with silence and play the song from its start.
+      const mStart = off == null ? null : off + t0 - L;
+      if (mIdx >= 0 && mStart != null && mStart > -L + 0.2) {
+        const pad = Math.max(0, -mStart);
+        fc += `[mlead]atrim=start=${Math.max(0, mStart).toFixed(3)}:duration=${(L - pad).toFixed(3)},asetpts=PTS-STARTPTS,${aFmt}` +
+          (pad ? `,adelay=${Math.round(pad * 1000)}:all=1` : "") + `,apad=whole_dur=${L},atrim=duration=${L},afade=t=in:st=0:d=1[la];`;
+        musicTaps.push("lead");
+      } else fc += `anullsrc=r=48000:cl=stereo,atrim=duration=${L}[la];`;
+      aparts.push("[la]");
+    }
+    vparts.push(`[b${mom.length}]`);
+    const fadeBase = ext && !musicPath ? `,afade=t=out:st=${Math.max(0, B - 1).toFixed(3)}:d=1` : "";
+    fc += S.hasAudio
+      ? `[0:a]atrim=start=${t0}:end=${t1.toFixed(3)},asetpts=PTS-STARTPTS,${aFmt}${fadeBase}[ba];`
+      : `anullsrc=r=48000:cl=stereo,atrim=duration=${B.toFixed(3)}[ba];`;
+    aparts.push("[ba]");
+    if (ext) {
+      args.push("-i", ext.file);
+      const k = idx++;
+      fc += `[${k}:v]${norm(E)},setpts=PTS-STARTPTS,fade=t=out:st=${Math.max(0, E - 0.7).toFixed(3)}:d=0.7[ev];`;
+      vparts.push("[ev]");
+      if (mIdx >= 0 && off != null) {
+        // Where the song is at the extension point. Renders loop a short song (`-ss off -stream_loop
+        // -1`): after the first pass it restarts from 0, so wrap past the end (a 9-min render on a
+        // 3-min song went silent here in testing).
+        const md = (await probeFile(musicPath)).duration || Infinity;
+        let at = off + t1;
+        if (at >= md) at = (at - md) % md;
+        if (md - at < E) at = 0; // too close to the end for the whole extension: start the song over
+        fc += `[mext]atrim=start=${at.toFixed(3)}:duration=${E},asetpts=PTS-STARTPTS,${aFmt},apad=whole_dur=${E},atrim=duration=${E},afade=t=out:st=${Math.max(0, E - 1.5).toFixed(3)}:d=1.5[ea];`;
+        musicTaps.push("ext");
+      } else fc += `anullsrc=r=48000:cl=stereo,atrim=duration=${E}[ea];`;
+      aparts.push("[ea]");
+    }
+    for (const tap of ["lead", "ext"]) if (mIdx >= 0 && !musicTaps.includes(tap)) fc += `[m${tap}]anullsink;`;
+    fc += vparts.map((v, i) => v + aparts[i]).join("") + `concat=n=${vparts.length}:v=1:a=1[vout][aout]`;
+    // Logo in the SAME pass (clean master + branded copy written together — one decode, no second
+    // full encode). A watermarked render already shows its own logo: brand only the AI ranges then.
+    const total = L + B + E;
+    const ranges = [...(L ? [[0, L]] : []), ...mom.map((g) => [L + g.at - t0, L + g.at - t0 + g.seconds]), ...(E ? [[L + B, total]] : [])];
+    const outPath = join(dir, "remix.mp4"), brandedPath = join(dir, "remix-branded.mp4");
+    const enc = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"];
+    if (req.watermark) {
+      if (!existsSync(WATERMARK_PATH)) throw new Error(`watermark image missing at ${WATERMARK_PATH}`);
+      const en = src.watermarked ? `:enable='${ranges.map(([a, b]) => `between(t,${a.toFixed(3)},${b.toFixed(3)})`).join("+")}'` : "";
+      fc += `;[vout]split=2[vclean][vpre];[aout]asplit=2[aclean][abrand];` + wmChain("vpre", W, H).replace(":shortest=1", `:shortest=1${en}`);
+      args.push("-filter_complex", fc, "-map", "[vclean]", "-map", "[aclean]", ...enc, outPath, "-map", "[out]", "-map", "[abrand]", ...enc, brandedPath);
+    } else {
+      args.push("-filter_complex", fc, "-map", "[vout]", "-map", "[aout]", ...enc, outPath);
+    }
+    // linuxg1 has 4 cores and also serves the website: encode at low priority with 3 threads.
+    // (A long render — e.g. 9 min — takes many minutes here; moving remix encoding to the AI box is
+    // the follow-up.)
+    await run("nice", ["-n", "15", "ffmpeg", "-threads", "3", ...args], { maxBuffer: 1 << 26 });
+    if (await wasCancelled(genJobId)) { console.log("[remix] cancelled before save", genJobId); return; }
+
+    // Store (clean master + logo) and add the version.
+    await setStatus(genJobId, { status: "uploading_output", progress: 90 });
+    const composed = readFileSync(outPath);
+    const [{ maxv }] = await sql`select coalesce(max(version_number),0)::int maxv from generation_versions where project_id = ${j.project_id}`;
+    const n = (maxv ?? 0) + 1;
+    const base = `generations/${j.project_id}/${genJobId}/${n}`;
+    const put = (Key, Body) => s3.send(new PutObjectCommand({ Bucket: BUCKET, Key, Body, ContentType: "video/mp4" }));
+    const output_key = `${base}.mp4`;
+    let clean_key = null;
+    if (req.watermark) {
+      await put(`${base}.clean.mp4`, composed);
+      clean_key = `${base}.clean.mp4`;
+      await put(output_key, readFileSync(brandedPath));
+    } else {
+      await put(output_key, composed);
+    }
+    const meta = await probeVideo(composed).catch(() => ({}));
+    await insertVersion(j.project_id, {
+      id: randomUUID(), generation_job_id: genJobId, project_id: j.project_id, scene_id: null,
+      version_number: n, output_key, clean_key, duration_sec: meta.duration ?? null,
+      settings: { remix: true, source: { kind: src.kind, id: src.id, projectId: src.projectId, label: src.label },
+        leadIn: req.leadIn ?? null, moments: mom.map((g) => ({ at: g.at, seconds: g.seconds })), extend: req.extend ?? null,
+        musicOffset: off, width: meta.width || null, height: meta.height || null, fps: meta.fps ?? null },
+    });
+    await setStatus(genJobId, { status: "completed", progress: 100, completed_at: new Date() });
+    console.log(`[remix] ${genJobId} done → ${output_key} (${segs.length} AI parts, ${(meta.duration ?? 0).toFixed(1)}s)`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 async function processEnhance(genJobId) {
   const [j] = await sql`select * from generation_jobs where id = ${genJobId}`;
   if (!j) { console.warn("[enh] job gone", genJobId); return; }
   if (j.status === "cancelled" || j.status === "retried") return;
   const req = j.request_json ?? {};
   if (j.job_type === "montage") return processMontage(j, req, genJobId);
+  if (j.job_type === "remix") return processRemix(j, req, genJobId);
   if (!req.sourceKey) throw new Error("no sourceKey on enhancement job");
   const ai = req.engine === "ai" || req.engine === "restore";
   await setStatus(genJobId, { status: "enhancing", progress: 40, started_at: new Date() }); // UI: "Enhancing detail" (was "Building motion" for AI engines)

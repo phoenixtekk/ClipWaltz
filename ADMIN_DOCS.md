@@ -292,6 +292,18 @@ project's clips from MinIO, FFmpeg-assembles a 1080p 9:16 video (photos 2s, vide
 music from `music_tracks`, optional watermark), uploads to `renders/<projectId>/<renderId>.mp4`,
 and marks the row `done` (+ project `ready`). Reuses the app's `postgres` + S3 deps.
 
+**Waltz AI Remix (generation worker, 2026-09-27):** `createRemix` (src/lib/remix-actions.ts) resolves
+the source (render `output_key` + its `musicTrackId` → `music_tracks.storage_key`, or a version's
+`clean_key ?? output_key`), validates the recipe (≤3 non-overlapping moments; clip lengths 3/5/8 s
+within the routed i2v workflow's range) and inserts a `remix` job on the **enhance queue**. Worker
+`processRemix`: seed frames (0.6 s / end−0.8 s inside render fades) → `aiClipFromImage` ×N, two lanes
+(one per ComfyUI) → `musicOffsetOf` (onset-curve cross-correlation, needs peak ≥0.5 and margin ≥0.1,
+else AI parts are silent; logged as `[remix] … music offset`) → one ffmpeg graph: reversed lead-in +
+source with moments overlaid (alpha fade back) + extension, audio concat → store (clean + logo; for
+watermarked renders the logo is added only on AI ranges via `watermarkRanges`). Version
+`settings.remix=true` records source, recipe and `musicOffset`. Cost: one i2v clip per part (preview
+~1.5 min, standard ~3, high ~4.5 each at 1280×720), two in parallel.
+
 **Gyro horizon levelling (render worker, 2026-09-27):** `imuLevel()` runs `GYRO2BB_PATH`
 (default `/opt/cw-tools/telemetry-parser-0.3.0/gyro2bb`, 180 s timeout) on the source (pairs: the `_00_`
 file — the rear carries no IMU), streams the CSV into 100 Hz bins, fuses gyro + accelerometer

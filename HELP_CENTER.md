@@ -134,6 +134,20 @@ them there, then come back. (These are in addition to the "video ready" email, w
   them, then **Assemble** — they're joined into one new "Storyboard" version.
 - **Export** any version as MP4 or WebM at its native size, 720p or 1080p, then download it.
 
+## Waltz AI Remix — make a video you've already made even better
+- Open a project → **Waltz AI** tab → **Remix a video**. You'll see every finished video you've made:
+  AutoWaltz music videos and Waltz AI clips, from all your projects. Pick one.
+- Choose what AI adds (any mix):
+  - **Lead-in** — an AI opening that flows straight into your first shot.
+  - **Moment magic** — pause the player on a frame and press **Add moment at current frame**; AI
+    brings that frame to life for a few seconds, right where it is, so your music video keeps its timing.
+    Up to three moments.
+  - **Extend** — AI carries the action on after your last frame.
+  Each can have its own description ("spray explodes in slow motion…"), or leave it blank.
+- Pick a **style** and **quality**, then press **Remix**. It takes a few minutes; you can keep editing.
+  The song keeps playing under the AI parts. The remix appears under **Generated versions** — your
+  original video isn't changed. You can enhance, export or remix the remix too.
+
 ## Working with others (workspaces)
 - Open the **account menu → Workspace** to invite people by email. Pick a role:
   **Viewer** (watch and download only), **Editor** (edit, upload, render and generate) or, if you're
