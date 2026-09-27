@@ -30,8 +30,11 @@ version in the current project (the "import"); the original is untouched.
 - Job type `remix` on the enhance queue (`processRemix`); Cancel/Retry/live status like other jobs.
 - Verified on prod (2026-09-27): a 197 s render (3 parts), a 536 s render with a looped song (lead-in
   audio padded, extension wrapped), and a UI-built remix (Dreamlike, moment with prompt) — joins
-  seamless, song continuous, logo on every frame. Encoding runs on linuxg1 at low priority; long
-  sources are slow (536 s ≈ 30 min) — moving it off the web server is a follow-up.
+  seamless, song continuous, logo on every frame.
+- **Fast compose for long videos (2026-09-27):** only the changed spans are re-encoded (lead-in, extension,
+  each moment's surrounding keyframe span); the rest of the video is stream-copied bit-for-bit, so the
+  render's own picture, logo and timing are untouched. Compose on a 536 s render: ~30 min → 90 s (whole
+  prod remix job 2,265 s → 558 s); a 30 s render: 80 s → 34 s. Falls back to a full re-encode automatically if a source can't be spliced.
 - Private renders now play for people who can open the project (`/api/renders/[id]/watch` was
   public-only), so the remix library and player can show them.
 - Not possible on this hardware (needs a larger model): frame-by-frame restyle of a whole video, and

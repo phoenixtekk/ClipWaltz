@@ -298,11 +298,48 @@ the source (render `output_key` + its `musicTrackId` → `music_tracks.storage_k
 within the routed i2v workflow's range) and inserts a `remix` job on the **enhance queue**. Worker
 `processRemix`: seed frames (0.6 s / end−0.8 s inside render fades) → `aiClipFromImage` ×N, two lanes
 (one per ComfyUI) → `musicOffsetOf` (onset-curve cross-correlation, needs peak ≥0.5 and margin ≥0.1,
-else AI parts are silent; logged as `[remix] … music offset`) → one ffmpeg graph: reversed lead-in +
-source with moments overlaid (alpha fade back) + extension, audio concat → store (clean + logo; for
-watermarked renders the logo is added only on AI ranges via `watermarkRanges`). Version
-`settings.remix=true` records source, recipe and `musicOffset`. Cost: one i2v clip per part (preview
-~1.5 min, standard ~3, high ~4.5 each at 1280×720), two in parallel.
+else AI parts are silent; logged as `[remix] … music offset`) → **compose** (`worker/remix-compose.mjs`,
+below) → store (clean master + branded copy; for watermarked renders the logo is added only on the AI
+ranges). Version `settings.remix=true` records source, recipe and `musicOffset`. Cost: one i2v clip per
+part (preview ~1.5 min, standard ~3, high ~4.5 each at 1280×720), two in parallel.
+
+**Remix compose — splice, not a full re-encode (2026-09-27, `98dcfc7`).** Renders are closed-GOP x264, so
+`composeRemix` re-encodes only what changes and stream-copies the rest: the lead-in, the extension, each
+moment widened to its surrounding keyframes, and the partial GOP at the trimmed head/tail (render fades)
+are encoded with the source's own x264 settings (`veryfast`, the `crf` from the source's x264 SEI) and
+colour tags, so their SPS/PPS are byte-identical; untouched whole GOPs are cut by the segment muxer at
+keyframes (frame-exact; the concat demuxer's `inpoint`/`outpoint` is **not** — it cuts by DTS and added
+2 frames per join) and everything is joined with the concat demuxer. The audio (same design: lead-in
+plays the song from before the first real frame, silence-padded; the extension continues it, wrapping
+for looped songs; the base keeps the source audio) is one separate AAC pass, muxed in. All ffmpeg runs
+at `nice 15`, 3 threads. Log line: `[remix] <id> composed (splice: N frames encoded, M copied) in Xs`.
+- **Guards → automatic fallback to the old full re-encode** (logged `[remix] splice not possible (…) — full
+  re-encode`): source not h264/x264, open GOPs, not constant frame rate; a re-encoded piece's SPS/PPS
+  differs from the source's; any piece's frame count is off; the joined output's timestamps are not evenly
+  spaced. A branded copy of a *clean* source (a Waltz AI clip with the logo wanted) needs the logo on every
+  frame, so it always takes the full path — those sources are short.
+- **Measured** (lead-in 5 s + 2 moments + extend 5 s, clean + branded, linuxg1): 536 s 1080p render
+  **118 s wall / ~330 CPU-s** (full re-encode: ~30 min at load ~17); 28.8 s render **36 s** (full: 80 s).
+  Cost now scales with the number of AI parts (~250–400 frames per moment, 150 per 5 s lead/extension),
+  not the video length. Load avg during compose ~4–6 (nice'd; the site stays responsive).
+  **Prod E2E (same recipes as the earlier runs, real AI parts):** Lake Day v2 v6 (536 s; lead 5 + moment 3 +
+  extend 3) job **2,265 s → 558 s**, compose 90 s (653 frames encoded, 15,641 copied), load avg 3.9 / max 5.5
+  while composing; Lake Havasu Race Finals v1 (28.8 s) job 476 s → 428 s, compose 34 s, load avg 1.9.
+- Verified: every copied frame decodes bit-identical to the source at the right position; re-encoded spans
+  ~44 dB vs the source (~20 dB if shifted one frame); moments start on the exact frame; audio lag 0
+  samples at several points; zero decoder errors; full-range (pc) and limited-range (tv) sources.
+- Gotchas found building it: AI clips must be converted to the source's range and tagged with its colour
+  params (`setparams`) or the VUI differs; the logo overlay re-tags frames `colorspace=gbr` (re-tag after
+  it); `setpts=N/F/TB` truncates in float (122.999 → 122, a duplicated timestamp) — use `settb` +
+  `setpts=N`; ffmpeg 7.1 needs `-fps_mode passthrough` and an explicit `fps=` or it drops a frame / signals
+  level 6.2.
+- Env: `REMIX_SPLICE=0` forces the full re-encode; `REMIX_THREADS` (default 3); `REMIX_DEBUG=1` logs each
+  ffmpeg step; `REMIX_KEEP=1` keeps the splice work dir.
+- Self-test (no DB/AI; synthetic AI parts): `node worker/remix-compose.mjs --selftest <src.mp4> [--moments
+  120,300] [--music song.mp3 --off 0] [--wm --src-wm] [--full]` → prints mode, frames encoded/copied, seconds.
+- Why not move compose to the AI box: measured there, the splice takes 14–18 s but the full re-encode still
+  burns ~2,000 CPU-s (80 s on 25 cores) and would need a new claim queue plus 2× the file transfers; with the
+  splice, linuxg1's share is ~2 min of low-priority work, so the move is not needed.
 
 **Gyro horizon levelling (render worker, 2026-09-27):** `imuLevel()` runs `GYRO2BB_PATH`
 (default `/opt/cw-tools/telemetry-parser-0.3.0/gyro2bb`, 180 s timeout) on the source (pairs: the `_00_`
