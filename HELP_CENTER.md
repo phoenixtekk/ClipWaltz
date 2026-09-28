@@ -32,6 +32,9 @@ ships. It will also surface in-app at `/help`.
 - Uploads are resumable — if your connection drops, they pick up where they left off.
 
 ## Editing & music
+- **Sideways clip?** Open the clip in the timeline and tap **Rotate 90°** until it's upright (each tap turns it a
+  quarter turn clockwise), then **Save**. The preview and your rendered video both use the new rotation. This happens
+  when a phone starts recording while pointed at the ground — the video then plays sideways everywhere, not just here.
 - **Tags:** open a clip and add tags (e.g. "sunset, cesar"). The **Tags** row above the timeline highlights the
   clips with a tag.
 - **Google Drive backup:** in the timeline, **Connect Google Drive** once, then **Back up … to Drive** copies your

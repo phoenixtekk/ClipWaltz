@@ -454,6 +454,21 @@ first). Then: copy `worker/`, `npm i postgres @aws-sdk/client-s3`, set env, and 
 *(v1.1: move the queue to Redis/BullMQ; beat-synced cuts; SES "video ready" email.)*
 - **Cost instrumentation:** record `cpuSeconds`/`costCents` on each `renders` row → cost-per-render.
 
+## Clip rotation (2026-09-28)
+- **Why:** phone videos carry a rotation flag (MP4 display matrix). If recording starts with the phone pointing down,
+  iOS can store the wrong one; every player (ffmpeg autorotate, browsers, QuickTime) then shows the clip sideways.
+  Case: "Lake Day v2" IMG_1940 — `side_data displaymatrix rotation=-90` on upright 1280×960 pixels. The renderer was
+  correct; check with `ffprobe -show_entries stream_side_data=rotation` and compare a `-noautorotate` frame.
+- **Data:** `assets.rotation` integer, degrees clockwise (0/90/180/270), default 0 (migration `0036_clip_rotation`).
+  Set by `setAssetRotation` (editor role). The worker reads it through `loadRenderInputs` (`select *`).
+- **Render:** `vfRotate(a.rotation)` (`transpose=clock` / `hflip,vflip` / `transpose=cclock`) is prepended to each
+  slot's filter chain in `assemble` — video (`vfStatic`), photo Ken Burns and still photo — after ffmpeg's autorotate.
+- **Editor:** `src/lib/rotation.ts` — `rotationParent` (size container on the parent) + `rotatedFill` (element laid
+  out with the parent's width/height swapped, then turned) so object-cover/contain keep filling the box. Rotated
+  videos in the clip dialog and Clips lightbox play without native controls (they would turn too); tap to play/pause.
+- **Not rotated:** Waltz AI image-to-video seeds read the raw asset (`generation-worker.mjs`), and AutoWaltz's
+  motion/vision window ranking looks at unrotated frames (orientation doesn't change motion scores).
+
 ## Render-complete notifications (Web Push)
 Two per-browser toggles at `/account/notifications`:
 - **Browser notification** — the open tab fires it from the render poll (`render-panel.tsx` →

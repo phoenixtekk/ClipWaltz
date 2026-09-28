@@ -66,8 +66,12 @@ ec74ca1 feat(waltz-ai): Remix a video — AI lead-in, moment magic and extend on
   2. *Delete storage files when a project is deleted*: throwaway project → upload + render + AI clip →
      delete → objects gone, no orphan media; media shared with another project kept; the orphan
      script reports only unless explicitly applied.
-  3. *Sideways phone clips in AutoWaltz renders*: read the cause + evidence; re-render a COPY of
-     "Lake Day v2" (not the original) → portrait clips upright; landscape + 360 unchanged.
+  3. ~~*Sideways phone clips*~~ → **taken over by v9 and done 2026-09-28** (the stalled session was stopped): cause is
+     IMG_1940's own wrong rotation flag (display matrix -90 on upright pixels), not the renderer. Owner chose a
+     per-clip **Rotate 90°** button (`51b4054`, `b552677`; migration 0036 applied on prod; app + render worker
+     deployed, worker backup `render-worker.mjs.bak-20260928-rotation`). Prod test: project "Lake Day v2 (rotation
+     test copy)" (6f745273…, render b2501878) — IMG_1940 upright, all other sampled frames bit-identical to v6.
+     No 360 clips in that project, so 360 wasn't exercised. Dev DB has a throwaway "Rotation UI test" project.
   For each: confirm deployed code on linuxg1 / AI box matches origin/main first. Never restart a
   worker mid-job; deploy restarts pm2 only after a successful build.
 
