@@ -29,7 +29,8 @@ Remix seeds from watermarked sources get `delogo` over the logo box (`wmBox` in 
 i2v model can't redraw a ghost logo. Overlay deploy (generation-worker.mjs + watermark.mjs; backups
 `*.bak-20260927-seeddelogo`), pm2 restarted while idle. Prod test jobs 86681e58 (30 s) and 9a546adf (536 s)
 in "Remix test (throwaway)": clean-master AI frames logo-free, branded AI frames one crisp logo, lengths
-exact, 0 decode errors. Not covered: remix-of-remix of a watermarked render (see ADMIN_DOCS).
+exact, 0 decode errors. Remix-of-remix fixed too (`5531e56`, app rebuilt + restarted; backup
+`src/lib/remix-actions.ts.bak-20260927-burnedlogo`): lineage lookup → branded source; prod job 1f993158 verified.
 
 ## Remix compose splice (2026-09-27) — deployed to linuxg1
 `98dcfc7`: `worker/remix-compose.mjs` re-encodes only the changed spans (lead-in, extension, moment GOP spans,

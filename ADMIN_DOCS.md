@@ -342,9 +342,15 @@ at `nice 15`, 3 threads. Log line: `[remix] <id> composed (splice: N frames enco
   same 15.4 %/3 % geometry, grown 6 px) before scaling each seed frame. Without it the i2v model redraws the
   burned-in logo and a warped ghost (fringe, dark box, smear) shows around the fresh logo and in the clean
   master. Verified on prod (copies of the 30 s and 536 s test remixes): clean master AI frames carry no logo,
-  branded AI frames one crisp logo. Caveat: a remix *of a remix* of a watermarked render seeds from that
-  remix's clean master, whose copied frames still hold the burned-in logo, and is marked unwatermarked
-  (`remix-actions.ts`), so it is not erased there.
+  branded AI frames one crisp logo.
+- **Remix of a remix / of an enhanced remix (2026-09-27, `5531e56`):** such a version's "clean" master still
+  holds the original render's burned-in logo. `createRemix` follows the version's lineage
+  (`burnedInLogo()` in `src/lib/burned-logo.ts`: `settings.remix` + `settings.source`, `settings.enhancedFrom`)
+  back to the render; when that render was watermarked it uses the version's **branded** copy and sets
+  `source.watermarked=true`, so the seed logo is erased and the logo is added only on the new AI parts
+  (before: seeded from logo frames → ghost, and the logo went on every frame again → doubled). Verified on
+  prod (job 1f993158, remix of the 30 s remix v6): 697 frames bit-identical to the branded source, one logo
+  on every sampled frame, new AI parts logo-free in the clean master, 0 decode errors.
 - Why not move compose to the AI box: measured there, the splice takes 14–18 s but the full re-encode still
   burns ~2,000 CPU-s (80 s on 25 cores) and would need a new claim queue plus 2× the file transfers; with the
   splice, linuxg1's share is ~2 min of low-priority work, so the move is not needed.
