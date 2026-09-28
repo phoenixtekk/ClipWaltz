@@ -10,11 +10,12 @@ export type DraftClip = {
   kind: string; // photo | video
   name: string;
   durationSec: number;
+  rotation?: number; // user rotation, degrees clockwise
 };
 
 /** Ordered preview timeline, capping the total at lengthSec like the worker's `-t`. */
 export function buildDraftTimeline(
-  assets: { id: string; kind: string; name: string }[],
+  assets: { id: string; kind: string; name: string; rotation?: number }[],
   lengthSec: number,
   loopToFill = false,
 ): { clips: DraftClip[]; totalSec: number } {
@@ -25,7 +26,7 @@ export function buildDraftTimeline(
     if (cap - total <= 0) break;
     const full = a.kind === "video" ? DRAFT_PER_VIDEO_SEC : DRAFT_PER_IMAGE_SEC;
     const durationSec = Math.min(full, cap - total);
-    clips.push({ id: a.id, kind: a.kind, name: a.name, durationSec });
+    clips.push({ id: a.id, kind: a.kind, name: a.name, durationSec, rotation: a.rotation ?? 0 });
     total += durationSec;
   }
   // Loop-to-fill only: repeat the clips to reach the target length. (Without it the video is
@@ -39,7 +40,7 @@ export function buildDraftTimeline(
     const full = a.kind === "video" ? DRAFT_PER_VIDEO_SEC : DRAFT_PER_IMAGE_SEC;
     const durationSec = Math.min(full, cap - total);
     if (durationSec < 0.4) break;
-    clips.push({ id: a.id, kind: a.kind, name: a.name, durationSec });
+    clips.push({ id: a.id, kind: a.kind, name: a.name, durationSec, rotation: a.rotation ?? 0 });
     total += durationSec;
   }
   return { clips, totalSec: total };

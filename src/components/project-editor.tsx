@@ -7,6 +7,7 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { AssetSummary } from "@/lib/assets";
+import { lightboxRotation, rotatedFill, rotationParent } from "@/lib/rotation";
 
 // 7 → "0:07", 83.4 → "1:23"
 const fmtClipLen = (sec: number) => {
@@ -103,7 +104,7 @@ export function ProjectEditor({
 
   const isCustomLength = !LENGTH_PRESETS.some((p) => p.s === lengthSec);
   const [customMin, setCustomMin] = useState(isCustomLength ? String(Math.round(lengthSec / 60)) : "");
-  const [preview, setPreview] = useState<{ id: string; kind: string; name: string } | null>(null);
+  const [preview, setPreview] = useState<{ id: string; kind: string; name: string; rotation: number } | null>(null);
   const show = (s: "clips" | "format" | "style") => !section || section === s;
 
   // Projected "Max footage" length: every video at its full length, every image a slot, bounded
@@ -179,9 +180,10 @@ export function ProjectEditor({
                 ) : ready ? (
                   <button
                     type="button"
-                    onClick={() => setPreview({ id: a.id, kind: a.kind, name: a.name })}
+                    onClick={() => setPreview({ id: a.id, kind: a.kind, name: a.name, rotation: a.rotation })}
                     aria-label={`Preview ${a.name}`}
                     className="group relative size-12 shrink-0 overflow-hidden rounded-md border border-border bg-muted"
+                    style={rotationParent(a.rotation)}
                   >
                     {a.kind === "video" ? (
                       <video
@@ -190,10 +192,11 @@ export function ProjectEditor({
                         playsInline
                         preload="metadata"
                         className="size-full object-cover"
+                        style={rotatedFill(a.rotation)}
                       />
                     ) : (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={`/api/projects/${projectId}/assets/${a.id}`} alt="" className="size-full object-cover" />
+                      <img src={`/api/projects/${projectId}/assets/${a.id}`} alt="" className="size-full object-cover" style={rotatedFill(a.rotation)} />
                     )}
                     <span className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-opacity group-hover:bg-black/40 group-hover:opacity-100">
                       <Eye className="size-4 text-white" />
@@ -515,6 +518,7 @@ export function ProjectEditor({
                 autoPlay
                 playsInline
                 className="max-h-[85vh] max-w-[90vw] rounded-lg"
+                style={lightboxRotation(preview.rotation)}
               />
             ) : (
               // eslint-disable-next-line @next/next/no-img-element
@@ -522,6 +526,7 @@ export function ProjectEditor({
                 src={`/api/projects/${projectId}/assets/${preview.id}`}
                 alt={preview.name}
                 className="max-h-[85vh] max-w-[90vw] rounded-lg object-contain"
+                style={lightboxRotation(preview.rotation)}
               />
             )}
             <p className="mt-2 truncate text-center text-sm text-white/80">{preview.name}</p>

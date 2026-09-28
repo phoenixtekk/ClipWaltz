@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import type { AssetSummary } from "@/lib/assets";
 import { buildDraftTimeline } from "@/lib/draft";
 import { trackClientEvent } from "@/lib/analytics-actions";
+import { rotatedFill, rotationParent } from "@/lib/rotation";
 
 function fmt(sec: number) {
   const s = Math.max(0, Math.round(sec));
@@ -154,6 +155,7 @@ export function DraftPreview({
             "relative w-full overflow-hidden rounded-xl border border-border bg-black",
             wide ? "aspect-[16/9]" : "aspect-[9/16]",
           )}
+          style={rotationParent(current?.rotation)}
         >
           {clips.length === 0 ? (
             <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-xs text-white/70">
@@ -168,6 +170,7 @@ export function DraftPreview({
               playsInline
               preload="auto"
               className="h-full w-full object-cover"
+              style={rotatedFill(current.rotation)}
             />
           ) : current ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -176,6 +179,7 @@ export function DraftPreview({
               src={`/api/projects/${projectId}/assets/${current.id}`}
               alt={current.name}
               className="h-full w-full object-cover"
+              style={rotatedFill(current.rotation)}
             />
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60 text-white">

@@ -213,6 +213,9 @@ export const assets = pgTable("assets", {
   // Hidden from the timeline + renders: the rear lens of a stitched Insta360 pair whose front clip is in
   // the same project (the front shows the full 360). See worker convertMedia.
   hidden: boolean().notNull().default(false),
+  // User rotation (degrees clockwise: 0/90/180/270), applied ON TOP of the file's own rotation flag.
+  // For phone clips whose flag is wrong (recording started pointing at the ground → sideways).
+  rotation: integer().notNull().default(0),
   tags: jsonb(), // string[] — user labels for filtering clips (CW-MVP-024); null = none
   // Free-tier retention: when the owner was emailed that this upload is deleted in ~24 h.
   retentionNoticeAt: timestamp({ withTimezone: true }),

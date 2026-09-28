@@ -1,14 +1,15 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, X, Film, Image as ImageIcon, GripVertical, ListVideo, Loader2, CheckCircle2, AlertCircle, UploadCloud, Clock, Play, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, X, Film, Image as ImageIcon, GripVertical, ListVideo, Loader2, CheckCircle2, AlertCircle, UploadCloud, Clock, Play, ChevronLeft, ChevronRight, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import type { AssetSummary } from "@/lib/assets";
 import { DriveBackupButton } from "@/components/drive-backup-button";
-import { reorderAssets, deleteAsset, setAssetDuration, setAssetTrim, setClipReframe, setAssetTags } from "@/lib/asset-actions";
+import { reorderAssets, deleteAsset, setAssetDuration, setAssetTrim, setClipReframe, setAssetTags, setAssetRotation } from "@/lib/asset-actions";
 import { uploadProjectFile, isSupported } from "@/lib/upload-client";
+import { nextRotation, rotatedFill, rotationParent } from "@/lib/rotation";
 
 type InsertStatus = "uploading" | "done" | "error";
 
@@ -190,6 +191,7 @@ export function ProjectTimeline({
         durationOverride: null,
         trimStart: null,
         trimEnd: null,
+        rotation: 0,
       };
       const next = [...order];
       next.splice(idx, 0, inserted);
@@ -339,7 +341,7 @@ export function ProjectTimeline({
                   setOverIdx(e.clientX > r.left + r.width / 2 ? i + 1 : i);
                 }}
                 onDrop={(e) => { if (dragId == null) return; e.preventDefault(); onDrop(overIdx ?? i); }}
-                style={{ width: blockWidth(a) }}
+                style={{ width: blockWidth(a), ...rotationParent(a.rotation) }}
                 title={a.tags?.length ? `Tags: ${a.tags.join(", ")}` : undefined}
                 className={cn(
                   "group relative h-20 shrink-0 cursor-grab overflow-hidden rounded-md border border-border bg-muted active:cursor-grabbing",
@@ -355,10 +357,10 @@ export function ProjectTimeline({
                 ) : a.conversionState === "failed" ? (
                   <div className="flex size-full items-center justify-center text-[9px] font-semibold text-destructive">360 ✕</div>
                 ) : a.uploadState === "uploaded" && a.kind === "video" ? (
-                  <video src={`/api/projects/${projectId}/assets/${a.id}#t=0.1`} muted playsInline preload="metadata" draggable={false} onDragStart={(e) => e.preventDefault()} onLoadedMetadata={(e) => setDuration(a.id, e.currentTarget.duration)} className="pointer-events-none size-full object-cover" />
+                  <video src={`/api/projects/${projectId}/assets/${a.id}#t=0.1`} muted playsInline preload="metadata" draggable={false} onDragStart={(e) => e.preventDefault()} onLoadedMetadata={(e) => setDuration(a.id, e.currentTarget.duration)} className="pointer-events-none size-full object-cover" style={rotatedFill(a.rotation)} />
                 ) : a.uploadState === "uploaded" ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={`/api/projects/${projectId}/assets/${a.id}`} alt="" draggable={false} onDragStart={(e) => e.preventDefault()} className="pointer-events-none size-full object-cover" />
+                  <img src={`/api/projects/${projectId}/assets/${a.id}`} alt="" draggable={false} onDragStart={(e) => e.preventDefault()} className="pointer-events-none size-full object-cover" style={rotatedFill(a.rotation)} />
                 ) : (
                   <div className="flex size-full items-center justify-center">
                     {a.kind === "video" ? <Film className="size-4 text-muted-foreground" /> : <ImageIcon className="size-4 text-muted-foreground" />}
@@ -524,12 +526,17 @@ function ClipModal({
   const [view, setView] = useState(initialView);
   const initialTags = (asset.tags ?? []).join(", ");
   const [tagText, setTagText] = useState(initialTags);
+  // Rotation on top of the file's own flag (phone clips that come out sideways).
+  const [rotation, setRotation] = useState(asset.rotation ?? 0);
 
   async function save() {
     setSaving(true);
     try {
       if (tagText !== initialTags) {
         await setAssetTags(projectId, asset.id, tagText.split(","));
+      }
+      if (rotation !== (asset.rotation ?? 0)) {
+        await setAssetRotation(projectId, asset.id, rotation);
       }
       if (is360 && view !== initialView) {
         await setClipReframe(projectId, asset.id, view);
@@ -555,21 +562,33 @@ function ClipModal({
           <h3 className="truncate text-sm font-semibold">{asset.name}</h3>
           <button type="button" onClick={onClose} aria-label="Close" className="rounded-full p-1 text-muted-foreground hover:text-foreground"><X className="size-5" /></button>
         </div>
-        <div className="overflow-hidden rounded-lg bg-black">
+        {/* Rotated clips get a fixed-height stage (the rotated element is sized from it); the video's
+            own controls would turn with it, so tap the picture to play/pause instead. */}
+        <div className={cn("overflow-hidden rounded-lg bg-black", rotation && "h-[50vh]")} style={rotationParent(rotation)}>
           {isVideo ? (
             <video
               ref={videoRef}
               src={src}
-              controls
+              controls={!rotation}
               autoPlay
               playsInline
+              onClick={rotation ? (e) => { const v = e.currentTarget; if (v.paused) void v.play(); else v.pause(); } : undefined}
               onLoadedMetadata={(e) => { const d = e.currentTarget.duration; if (d && Number.isFinite(d)) { setDur(d); if (end <= 0) setEnd(d); } }}
-              className="max-h-[50vh] w-full"
+              className={cn("max-h-[50vh] w-full", rotation && "cursor-pointer object-contain")}
+              style={rotatedFill(rotation)}
             />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={src} alt={asset.name} className="max-h-[50vh] w-full object-contain" />
+            <img src={src} alt={asset.name} className="max-h-[50vh] w-full object-contain" style={rotatedFill(rotation)} />
           )}
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">
+            {rotation ? `Turned ${rotation}° — applies to the preview and the render.${isVideo ? " Tap the picture to play or pause." : ""}` : "Sideways? Turn it upright."}
+          </p>
+          <Button type="button" variant="secondary" size="sm" onClick={() => setRotation(nextRotation(rotation))} aria-label="Rotate 90 degrees clockwise">
+            <RotateCw className="size-4" /> Rotate 90°
+          </Button>
         </div>
 
         {is360 ? (

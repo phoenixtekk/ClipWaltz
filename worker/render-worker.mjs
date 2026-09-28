@@ -104,6 +104,12 @@ function dims(aspect) {
 function vfStatic(W, H) {
   return `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30`;
 }
+// User rotation (assets.rotation, degrees clockwise), prepended to a clip's chain. ffmpeg has already
+// applied the file's own rotation flag (autorotate) by then — same as the browser in the editor — so
+// this turns clips whose flag is wrong (phone started recording pointed at the ground → sideways).
+function vfRotate(deg) {
+  return deg === 90 ? "transpose=clock," : deg === 180 ? "hflip,vflip," : deg === 270 ? "transpose=cclock," : "";
+}
 function vfKenBurns(W, H, frames) {
   return (
     `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},scale=${W * 2}:${H * 2},` +
@@ -1422,11 +1428,11 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     const enc = ["-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", seg];
     let cmd;
     if (a.kind === "video") {
-      cmd = ["-ss", offset.toFixed(3), "-t", dur.toFixed(3), "-i", a._src, "-vf", V, ...enc];
+      cmd = ["-ss", offset.toFixed(3), "-t", dur.toFixed(3), "-i", a._src, "-vf", vfRotate(a.rotation) + V, ...enc];
     } else if (style.motion) {
-      cmd = ["-i", a._src, "-vf", vfKenBurns(W, H, Math.max(1, Math.round(dur * 30))), "-frames:v", String(Math.max(1, Math.round(dur * 30))), ...enc];
+      cmd = ["-i", a._src, "-vf", vfRotate(a.rotation) + vfKenBurns(W, H, Math.max(1, Math.round(dur * 30))), "-frames:v", String(Math.max(1, Math.round(dur * 30))), ...enc];
     } else {
-      cmd = ["-loop", "1", "-t", dur.toFixed(3), "-i", a._src, "-vf", V, ...enc];
+      cmd = ["-loop", "1", "-t", dur.toFixed(3), "-i", a._src, "-vf", vfRotate(a.rotation) + V, ...enc];
     }
     await ffmpeg(cmd);
     segments.push(seg);

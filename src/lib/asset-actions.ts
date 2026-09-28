@@ -89,6 +89,23 @@ export async function setAssetTrim(
 }
 
 /**
+ * Set a clip's rotation (degrees clockwise, 0/90/180/270), applied on top of the file's own rotation
+ * flag in the editor, preview and render. Editor-checked. For phone clips that come out sideways.
+ */
+export async function setAssetRotation(projectId: string, assetId: string, degrees: number): Promise<void> {
+  const userId = await requireUserId();
+  const [row] = await db
+    .select({ id: schema.assets.id })
+    .from(schema.assets)
+    .where(and(eq(schema.assets.id, assetId), eq(schema.assets.projectId, projectId)));
+  if (!row || !(await userCanAccessProject(userId, projectId, "editor"))) throw new Error("Asset not found");
+  const rotation = ((Math.round(Number(degrees) / 90) * 90) % 360 + 360) % 360;
+  if (!Number.isFinite(rotation)) throw new Error("Invalid rotation");
+  await db.update(schema.assets).set({ rotation }).where(eq(schema.assets.id, assetId));
+  revalidatePath(`/projects/${projectId}/edit`);
+}
+
+/**
  * CW-MVP-024: set a clip's tags (editor-checked). Normalised to lowercase, trimmed, de-duplicated;
  * up to 10 tags of up to 24 characters.
  */

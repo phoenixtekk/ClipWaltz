@@ -15,6 +15,7 @@ export type AssetSummary = {
   durationOverride: number | null; // manual per-clip screen time (seconds); null = auto
   trimStart: number | null; // video in-point (seconds); null = from start
   trimEnd: number | null; // video out-point (seconds); null = to end
+  rotation: number; // user rotation, degrees clockwise (0/90/180/270), on top of the file's own flag
   /** 360 sources: flat (front) | follow (tracks the action) | tiny (little planet). */
   reframeMode?: string | null;
   /** Front file of an Insta360 split-lens pair, stitched with its "_10_" partner into full 360. */
@@ -55,6 +56,7 @@ export async function listAssets(projectId: string): Promise<AssetSummary[]> {
     durationOverride: r.durationOverride,
     trimStart: r.trimStart,
     trimEnd: r.trimEnd,
+    rotation: r.rotation,
     reframeMode: r.sourceFormat ? reframeMode : null,
     driveBackedUp: !!driveFileId,
     width: r.width,
