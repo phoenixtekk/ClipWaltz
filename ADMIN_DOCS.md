@@ -292,6 +292,13 @@ project's clips from MinIO, FFmpeg-assembles a 1080p 9:16 video (photos 2s, vide
 music from `music_tracks`, optional watermark), uploads to `renders/<projectId>/<renderId>.mp4`,
 and marks the row `done` (+ project `ready`). Reuses the app's `postgres` + S3 deps.
 
+**AI box services (systemd, user `lacy`):** `clipwaltz-db-tunnel` (`ssh -N -L 55432:127.0.0.1:5432 lacy@linuxg1`) and
+`clipwaltz-worker` (`After=`/`Requires=` the tunnel, so restarting the tunnel restarts the worker — only when idle).
+Drop-in `/etc/systemd/system/clipwaltz-db-tunnel.service.d/ready.conf` (2026-09-28): `ExecStartPost` waits until
+:55432 is listening (≤30 s, else the start fails and `Restart=always` retries), because `ssh` reports started before
+the forward is up — after the 2026-09-28 reboot the worker logged `ECONNREFUSED 127.0.0.1:55432` for ~5 s and its
+startup reapers ran against no DB. Verified: tunnel "Started" 0.56 s after start, worker after it, no errors.
+
 **Waltz AI Remix (generation worker, 2026-09-27):** `createRemix` (src/lib/remix-actions.ts) resolves
 the source (render `output_key` + its `musicTrackId` → `music_tracks.storage_key`, or a version's
 `clean_key ?? output_key`), validates the recipe (≤3 non-overlapping moments; clip lengths 3/5/8 s
