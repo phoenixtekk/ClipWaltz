@@ -173,6 +173,9 @@ export const media = pgTable("media", {
   convertedKey: text(), // flat mp4/jpg for 360 sources
   sourceFormat: text(), // insv | lrv | insp | null
   conversionState: text().notNull().default("ready"), // ready | pending | converting | failed
+  // Worker claims that ended in a crash (bumped on claim, zeroed on any clean finish or give-up).
+  // reapStaleConversions() fails the file once this hits the cap so a crash-looping file stops.
+  conversionAttempts: integer().notNull().default(0),
   reframeMode: text().notNull().default("follow"), // 360 reframe: flat | follow (default: track the action) | tiny
   // Insta360 split recordings: the other lens of this clip ("…_00_N" front ↔ "…_10_N" rear). The front
   // media holds the stitched 360 conversion; the rear is hidden where both are in a project.

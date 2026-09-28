@@ -692,12 +692,16 @@ async function convertMedia(m) {
 }
 
 async function claimConversion() {
+  // conversion_attempts counts claims that never reached a clean finish (see reapStaleConversions).
   const rows = await sql`
-    update media set conversion_state='converting'
+    update media set conversion_state='converting', conversion_attempts = conversion_attempts + 1
     where id = (select id from media where conversion_state='pending'
                 order by created_at asc limit 1 for update skip locked)
     returning *`;
-  return rows[0] ?? null;
+  const m = rows[0] ?? null;
+  // Mirror to the project placements so the editor shows "converting", not a stale state.
+  if (m) await sql`update assets set conversion_state='converting' where media_id=${m.id}`;
+  return m;
 }
 async function convTick() {
   const m = await claimConversion();
@@ -709,7 +713,27 @@ async function convTick() {
     await sql`update media set conversion_state='failed' where id=${m.id}`;
     await sql`update assets set conversion_state='failed' where media_id=${m.id}`;
   }
+  // Clean finish either way (ready/failed/re-queued): only crashes accumulate attempts.
+  await sql`update media set conversion_attempts=0 where id=${m.id}`;
   return true;
+}
+
+// Crash recovery for the 360 conversion queue (same idea as reapStaleRenders). A hard crash skips
+// convTick()'s catch, leaving the media row 'converting' forever — claimConversion() only takes
+// 'pending', so it never retries and the editor spinner never stops. This worker is the only writer
+// of 'converting', so at loop startup every such row is an orphan: put it back to 'pending' to retry,
+// unless it has already crashed the worker CONV_MAX_ATTEMPTS times (a file that OOMs ffmpeg every
+// run would otherwise crash-loop the worker forever) — then fail it. Assets follow their media row.
+const CONV_MAX_ATTEMPTS = 3;
+async function reapStaleConversions() {
+  const failed = await sql`update media set conversion_state='failed', conversion_attempts=0
+    where conversion_state='converting' and conversion_attempts >= ${CONV_MAX_ATTEMPTS} returning id`;
+  const requeued = await sql`update media set conversion_state='pending'
+    where conversion_state='converting' returning id, conversion_attempts`;
+  for (const r of failed) await sql`update assets set conversion_state='failed' where media_id=${r.id}`;
+  for (const r of requeued) await sql`update assets set conversion_state='pending' where media_id=${r.id}`;
+  if (failed.length) console.log(`[worker] failed ${failed.length} conversion(s) that crashed the worker ${CONV_MAX_ATTEMPTS}×: ${failed.map((r) => r.id).join(", ")}`);
+  if (requeued.length) console.log(`[worker] re-queued ${requeued.length} orphaned conversion(s) stuck in 'converting': ${requeued.map((r) => `${r.id} (attempt ${r.conversion_attempts})`).join(", ")}`);
 }
 
 // Beat timestamps (seconds) from aubiotrack; [] if unavailable.
@@ -2164,6 +2188,7 @@ async function main() {
     return;
   }
   await reapStaleRenders().catch((e) => console.error("[worker] reap error:", e.message));
+  await reapStaleConversions().catch((e) => console.error("[worker] conversion reap error:", e.message));
   for (;;) {
     let worked = false;
     try {
