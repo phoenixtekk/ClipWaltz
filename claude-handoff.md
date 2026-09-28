@@ -1,4 +1,4 @@
-<!-- session-version: 8 -->
+<!-- session-version: 9 -->
 
 # ClipWaltz — session handoff
 
@@ -24,13 +24,50 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
   test projects (Sep 20–24), 2 orphan media rows, 0 shared. **Not applied** — owner's call:
   `ssh ai` → `cd ~/clipwaltz && sudo -u lacy node --env-file=.env.worker scripts/storage-orphans.mjs --apply`.
 
-## Remix compose splice (2026-09-27, latest) — deployed to linuxg1
+## Remix seed logo erase (2026-09-27, v9) — deployed to linuxg1 + verified
+Remix seeds from watermarked sources get `delogo` over the logo box (`wmBox` in worker/watermark.mjs) so the
+i2v model can't redraw a ghost logo. Overlay deploy (generation-worker.mjs + watermark.mjs; backups
+`*.bak-20260927-seeddelogo`), pm2 restarted while idle. Prod test jobs 86681e58 (30 s) and 9a546adf (536 s)
+in "Remix test (throwaway)": clean-master AI frames logo-free, branded AI frames one crisp logo, lengths
+exact, 0 decode errors. Not covered: remix-of-remix of a watermarked render (see ADMIN_DOCS).
+
+## Remix compose splice (2026-09-27) — deployed to linuxg1
 `98dcfc7`: `worker/remix-compose.mjs` re-encodes only the changed spans (lead-in, extension, moment GOP spans,
 trimmed head/tail GOP) with the source's x264 settings + colour tags (identical SPS/PPS) and stream-copies
 the rest; audio built in one separate pass. Guards fall back to the old full re-encode. 536 s render
 compose ~30 min → ~2 min; details, gotchas and `--selftest` in ADMIN_DOCS "Remix compose". Moving compose
 to the AI box was evaluated and not needed. Deployed as a file overlay (worker/generation-worker.mjs,
 remix-compose.mjs, watermark.mjs; backup `generation-worker.mjs.bak-20260927-remixsplice`), pm2 restarted.
+
+## Working state (2026-09-27, rotation to v9)
+Tree **clean**, in sync with origin/main. Type-check green (lint: 1 pre-existing error in generation-panel.tsx).
+```
+8d4a75a docs(marketing): add Waltz AI Remix to the product profile
+75c4a9b docs: Waltz AI Remix verification, follow-ups, handoff
+50e3968 fix(renders): private renders play for people who can open the project (watch route was public-only)
+ec74ca1 feat(waltz-ai): Remix a video — AI lead-in, moment magic and extend on any finished video
+0d40846 docs(handoff): project-delete storage purge deployed; orphan dry-run results
+```
+- Shipped since v8: Waltz AI **Remix a video** (lead-in / moment magic / extend on any finished video,
+  song continuity), private renders playable by project members, watermark switch tested on/off,
+  watermark test projects + their storage deleted.
+- **PENDING — verify when each background task finishes** (owner asked; they run in separate
+  sessions and their finish notices go to the OLD session, not this one — the owner will say when):
+  1. ~~*Move Waltz AI Remix encoding off the web server*~~ → **done as the splice (above); verified by v9**
+     2026-09-27: linuxg1 worker files == origin/main (generation-worker, remix-compose, watermark). Prod jobs
+     725bc0bc (536 s, 2,265→558 s) and 2e6caa0a (30 s, 476→428 s): video = audio = 543.133 s / 33.367 s,
+     0 decode errors, 15,641 frames bit-identical to the source at one offset (+132), extension audio
+     audible to the end (-14 dB; the old full-re-encode run went silent for its last 3 s). **Open defect:**
+     some AI frames show a ghost of the burned-in logo around the fresh one (green fringe, dark box, smear),
+     because seed frames come from the watermarked render (`generation-worker.mjs` seed grab). Pre-existing,
+     not caused by the splice. **Fixed + verified same day** (seed `delogo`, see "Seed-frame logo erase" below).
+  2. *Delete storage files when a project is deleted*: throwaway project → upload + render + AI clip →
+     delete → objects gone, no orphan media; media shared with another project kept; the orphan
+     script reports only unless explicitly applied.
+  3. *Sideways phone clips in AutoWaltz renders*: read the cause + evidence; re-render a COPY of
+     "Lake Day v2" (not the original) → portrait clips upright; landscape + 360 unchanged.
+  For each: confirm deployed code on linuxg1 / AI box matches origin/main first. Never restart a
+  worker mid-job; deploy restarts pm2 only after a successful build.
 
 ## Waltz AI Remix (2026-09-27, later) — live
 `ec74ca1` + watch-route fix. Waltz AI tab → **Remix a video**: library of all renders + AI clips; lead-in

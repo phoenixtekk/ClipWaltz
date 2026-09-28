@@ -21,7 +21,7 @@ import { Agent as HttpsAgent } from "node:https";
 import postgres from "postgres";
 import IORedis from "ioredis";
 import { Worker } from "bullmq";
-import { WATERMARK_PATH, wmChain } from "./watermark.mjs";
+import { WATERMARK_PATH, wmChain, wmBox } from "./watermark.mjs";
 import { composeRemix } from "./remix-compose.mjs";
 import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
@@ -614,11 +614,14 @@ async function processRemix(j, req, genJobId) {
       prompt: `${req.extend.prompt || "the action continues naturally, the camera keeps moving forward"}${style}` });
     if (!segs.length) throw new Error("nothing to remix (moments fall outside the video)");
 
-    // Seed frames (cropped to the AI working shape).
+    // Seed frames (cropped to the AI working shape). A watermarked source has the logo burned in: erase
+    // it first, or the i2v model redraws it and a warped ghost shows around the fresh logo.
+    const b = src.watermarked ? wmBox(S.width, S.height) : null;
+    const delogo = b ? `delogo=x=${b.x}:y=${b.y}:w=${b.w}:h=${b.h},` : "";
     for (const [i, g] of segs.entries()) {
       g.png = join(dir, `seed${i}.png`);
       await run("ffmpeg", ["-y", "-v", "error", "-ss", Math.max(0, g.at).toFixed(3), "-i", srcPath, "-frames:v", "1",
-        "-vf", `scale=${ai.w}:${ai.h}:force_original_aspect_ratio=increase,crop=${ai.w}:${ai.h}`, g.png]);
+        "-vf", `${delogo}scale=${ai.w}:${ai.h}:force_original_aspect_ratio=increase,crop=${ai.w}:${ai.h}`, g.png]);
     }
 
     // Generate the AI parts, two at a time (one per GPU).

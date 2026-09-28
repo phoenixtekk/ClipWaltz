@@ -147,6 +147,8 @@ them there, then come back. (These are in addition to the "video ready" email, w
 - Pick a **style** and **quality**, then press **Remix**. It takes a few minutes; you can keep editing.
   The song keeps playing under the AI parts. The remix appears under **Generated versions** — your
   original video isn't changed. You can enhance, export or remix the remix too.
+  If your video carries the ClipWaltz logo, the remix shows it once, in the usual corner — the AI parts
+  don't copy it.
 
 ## Working with others (workspaces)
 - Open the **account menu → Workspace** to invite people by email. Pick a role:

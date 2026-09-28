@@ -337,6 +337,14 @@ at `nice 15`, 3 threads. Log line: `[remix] <id> composed (splice: N frames enco
   ffmpeg step; `REMIX_KEEP=1` keeps the splice work dir.
 - Self-test (no DB/AI; synthetic AI parts): `node worker/remix-compose.mjs --selftest <src.mp4> [--moments
   120,300] [--music song.mp3 --off 0] [--wm --src-wm] [--full]` → prints mode, frames encoded/copied, seconds.
+- **Seed-frame logo erase (2026-09-27):** when the source is watermarked (`source.watermarked`, set for renders
+  made with the logo), `processRemix` runs `delogo` over the logo box (`wmBox()` in `worker/watermark.mjs`: the
+  same 15.4 %/3 % geometry, grown 6 px) before scaling each seed frame. Without it the i2v model redraws the
+  burned-in logo and a warped ghost (fringe, dark box, smear) shows around the fresh logo and in the clean
+  master. Verified on prod (copies of the 30 s and 536 s test remixes): clean master AI frames carry no logo,
+  branded AI frames one crisp logo. Caveat: a remix *of a remix* of a watermarked render seeds from that
+  remix's clean master, whose copied frames still hold the burned-in logo, and is marked unwatermarked
+  (`remix-actions.ts`), so it is not erased there.
 - Why not move compose to the AI box: measured there, the splice takes 14–18 s but the full re-encode still
   burns ~2,000 CPU-s (80 s on 25 cores) and would need a new claim queue plus 2× the file transfers; with the
   splice, linuxg1's share is ~2 min of low-priority work, so the move is not needed.

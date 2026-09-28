@@ -35,6 +35,8 @@ version in the current project (the "import"); the original is untouched.
   each moment's surrounding keyframe span); the rest of the video is stream-copied bit-for-bit, so the
   render's own picture, logo and timing are untouched. Compose on a 536 s render: ~30 min → 90 s (whole
   prod remix job 2,265 s → 558 s); a 30 s render: 80 s → 34 s. Falls back to a full re-encode automatically if a source can't be spliced.
+- Remixes of watermarked videos no longer show a ghost of the old logo in the AI parts (the logo is erased
+  from the starting frames before the AI sees them); the AI parts of the clean copy carry no logo.
 - Private renders now play for people who can open the project (`/api/renders/[id]/watch` was
   public-only), so the remix library and player can show them.
 - Not possible on this hardware (needs a larger model): frame-by-frame restyle of a whole video, and
