@@ -33,7 +33,3 @@ export function rotatedFill(deg: number | null | undefined): CSSProperties | und
     transform: `translate(-50%, -50%) rotate(${deg}deg)`,
   };
 }
-
-/** Style for a rotated element sized by its content (a lightbox): turned in place, bounds swapped. */
-export const lightboxRotation = (deg: number | null | undefined): CSSProperties | undefined =>
-  deg ? { transform: `rotate(${deg}deg)`, ...(deg % 180 ? { maxWidth: "85vh", maxHeight: "90vw" } : {}) } : undefined;

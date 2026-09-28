@@ -7,7 +7,7 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { AssetSummary } from "@/lib/assets";
-import { lightboxRotation, rotatedFill, rotationParent } from "@/lib/rotation";
+import { rotatedFill, rotationParent } from "@/lib/rotation";
 
 // 7 → "0:07", 83.4 → "1:23"
 const fmtClipLen = (sec: number) => {
@@ -511,14 +511,18 @@ export function ProjectEditor({
             <X className="size-5" />
           </button>
           <div className="max-h-[85vh] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
+            {/* A rotated clip gets a fixed stage (sized in container units); its controls would turn
+                with it, so it plays without them. */}
+            <div className={preview.rotation ? "h-[80vh] w-[90vw]" : undefined} style={rotationParent(preview.rotation)}>
             {preview.kind === "video" ? (
               <video
                 src={`/api/projects/${projectId}/assets/${preview.id}`}
-                controls
+                controls={!preview.rotation}
                 autoPlay
                 playsInline
-                className="max-h-[85vh] max-w-[90vw] rounded-lg"
-                style={lightboxRotation(preview.rotation)}
+                loop={!!preview.rotation}
+                className="max-h-[85vh] max-w-[90vw] rounded-lg object-contain"
+                style={rotatedFill(preview.rotation)}
               />
             ) : (
               // eslint-disable-next-line @next/next/no-img-element
@@ -526,9 +530,10 @@ export function ProjectEditor({
                 src={`/api/projects/${projectId}/assets/${preview.id}`}
                 alt={preview.name}
                 className="max-h-[85vh] max-w-[90vw] rounded-lg object-contain"
-                style={lightboxRotation(preview.rotation)}
+                style={rotatedFill(preview.rotation)}
               />
             )}
+            </div>
             <p className="mt-2 truncate text-center text-sm text-white/80">{preview.name}</p>
           </div>
         </div>

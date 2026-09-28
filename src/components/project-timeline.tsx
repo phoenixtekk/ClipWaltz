@@ -97,9 +97,11 @@ export function ProjectTimeline({
   const trimmable = (a: AssetSummary) =>
     a.kind === "video" && a.uploadState === "uploaded" && !!a.durationSec && (!a.sourceFormat || a.conversionState === "ready");
 
-  // keep local order in sync if the server list changes length (add/remove elsewhere)
-  const [sig, setSig] = useState(assets.map((a) => a.id).join(","));
-  const nextSig = assets.map((a) => a.id).join(",");
+  // keep local order in sync if the server list changes (add/remove elsewhere, or a clip's settings
+  // saved from the clip dialog: rotation, trim, screen time)
+  const sigOf = (list: AssetSummary[]) => list.map((a) => `${a.id}:${a.rotation}:${a.trimStart}:${a.trimEnd}:${a.durationOverride}`).join(",");
+  const [sig, setSig] = useState(sigOf(assets));
+  const nextSig = sigOf(assets);
   if (nextSig !== sig) {
     setSig(nextSig);
     setOrder(assets);
