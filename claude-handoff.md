@@ -21,8 +21,9 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
   object HEAD 404, media row gone. **Deployed as a file overlay** (not a full tarball) because the main
   checkout had uncommitted Waltz AI Remix work whose worker was already on linuxg1.
 - `scripts/storage-orphans.mjs` (on the AI box too). Prod dry run: **202 objects / ~14.1 GB** from 98–99 deleted
-  test projects (Sep 20–24), 2 orphan media rows, 0 shared. **Not applied** — owner's call:
-  `ssh ai` → `cd ~/clipwaltz && sudo -u lacy node --env-file=.env.worker scripts/storage-orphans.mjs --apply`.
+  test projects (Sep 20–24), 2 orphan media rows, 0 shared. **Applied 2026-09-27 (v9, owner's go):** DB
+  cross-check first (0 live projects/renders/versions/assets referencing them), then deleted 202 objects +
+  2 media rows, 0 failed; re-run dry run reports 0.
 
 ## Remix seed logo erase (2026-09-27, v9) — deployed to linuxg1 + verified
 Remix seeds from watermarked sources get `delogo` over the logo box (`wmBox` in worker/watermark.mjs) so the
