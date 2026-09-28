@@ -7,6 +7,7 @@ import { requireUserId } from "./auth";
 import { getUserWorkspaceIds, userCanAccessProject, visibleProjectsFilter } from "./workspace";
 import { enqueueEnhance } from "./queue";
 import { shouldWatermark } from "./watermark";
+import { burnedInLogo } from "./burned-logo";
 import { resolveGenerationRoute, RouteUnavailableError, QUALITIES, type Quality } from "./ai/routing";
 
 // Waltz AI Remix: take any finished video (an AutoWaltz render or a Waltz AI clip, from any project
@@ -131,8 +132,11 @@ export async function createRemix(
       key: schema.generationVersions.outputKey, cleanKey: schema.generationVersions.cleanKey,
     }).from(schema.generationVersions).where(eq(schema.generationVersions.id, source.id));
     if (!v || !v.key || !(await userCanAccessProject(userId, v.projectId))) throw new Error("Video not found");
-    // The clean master when there is one — the logo is added once, at the end.
-    src = { kind: "version", id: v.id, projectId: v.projectId, key: v.cleanKey ?? v.key, watermarked: false, /* versions keep a clean master whenever they carry the logo */ musicKey: null, label: `Waltz AI v${v.versionNumber}` };
+    // The clean master when there is one — the logo is added once, at the end. Except when the video
+    // descends from a watermarked render: its "clean" master still has that render's logo burned in,
+    // so take the branded copy (logo once on every frame) and treat it like a watermarked render.
+    const burned = await burnedInLogo(v.id);
+    src = { kind: "version", id: v.id, projectId: v.projectId, key: burned ? v.key : v.cleanKey ?? v.key, watermarked: burned, musicKey: null, label: `Waltz AI v${v.versionNumber}` };
   }
 
   const quality: Quality = QUALITIES.includes(recipe.quality as Quality) ? (recipe.quality as Quality) : "standard";
