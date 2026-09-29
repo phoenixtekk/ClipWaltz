@@ -263,7 +263,7 @@ export async function planStoryboard(brief, media, locked = []) {
     (brief.voice?.mode === "auto"
       ? `- voice: a spoken narration line for EVERY scene (a voiceover, read at ~${SPEECH_WPS} words per second): conversational, ` +
         `complements the on-screen text instead of repeating it word for word, and fits the scene (a 3 s scene ≈ 7 words). ` +
-        `The cta scene's voice says the call to action. Same rule: no invented facts or claims.\n`
+        `The cta scene's voice says the call to action. Write web addresses as spoken ("example dot com"). Same rule: no invented facts or claims.\n`
       : "") +
     `- title: a short internal name for this video.
 
@@ -273,7 +273,25 @@ export async function planStoryboard(brief, media, locked = []) {
   const t0 = Date.now();
   const { data: raw, raw: j } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.5, numPredict: 8000, numCtx: 16384, timeoutMs: 600000 });
   if (process.env.DECK_DEBUG === "1") console.log(`[deck] raw plan: ${JSON.stringify(raw).slice(0, 4000)}`);
-  const plan = repairPlan(raw, { brief: { ...brief, mode, lengthSec: length }, media, locked });
+  let plan = repairPlan(raw, { brief: { ...brief, mode, lengthSec: length }, media, locked });
+  // Narration that just repeats the on-screen text is dull (prod plan 2026-09-29: 6/6 lines == headline).
+  // When most lines duplicate their text, one focused call writes the narration alone, then re-repair.
+  if (brief.voice?.mode === "auto" && plan.scenes.length) {
+    const dup = plan.scenes.filter((sc) => !sc.voice || sameWords(sc.voice, `${sc.text.headline} ${sc.text.sub}`)).length;
+    if (dup / plan.scenes.length > 0.5) {
+      const lines = await writeNarration({ ...brief, mode, lengthSec: length }, plan.scenes, media).catch(() => null);
+      if (lines) {
+        const raw2 = { title: plan.title, scenes: plan.scenes.map((sc, i) => ({
+          role: sc.role, media: sc.assetId ? media.findIndex((m) => m.id === sc.assetId) + 1 : 0, durationSec: sc.durationSec,
+          headline: sc.text.headline, sub: sc.text.sub, bullets: sc.text.bullets, layout: sc.layout, why: sc.why,
+          voice: lines[i] ?? sc.voice, moment: 0,
+        })) };
+        const inSecs = plan.scenes.map((sc) => sc.inSec);
+        plan = repairPlan(raw2, { brief: { ...brief, mode, lengthSec: length }, media, locked });
+        plan.scenes.forEach((sc, i) => { if (inSecs[i] != null) sc.inSec = inSecs[i]; });
+      }
+    }
+  }
   plan.stats = { model: TEXT_MODEL, ms: Date.now() - t0, promptTokens: j.prompt_eval_count, outTokens: j.eval_count };
   return plan;
 }
@@ -332,6 +350,33 @@ function bestMoment(moments, text) {
     if (s > score) { score = s; best = m.t; }
   }
   return best;
+}
+
+// True when two lines say the same words (order/case/punctuation ignored, ≥80 % overlap).
+function sameWords(a, b) {
+  const wa = String(a).toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  const wb = new Set(String(b).toLowerCase().match(/[a-z0-9]+/g) ?? []);
+  if (!wa.length) return true;
+  return wa.filter((w) => wb.has(w)).length / wa.length >= 0.8;
+}
+
+/** One call that writes only the spoken narration for already-planned scenes. Returns string[] or null. */
+async function writeNarration(brief, scenes, media) {
+  const list = scenes.map((sc, i) => {
+    const m = sc.assetId ? media.find((x) => x.id === sc.assetId) : null;
+    return `${i + 1}. ${sc.role}, ${sc.durationSec}s — shows: ${m?.desc?.summary || (m ? "the owner's media" : "a text card")}; on-screen text: "${[sc.text.headline, sc.text.sub].filter(Boolean).join(" — ")}"`;
+  }).join("\n");
+  const prompt =
+    `Write the VOICEOVER for a ${brief.mode === "slideshow" ? "slideshow" : "short ad"}. BRIEF: "${str(brief.prompt, 1200)}"` +
+    (brief.tone ? ` Tone: ${str(brief.tone, 100)}.` : "") + (brief.offer ? ` Offer: ${str(brief.offer, 200)}.` : "") +
+    (brief.cta?.text ? ` Call to action: "${str(brief.cta.text, 120)}".` : "") + `\nSCENES:\n${list}\n` +
+    `One spoken line per scene, in order. Each line: conversational, 5-14 words, fits the scene length at ~${SPEECH_WPS} words per second, ` +
+    `and ADDS something the on-screen text doesn't say (never repeat the on-screen text). Flow from line to line like one script. ` +
+    `The last line says the call to action; write web addresses as spoken ("example dot com"). ` +
+    `Never invent facts, prices, numbers or claims not in the brief.\nJSON keys: {"lines":[string]}`;
+  const { data } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.7, numPredict: 4000, timeoutMs: 300000 });
+  const lines = Array.isArray(data.lines) ? data.lines.map((l) => str(l, 300)) : null;
+  return lines && lines.length >= Math.ceil(scenes.length / 2) ? lines : null;
 }
 
 // Placement words in an owner's note: "show this first", "open with", "end on this", "last".
