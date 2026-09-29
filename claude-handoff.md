@@ -72,7 +72,9 @@ ec74ca1 feat(waltz-ai): Remix a video — AI lead-in, moment magic and extend on
      deployed, worker backup `render-worker.mjs.bak-20260928-rotation`). Prod test: project "Lake Day v2 (rotation
      test copy)" (6f745273…, render b2501878) — IMG_1940 upright, all other sampled frames bit-identical to v6.
      Test copy deleted 2026-09-28 via the app's purge (its render object removed; the 23 shared originals kept).
-     No 360 clips in that project, so 360 wasn't exercised. Dev DB has a throwaway "Rotation UI test" project.
+     No 360 clips in that project, so 360 wasn't exercised. Dev DB "Rotation UI test" project deleted
+     2026-09-29 (rows only — its clips pointed at prod files in the shared bucket, so no storage purge from dev;
+     the test account rtdbcd1e@example.test remains in the dev DB).
   For each: confirm deployed code on linuxg1 / AI box matches origin/main first. Never restart a
   worker mid-job; deploy restarts pm2 only after a successful build.
 
