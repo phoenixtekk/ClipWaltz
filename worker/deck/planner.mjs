@@ -19,6 +19,10 @@ const WORDS_PER_SEC = 3; // comfortable on-screen reading speed
 const MIN_SCENE = 1.2;
 const MAX_SCENE = 8;
 
+// Streams the reply (NDJSON) and returns the same shape as a non-streamed call. Streaming matters: Node's
+// fetch (undici) drops a request whose response headers take > 300 s, and a non-streamed Ollama call sends
+// headers only when the whole answer is done — a slow plan on the busy shared box failed with "fetch failed"
+// at exactly 5 min (2026-09-29). With streaming, headers arrive at once and `timeoutMs` is the only limit.
 async function ollama(path, body, timeoutMs) {
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -26,11 +30,28 @@ async function ollama(path, body, timeoutMs) {
     const res = await fetch(`${OLLAMA_URL}${path}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ stream: false, ...body }),
+      body: JSON.stringify({ ...body, stream: true }),
       signal: ctrl.signal,
     });
     if (!res.ok) throw new Error(`ollama ${path} ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    return await res.json();
+    const dec = new TextDecoder();
+    let buf = "", content = "", response = "", thinking = "", last = {};
+    const take = (line) => {
+      if (!line.trim()) return;
+      const j = JSON.parse(line);
+      if (j.error) throw new Error(`ollama ${path}: ${j.error}`);
+      if (j.message?.content) content += j.message.content;
+      if (j.message?.thinking) thinking += j.message.thinking;
+      if (j.response) response += j.response;
+      if (j.done) last = j;
+    };
+    for await (const chunk of res.body) {
+      buf += dec.decode(chunk, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf("\n")) !== -1) { take(buf.slice(0, nl)); buf = buf.slice(nl + 1); }
+    }
+    take(buf);
+    return { ...last, message: { role: "assistant", content, thinking }, response };
   } finally {
     clearTimeout(to);
   }
@@ -231,6 +252,7 @@ export async function planStoryboard(brief, media, locked = []) {
     `"durationSec":number,"headline":string,"sub":string,"bullets":[string],"layout":${LAYOUTS.map((l) => `"${l}"`).join("|")},"why":string}]}`;
   const t0 = Date.now();
   const { data: raw, raw: j } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.5, numPredict: 8000, numCtx: 16384, timeoutMs: 600000 });
+  if (process.env.DECK_DEBUG === "1") console.log(`[deck] raw plan: ${JSON.stringify(raw).slice(0, 4000)}`);
   const plan = repairPlan(raw, { brief: { ...brief, mode, lengthSec: length }, media, locked });
   plan.stats = { model: TEXT_MODEL, ms: Date.now() - t0, promptTokens: j.prompt_eval_count, outTokens: j.eval_count };
   return plan;
