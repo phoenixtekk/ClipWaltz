@@ -24,7 +24,7 @@ import { Worker } from "bullmq";
 import { WATERMARK_PATH, wmChain, wmBox } from "./watermark.mjs";
 import { composeRemix } from "./remix-compose.mjs";
 import { startDeckWorker } from "./deck/jobs.mjs";
-import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 
 const run = promisify(execFile);
@@ -762,7 +762,11 @@ enhanceWorker.on("failed", async (job, err) => {
 console.log(`[enh] ClipWaltz enhance worker up (queue=${ENHANCE_QUEUE})`);
 
 // WaltzDeck: media descriptions, storyboard planning, scene rewrites (worker/deck/jobs.mjs).
-startDeckWorker({ sql, getBytes, run, redisUrl: REDIS_URL });
+startDeckWorker({
+  sql, getBytes, run, redisUrl: REDIS_URL,
+  putBytes: (Key, Body, ContentType) => s3.send(new PutObjectCommand({ Bucket: BUCKET, Key, Body, ContentType })),
+  deleteKey: (Key) => s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key })),
+});
 
 // Free-plan upload retention (notice ~24 h ahead, delete after 7 days) runs in the app, which holds
 // the SES creds; this worker (same host, linuxg1) just triggers it every 6 h. See src/lib/retention.ts.

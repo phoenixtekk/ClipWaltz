@@ -281,6 +281,13 @@
       "when": 1790716804867,
       "tag": "0039_deck_voice",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1790720312899,
+      "tag": "0040_deck_exports",
+      "breakpoints": true
     }
   ]
 }

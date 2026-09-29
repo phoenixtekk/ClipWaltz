@@ -9,9 +9,36 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 |---|---|---|
 | **AutoWaltz** | Your photos + videos → a beat-synced music video (the original feature; includes Auto-Batch). | `renders`, `src/lib/render-actions.ts`, `worker/render-worker.mjs` (AI box) |
 | **Waltz AI** | New AI clips from a prompt or image (text/image-to-video), plus Enhance, storyboard assembly and exports of those clips. | `generation_jobs` / `generation_versions`, `src/lib/generation-actions.ts`, `worker/generation-worker.mjs` (linuxg1) → AISERVER |
-| **WaltzDeck** | Your photos + videos + a brief (+ a note per item) → an AI-planned **ad or slideshow** with on-screen text, scene by scene. | `projects.kind='deck'`, `deck_scenes`, `src/lib/deck-actions.ts`, `worker/deck/*` (planner on linuxg1, text layer in the render worker) |
+| **WaltzDeck** | Your photos + videos + a brief (+ a note per item) → an AI-planned **ad, slideshow or presentation** with on-screen text, scene by scene — present it, export PDF / PowerPoint, or start from a PPTX / PDF / web page. | `projects.kind='deck'`, `deck_scenes`, `src/lib/deck-actions.ts`, `worker/deck/*` (planner on linuxg1, text layer in the render worker) |
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
+
+## WaltzDeck Phase 3 — presentations, PDF / PowerPoint export, import (2026-09-29)
+- **Presentation mode:** a third deck mode (New project → WaltzDeck → Presentation, defaults to 16:9; switching an
+  existing vertical deck to Presentation makes it 16:9). The planner writes a title slide, one-point content slides
+  with 2–4 bullets and a closing slide, 6–12 s each (scenes up to 15 s, up to 5 bullets of 80 chars).
+- **Slide layout** ("Slide — title + points"): headline, accent bar, subline and points on a brand panel beside the
+  media (left on 16:9 / 1:1, bottom on tall frames), or full-frame with the logo top-right as a card. Same template in
+  the video, the preview, the PDF and the PPTX. Bullets: up to 6 × 90 chars on any scene.
+- **Present:** full-screen slideshow of the storyboard — ← → / Space / click, Home/End, **N** speaker notes (the
+  scene's voice line), **P** auto-play with scene lengths, Esc to leave. In Presentation mode every scene card shows
+  a *Speaker notes* field (it is also the voiceover when voice is on).
+- **Export PDF / PowerPoint** (Present & export / Slides panel): one slide per scene, built on the render box from
+  the video's own templates. PDF = Chromium-printed pages with real, selectable text over the media still. PPTX =
+  the picture layer as the slide background + **editable text boxes** at the exact positions, fonts, sizes, colours
+  and line breaks Chromium drew; voice line → speaker notes. Video scenes use a still from the middle of the scene's
+  window. Free-tier watermark follows the video rule. Downloads from the panel; ~1–3 s per export.
+- **Import:** *Start from what you have* in the brief —
+  - **PowerPoint (.pptx) / PDF** (≤ 50 MB): one locked, Manual-text scene per slide (title → headline, subtitle →
+    subline, body paragraphs → points, speaker notes → voice line; the largest picture on a slide becomes a project
+    photo and that scene's media). PDFs use line heights to find wrapped headings; scanned PDFs are refused
+    ("no text"). Scenes are added after the current storyboard; an empty deck switches to Presentation.
+  - **Web page**: the brief (prompt, goal, audience, tone, offer, CTA) is summarised from the page's title,
+    description, headings and text; its preview image (og:image) becomes a photo; with media and no storyboard yet,
+    it plans right away. Only empty brief fields are filled — your own words are never overwritten.
+- Verified 2026-09-29 on dev: PPTX import (3 slides, notes, picture), URL import (python.org → brief + image +
+  auto-plan), PDF + PPTX export downloaded (valid files, PPTX matches the PDF when rendered by LibreOffice), Present
+  view (slide 2/3, notes). Prod verification: see ADMIN_DOCS "WaltzDeck Phase 3".
 
 ## WaltzDeck Phase 2 — voiceover & captions (2026-09-29)
 - **Voiceover:** brief → *Off / AI writes it / I'll write it*; 8 self-hosted voices (Kokoro-82M, Apache-2.0) with

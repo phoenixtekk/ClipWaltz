@@ -2,15 +2,16 @@
 // WaltzDeck server actions (06_ClipWaltz_WaltzDeck_Feature_Spec.md). Planning and rewrites run on the
 // generation worker (worker/deck/jobs.mjs) via the deck queue; the editor polls getDeck().
 import { randomUUID } from "crypto";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
 import { userCanAccessProject } from "./workspace";
 import { enqueueDeck } from "./queue";
+import { shouldWatermark } from "./watermark";
 import {
-  DECK_MODES, LAYOUTS, MOTIONS, ROLES, VOICES, defaultBrief,
-  type DeckBrief, type DeckScene, type DeckState, type SceneText, type SceneTextMode,
+  DECK_MODES, LAYOUTS, MAX_BULLETS, MAX_BULLET_CHARS, MOTIONS, ROLES, VOICES, defaultBrief,
+  type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type DeckState, type SceneText, type SceneTextMode,
 } from "./deck/types";
 
 /** The asset exists and belongs to this project (never trust a client-sent asset id). */
@@ -39,6 +40,8 @@ export type DeckData = {
   deck: DeckState;
   scenes: DeckScene[];
   assets: DeckAsset[];
+  /** Latest slide export per format (PDF / PPTX). */
+  exports: DeckExport[];
 };
 
 const toScene = (r: typeof schema.deckScenes.$inferSelect): DeckScene => ({
@@ -56,9 +59,16 @@ export async function getDeck(projectId: string): Promise<DeckData> {
     .where(and(eq(schema.assets.projectId, projectId), eq(schema.assets.hidden, false), eq(schema.assets.uploadState, "uploaded")))
     .orderBy(asc(schema.assets.orderIndex), asc(schema.assets.createdAt));
   const deck = (p.deck ?? {}) as Partial<DeckState>;
+  const exportRows = await db.select().from(schema.deckExports).where(eq(schema.deckExports.projectId, projectId))
+    .orderBy(desc(schema.deckExports.createdAt)).limit(20);
+  const latest = (["pdf", "pptx"] as const).map((f) => exportRows.find((r) => r.format === f)).filter((r) => !!r);
   return {
     project: { id: p.id, title: p.title, aspect: p.aspect, musicTrackId: p.musicTrackId, status: p.status },
-    deck: { brief: { ...defaultBrief(), ...(deck.brief ?? {}) }, plan: deck.plan ?? { status: "idle" } },
+    deck: { brief: { ...defaultBrief(), ...(deck.brief ?? {}) }, plan: deck.plan ?? { status: "idle" }, import: deck.import ?? { status: "idle" } },
+    exports: latest.map((r) => ({
+      id: r.id, format: r.format as DeckExportFormat, status: r.status as DeckExport["status"], error: r.error,
+      createdAt: r.createdAt.toISOString(), finishedAt: r.finishedAt?.toISOString() ?? null,
+    })),
     scenes: scenes.map(toScene),
     assets: assets.map((a) => {
       const d = (a.aiDescription ?? null) as { summary?: string } | null;
@@ -97,9 +107,14 @@ export async function saveBrief(projectId: string, input: Partial<DeckBrief>): P
       : cur.voice ?? defaultBrief().voice,
     captions: input.captions !== undefined ? { enabled: !!input.captions?.enabled } : cur.captions ?? defaultBrief().captions,
   };
+  // Presentations are slides: switching a vertical project to Presentation makes it 16:9 (the aspect can
+  // still be changed back in the project settings).
+  const [pa] = await db.select({ aspect: schema.projects.aspect }).from(schema.projects).where(eq(schema.projects.id, projectId));
+  const toWide = next.mode === "presentation" && cur.mode !== "presentation" && pa?.aspect === "9:16";
   await db.update(schema.projects).set({
     deck: sql`jsonb_set(coalesce(${schema.projects.deck}, '{}'::jsonb), '{brief}', ${JSON.stringify(next)}::jsonb)`,
     lengthSec: next.lengthSec,
+    ...(toWide ? { aspect: "16:9" } : {}),
     updatedAt: new Date(),
   }).where(eq(schema.projects.id, projectId));
   revalidatePath(`/projects/${projectId}/deck`);
@@ -156,7 +171,7 @@ export async function updateScene(projectId: string, sceneId: string, patch: Sce
     set.text = {
       headline: clip(patch.text.headline, 90),
       sub: clip(patch.text.sub, 140),
-      bullets: (patch.text.bullets ?? []).map((b) => clip(b, 60)).filter(Boolean).slice(0, 4),
+      bullets: (patch.text.bullets ?? []).map((b) => clip(b, MAX_BULLET_CHARS)).filter(Boolean).slice(0, MAX_BULLETS),
     };
     set.textMode = "manual";
     set.locked = true;
@@ -233,4 +248,59 @@ export async function addScene(projectId: string, afterIndex: number, assetId: s
 export async function deleteScene(projectId: string, sceneId: string): Promise<void> {
   await assertAccess(projectId, "editor");
   await db.delete(schema.deckScenes).where(and(eq(schema.deckScenes.id, sceneId), eq(schema.deckScenes.projectId, projectId)));
+}
+
+// ── Slide exports (phase 3) ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Queue a PDF or PowerPoint export of the storyboard. The render worker on the AI box builds it from the same
+ * templates as the video (worker/deck/export.mjs); the editor polls getDeck(). One export per format at a time.
+ */
+export async function requestDeckExport(projectId: string, format: DeckExportFormat): Promise<void> {
+  const userId = await assertAccess(projectId, "editor");
+  if (format !== "pdf" && format !== "pptx") throw new Error("Unknown export format");
+  const [n] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.deckScenes).where(eq(schema.deckScenes.projectId, projectId));
+  if (!n?.n) throw new Error("Plan the storyboard first — there are no slides yet.");
+  const [busy] = await db.select({ id: schema.deckExports.id, createdAt: schema.deckExports.createdAt }).from(schema.deckExports)
+    .where(and(eq(schema.deckExports.projectId, projectId), eq(schema.deckExports.format, format), inArray(schema.deckExports.status, ["queued", "running"])));
+  // A job stuck for 30 min (worker restart mid-export) doesn't block a new one; the worker's reaper fails it.
+  if (busy && Date.now() - busy.createdAt.getTime() < 30 * 60 * 1000) throw new Error("That export is already being made — hang on a moment.");
+  await db.insert(schema.deckExports).values({
+    id: randomUUID(), projectId, format, status: "queued", watermark: await shouldWatermark(userId), requestedBy: userId,
+  });
+  revalidatePath(`/projects/${projectId}/deck`);
+}
+
+// ── Import (phase 3) ───────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Fill the brief from a public web page (a product page, a landing page). The deck worker fetches it with SSRF
+ * guards (worker/deck/importer.mjs) and, when the project already has media and no storyboard, plans right away.
+ * Files (PPTX / PDF) go through POST /api/projects/[id]/deck-import instead.
+ */
+export async function importFromUrl(projectId: string, rawUrl: string): Promise<void> {
+  const userId = await assertAccess(projectId, "editor");
+  let url: URL;
+  try {
+    url = new URL(/^https?:\/\//i.test(rawUrl.trim()) ? rawUrl.trim() : `https://${rawUrl.trim()}`);
+  } catch {
+    throw new Error("That doesn't look like a web address.");
+  }
+  if (!["http:", "https:"].includes(url.protocol) || !url.hostname.includes(".")) throw new Error("That doesn't look like a web address.");
+  const [p] = await db.select({ deck: schema.projects.deck }).from(schema.projects).where(eq(schema.projects.id, projectId));
+  const cur = ((p.deck ?? {}) as Partial<DeckState>).import as { status?: string; startedAt?: string } | undefined;
+  if (cur && ["queued", "reading", "summarizing"].includes(cur.status ?? "") && cur.startedAt && Date.now() - Date.parse(cur.startedAt) < 15 * 60 * 1000) {
+    throw new Error("An import is already running — hang on a moment.");
+  }
+  const name = url.toString().slice(0, 200);
+  const setImport = (st: object) => db.update(schema.projects).set({
+    deck: sql`jsonb_set(coalesce(${schema.projects.deck}, '{}'::jsonb), '{import}', ${JSON.stringify(st)}::jsonb)`,
+  }).where(eq(schema.projects.id, projectId));
+  await setImport({ status: "queued", source: "url", name, startedAt: new Date().toISOString() });
+  try {
+    await enqueueDeck({ name: "import", data: { projectId, source: "url", url: url.toString(), name, userId } }, `import-${projectId}-${Date.now()}`);
+  } catch {
+    await setImport({ status: "failed", source: "url", name, error: "Couldn't reach the importer — try again in a moment." });
+    throw new Error("Couldn't reach the importer — try again in a moment.");
+  }
 }

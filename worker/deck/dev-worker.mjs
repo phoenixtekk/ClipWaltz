@@ -4,7 +4,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import postgres from "postgres";
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { startDeckWorker, DECK_QUEUE } from "./jobs.mjs";
 
 if (!process.env.DECK_QUEUE || DECK_QUEUE === "clipwaltz-deck") throw new Error("set DECK_QUEUE to a dev queue name (not clipwaltz-deck)");
@@ -15,4 +15,7 @@ const s3 = new S3Client({
   credentials: { accessKeyId: process.env.S3_ACCESS_KEY, secretAccessKey: process.env.S3_SECRET_KEY },
 });
 const getBytes = async (key) => Buffer.from(await (await s3.send(new GetObjectCommand({ Bucket: process.env.S3_BUCKET ?? "clipwaltz", Key: key }))).Body.transformToByteArray());
-startDeckWorker({ sql, getBytes, run: promisify(execFile), redisUrl: process.env.REDIS_URL });
+const Bucket = process.env.S3_BUCKET ?? "clipwaltz";
+const putBytes = (Key, Body, ContentType) => s3.send(new PutObjectCommand({ Bucket, Key, Body, ContentType }));
+const deleteKey = (Key) => s3.send(new DeleteObjectCommand({ Bucket, Key }));
+startDeckWorker({ sql, getBytes, putBytes, deleteKey, run: promisify(execFile), redisUrl: process.env.REDIS_URL });

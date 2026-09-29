@@ -565,6 +565,35 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
 - **Tuning evidence:** at music 1.0× speech measured level with music (−19…−22.5 dB vs −20.8 dB music-only); after the
   change −17.7/−19.0 dB speech vs −26 dB music-only.
 
+## WaltzDeck Phase 3 — presentations, exports, import (2026-09-29)
+- **Data:** migration `0040_deck_exports` — `deck_exports` (id, project_id → projects cascade, format pdf|pptx,
+  status queued|running|done|failed, watermark, output_key, error, attempts, requested_by, timestamps). Objects at
+  `exports/<projectId>/deck-<exportId>.<fmt>` (swept by the project purge + `scripts/storage-orphans.mjs`). Import
+  status lives in `projects.deck.import` (jsonb, polled by the editor); brief mode `presentation`; layout `slide`.
+- **Exports** (`worker/deck/export.mjs`, run by the render worker on the AI box): `deckExportTick()` claims the oldest
+  queued row (`for update skip locked`) between renders; a restart re-queues `running` rows, and fails them after 3
+  attempts. Needs `/usr/bin/chromium` (or `CHROMIUM_PATH`), `playwright-core`, `pdf-lib`, `pptxgenjs` in
+  `~/clipwaltz/node_modules` (all pinned in the box's `package.json` — an `npm install` there prunes anything
+  unlisted; playwright-core was unlisted until 2026-09-29 and got pruned once, restored within minutes, no renders
+  affected). Layout at 1280 px on the long side (= 13.33 in), stills at the video size, screenshots at 1.5×.
+  Diagnostic (read-only, no upload): `node --env-file=.env.worker worker/render-worker.mjs --decktest <projectId>
+  pdf|pptx [out] [--wm]`.
+- **Download:** `GET /api/projects/[id]/deck-exports/[exportId]` (any project member; attachment name = title).
+  Request: `requestDeckExport()` (editor; one queued/running per format, a >30 min stuck one doesn't block).
+- **Import:** `POST /api/projects/[id]/deck-import` (multipart `file`, .pptx/.pdf, magic bytes checked, ≤ 50 MB —
+  under `proxyClientMaxBodySize` 55mb) → `projects/<id>/imports/<uuid>.<ext>` → deck queue job `import`; URL via
+  `importFromUrl()`. Worker (`worker/deck/jobs.mjs` `importDeck`, parsing in `worker/deck/importer.mjs`) runs on
+  linuxg1 (generation worker): JSZip for PPTX, poppler `pdfinfo` + `pdftotext -bbox-layout` for PDF (installed on
+  linuxg1; not on the AI box), `fetchPublic()` for pages — http(s) on 80/443 only, every redirect hop re-resolved and
+  refused if any address is loopback/private/link-local/CGNAT/multicast/ULA, 12 s timeout, 2 MB page / 10 MB image
+  cap. The source file is deleted after the import. Brief summary = one `chatJson` call (qwen3-vl, 8000 tokens — 3000
+  ran out while it reasoned); on failure a plain fallback brief is used. Imported pictures get a `media` row + asset
+  like an upload, then a vision description.
+- **Diagnostics:** `node worker/deck/importer.mjs <file.pptx|file.pdf|url>` prints what an import would create.
+- **Troubleshooting:** export stuck in *Making it…* → render worker log (`journalctl -u clipwaltz-worker | grep
+  "deck export"`); import failed "isn't a public website" = SSRF guard (expected for LAN/localhost); PPTX fonts
+  differ = the viewer lacks the brand font (bold/size/positions are in the file).
+
 ## Render-complete notifications (Web Push)
 Two per-browser toggles at `/account/notifications`:
 - **Browser notification** — the open tab fires it from the render poll (`render-panel.tsx` →

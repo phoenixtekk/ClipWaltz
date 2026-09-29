@@ -58,6 +58,7 @@ async function referenced(keys) {
       union select clean_key from generation_versions where clean_key in ${sql(k)}
       union select thumbnail_key from generation_versions where thumbnail_key in ${sql(k)}
       union select output_key from export_jobs where output_key in ${sql(k)}
+      union select output_key from deck_exports where output_key in ${sql(k)}
       union select storage_key from music_tracks where storage_key in ${sql(k)}
       union select thumbnail_key from templates where thumbnail_key in ${sql(k)}`;
     for (const r of rows) out.add(r.k);

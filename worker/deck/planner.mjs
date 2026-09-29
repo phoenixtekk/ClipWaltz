@@ -12,8 +12,8 @@ const OLLAMA_URL = process.env.OLLAMA_URL || "http://192.168.166.182:11434";
 export const VISION_MODEL = process.env.DECK_VISION_MODEL || "qwen3-vl:30b";
 export const TEXT_MODEL = process.env.DECK_TEXT_MODEL || "qwen3-vl:30b";
 
-export const MODES = ["ad", "slideshow"]; // phase 1 (presentation, explainer, recap: later phases)
-export const LAYOUTS = ["headline-bottom", "headline-center", "lower-third", "bullets", "title-card", "cta-card"];
+export const MODES = ["ad", "slideshow", "presentation"]; // explainer, recap: later phases
+export const LAYOUTS = ["headline-bottom", "headline-center", "lower-third", "bullets", "title-card", "cta-card", "slide"];
 export const ROLES = ["hook", "problem", "benefit", "proof", "content", "title", "cta"];
 const WORDS_PER_SEC = 3; // comfortable on-screen reading speed
 const SPEECH_WPS = 2.8; // Kokoro at speed 1.0 (measured 2.7-3.3 words/s incl. pauses)
@@ -21,6 +21,9 @@ const SPEECH_WPS = 2.8; // Kokoro at speed 1.0 (measured 2.7-3.3 words/s incl. p
 export const speechSec = (line, speed = 1) => (line ? words(line) / (SPEECH_WPS * (speed || 1)) + 0.4 : 0);
 const MIN_SCENE = 1.2;
 const MAX_SCENE = 8;
+// Slides are read, not glanced at: longer scenes and more / longer points than an ad.
+const maxSceneOf = (mode) => (mode === "presentation" ? 15 : MAX_SCENE);
+const bulletLimits = (mode) => (mode === "presentation" ? { n: 5, chars: 80 } : { n: 4, chars: 60 });
 
 // Streams the reply (NDJSON) and returns the same shape as a non-streamed call. Streaming matters: Node's
 // fetch (undici) drops a request whose response headers take > 300 s, and a non-streamed Ollama call sends
@@ -85,7 +88,7 @@ export function extractJson(text) {
  */
 // Timeouts are generous: the Ollama box is shared, and a plan took 4.8 min on prod while another project's model
 // was loaded (2026-09-29) — 2-3x the dev timing.
-async function chatJson(model, content, images, { temperature = 0.3, numPredict = 3000, numCtx, timeoutMs = 180000 } = {}) {
+export async function chatJson(model, content, images, { temperature = 0.3, numPredict = 3000, numCtx, timeoutMs = 180000 } = {}) {
   const msg = { role: "user", content: `${content}
 
 Reply with ONLY the JSON object — no markdown, no commentary.`, ...(images?.length ? { images } : {}) };
@@ -206,6 +209,12 @@ const MODE_GUIDE = {
     "Use 'title' for an optional opening card, 'content' for the rest. Text is a short caption per scene " +
     "(max 8 words) — warm and specific to what is shown. End with a closing scene; add a 'cta' card only if a " +
     "call to action is given.",
+  presentation:
+    "A PRESENTATION (slides someone can present or export to PowerPoint). Structure: a 'title' slide first " +
+    "(layout slide or title-card: the topic as headline, a one-line sub), then 'content' slides that each make ONE " +
+    "point — a short headline plus 2-4 bullets (max 8 words each) in layout 'slide' (media beside the text) or " +
+    "'bullets'; use a photo/video on most slides when one fits. End with a closing slide (a summary or 'cta' card " +
+    "if a call to action is given). Slides last 6-12 s — long enough to read.",
 };
 
 /**
@@ -253,12 +262,13 @@ export async function planStoryboard(brief, media, locked = []) {
     `- Use every media item that fits the brief; EVERY item with an owner's note must appear. Notes are instructions (placement, what to say) — follow them.\n` +
     `- Write every headline yourself from the brief — never copy words, brand names or signs visible in the media ("text in image" is context only).\n` +
     `- If a note asks for specific wording in quotes, use those exact words.\n` +
-    `- Scene durations must add up to about ${length} seconds (each between ${MIN_SCENE} and ${MAX_SCENE} s; videos no longer than their length).\n` +
+    `- Scene durations must add up to about ${length} seconds (each between ${MIN_SCENE} and ${maxSceneOf(mode)} s; videos no longer than their length).\n` +
     `- ${textRule}\n` +
     `- Never invent facts, prices, awards or claims that are not in the brief or notes — no "limited time", "best", "#1", "free", "guaranteed", "certified", ratings or reviews unless the brief says so.\n` +
     `- For a video with moments, set "moment" to the number of the moment that best matches that scene's text or the owner's note (0 = let the editor choose).\n` +
     `- layout: headline-bottom (default over media), headline-center (bold statement), lower-third (subtle caption), ` +
-    `bullets (2-3 short bullet points), title-card (text on a plain brand background, media 0), cta-card (final call to action).\n` +
+    `bullets (2-3 short bullet points), title-card (text on a plain brand background, media 0), cta-card (final call to action)` +
+    `${mode === "presentation" ? ", slide (presentation slide: headline + 2-4 bullets on a brand panel beside the media, or on its own with media 0)" : ""}.\n` +
     `- why: one short sentence explaining the choice of media and text for that scene.\n` +
     (brief.voice?.mode === "auto"
       ? `- voice: a spoken narration line for EVERY scene (a voiceover, read at ~${SPEECH_WPS} words per second): conversational, ` +
@@ -389,14 +399,16 @@ const wantsLast = (note) => /\b(last|end(?:ing)?|close|closing|finish|final)\b/i
  */
 export function repairPlan(raw, { brief, media, locked = [] }) {
   const length = brief.lengthSec;
+  const MAXS = maxSceneOf(brief.mode);
+  const BL = bulletLimits(brief.mode);
   const scenes = [];
   for (const s of Array.isArray(raw?.scenes) ? raw.scenes : []) {
     const idx = Number.isInteger(s.media) ? s.media : 0;
     const m = idx >= 1 && idx <= media.length ? media[idx - 1] : null;
     const role = ROLES.includes(s.role) ? s.role : "content";
     let layout = LAYOUTS.includes(s.layout) ? s.layout : m ? "headline-bottom" : "title-card";
-    if (!m && !["title-card", "cta-card"].includes(layout)) layout = role === "cta" ? "cta-card" : "title-card";
-    let dur = Math.max(MIN_SCENE, Math.min(MAX_SCENE, Number(s.durationSec) || 3));
+    if (!m && !["title-card", "cta-card", "slide"].includes(layout)) layout = role === "cta" ? "cta-card" : brief.mode === "presentation" ? "slide" : "title-card";
+    let dur = Math.max(MIN_SCENE, Math.min(MAXS, Number(s.durationSec) || 3));
     if (m?.kind === "video" && m.durationSec) dur = Math.min(dur, Math.max(MIN_SCENE, m.durationSec));
     const moments = m?.desc?.moments ?? [];
     const mi = Number.isInteger(s.moment) && s.moment >= 1 && s.moment <= moments.length ? s.moment - 1 : -1;
@@ -409,7 +421,7 @@ export function repairPlan(raw, { brief, media, locked = [] }) {
       text: {
         headline: str(s.headline, 90),
         sub: str(s.sub, 140),
-        bullets: (Array.isArray(s.bullets) ? s.bullets : []).map((b) => str(b, 60)).filter(Boolean).slice(0, 4),
+        bullets: (Array.isArray(s.bullets) ? s.bullets : []).map((b) => str(b, BL.chars)).filter(Boolean).slice(0, BL.n),
       },
       layout,
       why: str(s.why, 200),
@@ -489,11 +501,11 @@ export function repairPlan(raw, { brief, media, locked = [] }) {
   // Per-scene bounds: a hook needs ≥1.5 s to register, a CTA ≤3.5 s (with or without media — a prod plan put
   // 6.6 s on a CTA over a photo), a video never past its own length. Scale the scenes that still have room,
   // a few passes, so time taken from/added to clamped scenes goes to the others.
-  const floorOf = (sc) => Math.max(sc.role === "hook" ? 1.5 : MIN_SCENE, Math.min(MAX_SCENE, speechSec(sc.voice, brief.voice?.speed)));
+  const floorOf = (sc) => Math.max(sc.role === "hook" ? 1.5 : MIN_SCENE, Math.min(MAXS, speechSec(sc.voice, brief.voice?.speed)));
   const capOf = (sc) => {
     const m = sc.assetId ? media.find((x) => x.id === sc.assetId) : null;
     // The CTA cap yields to its narration (a spoken CTA must fit).
-    const base = sc.role === "cta" ? Math.max(3.5, Math.min(MAX_SCENE, speechSec(sc.voice, brief.voice?.speed))) : MAX_SCENE;
+    const base = sc.role === "cta" ? Math.max(3.5, Math.min(MAXS, speechSec(sc.voice, brief.voice?.speed))) : MAXS;
     return m?.kind === "video" && m.durationSec ? Math.max(Math.min(base, m.durationSec), Math.min(floorOf(sc), m.durationSec)) : base;
   };
   for (const sc of scenes) sc.durationSec = Math.max(Math.min(floorOf(sc), capOf(sc)), Math.min(capOf(sc), sc.durationSec));
@@ -522,6 +534,8 @@ export function repairPlan(raw, { brief, media, locked = [] }) {
     if (brief.textMode === "off" && s.role !== "cta") s.text = { headline: "", sub: "", bullets: [] };
     else s.text = fitText(s.text, Math.max(3, Math.floor(s.durationSec * WORDS_PER_SEC) + 1));
     if (s.layout === "bullets" && s.text.bullets.length < 2) s.layout = s.assetId ? "headline-bottom" : "title-card";
+    // A presentation point with bullets but a layout that can't show them becomes a slide.
+    if (brief.mode === "presentation" && s.text.bullets.length >= 2 && !["bullets", "slide"].includes(s.layout) && s.role !== "cta") s.layout = "slide";
   }
   return { title: str(raw?.title, 80) || "Untitled", scenes };
 }
@@ -542,14 +556,14 @@ export async function rewriteScene(brief, scene, mediaItem, instruction, sibling
   const maxWords = Math.max(3, Math.floor((Number(scene.durationSec) || 3) * WORDS_PER_SEC) + 1);
   const d = mediaItem?.desc ?? {};
   const prompt =
-    `You write on-screen text for one scene of a ${brief.mode === "slideshow" ? "slideshow" : "short ad"}.\n` +
+    `You write on-screen text for one scene of a ${brief.mode === "slideshow" ? "slideshow" : brief.mode === "presentation" ? "presentation (one slide)" : "short ad"}.\n` +
     `BRIEF: "${str(brief.prompt, 1200)}"` + (brief.tone ? ` Tone: ${str(brief.tone, 100)}.` : "") +
     (brief.offer ? ` Offer: ${str(brief.offer, 200)}.` : "") + (brief.cta?.text ? ` CTA: "${str(brief.cta.text, 120)}".` : "") + "\n" +
     `SCENE ${scene.role}, ${scene.durationSec}s, layout ${scene.layout}. ` +
     (mediaItem ? `It shows: ${d.summary || "(no description)"}${mediaItem.note ? ` — owner's note: "${mediaItem.note}"` : ""}.` : "It is a text card with no media.") + "\n" +
     `Current text: headline "${scene.text?.headline ?? ""}", sub "${scene.text?.sub ?? ""}", bullets ${JSON.stringify(scene.text?.bullets ?? [])}.\n` +
     (siblings.length ? `Other scenes already say: ${siblings.map((t) => `"${t}"`).join(", ")} — don't repeat them.\n` : "") +
-    `${ask}\nRules: at most ${maxWords} words in total; ${scene.layout === "bullets" ? "2-3 bullets" : "bullets only if the layout is bullets"}; ` +
+    `${ask}\nRules: at most ${maxWords} words in total; ${scene.layout === "bullets" || scene.layout === "slide" ? "2-4 bullets" : "bullets only if the layout is bullets or slide"}; ` +
     `never invent facts, prices, numbers or claims not in the brief or note (no "limited time", "best", "free", "guaranteed", ratings…).\n` +
     (brief.voice?.mode === "auto" ? `Also write "voice": the spoken narration for this scene (≈${Math.max(3, Math.round((Number(scene.durationSec) || 3) * SPEECH_WPS))} words, complements the text).\n` : "") +
     `JSON keys: {"headline":string,"sub":string,"bullets":[string]${brief.voice?.mode === "auto" ? ',"voice":string' : ""}}`;
@@ -558,7 +572,7 @@ export async function rewriteScene(brief, scene, mediaItem, instruction, sibling
   const repaired = repairPlan(
     { title: "x", scenes: [{ role: scene.role, media: mediaItem ? 1 : 0, durationSec: scene.durationSec, headline: data.headline, sub: data.sub, bullets: data.bullets, voice: data.voice, layout: scene.layout, why: "" }] },
     // textMode "auto": the owner asked for text on THIS scene, even if the project default is Off.
-    { brief: { ...brief, mode: "slideshow", lengthSec: scene.durationSec, cta: null, textMode: "auto" }, media },
+    { brief: { ...brief, mode: brief.mode === "presentation" ? "presentation" : "slideshow", lengthSec: scene.durationSec, cta: null, textMode: "auto" }, media },
   ).scenes[0];
   return { ...repaired.text, ...(brief.voice?.mode === "auto" ? { voice: repaired.voice } : {}), ...(repaired.flags ? { flags: repaired.flags } : {}) };
 }

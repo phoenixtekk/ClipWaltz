@@ -2,6 +2,7 @@
 //   describe {assetId}              — vision description of one photo/video, cached on assets.ai_description
 //   plan     {projectId}            — describe what's missing, then (re)plan the storyboard around locked scenes
 //   scene    {sceneId, instruction} — rewrite one scene's on-screen text
+//   import   {projectId, source, key|url, name, userId} — PPTX / PDF / web page → brief + scenes (phase 3)
 // Progress and results live in the DB (projects.deck.plan, deck_scenes) so the editor just polls.
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
@@ -9,12 +10,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import IORedis from "ioredis";
 import { Worker } from "bullmq";
-import { describeMedia, planStoryboard, rewriteScene, VISION_MODEL, DESCRIBE_VERSION } from "./planner.mjs";
+import { describeMedia, planStoryboard, rewriteScene, chatJson, VISION_MODEL, TEXT_MODEL, DESCRIBE_VERSION } from "./planner.mjs";
+import { parsePptx, parsePdf, fetchPublic, readPage, sceneFromSlide, summarizeBrief, fallbackBrief } from "./importer.mjs";
 
 // DECK_QUEUE override: local dev uses its own queue so the prod worker never sees dev-DB jobs.
 export const DECK_QUEUE = process.env.DECK_QUEUE || "clipwaltz-deck";
 
-export function startDeckWorker({ sql, getBytes, run, redisUrl }) {
+export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redisUrl }) {
   // Frames for the vision model: 4 across a video (12/37/62/87 % — each becomes a captioned moment), 1 for a
   // photo; 512 px wide JPEGs. Returns { frames, times }.
   async function framesOf(asset) {
@@ -147,6 +149,147 @@ export function startDeckWorker({ sql, getBytes, run, redisUrl }) {
     }
   }
 
+  // ── import (phase 3) ──────────────────────────────────────────────────────────────────────────────
+  const setImport = (projectId, st) =>
+    sql`update projects set deck = jsonb_set(coalesce(deck, '{}'::jsonb), '{import}', ${sql.json(st)}), updated_at = now() where id = ${projectId}`;
+  const IMG_TYPES = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif", bmp: "image/bmp" };
+
+  /** A picture from the import becomes a normal project photo (library media row + asset, same as an upload). */
+  async function addPhoto(project, userId, name, bytes, type, orderIndex) {
+    const assetId = randomUUID(), mediaId = randomUUID();
+    const safe = name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120) || "image";
+    const key = `projects/${project.id}/${assetId}-${safe}`;
+    await putBytes(key, bytes, type);
+    await sql.begin(async (tx) => {
+      if (userId) {
+        await tx`insert into media ${tx({ id: mediaId, owner_id: userId, kind: "photo", original_name: name, storage_key: key,
+          conversion_state: "ready", size_bytes: bytes.length, last_used_at: new Date() })}`;
+      }
+      await tx`insert into assets ${tx({ id: assetId, project_id: project.id, media_id: userId ? mediaId : null, workspace_id: project.workspace_id,
+        storage_key: key, kind: "photo", original_name: name, upload_state: "uploaded", conversion_state: "ready", order_index: orderIndex })}`;
+    });
+    return assetId;
+  }
+
+  async function importDeck({ projectId, source, key, url, name, userId }) {
+    const [project] = await sql`select id, workspace_id, aspect, deck from projects where id = ${projectId} and kind = 'deck'`;
+    if (!project) return;
+    const startedAt = new Date().toISOString();
+    const base = { source, name: String(name ?? "").slice(0, 200) };
+    const newAssets = [];
+    try {
+      await setImport(projectId, { status: "reading", ...base, startedAt });
+      let slides = [], title = "", digest = "", pageUrl = null, pageImage = null;
+      if (source === "pptx") {
+        ({ slides, title } = await parsePptx(await getBytes(key)));
+      } else if (source === "pdf") {
+        const dir = mkdtempSync(join(tmpdir(), "cw-deckimp-"));
+        try {
+          const f = join(dir, "in.pdf");
+          writeFileSync(f, await getBytes(key));
+          ({ slides, title } = await parsePdf(f, run));
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      } else if (source === "url") {
+        const r = await fetchPublic(url);
+        if (!/html|xml/i.test(r.type)) throw new Error("That address isn't a web page (it's a file). Upload files with Import a file.");
+        const page = readPage(r.bytes.toString("utf8"), r.url);
+        pageUrl = r.url;
+        title = page.title || new URL(r.url).hostname;
+        digest = [page.siteName && `Site: ${page.siteName}`, page.description, page.headings.length && `Headings: ${page.headings.join(" | ")}`, page.text]
+          .filter(Boolean).join("\n");
+        if (!digest.trim()) throw new Error("Couldn't find any readable text on that page.");
+        if (page.image) {
+          try {
+            const img = await fetchPublic(page.image, { maxBytes: 10 << 20, accept: "image/*" });
+            const ext = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" }[img.type.split(";")[0].trim().toLowerCase()];
+            if (ext && img.bytes.length > 2000) pageImage = { name: `${new URL(r.url).hostname}.${ext}`, bytes: img.bytes, type: `image/${ext === "jpg" ? "jpeg" : ext}` };
+          } catch (e) {
+            console.log(`[deck-import] page image skipped: ${e.message}`);
+          }
+        }
+      } else throw new Error("Unknown import type");
+
+      // Pictures → project photos (appended after the existing media).
+      const [{ next }] = await sql`select coalesce(max(order_index), -1) + 1 as next from assets where project_id = ${projectId}`;
+      let order = Number(next);
+      const slideAsset = [];
+      for (const [i, s] of slides.entries()) {
+        const ext = (s.image?.name.split(".").pop() ?? "").toLowerCase();
+        if (s.image && IMG_TYPES[ext]) {
+          const id = await addPhoto(project, userId, `slide-${i + 1}.${ext}`, s.image.bytes, IMG_TYPES[ext], order++);
+          newAssets.push(id);
+          slideAsset.push(id);
+        } else slideAsset.push(null);
+      }
+      // Re-importing the same page doesn't add its preview image twice.
+      const [dupe] = pageImage ? await sql`select id from assets where project_id = ${projectId} and original_name = ${pageImage.name} limit 1` : [];
+      if (pageImage && dupe) pageImage = null;
+      if (pageImage) newAssets.push(await addPhoto(project, userId, pageImage.name, pageImage.bytes, pageImage.type, order++));
+
+      // Slides → scenes, after the current storyboard. They are the owner's own words: Manual text, locked.
+      const [{ count }] = await sql`select count(*)::int as count from deck_scenes where project_id = ${projectId}`;
+      if (slides.length) {
+        await sql.begin(async (tx) => {
+          for (const [i, s] of slides.entries()) {
+            const sc = sceneFromSlide(s);
+            const assetId = slideAsset[i];
+            const layout = !assetId && i === 0 && count === 0 && !sc.text.bullets.length ? "title-card" : "slide";
+            await tx`insert into deck_scenes ${tx({
+              id: randomUUID(), project_id: projectId, order_index: count + i, role: i === 0 && count === 0 ? "title" : "content",
+              asset_id: assetId, duration_sec: sc.durationSec, text_mode: "manual", text: tx.json(sc.text), layout,
+              voice: sc.voice || null, locked: true, why: `Imported from ${source === "pptx" ? "your PowerPoint" : "your PDF"}, slide ${i + 1}.`,
+            })}`;
+          }
+        });
+      }
+      await setImport(projectId, { status: "summarizing", ...base, startedAt });
+
+      // The brief: summarised by the model, filled in only where the owner left it empty.
+      if (!digest) digest = slides.map((s, i) => `Slide ${i + 1}: ${[s.title, s.sub, ...s.body].filter(Boolean).join(" — ")}`).join("\n");
+      const got = (await summarizeBrief(chatJson, TEXT_MODEL, { source, title, url: pageUrl, digest })) ?? fallbackBrief({ source, title, digest });
+      const [p2] = await sql`select deck, aspect from projects where id = ${projectId}`;
+      const cur = p2.deck?.brief ?? {};
+      const empty = (v) => !v || (typeof v === "string" && !v.trim());
+      const brief = { ...cur };
+      for (const k of ["prompt", "goal", "audience", "tone", "offer"]) if (empty(cur[k]) && got[k]) brief[k] = got[k];
+      if (empty(cur.cta?.text) && got.cta) brief.cta = got.cta;
+      // A deck with no storyboard yet becomes a Presentation (and a vertical one goes 16:9, as saveBrief does).
+      const toPresentation = slides.length > 0 && count === 0 && cur.mode !== "presentation";
+      if (toPresentation) {
+        brief.mode = "presentation";
+        brief.lengthSec = Math.max(6, Math.min(180, Math.round(slides.reduce((n, s) => n + sceneFromSlide(s).durationSec, 0))));
+      }
+      if (!brief.lengthSec) brief.lengthSec = 15;
+      await sql`update projects set deck = jsonb_set(coalesce(deck, '{}'::jsonb), '{brief}', ${sql.json(brief)}),
+        length_sec = ${brief.lengthSec}, aspect = ${toPresentation && p2.aspect === "9:16" ? "16:9" : p2.aspect}, updated_at = now() where id = ${projectId}`;
+
+      const note = source === "url"
+        ? `Brief filled from ${new URL(pageUrl).hostname}${pageImage ? " and its preview image added to your media" : ""}.`
+        : `${slides.length} slide${slides.length === 1 ? "" : "s"} added to the end of the storyboard (locked — your words).`;
+      await setImport(projectId, { status: "ready", ...base, scenes: slides.length, images: newAssets.length, finishedAt: new Date().toISOString(), note });
+      console.log(`[deck-import] ${projectId}: ${source} → ${slides.length} scenes, ${newAssets.length} images`);
+    } catch (e) {
+      console.error(`[deck-import] ${projectId} ${source} failed: ${e.message}`);
+      await setImport(projectId, { status: "failed", ...base, error: String(e.message).slice(0, 300) });
+    } finally {
+      if (key && deleteKey) await deleteKey(key).catch((e) => console.warn(`[deck-import] couldn't delete ${key}: ${e.message}`));
+    }
+    // Warm the vision descriptions of new photos (the editor shows "looking…" until then; planning needs them).
+    for (const id of newAssets) await describe(id).catch((e) => console.error(`[deck] describe ${id} failed: ${e.message}`));
+    // A web page only fills the brief: with media already in the project and no storyboard yet, plan it now.
+    if (source === "url") {
+      const [{ media }] = await sql`select count(*)::int as media from assets where project_id = ${projectId} and upload_state = 'uploaded' and not hidden`;
+      const [{ scenes }] = await sql`select count(*)::int as scenes from deck_scenes where project_id = ${projectId}`;
+      const [p3] = await sql`select deck from projects where id = ${projectId}`;
+      if (media > 0 && scenes === 0 && p3.deck?.import?.status === "ready") {
+        await setPlan(projectId, { status: "queued", startedAt: new Date().toISOString() });
+        await plan(projectId);
+      }
+    }
+  }
+
   const w = new Worker(
     DECK_QUEUE,
     async (job) => {
@@ -154,6 +297,7 @@ export function startDeckWorker({ sql, getBytes, run, redisUrl }) {
       if (job.name === "describe") await describe(d.assetId);
       else if (job.name === "plan") await plan(d.projectId);
       else if (job.name === "scene") await scene(d.sceneId, d.instruction);
+      else if (job.name === "import") await importDeck(d);
     },
     // One at a time: the Ollama box is shared, parallel calls only queue there and evict models.
     { connection: new IORedis(redisUrl, { maxRetriesPerRequest: null }), concurrency: 1, lockDuration: 30 * 60 * 1000 },

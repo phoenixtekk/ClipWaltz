@@ -4,21 +4,28 @@ import { useCallback, useEffect, useRef, useState, useTransition, type ReactNode
 import { toast } from "sonner";
 import {
   Sparkles, Upload, Loader2, Lock, Unlock, Trash2, Plus, ArrowUp, ArrowDown, Wand2, Play, Pause, RotateCcw, Info, ImageIcon, Mic, Captions,
+  FileUp, Globe, Presentation, FileText, FileDown, Download,
 } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { aspectClass, isWide } from "@/lib/aspect";
-import { DECK_MODES, LAYOUTS, VOICES, type DeckBrief, type DeckScene, type SceneTextMode, type TextMode, type VoiceMode } from "@/lib/deck/types";
+import {
+  DECK_MODES, LAYOUTS, MAX_BULLETS, VOICES,
+  type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type SceneTextMode, type TextMode, type VoiceMode,
+} from "@/lib/deck/types";
 import {
   getDeck, saveBrief, setAssetNote, describeAsset, requestPlan, updateScene, rewriteSceneText, reorderScenes, addScene, deleteScene,
+  requestDeckExport, importFromUrl,
   type DeckData, type DeckAsset, type ScenePatch,
 } from "@/lib/deck-actions";
+import { PresentView } from "./present-view";
 import { uploadProjectFile, isSupported } from "@/lib/upload-client";
 import { SceneFrame, type FrameBrand } from "./scene-frame";
 import { BRAND_FONTS, BRAND_FONTS_CSS, type BrandKit } from "@/lib/brand";
 import { saveBrandKit, uploadBrandLogo } from "@/lib/brand-actions";
 
 const BUSY = new Set(["queued", "describing", "planning"]);
+const IMPORT_BUSY = new Set(["queued", "reading", "summarizing"]);
 const field = "w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary";
 
 export function DeckEditor({ initial, initialBrand, canEdit, renderSlot }: {
@@ -28,12 +35,16 @@ export function DeckEditor({ initial, initialBrand, canEdit, renderSlot }: {
   const [brandKit, setBrandKit] = useState<BrandKit | null>(initialBrand);
   const [logoVersion, setLogoVersion] = useState(0);
   const [brief, setBrief] = useState<DeckBrief>(initial.deck.brief);
+  const [presenting, setPresenting] = useState<number | null>(null);
   const [pending, start] = useTransition();
   const projectId = data.project.id;
   const plan = data.deck.plan ?? { status: "idle" as const };
   const planBusy = BUSY.has(plan.status);
   const rewriting = data.scenes.some((s) => s.why === "Rewriting…");
   const describing = data.assets.some((a) => !a.described);
+  const imp = data.deck.import ?? { status: "idle" as const };
+  const importBusy = IMPORT_BUSY.has(imp.status);
+  const exporting = data.exports.some((e) => e.status === "queued" || e.status === "running");
 
   const refresh = useCallback(async () => {
     try {
@@ -41,12 +52,19 @@ export function DeckEditor({ initial, initialBrand, canEdit, renderSlot }: {
     } catch { /* keep the last good state */ }
   }, [projectId]);
 
-  // Poll while the worker is busy (planning, rewriting, describing fresh uploads).
+  // Poll while the worker is busy (planning, rewriting, describing fresh uploads, importing, exporting).
   useEffect(() => {
-    if (!planBusy && !rewriting && !describing) return;
+    if (!planBusy && !rewriting && !describing && !importBusy && !exporting) return;
     const t = setInterval(refresh, 2500);
     return () => clearInterval(t);
-  }, [planBusy, rewriting, describing, refresh]);
+  }, [planBusy, rewriting, describing, importBusy, exporting, refresh]);
+
+  // An import fills the brief (and may switch the mode) on the server: adopt it once, when the import finishes.
+  const [importSeen, setImportSeen] = useState(imp.status);
+  if (imp.status !== importSeen) {
+    setImportSeen(imp.status);
+    if (imp.status === "ready") setBrief(data.deck.brief);
+  }
 
   const act = (fn: () => Promise<unknown>, ok?: string) =>
     start(async () => {
@@ -85,7 +103,7 @@ export function DeckEditor({ initial, initialBrand, canEdit, renderSlot }: {
           </p>
           <h1 className="text-2xl font-semibold tracking-tight">{data.project.title}</h1>
           <p className="text-sm text-muted-foreground">
-            Your photos and videos, a brief, and notes per item → an on-brand {brief.mode === "ad" ? "ad" : "slideshow"}, scene by scene.
+            Your photos and videos, a brief, and notes per item → an on-brand {brief.mode === "ad" ? "ad" : brief.mode === "presentation" ? "presentation" : "slideshow"}, scene by scene.
           </p>
         </div>
         <span className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground">{data.project.aspect}</span>
@@ -111,8 +129,9 @@ export function DeckEditor({ initial, initialBrand, canEdit, renderSlot }: {
                 </button>
               ))}
             </div>
+            {canEdit ? <ImportBar projectId={projectId} status={imp} busy={importBusy} onStarted={refresh} /> : null}
             <label className="block space-y-1">
-              <span className="text-sm font-medium">What is this video for?</span>
+              <span className="text-sm font-medium">{brief.mode === "presentation" ? "What is this presentation about?" : "What is this video for?"}</span>
               <textarea
                 value={brief.prompt}
                 disabled={!canEdit}
@@ -122,7 +141,9 @@ export function DeckEditor({ initial, initialBrand, canEdit, renderSlot }: {
                 maxLength={2000}
                 placeholder={brief.mode === "ad"
                   ? "e.g. 15-second Instagram ad for our cold brew — summer vibe, easy to order, for busy commuters."
-                  : "e.g. Our family trip to Lake Powell — warm, fun, in the order it happened."}
+                  : brief.mode === "presentation"
+                    ? "e.g. Q3 review for the team — what went well, what we learned, next steps. Friendly, clear."
+                    : "e.g. Our family trip to Lake Powell — warm, fun, in the order it happened."}
                 className={cn(field, "resize-y py-2")}
               />
             </label>
@@ -201,6 +222,7 @@ export function DeckEditor({ initial, initialBrand, canEdit, renderSlot }: {
                   canEdit={canEdit}
                   brand={frameBrand}
                   voiceMode={brief.voice?.mode ?? "off"}
+                  presentation={brief.mode === "presentation"}
                   onPatch={(patch) => act(() => updateScene(projectId, s.id, patch))}
                   onRewrite={(ins) => act(() => rewriteSceneText(projectId, s.id, ins))}
                   onMove={(dir) => {
@@ -233,13 +255,143 @@ export function DeckEditor({ initial, initialBrand, canEdit, renderSlot }: {
 
           {data.scenes.length ? <DeckPreview projectId={projectId} scenes={data.scenes} assets={assetById} aspectCss={aspectCss} wide={isWide(data.project.aspect)} brand={frameBrand} /> : null}
 
+          {data.scenes.length ? (
+            <SlidesSection
+              projectId={projectId}
+              exports={data.exports}
+              canEdit={canEdit}
+              presentation={brief.mode === "presentation"}
+              onPresent={() => setPresenting(0)}
+              onExport={(f) => act(() => requestDeckExport(projectId, f), f === "pdf" ? "Making your PDF…" : "Making your PowerPoint…")}
+            />
+          ) : null}
+
           <section className="space-y-2">
-            <h2 className="text-sm font-semibold">3 · Render</h2>
+            <h2 className="text-sm font-semibold">3 · Render{brief.mode === "presentation" ? " as a video" : ""}</h2>
             {renderSlot}
           </section>
         </div>
       </div>
+      {presenting !== null && data.scenes.length ? (
+        <PresentView
+          projectId={projectId}
+          scenes={data.scenes}
+          assets={assetById}
+          aspect={data.project.aspect}
+          brand={frameBrand}
+          start={presenting}
+          onClose={() => setPresenting(null)}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/** Start from an existing PowerPoint / PDF (one scene per slide) or a web page (fills the brief). */
+function ImportBar({ projectId, status, busy, onStarted }: {
+  projectId: string; status: NonNullable<DeckData["deck"]["import"]>; busy: boolean; onStarted: () => void;
+}) {
+  const input = useRef<HTMLInputElement | null>(null);
+  const [url, setUrl] = useState("");
+  const [open, setOpen] = useState(false);
+  const [sending, setSending] = useState(false);
+  const upload = async (f: File | undefined) => {
+    if (!f) return;
+    setSending(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", f);
+      const res = await fetch(`/api/projects/${projectId}/deck-import`, { method: "POST", body: fd });
+      if (!res.ok) throw new Error((await res.text()) || "Import failed.");
+      toast.success(`Reading ${f.name}…`);
+      onStarted();
+    } catch (e) {
+      toast.error((e as Error).message || "Import failed.");
+    }
+    setSending(false);
+    if (input.current) input.current.value = "";
+  };
+  const fromUrl = async () => {
+    if (!url.trim()) return;
+    setSending(true);
+    try {
+      await importFromUrl(projectId, url);
+      toast.success("Reading the page…");
+      setUrl("");
+      setOpen(false);
+      onStarted();
+    } catch (e) {
+      toast.error((e as Error).message || "Import failed.");
+    }
+    setSending(false);
+  };
+  const working = busy || sending;
+  return (
+    <div className="space-y-2 rounded-lg border border-dashed border-border p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-muted-foreground">Start from what you have:</span>
+        <input ref={input} type="file" accept=".pptx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation" className="hidden" onChange={(e) => upload(e.target.files?.[0])} />
+        <Button size="sm" variant="secondary" disabled={working} onClick={() => input.current?.click()}>
+          <FileUp className="size-4" /> PowerPoint or PDF
+        </Button>
+        <Button size="sm" variant="secondary" disabled={working} onClick={() => setOpen(!open)} aria-expanded={open}>
+          <Globe className="size-4" /> Web page
+        </Button>
+      </div>
+      {open ? (
+        <form onSubmit={(e) => { e.preventDefault(); void fromUrl(); }} className="flex gap-2">
+          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://your-product-page.com" maxLength={500} className={cn(field, "h-8 text-xs")} aria-label="Web page address" />
+          <Button size="sm" type="submit" disabled={working || !url.trim()}>Import</Button>
+        </form>
+      ) : null}
+      {status.status === "queued" || status.status === "reading" ? <Status spin>Reading {status.name}…</Status> : null}
+      {status.status === "summarizing" ? <Status spin>Writing your brief from {status.name}…</Status> : null}
+      {status.status === "ready" ? <p className="text-xs text-muted-foreground">Imported {status.name}: {status.note}</p> : null}
+      {status.status === "failed" ? <p className="text-xs text-destructive">Import failed: {status.error}</p> : null}
+      {status.status === "idle" ? (
+        <p className="text-[11px] text-muted-foreground">A deck becomes one scene per slide (your words, pictures and speaker notes). A web page fills in the brief.</p>
+      ) : null}
+    </div>
+  );
+}
+
+/** Present full screen, or export the storyboard as a PDF / editable PowerPoint (built on the render box). */
+function SlidesSection({ projectId, exports, canEdit, presentation, onPresent, onExport }: {
+  projectId: string; exports: DeckExport[]; canEdit: boolean; presentation: boolean; onPresent: () => void; onExport: (f: DeckExportFormat) => void;
+}) {
+  const row = (format: DeckExportFormat, label: string, Icon: typeof FileText) => {
+    const e = exports.find((x) => x.format === format);
+    const busy = e?.status === "queued" || e?.status === "running";
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="secondary" disabled={!canEdit || busy} onClick={() => onExport(format)}>
+          {busy ? <Loader2 className="size-4 animate-spin" /> : <Icon className="size-4" />} {e?.status === "done" ? `New ${label}` : label}
+        </Button>
+        {e?.status === "done" ? (
+          <a href={`/api/projects/${projectId}/deck-exports/${e.id}`} className="inline-flex items-center gap-1 text-xs font-medium text-[color:var(--cw-violet)] hover:underline">
+            <Download className="size-3.5" /> Download ({new Date(e.finishedAt ?? e.createdAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })})
+          </a>
+        ) : null}
+        {busy ? <span className="text-xs text-muted-foreground">Making it…</span> : null}
+        {e?.status === "failed" ? <span className="text-xs text-destructive">Failed: {e.error}</span> : null}
+      </div>
+    );
+  };
+  return (
+    <section className="cw-glass space-y-3 rounded-xl p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">{presentation ? "Present & export" : "Slides"}</h2>
+        <Button size="sm" onClick={onPresent}><Presentation className="size-4" /> Present</Button>
+      </div>
+      <div className="space-y-2">
+        {row("pdf", "PDF", FileText)}
+        {row("pptx", "PowerPoint", FileDown)}
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        One slide per scene, same look as the video. PowerPoint text stays editable and each scene&apos;s {presentation ? "notes become" : "voice line becomes"}
+        {" "}the speaker notes; video scenes show a still frame. Present: arrow keys or click to move, N for notes, Esc to leave.
+      </p>
+    </section>
   );
 }
 
@@ -463,10 +615,10 @@ function MediaRow({ projectId, asset, canEdit }: { projectId: string; asset: Dec
 }
 
 function SceneCard({
-  projectId, scene, index, count, asset, assets, aspectCss, wide, canEdit, brand, voiceMode, onPatch, onRewrite, onMove, onDelete, onAddAfter,
+  projectId, scene, index, count, asset, assets, aspectCss, wide, canEdit, brand, voiceMode, presentation, onPatch, onRewrite, onMove, onDelete, onAddAfter,
 }: {
   projectId: string; scene: DeckScene; index: number; count: number; asset: DeckAsset | null; assets: DeckAsset[];
-  aspectCss: string; wide: boolean; canEdit: boolean; brand: FrameBrand; voiceMode: VoiceMode;
+  aspectCss: string; wide: boolean; canEdit: boolean; brand: FrameBrand; voiceMode: VoiceMode; presentation: boolean;
   onPatch: (p: ScenePatch) => void; onRewrite: (instruction: string) => void; onMove: (dir: -1 | 1) => void; onDelete: () => void; onAddAfter: () => void;
 }) {
   const [headline, setHeadline] = useState(scene.text.headline ?? "");
@@ -531,13 +683,13 @@ function SceneCard({
             <div className="space-y-1.5">
               <input value={headline} disabled={!canEdit || busy} onChange={(e) => setHeadline(e.target.value)} onBlur={commitText} maxLength={90} placeholder="Headline" className={cn(field, "h-8 font-semibold")} />
               <input value={sub} disabled={!canEdit || busy} onChange={(e) => setSub(e.target.value)} onBlur={commitText} maxLength={140} placeholder="Subline (optional)" className={cn(field, "h-8")} />
-              {scene.layout === "bullets" ? (
-                <textarea value={bullets} disabled={!canEdit || busy} onChange={(e) => setBullets(e.target.value)} onBlur={commitText} rows={3} placeholder="One bullet per line" className={cn(field, "py-1.5 text-xs")} />
+              {scene.layout === "bullets" || scene.layout === "slide" ? (
+                <textarea value={bullets} disabled={!canEdit || busy} onChange={(e) => setBullets(e.target.value)} onBlur={commitText} rows={3} placeholder={`One point per line (up to ${MAX_BULLETS})`} className={cn(field, "py-1.5 text-xs")} />
               ) : null}
             </div>
           ) : <p className="text-xs text-muted-foreground">No text on this scene.</p>}
 
-          {voiceMode !== "off" ? (
+          {voiceMode !== "off" || presentation ? (
             <label className="flex items-start gap-2">
               <Mic className="mt-2 size-3.5 shrink-0 text-[color:var(--cw-violet)]" />
               <textarea
@@ -547,7 +699,9 @@ function SceneCard({
                 onBlur={() => { if (voice.trim() !== (scene.voice ?? "").trim()) onPatch({ voice: voice.trim() }); }}
                 rows={2}
                 maxLength={400}
-                placeholder={voiceMode === "auto" ? "Narration (the AI writes it when you plan)" : "What the voice says in this scene (leave empty for silence)"}
+                placeholder={voiceMode === "off"
+                  ? "Speaker notes (shown when you present; the voiceover if you turn it on)"
+                  : voiceMode === "auto" ? "Narration (the AI writes it when you plan)" : "What the voice says in this scene (leave empty for silence)"}
                 className={cn(field, "py-1.5 text-xs")}
               />
             </label>

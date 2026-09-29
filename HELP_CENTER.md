@@ -138,7 +138,7 @@ them there, then come back. (These are in addition to the "video ready" email, w
 - **Export** any version as MP4 or WebM at its native size, 720p or 1080p, then download it.
 
 ## WaltzDeck — ads and slideshows with text
-- **New project → WaltzDeck**, pick **Ad** or **Slideshow** and a shape (vertical, wide, square or 4:5), then **Continue**.
+- **New project → WaltzDeck**, pick **Ad**, **Slideshow** or **Presentation** and a shape (vertical, wide, square or 4:5), then **Continue**.
 - **Write the brief:** what the video is for, the tone, any offer and your call to action (e.g. "Book at example.com").
   Choose **Text on video**: *Auto* (the AI writes it), *Manual* (you write it) or *Off*.
 - **Add your photos and videos.** Give any of them a note and the AI follows it — "show this first", "end on this",
@@ -155,6 +155,25 @@ them there, then come back. (These are in addition to the "video ready" email, w
   With AI, plan or re-plan and each scene gets a spoken line; you can edit any line on its card. Scenes get longer
   if a line needs it, and the music dips while the voice speaks.
 - **Captions:** leave **Captions** on and each word lights up as it's spoken, in your brand font and colour.
+
+## WaltzDeck presentations — present, export, or start from a deck
+- **New project → WaltzDeck → Presentation** makes slides: a title slide, one point per slide with a few bullets,
+  and a closing slide. It starts wide (16:9); you can still add photos and videos to any slide.
+- **Start from what you have** (top of the brief):
+  - **PowerPoint or PDF** — each slide becomes a scene with your own words (locked, so re-planning keeps them),
+    your speaker notes and the main picture on the slide. Old *.ppt* files: save as *.pptx* first. Scanned PDFs
+    have no text to import.
+  - **Web page** — paste your product or landing page and the brief is written from it; its preview picture is
+    added to your media. If you already have media, the storyboard is planned straight away.
+- **Slide — title + points** is the presentation layout: your headline and points on a brand panel beside the
+  photo, or on their own. Type one point per line on the scene card.
+- **Speaker notes:** in a presentation each scene card has a notes box. They show when you present, go into the
+  PowerPoint's notes, and become the voiceover if you turn the voice on.
+- **Present** opens the slides full screen: arrow keys, Space or a click to move, **N** shows your notes, **P**
+  plays them automatically, **Esc** leaves.
+- **Export → PDF** or **PowerPoint**: one slide per scene, looking just like the video. In PowerPoint the text is
+  still editable; video scenes show a still picture. Download it from the same panel when it's ready (a few seconds).
+  If the fonts look different in PowerPoint, install the brand font on that computer.
 
 ## Waltz AI Remix — make a video you've already made even better
 - Open a project → **Waltz AI** tab → **Remix a video**. You'll see every finished video you've made:

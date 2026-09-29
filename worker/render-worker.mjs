@@ -1901,6 +1901,38 @@ async function reapStaleRenders() {
   }
   console.log(`[worker] reaped ${rows.length} orphaned render(s) stuck in 'rendering': ${rows.map((r) => r.id).join(", ")}`);
 }
+// ── WaltzDeck slide exports (PDF / PPTX, worker/deck/export.mjs) ───────────────────────────────────
+// Same DB-claim pattern as renders. Exports take seconds, so they run between renders.
+const deckExportIo = () => ({ sql, download, uploadFile, ffmpeg, probe, dims, watermarkPath: WATERMARK_PATH });
+async function deckExportTick() {
+  const [row] = await sql`
+    update deck_exports set status='running', started_at=now(), attempts=attempts+1
+    where id = (select id from deck_exports where status='queued' order by created_at asc limit 1 for update skip locked)
+    returning *`;
+  if (!row) return false;
+  const dir = mkdtempSync(join(tmpdir(), "cw-deckx-"));
+  const t0 = Date.now();
+  try {
+    const { buildDeckExport } = await import("./deck/export.mjs");
+    const res = await buildDeckExport({ projectId: row.project_id, format: row.format, watermark: row.watermark, exportId: row.id }, dir, deckExportIo());
+    await sql`update deck_exports set status='done', output_key=${res.key}, error=null, finished_at=now() where id=${row.id}`;
+    console.log(`[worker] deck export ${row.id} (${row.format}, ${res.slides} slides) done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  } catch (e) {
+    console.error(`[worker] deck export ${row.id} failed:`, e.message);
+    await sql`update deck_exports set status='failed', error=${String(e.message).slice(0, 300)}, finished_at=now() where id=${row.id}`;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  return true;
+}
+// Startup sweep (this worker is the only writer of 'running'): re-queue an export a restart interrupted,
+// fail it after 3 tries.
+async function reapStaleDeckExports() {
+  const failed = await sql`update deck_exports set status='failed', error='export crashed the worker repeatedly', finished_at=now() where status='running' and attempts >= 3 returning id`;
+  const requeued = await sql`update deck_exports set status='queued' where status='running' returning id`;
+  if (failed.length || requeued.length) console.log(`[worker] deck exports: re-queued ${requeued.length}, failed ${failed.length} after a restart`);
+}
+
 async function tick() {
   const r = await claimOne();
   if (!r) return false;
@@ -2353,6 +2385,23 @@ async function main() {
   if (process.argv.includes("--overlaytest")) return overlaytest();
   if (process.argv.includes("--convtest")) return convtest();
   if (process.argv.includes("--wmtest")) return wmtest();
+  if (process.argv.includes("--decktest")) {
+    // `--decktest <projectId> <pdf|pptx> [out] [--wm]`: build a slide export into a local file. Read-only (no DB
+    // writes, no upload) — safe against prod.
+    const i = process.argv.indexOf("--decktest");
+    const [projectId, format = "pdf", out] = process.argv.slice(i + 1);
+    const dir = mkdtempSync(join(tmpdir(), "cw-deckx-"));
+    const t0 = Date.now();
+    try {
+      const { buildDeckExport } = await import("./deck/export.mjs");
+      const res = await buildDeckExport({ projectId, format, watermark: process.argv.includes("--wm"), exportId: "test" }, dir, deckExportIo(),
+        { outFile: out || join(tmpdir(), `decktest.${format}`) });
+      console.log(`[decktest] ${res.slides} slides → ${res.file} (${statSync(res.file).size} bytes) in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    return sql.end();
+  }
   console.log(`[worker] ClipWaltz render worker starting (${ONCE ? "once" : "loop"})`);
   if (ONCE) {
     // Don't reap in --once (a manual one-shot could nuke a render the loop service is running).
@@ -2363,10 +2412,12 @@ async function main() {
   }
   await reapStaleRenders().catch((e) => console.error("[worker] reap error:", e.message));
   await reapStaleConversions().catch((e) => console.error("[worker] conversion reap error:", e.message));
+  await reapStaleDeckExports().catch((e) => console.error("[worker] deck export reap error:", e.message));
   for (;;) {
     let worked = false;
     try {
       worked = await tick();
+      if (!worked) worked = await deckExportTick(); // WaltzDeck PDF / PPTX (seconds each)
       if (!worked) worked = await convTick(); // 360 reprojection queue
       if (!worked) worked = await batchTick(); // Auto-Batch: queue the next folder group
       if (!worked) worked = await durTick(); // lowest priority: fill in missing clip lengths

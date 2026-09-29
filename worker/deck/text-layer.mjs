@@ -17,8 +17,10 @@ const hex = (c, d) => (/^#[0-9a-f]{6}$/i.test(c ?? "") ? c : d);
 /**
  * HTML for one scene's text at W×H. `card` = the template paints its own brand background (text-only
  * scenes: title / CTA cards); otherwise the page is transparent and sits over the media.
+ * Slide exports (worker/deck/export.mjs) add `still` (no entrance animation), `bgDataUrl` (the scene's
+ * media still under the text) and `wmDataUrl` (the free-tier logo, bottom-left).
  */
-export function sceneHtml({ layout, text, W, H, brand = {}, card = false, safeBottom = 0 }) {
+export function sceneHtml({ layout, text, W, H, brand = {}, card = false, safeBottom = 0, still = false, bgDataUrl = null, wmDataUrl = null }) {
   const u = W / 100; // 1 "cqw"
   const primary = hex(brand.primary, "#8b5cf6");
   const dark = hex(brand.secondary, "#120a24");
@@ -28,7 +30,8 @@ export function sceneHtml({ layout, text, W, H, brand = {}, card = false, safeBo
   const headline = t.headline ? `<h1 class="h a1">${esc(t.headline)}</h1>` : "";
   const sub = t.sub ? `<p class="s a2">${esc(t.sub)}</p>` : "";
   const bullets = (t.bullets ?? []).filter(Boolean);
-  const lay = card ? (layout === "cta-card" ? "cta-card" : "title-card") : layout;
+  const lay = card ? (layout === "cta-card" ? "cta-card" : layout === "slide" ? "slide" : "title-card") : layout;
+  const bulletList = bullets.map((b, i) => `<li class="a${Math.min(i + 2, 5)}"><i></i><span>${esc(b)}</span></li>`).join("");
   // Keep text clear of the watermark logo (bottom-left) when there is one.
   const sb = Math.max(7 * u, safeBottom);
   const cardOverMedia = !card && (layout === "title-card" || layout === "cta-card");
@@ -36,7 +39,13 @@ export function sceneHtml({ layout, text, W, H, brand = {}, card = false, safeBo
   if (lay === "headline-center") body = `<div class="center">${headline}${sub}</div>`;
   else if (lay === "lower-third") body = `<div class="bar a1">${headline}${sub}</div>`;
   else if (lay === "bullets")
-    body = `<div class="bottom grad">${headline}<ul>${bullets.map((b, i) => `<li class="a${Math.min(i + 2, 5)}"><i></i>${esc(b)}</li>`).join("")}</ul></div>`;
+    body = `<div class="bottom grad">${headline}<ul>${bulletList}</ul></div>`;
+  else if (lay === "slide") {
+    // Presentation slide: title + accent bar + sub + points. Over media: a brand panel on the left (wide) or the
+    // bottom (tall) and the media beside it; as a card: full-frame, top-left, logo top-right.
+    const logo = card && /^data:image\/(png|jpeg|webp|svg\+xml);base64,/.test(brand.logoDataUrl ?? "") ? `<img class="slogo" src="${brand.logoDataUrl}" alt="">` : "";
+    body = `<div class="slide ${card ? "full" : W >= H ? "side" : "foot"}">${headline}${t.headline ? '<b class="acc a1"></b>' : ""}${sub}${bullets.length ? `<ul>${bulletList}</ul>` : ""}</div>${logo}`;
+  }
   else if (lay === "title-card" || lay === "cta-card")
     body = `<div class="card">${/^data:image\/(png|jpeg|webp|svg\+xml);base64,/.test(brand.logoDataUrl ?? "") ? `<img class="logo a1" src="${brand.logoDataUrl}" alt="">` : ""}${headline}${t.sub ? `<p class="s a2 ${lay === "cta-card" ? "pill" : ""}">${esc(t.sub)}</p>` : ""}${bullets.length ? `<p class="s a3 meta">${bullets.map(esc).join(" · ")}</p>` : ""}</div>`;
   else body = `<div class="bottom grad">${headline}${sub}</div>`; // headline-bottom
@@ -61,18 +70,32 @@ li i{flex:none;width:${1.8 * u}px;height:${1.8 * u}px;margin-top:${1.3 * u}px;bo
 .logo{max-height:${Math.round(H * 0.14)}px;max-width:${Math.round(W * 0.4)}px;object-fit:contain}
 .pill{background:${primary};color:#fff !important;font-weight:700 !important;border-radius:999px;padding:${2 * u}px ${5 * u}px}
 .meta{font-size:${3.6 * u}px !important;color:#e9dcff}
+.slide{position:absolute;display:flex;flex-direction:column;justify-content:center;gap:${1.6 * u}px;overflow:hidden}
+.slide.side{left:0;top:0;bottom:0;width:56%;padding:${5 * u}px ${4.5 * u}px;padding-bottom:${Math.max(5 * u, sb)}px;background:${rgba(dark, 0.9)}}
+.slide.foot{left:0;right:0;bottom:0;height:56%;padding:${7 * u}px;padding-bottom:${sb}px;background:${rgba(dark, 0.9)}}
+.slide.full{inset:0;justify-content:flex-start;padding:${W >= H ? 6 * u : 9 * u}px;padding-top:${W >= H ? 7 * u : 16 * u}px;padding-bottom:${Math.max(W >= H ? 6 * u : 9 * u, sb)}px}
+.slide .h{font-size:${W >= H ? 5 * u : 8.5 * u}px}.slide.full .h{font-size:${W >= H ? 5.6 * u : 9 * u}px;padding-right:${W >= H ? 14 * u : 0}px}
+.slide .s{font-size:${W >= H ? 2.4 * u : 4.4 * u}px}
+.slide li{font-size:${W >= H ? 2.5 * u : 4.6 * u}px;font-weight:500;gap:.55em;line-height:1.3}
+.slide li i{width:.42em;height:.42em;margin-top:.45em}
+.slide ul{gap:.6em;margin-top:${0.6 * u}px}
+.acc{display:block;flex:none;width:${W >= H ? 6 * u : 12 * u}px;height:${Math.max(4, 0.45 * u)}px;border-radius:99px;background:${primary}}
+.slogo{position:absolute;top:${4 * u}px;right:${4 * u}px;max-height:${Math.round(H * 0.09)}px;max-width:${Math.round(W * 0.16)}px;object-fit:contain}
+.bgimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.wm{position:absolute;left:${Math.round(Math.min(W, H) * 0.03)}px;bottom:${Math.round(Math.min(W, H) * 0.03)}px;width:${Math.round(Math.min(W, H) * 0.154)}px}
+${still ? "*{animation:none !important}" : ""}
 .a1{animation:up .6s cubic-bezier(.2,.8,.2,1) both}.a2{animation:up .6s .12s cubic-bezier(.2,.8,.2,1) both}
 .a3{animation:up .6s .2s cubic-bezier(.2,.8,.2,1) both}.a4{animation:up .6s .28s cubic-bezier(.2,.8,.2,1) both}.a5{animation:up .6s .34s cubic-bezier(.2,.8,.2,1) both}
 .pill.a2{animation:pop .5s .15s cubic-bezier(.3,1.6,.5,1) both}
 @keyframes up{from{opacity:0;transform:translateY(${4 * u}px)}to{opacity:1;transform:none}}
 @keyframes pop{from{opacity:0;transform:scale(.7)}to{opacity:1;transform:none}}
-</style></head><body>${body}<script>
+</style></head><body>${bgDataUrl && !card ? `<img class="bgimg" src="${bgDataUrl}" alt="">` : ""}${body}${wmDataUrl ? `<img class="wm" src="${wmDataUrl}" alt="">` : ""}<script>
 // Auto-fit: shrink each text block until the whole layout fits inside the frame (never overflows).
 // Full-frame layouts (.center, .card) must not overflow their box; blocks that grow upward from the bottom
 // (.bottom, .bar) only need to stay inside the frame — their scrollHeight includes glyph ink past the line
 // box (Lato: 97 vs 80 px), which no amount of shrinking removes (verified 2026-09-29).
-const fits = () => [...document.querySelectorAll('.center,.card')].every((b) => b.scrollHeight <= b.clientHeight + 6)
-  && [...document.querySelectorAll('.center,.card')].every((b) => b.getBoundingClientRect().top >= 0)
+const fits = () => [...document.querySelectorAll('.center,.card,.slide')].every((b) => b.scrollHeight <= b.clientHeight + 6)
+  && [...document.querySelectorAll('.center,.card,.slide')].every((b) => b.getBoundingClientRect().top >= 0)
   && [...document.querySelectorAll('.bottom,.bar')].every((b) => b.getBoundingClientRect().top >= innerHeight * 0.2)
   && [...document.querySelectorAll('.h,.s,li')].every((el) => {
     // Inside the frame with the layout's side padding (a flex item can grow past its parent, so compare to the frame).
@@ -97,8 +120,40 @@ window.__fit = k;
 return k;
 };
 window.__doFit();
+// Slide exports: every text run with its box (content box, px), font and colour — the PPTX places editable
+// text boxes exactly where Chromium drew the text (worker/deck/export.mjs).
+window.__measure = () => [...document.querySelectorAll('.h,.s,li>span')].filter((el) => el.textContent.trim()).map((el) => {
+  const r = el.getBoundingClientRect(), cs = getComputedStyle(el), n = (v) => parseFloat(v) || 0;
+  const pl = n(cs.paddingLeft), pr = n(cs.paddingRight), pt = n(cs.paddingTop), pb = n(cs.paddingBottom);
+  const size = n(cs.fontSize);
+  // The lines exactly as Chromium wrapped them (words grouped by their line box), so the PPTX keeps the same
+  // breaks even where the viewer's PowerPoint substitutes a font.
+  const lines = [];
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let lastTop = null;
+  for (let tn = walker.nextNode(); tn; tn = walker.nextNode()) {
+    const re = /[^\\s]+/g; // escaped: this script lives in a template literal
+    for (let m = re.exec(tn.data); m; m = re.exec(tn.data)) {
+      const rg = document.createRange();
+      rg.setStart(tn, m.index); rg.setEnd(tn, m.index + m[0].length);
+      const top = rg.getClientRects()[0]?.top ?? lastTop ?? 0;
+      if (lastTop === null || top > lastTop + size * 0.5) lines.push(m[0]);
+      else lines[lines.length - 1] += ' ' + m[0];
+      lastTop = top;
+    }
+  }
+  return {
+    lines,
+    kind: el.matches('.h') ? 'h' : el.matches('li>span') ? 'li' : 's', text: el.textContent,
+    x: r.left + pl, y: r.top + pt, w: r.width - pl - pr, h: r.height - pt - pb,
+    size, lineHeight: n(cs.lineHeight) || size * 1.2, font: cs.fontFamily, weight: n(cs.fontWeight) || 400,
+    color: cs.color, align: ['center', 'right', 'end'].includes(cs.textAlign) ? (cs.textAlign === 'end' ? 'right' : cs.textAlign) : 'left',
+  };
+});
 </script></body></html>`;
 }
+
+const rgba = (h, a) => `rgba(${[0, 1, 2].map((i) => parseInt(h.slice(1 + i * 2, 3 + i * 2), 16)).join(",")},${a})`;
 
 // Blend two #rrggbb colours 50/50 (for the card gradient's middle stop).
 function mix(a, b) {
@@ -148,7 +203,7 @@ if (process.argv[1] && process.argv[1].endsWith("text-layer.mjs") && process.arg
   const W = +process.argv[3] || 1080, H = +process.argv[4] || 1920;
   const r = await createTextRenderer();
   const sample = { headline: "Summer in a can — cold brew that tastes like July", sub: "100% organic · slow-steeped 20 hours", bullets: ["Organic beans", "Steeped 20 hours", "Ships free"] };
-  for (const layout of ["headline-bottom", "headline-center", "lower-third", "bullets", "title-card", "cta-card"]) {
+  for (const layout of ["headline-bottom", "headline-center", "lower-third", "bullets", "title-card", "cta-card", "slide"]) {
     const d = join(out, layout);
     mkdirSync(d, { recursive: true });
     const t0 = Date.now();

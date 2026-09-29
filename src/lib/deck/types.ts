@@ -1,13 +1,14 @@
 // WaltzDeck shared types (06_ClipWaltz_WaltzDeck_Feature_Spec.md). Keep MODES / LAYOUTS / ROLES in sync
 // with worker/deck/planner.mjs and the scene templates in worker/deck/templates.
 
-export type DeckMode = "ad" | "slideshow";
+export type DeckMode = "ad" | "slideshow" | "presentation";
 export type TextMode = "auto" | "manual" | "off";
 export type SceneTextMode = "auto" | "manual" | "none";
 
 export const DECK_MODES: { key: DeckMode; label: string; desc: string; defaultLength: number }[] = [
   { key: "ad", label: "Ad", desc: "Hook → benefits → call to action", defaultLength: 15 },
   { key: "slideshow", label: "Slideshow", desc: "Your story with captions, on the beat", defaultLength: 45 },
+  { key: "presentation", label: "Presentation", desc: "Slides with points — present it, or export PDF / PowerPoint", defaultLength: 90 },
 ];
 
 export const LAYOUTS = [
@@ -17,6 +18,7 @@ export const LAYOUTS = [
   { key: "bullets", label: "Bullet points" },
   { key: "title-card", label: "Title card" },
   { key: "cta-card", label: "Call-to-action card" },
+  { key: "slide", label: "Slide — title + points" },
 ] as const;
 export type LayoutKey = (typeof LAYOUTS)[number]["key"];
 
@@ -60,7 +62,24 @@ export type DeckPlanStatus =
   | { status: "ready"; title?: string; finishedAt?: string; unusedAssetIds?: string[] }
   | { status: "failed"; error: string };
 
-export type DeckState = { brief: DeckBrief; plan?: DeckPlanStatus };
+/** PPTX / PDF / web page → brief + scenes (phase 3). Runs on the deck queue; the editor polls. */
+export type DeckImportStatus =
+  | { status: "idle" }
+  | { status: "queued" | "reading" | "summarizing"; source: "pptx" | "pdf" | "url"; name: string; startedAt?: string }
+  | { status: "ready"; source: "pptx" | "pdf" | "url"; name: string; scenes: number; images: number; finishedAt?: string; note?: string }
+  | { status: "failed"; source?: "pptx" | "pdf" | "url"; name?: string; error: string };
+
+export type DeckState = { brief: DeckBrief; plan?: DeckPlanStatus; import?: DeckImportStatus };
+
+export type DeckExportFormat = "pdf" | "pptx";
+export type DeckExport = {
+  id: string; format: DeckExportFormat; status: "queued" | "running" | "done" | "failed";
+  error: string | null; createdAt: string; finishedAt: string | null;
+};
+
+/** Bullet limits shared by the editor, server actions and the importer (presentations need more than ads). */
+export const MAX_BULLETS = 6;
+export const MAX_BULLET_CHARS = 90;
 
 export type SceneText = { headline?: string; sub?: string; bullets?: string[] };
 

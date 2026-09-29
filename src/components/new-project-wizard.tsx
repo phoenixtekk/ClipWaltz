@@ -129,16 +129,17 @@ export function NewProjectWizard({ workspaceId, aiTemplates = [] }: { workspaceI
       </div>
 
       {kind === "deck" ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {DECK_MODES.map((m) => (
-            <button key={m.key} type="button" aria-pressed={deckMode === m.key} disabled={pending} onClick={() => setDeckMode(m.key)}
+            <button key={m.key} type="button" aria-pressed={deckMode === m.key} disabled={pending}
+              onClick={() => { setDeckMode(m.key); if (m.key === "presentation") setAspect("16:9"); }}
               className={cn("flex flex-col items-start gap-1 rounded-xl border p-4 text-left transition-colors hover:border-primary/60",
                 deckMode === m.key ? "border-primary bg-primary/10" : "border-border bg-card")}>
               <p className="text-sm font-medium">{m.label}</p>
               <p className="text-xs text-muted-foreground">{m.desc}</p>
             </button>
           ))}
-          <p className="text-xs text-muted-foreground sm:col-span-2">
+          <p className="text-xs text-muted-foreground sm:col-span-3">
             Write a brief, add your photos and videos (with a note on any of them), and the AI plans each scene with on-screen
             text — you edit, lock and preview before rendering.
           </p>

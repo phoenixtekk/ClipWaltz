@@ -102,13 +102,14 @@ export async function enqueueEnhance(generationJobId: string, opts: JobsOptions 
   );
 }
 
-/** WaltzDeck queue: media descriptions, storyboard planning, scene rewrites (worker/deck/jobs.mjs). */
+/** WaltzDeck queue: media descriptions, storyboard planning, scene rewrites, imports (worker/deck/jobs.mjs). */
 // Override for local dev (its own queue + dev worker, worker/deck/dev-worker.mjs) — never share prod's.
 export const DECK_QUEUE = process.env.DECK_QUEUE || "clipwaltz-deck";
 export type DeckJob =
   | { name: "describe"; data: { assetId: string } }
   | { name: "plan"; data: { projectId: string } }
-  | { name: "scene"; data: { sceneId: string; instruction: string } };
+  | { name: "scene"; data: { sceneId: string; instruction: string } }
+  | { name: "import"; data: { projectId: string; source: "pptx" | "pdf" | "url"; key?: string; url?: string; name: string; userId: string } };
 
 let _deckQueue: Queue | null = null;
 export function deckQueue(): Queue {

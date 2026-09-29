@@ -36,6 +36,8 @@ export function SceneFrame({
   brand?: FrameBrand;
 }) {
   const t = scene.textMode === "none" ? {} : scene.text ?? {};
+  // Same rule as the template (W >= H): 16:9 and 1:1 put a slide's panel on the left, tall frames at the bottom.
+  const wide = !/9\/16|4\/5/.test(aspectCss);
   const hasText = !!(t.headline || t.sub || t.bullets?.length);
   // Text-only scenes are brand cards; a card layout WITH media keeps the media under a dark scrim (as rendered).
   const card = !asset || scene.layout === "title-card" || scene.layout === "cta-card";
@@ -70,14 +72,19 @@ export function SceneFrame({
       )}
 
       {hasText || (card && brand?.logoUrl) ? (
-        <TextLayer layout={card ? (scene.layout === "cta-card" ? "cta-card" : "title-card") : scene.layout} text={t} brand={brand} scrim={card && !!asset} />
+        <TextLayer
+          layout={card ? (scene.layout === "cta-card" ? "cta-card" : scene.layout === "slide" && cardOnly ? "slide" : "title-card") : scene.layout}
+          text={t} brand={brand} scrim={card && !!asset} wide={wide} cardOnly={cardOnly}
+        />
       ) : null}
     </div>
   );
 }
 
 // Sizes in container-query units (cqw/cqh) so text scales with the frame at any size.
-function TextLayer({ layout, text, brand, scrim }: { layout: string; text: SceneText; brand: FrameBrand; scrim: boolean }) {
+function TextLayer({ layout, text, brand, scrim, wide, cardOnly }: {
+  layout: string; text: SceneText; brand: FrameBrand; scrim: boolean; wide: boolean; cardOnly: boolean;
+}) {
   const { headline, sub, bullets = [] } = text;
   const primary = brand?.primary ?? "#8b5cf6";
   const hf = { fontFamily: `'${brand?.headingFont ?? "Montserrat"}', sans-serif` };
@@ -87,6 +94,37 @@ function TextLayer({ layout, text, brand, scrim }: { layout: string; text: Scene
   const S = (className?: string) =>
     sub ? <p style={bf} className={cn("font-medium leading-snug text-violet-50", className)}>{sub}</p> : null;
 
+  if (layout === "slide") {
+    // worker/deck/text-layer.mjs .slide: brand panel beside the media (left when wide, bottom when tall), or full-frame as a card.
+    const panel = cardOnly
+      ? cn("inset-0 justify-start", wide ? "p-[6cqw] pt-[7cqw]" : "p-[9cqw] pt-[16cqw]")
+      : wide ? "inset-y-0 left-0 w-[56%] px-[4.5cqw] py-[5cqw]" : "inset-x-0 bottom-0 h-[56%] p-[7cqw]";
+    return (
+      <>
+        <div className={cn("absolute flex flex-col justify-center gap-[1.6cqw] overflow-hidden", panel)}
+          style={cardOnly ? undefined : { background: `color-mix(in srgb, ${brand?.secondary ?? "#120a24"} 90%, transparent)` }}>
+          {headline ? (
+            <p style={hf} className={cn("font-extrabold leading-[1.05] text-white", cardOnly
+              ? (wide ? "pr-[14cqw] text-[5.6cqw]" : "text-[9cqw]") : (wide ? "text-[5cqw]" : "text-[8.5cqw]"))}>{headline}</p>
+          ) : null}
+          {headline ? <b className={cn("block h-[max(2px,0.45cqw)] shrink-0 rounded-full", wide ? "w-[6cqw]" : "w-[12cqw]")} style={{ background: primary }} /> : null}
+          {sub ? <p style={bf} className={cn("font-medium leading-snug text-violet-50", wide ? "text-[2.4cqw]" : "text-[4.4cqw]")}>{sub}</p> : null}
+          {bullets.length ? (
+            <ul className="mt-[0.6cqw] space-y-[0.6em]">
+              {bullets.map((b, i) => (
+                <li key={i} style={bf} className={cn("flex items-start gap-[0.55em] font-medium leading-[1.3] text-white", wide ? "text-[2.5cqw]" : "text-[4.6cqw]")}>
+                  <span className="mt-[0.45em] size-[0.42em] shrink-0 rounded-full" style={{ background: primary }} />
+                  <span>{b}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {cardOnly && brand?.logoUrl ? <img src={brand.logoUrl} alt="" className="absolute right-[4cqw] top-[4cqw] max-h-[9cqh] max-w-[16cqw] object-contain" /> : null}
+      </>
+    );
+  }
   if (layout === "headline-center")
     return (
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-[2cqh] bg-black/25 p-[7cqw] text-center">

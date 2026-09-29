@@ -708,6 +708,25 @@ export const deckScenes = pgTable("deck_scenes", {
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
 
+// WaltzDeck slide exports (phase 3): the storyboard as a PDF or an editable PPTX. Queued by the app, built
+// by the render worker on the AI box (headless Chromium, worker/deck/export.mjs), stored under exports/<projectId>/.
+export const deckExports = pgTable("deck_exports", {
+  id: text().primaryKey(),
+  projectId: text()
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  format: text().notNull(), // pdf | pptx
+  status: text().notNull().default("queued"), // queued | running | done | failed
+  watermark: boolean().notNull().default(true), // same rule as videos (src/lib/watermark.ts)
+  outputKey: text(),
+  error: text(),
+  attempts: integer().notNull().default(0),
+  requestedBy: text(),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  startedAt: timestamp({ withTimezone: true }),
+  finishedAt: timestamp({ withTimezone: true }),
+});
+
 // Registry of AI model families the platform can route to (Architecture §9). Admin-toggleable.
 // ComfyUI stays hidden behind this — the app references models by name, never node internals.
 export const modelRegistry = pgTable("model_registry", {

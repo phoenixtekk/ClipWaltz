@@ -31,13 +31,14 @@ const nn = (xs: (string | null | undefined)[]) => xs.filter((x): x is string => 
 
 /** Collect every object key + library media row the project owns. Call before deleting the row. */
 export async function collectProjectStorage(projectId: string): Promise<ProjectStoragePlan> {
-  const [assets, renders, versions, exports] = await Promise.all([
+  const [assets, renders, versions, exports, deckExports] = await Promise.all([
     db.select({ key: schema.assets.storageKey, convertedKey: schema.assets.convertedKey, mediaId: schema.assets.mediaId })
       .from(schema.assets).where(eq(schema.assets.projectId, projectId)),
     db.select({ key: schema.renders.outputKey }).from(schema.renders).where(eq(schema.renders.projectId, projectId)),
     db.select({ key: schema.generationVersions.outputKey, cleanKey: schema.generationVersions.cleanKey, thumb: schema.generationVersions.thumbnailKey })
       .from(schema.generationVersions).where(eq(schema.generationVersions.projectId, projectId)),
     db.select({ key: schema.exportJobs.outputKey }).from(schema.exportJobs).where(eq(schema.exportJobs.projectId, projectId)),
+    db.select({ key: schema.deckExports.outputKey }).from(schema.deckExports).where(eq(schema.deckExports.projectId, projectId)),
   ]);
   // Library rows used by the project's clips, plus any uploaded into it that no clip points at any more.
   const mediaIds = new Set(nn(assets.map((a) => a.mediaId)));
@@ -50,6 +51,7 @@ export async function collectProjectStorage(projectId: string): Promise<ProjectS
     ...renders.map((r) => r.key),
     ...versions.flatMap((v) => [v.key, v.cleanKey, v.thumb]),
     ...exports.map((e) => e.key),
+    ...deckExports.map((e) => e.key),
   ]));
   return { projectId, keys: [...keys], mediaIds: [...mediaIds] };
 }
@@ -70,6 +72,7 @@ export async function referencedKeys(keys: string[]): Promise<Set<string>> {
           inArray(schema.generationVersions.outputKey, k), inArray(schema.generationVersions.cleanKey, k),
           inArray(schema.generationVersions.thumbnailKey, k))),
       db.select({ a: schema.exportJobs.outputKey }).from(schema.exportJobs).where(inArray(schema.exportJobs.outputKey, k)),
+      db.select({ a: schema.deckExports.outputKey }).from(schema.deckExports).where(inArray(schema.deckExports.outputKey, k)),
       db.select({ a: schema.musicTracks.storageKey }).from(schema.musicTracks).where(inArray(schema.musicTracks.storageKey, k)),
       db.select({ a: schema.templates.thumbnailKey }).from(schema.templates).where(inArray(schema.templates.thumbnailKey, k)),
     ]);
