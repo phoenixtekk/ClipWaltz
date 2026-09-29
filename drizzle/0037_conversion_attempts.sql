@@ -1,0 +1,1 @@
+ALTER TABLE "media" ADD COLUMN "conversion_attempts" integer DEFAULT 0 NOT NULL;

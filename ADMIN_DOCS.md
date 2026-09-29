@@ -453,6 +453,20 @@ orphan from a prior run → marked `failed` (+ project `failed`) so the UI shows
 in `--once` (a manual one-shot must not nuke a render the live service is mid-way through). A
 multi-worker deployment would need a per-render heartbeat/lease instead.
 
+**Conversion crash recovery (360 queue).** Same failure for 360 reprojection: a crash mid-`convTick()`
+left the `media` row (and its `assets` placements, which mirror `media.conversion_state` by
+`media_id`) in `converting` forever — `claimConversion()` only takes `pending`, so the editor spinner
+never stopped. On **loop startup** (after `reapStaleRenders()`, not in `--once`) the worker runs
+`reapStaleConversions()`: every `converting` row is an orphan → put back to `pending` so it retries,
+unless it has already crashed the worker **3 times** (`CONV_MAX_ATTEMPTS`) → `failed` (the editor
+shows the failed badge; picking a 360 view again (`setClipReframe`) re-queues it). Both outcomes are mirrored
+to `assets`. The counter is `media.conversion_attempts` (migration **0037**): +1 on each claim, reset
+to 0 on any clean finish (ready, caught failure, or the give-up), so it only accumulates across
+crashes. Logs: `[worker] re-queued N orphaned conversion(s) …` / `[worker] failed N conversion(s)
+that crashed the worker 3× …`. The claim also sets the file's `assets` to `converting`.
+Verified on prod 2026-09-28 with throwaway rows (attempt 1 → re-queued, re-claimed; attempt 3 →
+failed; assets followed; rows deleted afterwards).
+
 **Prod deployment (pending owner approval):** run it as a systemd service on the **AI box**
 (32-core, FFmpeg, reaches MinIO directly). The AI box currently **cannot** reach linuxg1's
 `localhost`-only Postgres — deploying requires **authorizing the AI box's SSH key on linuxg1** so it
