@@ -128,7 +128,11 @@ export const DESCRIBE_SCHEMA = {
  * Describe one photo/video from base64 JPEG frames. `note` is the user's per-item prompt (context only).
  * Returns { summary, subject, setting, mood, people, textInImage, goodFor[], quality 1-5 }.
  */
-export async function describeMedia(framesB64, { kind, note, durationSec } = {}) {
+// Bump when the description shape changes so cached descriptions are redone (v2: per-moment captions).
+export const DESCRIBE_VERSION = 2;
+
+export async function describeMedia(framesB64, { kind, note, durationSec, times = [] } = {}) {
+  const isVideo = kind === "video" && framesB64.length > 1;
   const prompt =
     `You are helping plan a short marketing video. These ${framesB64.length} frame(s) come from one ` +
     `${kind === "video" ? `video clip (${durationSec ? `${Math.round(durationSec)} s` : "short"})` : "photo"}.` +
@@ -139,8 +143,9 @@ export async function describeMedia(framesB64, { kind, note, durationSec } = {})
     `(hook = eye-catching opener, benefit/proof = shows the product or result, content = general, title/cta = calm background for text). ` +
     `quality: 1-5 for sharpness and lighting.
 ` +
+    (isVideo ? `moments: for EACH frame in order, a caption of 4-10 words saying what that frame shows.\n` : "") +
     `JSON keys: {"summary":string,"subject":string,"setting":string,"mood":string,"people":integer,` +
-    `"textInImage":string,"goodFor":[${ROLES.map((r) => `"${r}"`).join("|")}],"quality":integer}`;
+    `"textInImage":string,"goodFor":[${ROLES.map((r) => `"${r}"`).join("|")}],"quality":integer${isVideo ? ',"moments":[string]' : ""}}`;
   const { data: d } = await chatJson(VISION_MODEL, prompt, framesB64, { temperature: 0.2, numPredict: 3000 });
   return {
     summary: str(d.summary, 240),
@@ -151,7 +156,12 @@ export async function describeMedia(framesB64, { kind, note, durationSec } = {})
     textInImage: str(d.textInImage, 120),
     goodFor: Array.isArray(d.goodFor) ? d.goodFor.filter((r) => ROLES.includes(r)).slice(0, 4) : [],
     quality: Number.isFinite(d.quality) ? Math.max(1, Math.min(5, Math.round(d.quality))) : 3,
+    // Per-frame captions with their time in the clip — lets a scene use the moment that matches its text/note.
+    moments: isVideo && Array.isArray(d.moments)
+      ? d.moments.slice(0, framesB64.length).map((c, i) => ({ t: Math.round((times[i] ?? 0) * 10) / 10, caption: str(c, 90) })).filter((m) => m.caption)
+      : [],
     model: VISION_MODEL,
+    v: DESCRIBE_VERSION,
   };
 }
 
@@ -213,7 +223,8 @@ export async function planStoryboard(brief, media, locked = []) {
         `${i + 1}. ${m.kind}${m.kind === "video" && m.durationSec ? ` ${Math.round(m.durationSec)}s` : ""} — ${d.summary || "(no description)"}` +
         ` [subject: ${d.subject || "?"}; mood: ${d.mood || "?"}; people: ${d.people ?? "?"}; quality ${d.quality ?? "?"}/5` +
         `${d.goodFor?.length ? `; good for: ${d.goodFor.join(", ")}` : ""}${d.textInImage ? `; text in image: "${d.textInImage}"` : ""}]` +
-        (m.note ? `\n   OWNER'S NOTE: "${m.note}"` : "")
+        (m.note ? `\n   OWNER'S NOTE: "${m.note}"` : "") +
+        (d.moments?.length ? `\n   moments: ${d.moments.map((x, k) => `[${k + 1}] ${x.t}s ${x.caption}`).join("; ")}` : "")
       );
     })
     .join("\n");
@@ -241,7 +252,8 @@ export async function planStoryboard(brief, media, locked = []) {
     `- If a note asks for specific wording in quotes, use those exact words.\n` +
     `- Scene durations must add up to about ${length} seconds (each between ${MIN_SCENE} and ${MAX_SCENE} s; videos no longer than their length).\n` +
     `- ${textRule}\n` +
-    `- Never invent facts, prices, awards or claims that are not in the brief or notes.\n` +
+    `- Never invent facts, prices, awards or claims that are not in the brief or notes — no "limited time", "best", "#1", "free", "guaranteed", "certified", ratings or reviews unless the brief says so.\n` +
+    `- For a video with moments, set "moment" to the number of the moment that best matches that scene's text or the owner's note (0 = let the editor choose).\n` +
     `- layout: headline-bottom (default over media), headline-center (bold statement), lower-third (subtle caption), ` +
     `bullets (2-3 short bullet points), title-card (text on a plain brand background, media 0), cta-card (final call to action).\n` +
     `- why: one short sentence explaining the choice of media and text for that scene.\n` +
@@ -249,7 +261,7 @@ export async function planStoryboard(brief, media, locked = []) {
 
 ` +
     `JSON shape: {"title":string,"scenes":[{"role":${ROLES.map((r) => `"${r}"`).join("|")},"media":integer (1-based, 0 = none),` +
-    `"durationSec":number,"headline":string,"sub":string,"bullets":[string],"layout":${LAYOUTS.map((l) => `"${l}"`).join("|")},"why":string}]}`;
+    `"durationSec":number,"moment":integer,"headline":string,"sub":string,"bullets":[string],"layout":${LAYOUTS.map((l) => `"${l}"`).join("|")},"why":string}]}`;
   const t0 = Date.now();
   const { data: raw, raw: j } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.5, numPredict: 8000, numCtx: 16384, timeoutMs: 600000 });
   if (process.env.DECK_DEBUG === "1") console.log(`[deck] raw plan: ${JSON.stringify(raw).slice(0, 4000)}`);
@@ -277,6 +289,43 @@ function allowedNumbers(brief, media) {
 const numbersIn = (t) => (String(t ?? "").match(/\d+(?:[.,]\d+)?/g) ?? []).map((n) => n.replace(",", "."));
 const unverified = (t, ok) => numbersIn(t).some((n) => !ok.has(n));
 
+// Claim classes → words that must appear in the owner's own text for the claim to stand. Offer words (deal,
+// sale, discount, promo) are fine whenever the brief has an offer.
+const CLAIM_RULES = [
+  { re: /\b(limited[- ]time|today only|while (supplies|stocks?) lasts?|ends (soon|today|tonight)|last chance|hurry|don'?t miss)\b/i, keys: ["limited", "today", "supplies", "stock", "ends", "last chance", "hurry", "miss"] },
+  { re: /\b(guarantee[ds]?|money[- ]back|risk[- ]free|no risk)\b/i, keys: ["guarantee", "money-back", "money back", "risk"] },
+  { re: /(\b(award(s|-winning)?|number one|no\.?\s?1|(best|top)[- ]rated|best|world[- ]class|leading|premier)\b|(^|[^\w])#\s?1\b)/i, keys: ["award", "#1", "number one", "best", "top", "leading", "world-class", "premier"] },
+  { re: /\bfree\b/i, keys: ["free"] },
+  { re: /\b(cheapest|lowest prices?|best prices?|bargain|unbeatable)\b/i, keys: ["cheap", "lowest", "best price", "bargain", "unbeatable"] },
+  { re: /\b(certified|licensed|accredited|official|approved|authori[sz]ed|organic|all[- ]natural|eco[- ]friendly|sustainable|vegan|gluten[- ]free|non[- ]gmo)\b/i, keys: ["certified", "licensed", "accredited", "official", "approved", "authori", "organic", "natural", "eco", "sustainable", "vegan", "gluten", "gmo"] },
+  { re: /\b(trusted by|loved by|thousands of|millions of|five[- ]star|5[- ]star|\d(\.\d)?[- ]stars?|rated|reviews?|customers love)\b/i, keys: ["trusted", "loved", "thousand", "million", "star", "rated", "review"] },
+  { re: /\b(exclusive|the only)\b/i, keys: ["exclusive", "only"] },
+  { re: /\b(clinically|scientifically|proven|doctor[- ]recommended|dermatologist)\b/i, keys: ["clinical", "scientific", "proven", "doctor", "dermatologist"] },
+  { re: /\b(deals?|sale|discounts?|promo(tion)?s?|special offer)\b/i, keys: ["deal", "sale", "discount", "promo", "offer"], offerOk: true },
+];
+export function unverifiedClaim(line, srcLower, hasOffer) {
+  for (const r of CLAIM_RULES) {
+    if (!r.re.test(line)) continue;
+    if (r.offerOk && hasOffer) continue;
+    // Keys match at the start of a word ("eco" must not match inside "second" — verified false keep).
+    if (!r.keys.some((k) => new RegExp(`(^|[^a-z0-9])${k.replace(/[.*+?^${}()|[\]\\#-]/g, "\\$&")}`).test(srcLower))) return true;
+  }
+  return false;
+}
+
+// Moment whose caption shares the most words with `text` (null when nothing overlaps).
+const STOP = new Set(["the", "a", "an", "and", "or", "of", "in", "on", "at", "to", "for", "with", "is", "are", "this", "that", "your", "our", "it", "by", "from"]);
+function bestMoment(moments, text) {
+  const want = new Set(String(text).toLowerCase().match(/[a-z]{3,}/g)?.filter((w) => !STOP.has(w)) ?? []);
+  if (!want.size) return null;
+  let best = null, score = 0;
+  for (const m of moments) {
+    const s = (m.caption.toLowerCase().match(/[a-z]{3,}/g) ?? []).filter((w) => want.has(w) || [...want].some((x) => x.length > 4 && w.startsWith(x.slice(0, 5)))).length;
+    if (s > score) { score = s; best = m.t; }
+  }
+  return best;
+}
+
 // Placement words in an owner's note: "show this first", "open with", "end on this", "last".
 const wantsFirst = (note) => /\b(first|open(?:ing)?|start|begin|lead)\b/i.test(note ?? "");
 const wantsLast = (note) => /\b(last|end(?:ing)?|close|closing|finish|final)\b/i.test(note ?? "");
@@ -296,9 +345,12 @@ export function repairPlan(raw, { brief, media, locked = [] }) {
     if (!m && !["title-card", "cta-card"].includes(layout)) layout = role === "cta" ? "cta-card" : "title-card";
     let dur = Math.max(MIN_SCENE, Math.min(MAX_SCENE, Number(s.durationSec) || 3));
     if (m?.kind === "video" && m.durationSec) dur = Math.min(dur, Math.max(MIN_SCENE, m.durationSec));
+    const moments = m?.desc?.moments ?? [];
+    const mi = Number.isInteger(s.moment) && s.moment >= 1 && s.moment <= moments.length ? s.moment - 1 : -1;
     scenes.push({
       role,
       assetId: m?.id ?? null,
+      momentT: mi >= 0 ? moments[mi].t : null,
       durationSec: dur,
       text: {
         headline: str(s.headline, 90),
@@ -345,6 +397,19 @@ export function repairPlan(raw, { brief, media, locked = [] }) {
     t.bullets = t.bullets.filter((b) => !unverified(b, okNums));
     if (removed || t.bullets.length !== before) sc.flags = [...(sc.flags ?? []), "removed-unverified-number"];
   }
+  // No invented claims beyond numbers: a line making one of these claims is kept only when the owner's own
+  // words (brief, offer, CTA, notes) contain the claim. Verified need: "Limited time offer" slipped into a prod ad.
+  const srcText = [brief.prompt, brief.goal, brief.audience, brief.tone, brief.offer, brief.cta?.text, ...media.map((m) => m.note)].join(" ").toLowerCase();
+  for (const sc of scenes) {
+    const t = sc.text;
+    const bad = (line) => !!line && unverifiedClaim(line, srcText, !!str(brief.offer, 200));
+    let removed = false;
+    if (bad(t.headline)) { t.headline = ""; removed = true; }
+    if (bad(t.sub)) { t.sub = ""; removed = true; }
+    const n = t.bullets.length;
+    t.bullets = t.bullets.filter((b) => !bad(b));
+    if (removed || t.bullets.length !== n) sc.flags = [...(sc.flags ?? []), "removed-unverified-claim"];
+  }
   // Ads with a CTA always end on a CTA card carrying the owner's exact words — unless the owner locked one.
   const ctaText = str(brief.cta?.text, 120);
   const lockedCta = locked.some((l) => l.role === "cta");
@@ -389,6 +454,14 @@ export function repairPlan(raw, { brief, media, locked = [] }) {
   }
   for (const s of scenes) {
     s.durationSec = Math.round(s.durationSec * 10) / 10;
+    // Video window centred on the chosen moment (model pick, else the moment whose caption best matches the
+    // scene text + the owner's note); null = the render worker picks the most active stretch.
+    const m = s.assetId ? media.find((x) => x.id === s.assetId) : null;
+    const moments = m?.desc?.moments ?? [];
+    let t = s.momentT;
+    if (t == null && moments.length) t = bestMoment(moments, `${s.text.headline} ${s.text.sub} ${m.note ?? ""}`);
+    s.inSec = t == null || !m?.durationSec ? null : Math.round(Math.max(0, Math.min(m.durationSec - s.durationSec, t - s.durationSec / 2)) * 10) / 10;
+    delete s.momentT;
     if (brief.textMode === "off" && s.role !== "cta") s.text = { headline: "", sub: "", bullets: [] };
     else s.text = fitText(s.text, Math.max(3, Math.floor(s.durationSec * WORDS_PER_SEC) + 1));
     if (s.layout === "bullets" && s.text.bullets.length < 2) s.layout = s.assetId ? "headline-bottom" : "title-card";
@@ -420,7 +493,7 @@ export async function rewriteScene(brief, scene, mediaItem, instruction, sibling
     `Current text: headline "${scene.text?.headline ?? ""}", sub "${scene.text?.sub ?? ""}", bullets ${JSON.stringify(scene.text?.bullets ?? [])}.\n` +
     (siblings.length ? `Other scenes already say: ${siblings.map((t) => `"${t}"`).join(", ")} — don't repeat them.\n` : "") +
     `${ask}\nRules: at most ${maxWords} words in total; ${scene.layout === "bullets" ? "2-3 bullets" : "bullets only if the layout is bullets"}; ` +
-    `never invent facts, prices, numbers or claims not in the brief or note.\n` +
+    `never invent facts, prices, numbers or claims not in the brief or note (no "limited time", "best", "free", "guaranteed", ratings…).\n` +
     `JSON keys: {"headline":string,"sub":string,"bullets":[string]}`;
   const { data } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.7, numPredict: 3000 });
   const media = mediaItem ? [mediaItem] : [];

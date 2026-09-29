@@ -9,28 +9,31 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import IORedis from "ioredis";
 import { Worker } from "bullmq";
-import { describeMedia, planStoryboard, rewriteScene, VISION_MODEL } from "./planner.mjs";
+import { describeMedia, planStoryboard, rewriteScene, VISION_MODEL, DESCRIBE_VERSION } from "./planner.mjs";
 
 // DECK_QUEUE override: local dev uses its own queue so the prod worker never sees dev-DB jobs.
 export const DECK_QUEUE = process.env.DECK_QUEUE || "clipwaltz-deck";
 
 export function startDeckWorker({ sql, getBytes, run, redisUrl }) {
-  // Frames for the vision model: 3 across a video (20/50/80 %), 1 for a photo; 512 px wide JPEGs.
+  // Frames for the vision model: 4 across a video (12/37/62/87 % — each becomes a captioned moment), 1 for a
+  // photo; 512 px wide JPEGs. Returns { frames, times }.
   async function framesOf(asset) {
     const dir = mkdtempSync(join(tmpdir(), "cw-deck-"));
     try {
       const src = join(dir, "src");
       writeFileSync(src, await getBytes(asset.converted_key ?? asset.storage_key));
-      const ats = asset.kind === "video" ? [0.2, 0.5, 0.8].map((f) => f * (asset.duration_sec || 3)) : [0];
+      const ats = asset.kind === "video" ? [0.12, 0.37, 0.62, 0.87].map((f) => f * (asset.duration_sec || 3)) : [0];
       const out = [];
+      const times = [];
       for (const [i, at] of ats.entries()) {
         const f = join(dir, `f${i}.jpg`);
         try {
           await run("ffmpeg", ["-v", "error", "-y", "-ss", at.toFixed(2), "-i", src, "-frames:v", "1", "-vf", "scale=512:-2", "-q:v", "4", f]);
           out.push(readFileSync(f).toString("base64"));
+          times.push(at);
         } catch { /* skip an unreadable frame */ }
       }
-      return out;
+      return { frames: out, times };
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -39,13 +42,15 @@ export function startDeckWorker({ sql, getBytes, run, redisUrl }) {
   async function describe(assetId) {
     const [a] = await sql`select id, kind, storage_key, converted_key, duration_sec, note, ai_description from assets where id = ${assetId}`;
     if (!a) return null;
-    if (a.ai_description?.model === VISION_MODEL && a.ai_description?.summary) return a.ai_description;
-    const frames = await framesOf(a);
+    if (isCurrent(a.ai_description)) return a.ai_description;
+    const { frames, times } = await framesOf(a);
     if (!frames.length) throw new Error("could not read any frame from this file");
-    const desc = { ...(await describeMedia(frames, { kind: a.kind, note: a.note, durationSec: a.duration_sec })), at: new Date().toISOString() };
+    const desc = { ...(await describeMedia(frames, { kind: a.kind, note: a.note, durationSec: a.duration_sec, times })), at: new Date().toISOString() };
     await sql`update assets set ai_description = ${sql.json(desc)} where id = ${assetId}`;
     return desc;
   }
+
+  const isCurrent = (d) => d?.model === VISION_MODEL && !!d?.summary && d?.v === DESCRIBE_VERSION;
 
   const setPlan = (projectId, plan) =>
     sql`update projects set deck = jsonb_set(coalesce(deck, '{}'::jsonb), '{plan}', ${sql.json(plan)}), updated_at = now() where id = ${projectId}`;
@@ -65,7 +70,7 @@ export function startDeckWorker({ sql, getBytes, run, redisUrl }) {
     try {
       const assets = await loadMedia(projectId);
       if (!assets.length) throw new Error("Add some photos or videos first.");
-      const todo = assets.filter((a) => !(a.ai_description?.model === VISION_MODEL && a.ai_description?.summary));
+      const todo = assets.filter((a) => !isCurrent(a.ai_description));
       for (const [i, a] of todo.entries()) {
         await setPlan(projectId, { status: "describing", done: i, total: todo.length, startedAt: started });
         try {
@@ -98,8 +103,8 @@ export function startDeckWorker({ sql, getBytes, run, redisUrl }) {
           const textMode = brief.textMode === "off" && s.role !== "cta" ? "none" : "auto";
           await tx`insert into deck_scenes ${tx({
             id: randomUUID(), project_id: projectId, order_index: i, role: s.role, asset_id: s.assetId,
-            duration_sec: s.durationSec, text_mode: textMode, text: tx.json(s.text), layout: s.layout,
-            why: s.flags?.includes("removed-unverified-number") ? `${s.why} (Removed a number that wasn't in your brief.)`.trim() : s.why,
+            duration_sec: s.durationSec, in_sec: s.inSec ?? null, text_mode: textMode, text: tx.json(s.text), layout: s.layout,
+            why: s.flags?.length ? `${s.why} (Removed ${s.flags.includes("removed-unverified-claim") ? "a claim" : "a number"} that wasn't in your brief.)`.trim() : s.why,
           })}`;
         }
       });
@@ -135,7 +140,7 @@ export function startDeckWorker({ sql, getBytes, run, redisUrl }) {
       );
       const { flags, ...clean } = text;
       await sql`update deck_scenes set text = ${sql.json(clean)}, text_mode = 'auto',
-        why = ${flags ? "Rewritten (removed a number that wasn't in your brief)." : "Rewritten."}, updated_at = now() where id = ${sceneId}`;
+        why = ${flags ? "Rewritten (removed a claim that wasn't in your brief)." : "Rewritten."}, updated_at = now() where id = ${sceneId}`;
     } catch (e) {
       await sql`update deck_scenes set why = ${`Couldn't rewrite: ${String(e.message).slice(0, 120)}`}, updated_at = now() where id = ${sceneId}`;
     }
