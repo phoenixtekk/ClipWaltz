@@ -1,4 +1,4 @@
-<!-- session-version: 9 -->
+<!-- session-version: 10 -->
 
 # ClipWaltz — session handoff
 
@@ -13,6 +13,48 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 `DESIGN_BUILD_PLAN.md` (settled decisions in §7); features in `FEATURES.md`.
 
 ---
+
+## WaltzDeck Phase 3 (2026-09-29, v10) — LIVE on prod (`8ab3a75`)
+Owner chose "All of Phase 3". Shipped: **Presentation** mode + `slide` layout (template, preview, planner), **Present**
+full-screen view (arrows/click, N notes, P auto-play), **PDF / PPTX export** (`deck_exports`, migration **0040**, built by
+the AI-box render worker via `worker/deck/export.mjs`; PPTX = picture-layer background + editable text boxes at
+Chromium's measured positions/line breaks, voice line → notes), **import** PPTX/PDF (route `deck-import`, JSZip with
+streamed size caps / poppler `-bbox-layout` on linuxg1) and web page (`importFromUrl`, SSRF-guarded `fetchPublic` incl.
+IPv4-mapped IPv6, brief summary 8000 tokens, og:image, auto-plan). Code Reviewer found 2 issues (mapped-IPv6 SSRF, zip
+bomb) — both fixed + tested before deploy.
+- **Deployed:** linuxg1 full HEAD tree (backup `/tmp/cw-pre-phase3-src.tgz`; tree matched 8e4a0b6 before, CRLF aside),
+  `npm ci`, migration 0040, build, pm2 restart app + gen worker; AI box `render-worker.mjs` + `deck/export.mjs` +
+  `deck/text-layer.mjs` (backups `*.bak-20260929-phase3`), npm deps pptxgenjs/pdf-lib/jszip + **playwright-core now
+  pinned** in `~/clipwaltz/package.json` (an npm install pruned it once — restored in minutes, no render ran meanwhile).
+  Inventory + wiki (features, admin-docs, help-center, waltzdeck-feature-spec, gated fleet inventory) updated.
+- **Verified:** dev E2E (PPTX import 3 slides + picture + notes; URL import python.org → brief + image + auto-plan; PDF +
+  PPTX export queued in UI, built by the worker, downloaded; Present slide 2/3 + notes via DOM — the browser pane was
+  hidden so screenshots were black). Prod: 2 test exports on "WaltzDeck test — Lake Pleasant ad" (d0fcb8cd…) done by the
+  live worker (6-page PDF with text, 6-slide PPTX with 6 notes — the owner will see them as Downloads in that project);
+  anonymous download/import → 307 to sign-in; importer diagnostics on linuxg1 (PDF, URL, mapped-v6 LAN refused).
+  **Not run on prod:** an import through the prod UI (no prod login) — owner can try it any time.
+- Dev: test login in gitignored `.env.development.local` (also sets `DECK_QUEUE=clipwaltz-deck-dev`, `REDIS_URL` 6380
+  tunnel); dev projects "Phase 3 test — Q3 review", "Phase 3 test — URL import".
+- **Next:** Phase 4 (campaigns + analytics) per spec §6 — ask the owner. Known limits: PPTX fonts fall back if the
+  viewer lacks the brand font; video scenes export as stills; DNS-rebind window in `fetchPublic` (documented).
+
+## Working state (2026-09-29, rotation to v10)
+Tree **clean**, in sync with origin/main (`8e4a0b6`). Type-check + lint green on all touched files. All deployed.
+```
+8e4a0b6 docs(deck): phase 2 voice & captions, claim guard, clip moments; handoff
+f0a7486 fix(deck): narration second pass when lines repeat the on-screen text; spoken web addresses; public voice previews
+0501fee feat(deck): voiceover + word-highlight captions (phase 2)
+615c1bf feat(voice): Kokoro TTS service for WaltzDeck voiceovers (phase 2, step 1)
+9ccc752 feat(deck): claim guard beyond numbers; note-aware clip moments
+```
+- Shipped in v9: sideways-clip cause (wrong phone rotation flag) → per-clip **Rotate 90°**; remix ghost-logo fixes;
+  orphan storage cleanup (14.1 GB); AI-box tunnel readiness drop-in; **WaltzDeck** (spec `06_…`, invideo research)
+  Phase 1 (brief, notes, AI storyboard, scene cards, preview, brand kit, 1:1/4:5, deck renders) + claim guard + clip
+  moments + **Phase 2** (Kokoro voiceover service `clipwaltz-tts` on AI box 127.0.0.1:8191, captions, ducking).
+- Prod test project: "WaltzDeck test — Lake Pleasant ad" (d0fcb8cd…, owner's workspace) — AI voice + captions render.
+- **Next focus:** WaltzDeck **Phase 3** (Presentation mode, PPTX + PDF export, PPTX/PDF/URL import) per spec §6 — owner
+  hasn't confirmed yet (last question asked). Known limits: planning 18 s–5 min on the shared Ollama box; CTA narration
+  doesn't always speak the URL (prompt-only).
 
 ## Storage cleanup on project delete (2026-09-27) — deployed + verified on prod
 - `83222aa`/`2bae54c`: `deleteProject` now collects the project's keys + library media rows, deletes the row,
