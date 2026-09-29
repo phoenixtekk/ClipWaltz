@@ -64,13 +64,14 @@ export async function saveBrandKit(
   return toKit(k, input.applied);
 }
 
-/** Upload the kit's logo (PNG, JPEG, WebP or SVG, ≤ 1 MB). Creates the kit if needed. */
+/** Upload the kit's logo (PNG, JPEG or WebP, ≤ 1 MB). Creates the kit if needed. No SVG: served from the app's
+ *  origin an SVG can carry script (security review 2026-09-29). */
 export async function uploadBrandLogo(projectId: string, form: FormData): Promise<BrandKit> {
   const p = await projectWorkspace(projectId, "editor");
   const file = form.get("logo");
   if (!(file instanceof File)) throw new Error("Choose an image file");
-  const ext = ({ "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/svg+xml": "svg" } as Record<string, string>)[file.type];
-  if (!ext) throw new Error("Use a PNG, JPEG, WebP or SVG logo");
+  const ext = ({ "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" } as Record<string, string>)[file.type];
+  if (!ext) throw new Error("Use a PNG, JPEG or WebP logo");
   if (file.size > 1024 * 1024) throw new Error("Keep the logo under 1 MB");
   let [k] = await db.select().from(schema.brandKits).where(eq(schema.brandKits.workspaceId, p.workspaceId)).limit(1);
   if (!k) [k] = await db.insert(schema.brandKits).values({ id: randomUUID(), workspaceId: p.workspaceId, colorsJson: ["#8b5cf6", "#120a24"], fontsJson: { heading: "Montserrat", body: "Inter" } }).returning();

@@ -321,9 +321,13 @@ export function repairPlan(raw, { brief, media, locked = [] }) {
     t.bullets = t.bullets.filter((b) => !unverified(b, okNums));
     if (removed || t.bullets.length !== before) sc.flags = [...(sc.flags ?? []), "removed-unverified-number"];
   }
-  // Ads with a CTA always end on a CTA card carrying the owner's exact words.
+  // Ads with a CTA always end on a CTA card carrying the owner's exact words — unless the owner locked one.
   const ctaText = str(brief.cta?.text, 120);
-  if (brief.mode === "ad" && ctaText) {
+  const lockedCta = locked.some((l) => l.role === "cta");
+  if (lockedCta) {
+    for (let i = scenes.length - 1; i >= 0; i--) if (scenes[i].role === "cta" && !scenes[i].assetId) scenes.splice(i, 1);
+  }
+  if (brief.mode === "ad" && ctaText && !lockedCta) {
     let last = scenes[scenes.length - 1];
     if (!last || last.role !== "cta") {
       last = { role: "cta", assetId: null, durationSec: 2.5, text: { headline: "", sub: "", bullets: [] }, layout: "cta-card", why: "Ends on your call to action." };
@@ -386,7 +390,8 @@ export async function rewriteScene(brief, scene, mediaItem, instruction, sibling
   const media = mediaItem ? [mediaItem] : [];
   const repaired = repairPlan(
     { title: "x", scenes: [{ role: scene.role, media: mediaItem ? 1 : 0, durationSec: scene.durationSec, headline: data.headline, sub: data.sub, bullets: data.bullets, layout: scene.layout, why: "" }] },
-    { brief: { ...brief, mode: "slideshow", lengthSec: scene.durationSec, cta: null }, media },
+    // textMode "auto": the owner asked for text on THIS scene, even if the project default is Off.
+    { brief: { ...brief, mode: "slideshow", lengthSec: scene.durationSec, cta: null, textMode: "auto" }, media },
   ).scenes[0];
   return { ...repaired.text, ...(repaired.flags ? { flags: repaired.flags } : {}) };
 }

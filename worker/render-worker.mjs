@@ -1390,11 +1390,11 @@ async function deckTimeline(scenes, assets, beats, beatSync, srcDurs) {
     let offset = 0;
     if (a?.kind === "video") {
       const sd = srcDurs.get(a.storage_key) || dur;
-      dur = Math.min(dur, Math.max(0.8, sd));
+      dur = Math.min(dur, sd); // a clip shorter than 0.8 s plays its whole length
       if (sc.in_sec != null) offset = Math.max(0, Math.min(sd - dur, Number(sc.in_sec)));
       else offset = (await rankWindows(a._src, dur, sd, 1, { vision: false }))[0] ?? 0;
     }
-    slots.push({ asset: a, dur, offset, scene: sc });
+    slots.push({ asset: a, dur, offset, scene: sc, srcEnd: a?.kind === "video" ? srcDurs.get(a.storage_key) || null : null });
   }
   let musicOffset = 0;
   if (beatSync && beats.length > 4 && slots.length > 1) {
@@ -1407,8 +1407,8 @@ async function deckTimeline(scenes, assets, beats, beatSync, srcDurs) {
       let best = t;
       for (const b of rel) if (Math.abs(b - t) < Math.abs(best - t) && Math.abs(b - t) <= 0.35) best = b;
       const d = best - prevEdge;
-      // A video can't be stretched past its window by more than the snap tolerance.
-      const maxD = slots[i].asset?.kind === "video" ? slots[i].dur + 0.35 : Infinity;
+      // A video can grow at most to the end of its source (never read past the clip).
+      const maxD = slots[i].srcEnd ? slots[i].srcEnd - slots[i].offset : Infinity;
       if (d >= 0.8 && d <= maxD) { slots[i].dur = d; t = best; }
       prevEdge = t;
     }
@@ -1704,7 +1704,8 @@ async function loadRenderInputs(projectId, aspectOverride) {
     where project_id = ${projectId} and upload_state = 'uploaded' and not hidden
       and (source_format is null or conversion_state = 'ready')
     order by order_index asc, created_at asc`;
-  if (assets.length === 0) throw new Error("no uploaded assets");
+  // (A WaltzDeck storyboard may be text cards only — checked in the deck branch below.)
+  if (assets.length === 0 && project?.kind !== "deck") throw new Error("no uploaded assets");
 
   let music = null;
   if (project?.music_track_id) {

@@ -13,6 +13,13 @@ import {
   type DeckBrief, type DeckScene, type DeckState, type SceneText, type SceneTextMode,
 } from "./deck/types";
 
+/** The asset exists and belongs to this project (never trust a client-sent asset id). */
+async function assertProjectAsset(projectId: string, assetId: string) {
+  const [a] = await db.select({ id: schema.assets.id }).from(schema.assets)
+    .where(and(eq(schema.assets.id, assetId), eq(schema.assets.projectId, projectId)));
+  if (!a) throw new Error("That file isn't in this project");
+}
+
 const clip = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "");
 
 async function assertAccess(projectId: string, role: "viewer" | "editor") {
@@ -100,6 +107,7 @@ export async function setAssetNote(projectId: string, assetId: string, note: str
 /** Warm the description cache for a just-uploaded file (planning later needs no wait for it). */
 export async function describeAsset(projectId: string, assetId: string): Promise<void> {
   await assertAccess(projectId, "editor");
+  await assertProjectAsset(projectId, assetId);
   await enqueueDeck({ name: "describe", data: { assetId } }, `describe-${assetId}`);
 }
 
@@ -107,14 +115,24 @@ export async function describeAsset(projectId: string, assetId: string): Promise
 export async function requestPlan(projectId: string): Promise<void> {
   await assertAccess(projectId, "editor");
   const [p] = await db.select({ deck: schema.projects.deck }).from(schema.projects).where(eq(schema.projects.id, projectId));
-  const st = ((p.deck ?? {}) as Partial<DeckState>).plan?.status;
-  if (st === "queued" || st === "describing" || st === "planning") throw new Error("Already planning — hang on a moment.");
+  const cur = ((p.deck ?? {}) as Partial<DeckState>).plan as { status?: string; startedAt?: string } | undefined;
+  const busy = cur?.status === "queued" || cur?.status === "describing" || cur?.status === "planning";
+  // A plan older than 20 min is stale (job lost in a redeploy / Redis hiccup) — let a new one start.
+  const stale = !cur?.startedAt || Date.now() - Date.parse(cur.startedAt) > 20 * 60 * 1000;
+  if (busy && !stale) throw new Error("Already planning — hang on a moment.");
   const brief = ((p.deck ?? {}) as Partial<DeckState>).brief;
   if (!brief?.prompt?.trim()) throw new Error("Write a short brief first — what is this video for?");
   await db.update(schema.projects).set({
     deck: sql`jsonb_set(coalesce(${schema.projects.deck}, '{}'::jsonb), '{plan}', ${JSON.stringify({ status: "queued", startedAt: new Date().toISOString() })}::jsonb)`,
   }).where(eq(schema.projects.id, projectId));
-  await enqueueDeck({ name: "plan", data: { projectId } }, `plan-${projectId}-${Date.now()}`);
+  try {
+    await enqueueDeck({ name: "plan", data: { projectId } }, `plan-${projectId}-${Date.now()}`);
+  } catch {
+    await db.update(schema.projects).set({
+      deck: sql`jsonb_set(coalesce(${schema.projects.deck}, '{}'::jsonb), '{plan}', ${JSON.stringify({ status: "failed", error: "Couldn't reach the planner — try again in a moment." })}::jsonb)`,
+    }).where(eq(schema.projects.id, projectId));
+    throw new Error("Couldn't reach the planner — try again in a moment.");
+  }
 }
 
 export type ScenePatch = Partial<{
@@ -145,11 +163,7 @@ export async function updateScene(projectId: string, sceneId: string, patch: Sce
   if (patch.inSec !== undefined) set.inSec = patch.inSec == null ? null : Math.max(0, Number(patch.inSec) || 0);
   if (patch.outSec !== undefined) set.outSec = patch.outSec == null ? null : Math.max(0, Number(patch.outSec) || 0);
   if (patch.assetId !== undefined) {
-    if (patch.assetId) {
-      const [a] = await db.select({ id: schema.assets.id }).from(schema.assets)
-        .where(and(eq(schema.assets.id, patch.assetId), eq(schema.assets.projectId, projectId)));
-      if (!a) throw new Error("That file isn't in this project");
-    }
+    if (patch.assetId) await assertProjectAsset(projectId, patch.assetId);
     set.assetId = patch.assetId;
     set.inSec = null;
     set.outSec = null;
@@ -177,7 +191,7 @@ export async function reorderScenes(projectId: string, ids: string[]): Promise<v
   await assertAccess(projectId, "editor");
   const rows = await db.select({ id: schema.deckScenes.id }).from(schema.deckScenes).where(eq(schema.deckScenes.projectId, projectId));
   const known = new Set(rows.map((r) => r.id));
-  const order = ids.filter((id) => known.has(id));
+  const order = [...new Set(ids)].filter((id) => known.has(id));
   if (order.length !== known.size) throw new Error("The scene list changed — refresh and try again");
   await db.transaction(async (tx) => {
     for (const [i, id] of order.entries()) await tx.update(schema.deckScenes).set({ orderIndex: i }).where(eq(schema.deckScenes.id, id));
@@ -187,6 +201,7 @@ export async function reorderScenes(projectId: string, ids: string[]): Promise<v
 /** Add a scene after `afterIndex` (-1 = at the start) showing `assetId`, or a text card when null. */
 export async function addScene(projectId: string, afterIndex: number, assetId: string | null): Promise<string> {
   await assertAccess(projectId, "editor");
+  if (assetId) await assertProjectAsset(projectId, assetId);
   const rows = await db.select({ id: schema.deckScenes.id, orderIndex: schema.deckScenes.orderIndex })
     .from(schema.deckScenes).where(eq(schema.deckScenes.projectId, projectId)).orderBy(asc(schema.deckScenes.orderIndex));
   const at = Math.max(0, Math.min(rows.length, afterIndex + 1));

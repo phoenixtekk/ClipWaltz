@@ -20,7 +20,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const [p] = await db.select({ ws: schema.projects.workspaceId }).from(schema.projects).where(eq(schema.projects.id, projectId));
   if (!p?.ws) return new NextResponse("no logo", { status: 404 });
   const [k] = await db.select({ key: schema.brandKits.logoKey }).from(schema.brandKits).where(eq(schema.brandKits.workspaceId, p.ws)).limit(1);
-  if (!k?.key) return new NextResponse("no logo", { status: 404 });
-  const type = k.key.endsWith(".svg") ? "image/svg+xml" : k.key.endsWith(".png") ? "image/png" : k.key.endsWith(".webp") ? "image/webp" : "image/jpeg";
+  // Raster only (uploads reject SVG): never serve an SVG from the app origin.
+  if (!k?.key || k.key.endsWith(".svg")) return new NextResponse("no logo", { status: 404 });
+  const type = k.key.endsWith(".png") ? "image/png" : k.key.endsWith(".webp") ? "image/webp" : "image/jpeg";
   return serveObject(req, k.key, type, { cacheControl: "private, max-age=60" });
 }

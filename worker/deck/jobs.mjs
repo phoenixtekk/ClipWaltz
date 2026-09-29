@@ -82,10 +82,13 @@ export function startDeckWorker({ sql, getBytes, run, redisUrl }) {
         media,
         locked.map((l) => ({ orderIndex: l.order_index, role: l.role, assetId: l.asset_id, durationSec: l.duration_sec, text: l.text })),
       );
-      // New scenes fill the slots around the locked ones; locked scenes keep their position.
-      const order = result.scenes.map((s) => ({ ...s, locked: false }));
-      for (const l of locked) order.splice(Math.min(l.order_index, order.length), 0, { lockedRow: l });
+      // New scenes fill the slots around the locked ones; locked scenes keep their position. Locked rows are
+      // re-read inside the transaction: the model call takes minutes and the user may lock a scene meanwhile.
+      let order = [];
       await sql.begin(async (tx) => {
+        const lockedNow = await tx`select * from deck_scenes where project_id = ${projectId} and locked order by order_index for update`;
+        order = result.scenes.map((s) => ({ ...s, locked: false }));
+        for (const l of lockedNow) order.splice(Math.min(l.order_index, order.length), 0, { lockedRow: l });
         await tx`delete from deck_scenes where project_id = ${projectId} and not locked`;
         for (const [i, s] of order.entries()) {
           if (s.lockedRow) {
@@ -101,12 +104,12 @@ export function startDeckWorker({ sql, getBytes, run, redisUrl }) {
         }
       });
       const used = new Set(result.scenes.map((s) => s.assetId).filter(Boolean));
-      for (const l of locked) if (l.asset_id) used.add(l.asset_id);
+      for (const o of order) if (o.lockedRow?.asset_id) used.add(o.lockedRow.asset_id);
       await setPlan(projectId, {
         status: "ready", title: result.title, startedAt: started, finishedAt: new Date().toISOString(),
         unusedAssetIds: assets.filter((a) => !used.has(a.id)).map((a) => a.id), stats: result.stats,
       });
-      console.log(`[deck] planned ${projectId}: ${order.length} scenes (${locked.length} locked) in ${result.stats.ms} ms`);
+      console.log(`[deck] planned ${projectId}: ${order.length} scenes (${order.filter((o) => o.lockedRow).length} locked) in ${result.stats.ms} ms`);
     } catch (e) {
       console.error(`[deck] plan ${projectId} failed: ${e.message}`);
       await setPlan(projectId, { status: "failed", error: String(e.message).slice(0, 300), startedAt: started });
@@ -118,7 +121,7 @@ export function startDeckWorker({ sql, getBytes, run, redisUrl }) {
     if (!s) return;
     await sql`update deck_scenes set why = ${"Rewriting…"}, updated_at = now() where id = ${sceneId}`;
     try {
-      const [a] = s.asset_id ? await sql`select id, kind, duration_sec, note, ai_description from assets where id = ${s.asset_id}` : [];
+      const [a] = s.asset_id ? await sql`select id, kind, duration_sec, note, ai_description from assets where id = ${s.asset_id} and project_id = ${s.project_id}` : [];
       const others = await sql`select text from deck_scenes where project_id = ${s.project_id} and id <> ${sceneId}`;
       const text = await rewriteScene(
         s.deck?.brief ?? {},

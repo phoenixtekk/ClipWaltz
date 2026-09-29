@@ -11,7 +11,7 @@ export const FPS = 30;
 export const ENTER_SEC = 0.7;
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-const cssFont = (f, fallback) => `'${String(f || fallback).replace(/['"\\;{}]/g, "")}', ${fallback === "Montserrat" ? "sans-serif" : "sans-serif"}`;
+const cssFont = (f, fallback) => `'${String(f || fallback).replace(/[^A-Za-z0-9 -]/g, "").slice(0, 40) || fallback}', sans-serif`;
 const hex = (c, d) => (/^#[0-9a-f]{6}$/i.test(c ?? "") ? c : d);
 
 /**
@@ -110,7 +110,13 @@ function mix(a, b) {
 export async function createTextRenderer() {
   const { chromium } = await import("playwright-core");
   const browser = await chromium.launch({ executablePath: CHROMIUM, args: ["--no-sandbox", "--disable-gpu", "--font-render-hinting=none"] });
-  const page = await browser.newPage();
+  let page;
+  try {
+    page = await browser.newPage();
+  } catch (e) {
+    await browser.close().catch(() => {});
+    throw e;
+  }
   return {
     /**
      * Render one scene's text. Returns { pattern, frames, fit } — `pattern` is an ffmpeg image2 pattern

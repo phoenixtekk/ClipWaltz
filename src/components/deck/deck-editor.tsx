@@ -307,7 +307,7 @@ function BrandSection({ projectId, kit, canEdit, onSaved }: {
         ) : null}
         {canEdit ? (
           <>
-            <input ref={logo} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden" onChange={(e) => upload(e.target.files?.[0])} />
+            <input ref={logo} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => upload(e.target.files?.[0])} />
             <Button size="sm" variant="secondary" disabled={busy} onClick={() => logo.current?.click()}>
               {busy ? <Loader2 className="size-4 animate-spin" /> : <ImageIcon className="size-4" />} {kit?.hasLogo ? "Replace logo" : "Add logo"}
             </Button>
