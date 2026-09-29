@@ -112,7 +112,10 @@ export function startDeckWorker({ sql, getBytes, run, redisUrl }) {
       console.log(`[deck] planned ${projectId}: ${order.length} scenes (${order.filter((o) => o.lockedRow).length} locked) in ${result.stats.ms} ms`);
     } catch (e) {
       console.error(`[deck] plan ${projectId} failed: ${e.message}`);
-      await setPlan(projectId, { status: "failed", error: String(e.message).slice(0, 300), startedAt: started });
+      const msg = e?.name === "AbortError" || /aborted/i.test(String(e?.message))
+        ? "The AI took too long (it's shared and busy right now). Your files are already analysed — press Re-plan to try again."
+        : String(e.message).slice(0, 300);
+      await setPlan(projectId, { status: "failed", error: msg, startedAt: started });
     }
   }
 
@@ -147,7 +150,7 @@ export function startDeckWorker({ sql, getBytes, run, redisUrl }) {
       else if (job.name === "scene") await scene(d.sceneId, d.instruction);
     },
     // One at a time: the Ollama box is shared, parallel calls only queue there and evict models.
-    { connection: new IORedis(redisUrl, { maxRetriesPerRequest: null }), concurrency: 1, lockDuration: 15 * 60 * 1000 },
+    { connection: new IORedis(redisUrl, { maxRetriesPerRequest: null }), concurrency: 1, lockDuration: 30 * 60 * 1000 },
   );
   w.on("failed", (job, err) => console.error(`[deck] job ${job?.name} ${job?.id} failed: ${err?.message}`));
   console.log(`[deck] WaltzDeck worker up (queue=${DECK_QUEUE}, model=${VISION_MODEL})`);

@@ -59,6 +59,8 @@ export function extractJson(text) {
  * comes back empty whenever a format is set (the model stops after its reasoning — verified 2026-09-29),
  * so the prompt asks for JSON and the reply is extracted. One retry on unparseable output.
  */
+// Timeouts are generous: the Ollama box is shared, and a plan took 4.8 min on prod while another project's model
+// was loaded (2026-09-29) — 2-3x the dev timing.
 async function chatJson(model, content, images, { temperature = 0.3, numPredict = 3000, numCtx, timeoutMs = 180000 } = {}) {
   const msg = { role: "user", content: `${content}
 
@@ -228,7 +230,7 @@ export async function planStoryboard(brief, media, locked = []) {
     `JSON shape: {"title":string,"scenes":[{"role":${ROLES.map((r) => `"${r}"`).join("|")},"media":integer (1-based, 0 = none),` +
     `"durationSec":number,"headline":string,"sub":string,"bullets":[string],"layout":${LAYOUTS.map((l) => `"${l}"`).join("|")},"why":string}]}`;
   const t0 = Date.now();
-  const { data: raw, raw: j } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.5, numPredict: 8000, numCtx: 16384, timeoutMs: 300000 });
+  const { data: raw, raw: j } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.5, numPredict: 8000, numCtx: 16384, timeoutMs: 600000 });
   const plan = repairPlan(raw, { brief: { ...brief, mode, lengthSec: length }, media, locked });
   plan.stats = { model: TEXT_MODEL, ms: Date.now() - t0, promptTokens: j.prompt_eval_count, outTokens: j.eval_count };
   return plan;
