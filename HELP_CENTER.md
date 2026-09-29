@@ -175,6 +175,22 @@ them there, then come back. (These are in addition to the "video ready" email, w
   still editable; video scenes show a still picture. Download it from the same panel when it's ready (a few seconds).
   If the fonts look different in PowerPoint, install the brand font on that computer.
 
+## WaltzDeck campaign packs — find the ad that works
+- Once your storyboard is planned, open **4 · Campaign pack**. Choose how many **new hooks** the AI should write, add
+  other **calls to action** to test (or let the AI suggest some), and pick the **lengths** (6, 15, 30 s) and
+  **shapes**. A pack makes up to 12 videos.
+- **Write the options** — in a minute or two you get a draft: each hook with a preview, each call to action. Change
+  any wording or clip, remove what you don't like, add your own, and set where the button should go.
+- **Render N videos** makes every combination, named like **B2 · 15s · 9:16** (hook B, call to action 2).
+- Tick **Share links on** and each video gets its own page with your ad and a button. Share those links — or download
+  the videos and use each one's **tracked link** as the destination in your ad platform, so your own analytics show
+  which video sent each visitor.
+- The table shows **views**, how many **watched to the end**, **clicks** and the **click rate** for each video. Your own
+  visits don't count. Once two videos have 10+ views, the leader gets a 🏆.
+- **Make more like the winner** starts a new pack that keeps the winning video and asks the AI for fresh hooks in the
+  same style — or use ✨ on any row to build on that one.
+- Turn **Share links** off to close all the pages again.
+
 ## Waltz AI Remix — make a video you've already made even better
 - Open a project → **Waltz AI** tab → **Remix a video**. You'll see every finished video you've made:
   AutoWaltz music videos and Waltz AI clips, from all your projects. Pick one.

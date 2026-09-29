@@ -18,6 +18,8 @@ const PUBLIC_PATHS = [
   /^\/w\/[^/]+$/, // public watch page
   /^\/u\/[^/]+$/, // public creator profile
   /^\/api\/renders\/[^/]+\/watch(?:\/|$)/, // public shared-render stream
+  /^\/c\/[^/]+(?:\/go)?$/, // WaltzDeck campaign variant landing page + CTA redirect (404 unless the pack is shared)
+  /^\/api\/c\/[^/]+\/event$/, // campaign variant audience beacon
   /^\/voices\/[a-z_]+\.mp3$/, // WaltzDeck voice previews (static files in public/voices)
   /^\/api\/auth(?:\/|$)/,
   /^\/api\/billing\/webhook(?:\/|$)/, // Stripe posts here with no cookie

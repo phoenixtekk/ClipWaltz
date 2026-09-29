@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { sendEmail, simpleEmail } from "@/lib/email";
 import { sendPushToUser } from "@/lib/push";
@@ -29,6 +29,7 @@ export async function POST(req: Request) {
     .select({
       status: schema.renders.status,
       outputKey: schema.renders.outputKey,
+      campaignId: schema.renders.campaignId,
       title: schema.projects.title,
       projectId: schema.projects.id,
       ownerId: schema.projects.ownerId,
@@ -44,6 +45,27 @@ export async function POST(req: Request) {
   }
 
   const base = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.clipwaltz.com";
+
+  // WaltzDeck campaign pack: one notification for the whole pack, when its last variant is done (the worker renders
+  // one at a time, so exactly one variant sees "nothing left").
+  if (row.campaignId) {
+    const [{ left }] = await db.select({ left: sql<number>`count(*)::int` }).from(schema.renders)
+      .where(and(eq(schema.renders.campaignId, row.campaignId), inArray(schema.renders.status, ["queued", "rendering"])));
+    if (left > 0) return NextResponse.json({ ok: true, skipped: "campaign pack still rendering" });
+    const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.renders)
+      .where(and(eq(schema.renders.campaignId, row.campaignId), eq(schema.renders.status, "done")));
+    await sendPushToUser(row.ownerId, {
+      title: "Your campaign pack is ready 📣", body: `${n} videos for “${row.title}” are ready to share.`,
+      url: `${base}/projects/${row.projectId}/deck`, tag: `pack-${row.campaignId}`,
+    }).catch((e) => console.error("[render-ready] push failed:", (e as Error).message));
+    await sendEmail({
+      to: row.email,
+      subject: "Your campaign pack is ready 📣",
+      html: simpleEmail("Your campaign pack is ready 📣", `${n} videos for “${row.title}” are ready. Turn on share links to start counting views and clicks.`,
+        { label: "Open the pack", url: `${base}/projects/${row.projectId}/deck` }),
+    }).catch((e) => console.error("[render-ready] email failed:", (e as Error).message));
+    return NextResponse.json({ ok: true, pack: row.campaignId });
+  }
 
   // OS push to every browser the owner opted in on (never throws; prunes dead subs).
   await sendPushToUser(row.ownerId, {

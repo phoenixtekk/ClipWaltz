@@ -288,6 +288,13 @@
       "when": 1790720312899,
       "tag": "0040_deck_exports",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1790724743136,
+      "tag": "0041_deck_campaigns",
+      "breakpoints": true
     }
   ]
 }

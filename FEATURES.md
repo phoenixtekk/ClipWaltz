@@ -9,9 +9,37 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 |---|---|---|
 | **AutoWaltz** | Your photos + videos → a beat-synced music video (the original feature; includes Auto-Batch). | `renders`, `src/lib/render-actions.ts`, `worker/render-worker.mjs` (AI box) |
 | **Waltz AI** | New AI clips from a prompt or image (text/image-to-video), plus Enhance, storyboard assembly and exports of those clips. | `generation_jobs` / `generation_versions`, `src/lib/generation-actions.ts`, `worker/generation-worker.mjs` (linuxg1) → AISERVER |
-| **WaltzDeck** | Your photos + videos + a brief (+ a note per item) → an AI-planned **ad, slideshow or presentation** with on-screen text, scene by scene — present it, export PDF / PowerPoint, or start from a PPTX / PDF / web page. | `projects.kind='deck'`, `deck_scenes`, `src/lib/deck-actions.ts`, `worker/deck/*` (planner on linuxg1, text layer in the render worker) |
+| **WaltzDeck** | Your photos + videos + a brief (+ a note per item) → an AI-planned **ad, slideshow or presentation** with on-screen text, scene by scene — present it, export PDF / PowerPoint, or start from a PPTX / PDF / web page; campaign packs test hooks × CTAs × lengths × shapes with per-variant stats. | `projects.kind='deck'`, `deck_scenes`, `src/lib/deck-actions.ts`, `worker/deck/*` (planner on linuxg1, text layer in the render worker) |
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
+
+## WaltzDeck Phase 4 — campaign packs + per-variant stats (2026-09-29)
+- **Campaign pack** (editor section 4, any deck with a storyboard): test **hooks × calls to action × lengths (6 / 15 / 30 s)
+  × shapes (9:16 / 1:1 / 4:5 / 16:9)**, up to **12 videos** per pack. Options: your current hook + 0–3 AI hooks
+  (each a different angle — question, benefit, curiosity, bold statement, problem — with its own opening shot, line and
+  voice), your CTA + up to 3 of your own wordings + 0–2 AI wordings (they keep every web address / code of the
+  original). Same claim guard as planning (no invented numbers or claims).
+- **Review before rendering:** a draft shows every hook (with a preview frame) and CTA — edit wording, swap the clip,
+  remove or add your own, toggle lengths / shapes, set the button link; the count updates live. Nothing renders
+  until **Render N videos**.
+- **Batch render:** each combination becomes its own render with its own storyboard snapshot — the hook swapped in,
+  the CTA swapped on the end card (and in the narration), the story fitted to the length (middle scenes dropped for
+  short cuts, the CTA card keeps ≥ 2.5 s and its full wording, text re-fitted to reading speed). Named
+  `B2 · 15s · 9:16` (hook letter, CTA number). Variants stay out of the project's own render history.
+- **Share links:** one switch per pack makes every variant reachable at **`/c/<id>`** — a clean landing page with the
+  ad and its CTA button (not listed in Community; off again = 404). The button goes through a tracked redirect to
+  your link with **UTM tags** (`utm_source=clipwaltz&utm_medium=video&utm_campaign=<pack>&utm_content=<b2-15s-9x16>`);
+  the tracked link can be copied per variant for ad platforms, and each MP4 downloaded.
+- **Stats per variant:** views, watched-to-the-end rate (≥ 90 %), CTA clicks and click rate — unique visitors per day,
+  bots / link-preview fetchers and anyone who can open the project excluded; a click counts only after a view, and one
+  network address counts at most 20 visitors a day. One "pack ready" email/push when the whole pack is done. **Winner** = best click rate (ties →
+  completion) once 2+ variants have ≥ 10 views.
+- **Make more like the winner** (or *like this one* on any row): a new draft pack keeping that variant's hook, CTA,
+  length and shape, with 3 new AI hooks in the same style (the other hooks are shown to the AI as what did worse).
+- Verified 2026-09-29 on dev: 8-variant pack (2 hooks × 2 CTAs × 6/15 s) rendered at exactly 6.00 / 15.00 s with the
+  right hook and CTA frames; landing 200 / unknown 404; 23 simulated visitors counted exactly (duplicates, a bot and
+  the owner ignored); CTA redirect carried the UTM tags; winner "B2 — 25 % over 12 views"; "more like the winner"
+  produced 3 question-style hooks; share off → landing, redirect and video 404.
 
 ## WaltzDeck Phase 3 — presentations, PDF / PowerPoint export, import (2026-09-29)
 - **Presentation mode:** a third deck mode (New project → WaltzDeck → Presentation, defaults to 16:9; switching an

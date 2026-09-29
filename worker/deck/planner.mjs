@@ -217,18 +217,9 @@ const MODE_GUIDE = {
     "if a call to action is given). Slides last 6-12 s — long enough to read.",
 };
 
-/**
- * Plan a storyboard. Input:
- *   brief: { mode, prompt, goal?, audience?, tone?, offer?, cta?: {text,url}, lengthSec, textMode: auto|manual|off }
- *   media: [{ id, kind, durationSec, note, desc }]   (desc from describeMedia; order = upload order)
- *   locked: [{ orderIndex, role, assetId, durationSec, text }]  scenes the planner must keep as-is
- * Returns { title, scenes: [{ role, assetId|null, durationSec, text:{headline,sub,bullets}, layout, why }] }
- * (already validated / repaired — see repairPlan).
- */
-export async function planStoryboard(brief, media, locked = []) {
-  const mode = MODES.includes(brief.mode) ? brief.mode : "ad";
-  const length = Math.max(6, Math.min(180, Number(brief.lengthSec) || (mode === "ad" ? 15 : 45)));
-  const list = media
+/** The numbered media list the model sees (descriptions, notes, moments). */
+function mediaList(media) {
+  return media
     .map((m, i) => {
       const d = m.desc ?? {};
       return (
@@ -240,6 +231,20 @@ export async function planStoryboard(brief, media, locked = []) {
       );
     })
     .join("\n");
+}
+
+/**
+ * Plan a storyboard. Input:
+ *   brief: { mode, prompt, goal?, audience?, tone?, offer?, cta?: {text,url}, lengthSec, textMode: auto|manual|off }
+ *   media: [{ id, kind, durationSec, note, desc }]   (desc from describeMedia; order = upload order)
+ *   locked: [{ orderIndex, role, assetId, durationSec, text }]  scenes the planner must keep as-is
+ * Returns { title, scenes: [{ role, assetId|null, durationSec, text:{headline,sub,bullets}, layout, why }] }
+ * (already validated / repaired — see repairPlan).
+ */
+export async function planStoryboard(brief, media, locked = []) {
+  const mode = MODES.includes(brief.mode) ? brief.mode : "ad";
+  const length = Math.max(6, Math.min(180, Number(brief.lengthSec) || (mode === "ad" ? 15 : 45)));
+  const list = mediaList(media);
   const textRule =
     brief.textMode === "off"
       ? "The owner wants NO on-screen text: leave headline, sub and bullets empty for every scene except the cta scene."
@@ -307,7 +312,7 @@ export async function planStoryboard(brief, media, locked = []) {
 }
 
 /** Trim text to fit `maxWords`, dropping bullets first, then shortening sub, then the headline. */
-function fitText(t, maxWords) {
+export function fitText(t, maxWords) {
   const out = { headline: t.headline, sub: t.sub, bullets: [...t.bullets] };
   const total = () => words(out.headline) + words(out.sub) + out.bullets.reduce((n, b) => n + words(b), 0);
   while (total() > maxWords && out.bullets.length) out.bullets.pop();
@@ -575,4 +580,89 @@ export async function rewriteScene(brief, scene, mediaItem, instruction, sibling
     { brief: { ...brief, mode: brief.mode === "presentation" ? "presentation" : "slideshow", lengthSec: scene.durationSec, cta: null, textMode: "auto" }, media },
   ).scenes[0];
   return { ...repaired.text, ...(brief.voice?.mode === "auto" ? { voice: repaired.voice } : {}), ...(repaired.flags ? { flags: repaired.flags } : {}) };
+}
+
+// ── 4. Campaign hooks + CTAs (phase 4) ───────────────────────────────────────────────────────────
+
+const HOOK_ANGLES = ["a question to the viewer", "the main benefit, stated plainly", "curiosity (tease what's coming)", "a bold, concrete statement from the brief", "the problem the viewer has"];
+
+/**
+ * Alternative opening scenes and CTA wordings for a campaign pack. `base` = the current first (hook) scene
+ * { assetId, text, voice }; `winner` (optional) = { headline, voice, angle } of the best-performing hook and
+ * `losers` = headlines that did worse — "make more like the winner". Returns
+ * { hooks: [{ assetId, inSec, headline, sub, voice, angle, why, flags? }], ctas: [string] }, guarded like a plan
+ * (no numbers or claims the owner didn't give, reading-speed fit). Never throws for bad model output — an
+ * unusable reply just yields fewer options.
+ */
+export async function writeHooks(brief, media, base, { hooks: k = 2, ctas: kc = 2, hookSec = 2, winner = null, losers = [] } = {}) {
+  const want = Math.max(0, Math.min(4, k)), wantC = Math.max(0, Math.min(3, kc));
+  if (!want && !wantC) return { hooks: [], ctas: [] };
+  const maxWords = Math.max(3, Math.floor(hookSec * WORDS_PER_SEC) + 1);
+  const baseIdx = base?.assetId ? media.findIndex((m) => m.id === base.assetId) + 1 : 0;
+  const cta = str(brief.cta?.text, 120);
+  const prompt =
+    `You are a performance-ad copywriter. Write alternative OPENING scenes (hooks) for a short video ad and alternative ` +
+    `call-to-action wordings, to A/B test.\n` +
+    `BRIEF: "${str(brief.prompt, 1500)}"\n` +
+    (brief.audience ? `Audience: ${str(brief.audience, 200)}\n` : "") + (brief.tone ? `Tone: ${str(brief.tone, 100)}\n` : "") +
+    (brief.offer ? `Offer: ${str(brief.offer, 200)}\n` : "") + (cta ? `Current call to action: "${cta}"\n` : "") +
+    `\nMEDIA (refer to them by number):\n${mediaList(media)}\n\n` +
+    `CURRENT HOOK: media ${baseIdx || "none"}, headline "${str(base?.text?.headline, 90)}"${base?.voice ? `, voice "${str(base.voice, 200)}"` : ""}.\n` +
+    (winner
+      ? `THE WINNING HOOK so far (best click rate): headline "${str(winner.headline, 90)}"${winner.voice ? `, voice "${str(winner.voice, 200)}"` : ""}` +
+        `${winner.angle ? ` (angle: ${winner.angle})` : ""}. Hooks that did worse: ${losers.map((l) => `"${str(l, 90)}"`).join(", ") || "none"}.\n` +
+        `Write ${want} NEW hooks that use the same approach as the winner — same kind of angle and energy — but different words ` +
+        `(not copies, not the losers' approach).\n`
+      : `Write ${want} hooks, each with a DIFFERENT angle, e.g. ${HOOK_ANGLES.slice(0, Math.max(want, 3)).join("; ")}. Each must differ from the current hook.\n`) +
+    `Rules for hooks: headline max ${maxWords} words, punchy, concrete; "media" = the most eye-catching item for THAT hook ` +
+    `(may differ from the current one; 0 = keep the current media); "moment" = the number of the best moment for a video (0 = any).` +
+    (brief.voice?.mode && brief.voice.mode !== "off" ? ` "voice": a spoken line of about ${Math.max(3, Math.round(hookSec * SPEECH_WPS))} words that complements the headline.` : "") +
+    `\n` +
+    (wantC
+      ? `Write ${wantC} alternative call-to-action wordings (max 8 words each) that ask for the same action` +
+        `${cta ? ` and keep every web address, code and number of the current one exactly ("${cta}")` : ""}.\n`
+      : "") +
+    `Never invent facts, prices, numbers, awards or claims that are not in the brief or notes.\n\n` +
+    `JSON shape: {"hooks":[{"media":integer,"moment":integer,"headline":string,"sub":string,` +
+    `${brief.voice?.mode && brief.voice.mode !== "off" ? '"voice":string,' : ""}"angle":string,"why":string}],"ctas":[string]}`;
+  let data = {};
+  try {
+    ({ data } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.8, numPredict: 8000, numCtx: 16384, timeoutMs: 600000 }));
+  } catch (e) {
+    console.error(`[deck] writeHooks failed: ${e.message}`);
+    return { hooks: [], ctas: [] };
+  }
+  // Guard every hook exactly like a planned scene (numbers, claims, reading speed).
+  const raw = (Array.isArray(data.hooks) ? data.hooks : []).slice(0, want).map((h) => ({
+    role: "hook", media: Number.isInteger(h.media) && h.media > 0 ? h.media : baseIdx, moment: h.moment, durationSec: hookSec,
+    headline: h.headline, sub: h.sub, bullets: [], voice: h.voice, layout: "headline-bottom", why: h.why,
+  }));
+  const guarded = raw.length
+    ? repairPlan({ title: "x", scenes: raw }, { brief: { ...brief, mode: "ad", lengthSec: hookSec * raw.length, cta: null, voice: brief.voice?.mode === "manual" ? { ...brief.voice, mode: "auto" } : brief.voice }, media }).scenes
+    : [];
+  const seen = new Set([str(base?.text?.headline, 90).toLowerCase()]);
+  const hooks = [];
+  for (const [i, g] of guarded.entries()) {
+    const headline = g.text.headline;
+    if (!headline || seen.has(headline.toLowerCase())) continue;
+    seen.add(headline.toLowerCase());
+    hooks.push({
+      assetId: g.assetId ?? base?.assetId ?? null, inSec: g.inSec ?? null, headline, sub: g.text.sub || "",
+      voice: g.voice || "", angle: str(data.hooks[i]?.angle, 60), why: g.why || "", ...(g.flags ? { flags: g.flags } : {}),
+    });
+  }
+  // CTAs: same claim/number guard; web addresses and codes of the original must survive.
+  const okNums = allowedNumbers(brief, media);
+  const src = [brief.prompt, brief.goal, brief.audience, brief.tone, brief.offer, brief.cta?.text, ...media.map((m) => m.note)].join(" ").toLowerCase();
+  const must = (cta.match(/\b[\w-]+(\.[\w-]+)+\b|\b[A-Z0-9]{4,}\b/g) ?? []).map((x) => x.toLowerCase());
+  const ctas = [];
+  for (const c of (Array.isArray(data.ctas) ? data.ctas : []).slice(0, wantC)) {
+    let line = str(c, 120);
+    if (!line || line.toLowerCase() === cta.toLowerCase() || ctas.some((x) => x.toLowerCase() === line.toLowerCase())) continue;
+    if (unverified(line, okNums) || unverifiedClaim(line, src, !!str(brief.offer, 200))) continue;
+    const missing = must.filter((m) => !line.toLowerCase().includes(m));
+    if (missing.length) line = `${line.replace(/[.!]+$/, "")} — ${missing.join(" ")}`;
+    ctas.push(line);
+  }
+  return { hooks, ctas };
 }

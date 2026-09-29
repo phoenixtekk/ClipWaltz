@@ -1,6 +1,6 @@
 "use server";
 import { randomUUID } from "crypto";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { userCanAccessProject } from "./workspace";
@@ -200,7 +200,7 @@ export async function getRenderCheckpoint(projectId: string): Promise<RenderChec
   const [last] = await db
     .select({ settings: schema.renders.settings, version: schema.renders.version })
     .from(schema.renders)
-    .where(eq(schema.renders.projectId, projectId))
+    .where(and(eq(schema.renders.projectId, projectId), isNull(schema.renders.campaignId)))
     .orderBy(desc(schema.renders.version))
     .limit(1);
   const changes = last?.settings ? diffSettings(last.settings as RenderSettings, cur) : [];

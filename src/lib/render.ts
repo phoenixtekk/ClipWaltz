@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { userCanAccessProject } from "./workspace";
 import { requireUserId } from "./auth";
@@ -69,7 +69,8 @@ export async function listRenders(projectId: string): Promise<RenderHistoryItem[
   const rows = await db
     .select()
     .from(schema.renders)
-    .where(and(eq(schema.renders.projectId, projectId), eq(schema.renders.status, "done")))
+    // Campaign variants (WaltzDeck packs) live in their pack, not in the project's own render history.
+    .where(and(eq(schema.renders.projectId, projectId), eq(schema.renders.status, "done"), isNull(schema.renders.campaignId)))
     .orderBy(desc(schema.renders.version));
   return rows
     .filter((r) => !!r.outputKey)
@@ -95,7 +96,7 @@ export async function getLatestRender(projectId: string): Promise<RenderStatus> 
   const [r] = await db
     .select()
     .from(schema.renders)
-    .where(eq(schema.renders.projectId, projectId))
+    .where(and(eq(schema.renders.projectId, projectId), isNull(schema.renders.campaignId)))
     .orderBy(desc(schema.renders.version))
     .limit(1);
   if (!r) return null;

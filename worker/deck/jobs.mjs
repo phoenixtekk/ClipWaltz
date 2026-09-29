@@ -3,6 +3,8 @@
 //   plan     {projectId}            — describe what's missing, then (re)plan the storyboard around locked scenes
 //   scene    {sceneId, instruction} — rewrite one scene's on-screen text
 //   import   {projectId, source, key|url, name, userId} — PPTX / PDF / web page → brief + scenes (phase 3)
+//   campaign_hooks  {campaignId} — AI hook + CTA options for a draft campaign pack (phase 4)
+//   campaign_render {campaignId} — every combination → a queued render with its own storyboard snapshot
 // Progress and results live in the DB (projects.deck.plan, deck_scenes) so the editor just polls.
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
@@ -10,7 +12,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import IORedis from "ioredis";
 import { Worker } from "bullmq";
-import { describeMedia, planStoryboard, rewriteScene, chatJson, VISION_MODEL, TEXT_MODEL, DESCRIBE_VERSION } from "./planner.mjs";
+import { describeMedia, planStoryboard, rewriteScene, writeHooks, chatJson, VISION_MODEL, TEXT_MODEL, DESCRIBE_VERSION } from "./planner.mjs";
+import { buildVariant, combinations, variantCode, snapshotLength, MAX_VARIANTS } from "./variants.mjs";
 import { parsePptx, parsePdf, fetchPublic, readPage, sceneFromSlide, summarizeBrief, fallbackBrief } from "./importer.mjs";
 
 // DECK_QUEUE override: local dev uses its own queue so the prod worker never sees dev-DB jobs.
@@ -290,6 +293,87 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
     }
   }
 
+  // ── campaign packs (phase 4) ──────────────────────────────────────────────────────────────────────
+  const setCampaign = (id, fields) => sql`update deck_campaigns set ${sql(fields)}, updated_at = now() where id = ${id}`;
+
+  /** AI hook + CTA options for a draft pack (config.aiHooks / aiCtas; config.winner for "more like the winner"). */
+  async function campaignHooks(campaignId) {
+    const [c] = await sql`select * from deck_campaigns where id = ${campaignId}`;
+    if (!c) return;
+    try {
+      const [p] = await sql`select id, deck from projects where id = ${c.project_id}`;
+      const brief = p.deck?.brief ?? {};
+      const scenes = await sql`select * from deck_scenes where project_id = ${c.project_id} order by order_index`;
+      const hookScene = scenes.find((s) => s.role === "hook") ?? scenes[0];
+      const media = (await loadMedia(c.project_id)).map((a) => ({ id: a.id, kind: a.kind, durationSec: a.duration_sec, note: a.note, desc: a.ai_description }));
+      const cfg = c.config ?? {};
+      const got = await writeHooks(brief, media, { assetId: hookScene?.asset_id ?? null, text: hookScene?.text ?? {}, voice: hookScene?.voice ?? "" }, {
+        hooks: cfg.aiHooks ?? 2, ctas: cfg.aiCtas ?? 0, hookSec: Number(hookScene?.duration_sec) || 2,
+        winner: cfg.winner ?? null, losers: cfg.winner?.losers ?? [],
+      });
+      // Re-read: the owner may have edited the draft while the model was writing.
+      const [now] = await sql`select config from deck_campaigns where id = ${campaignId}`;
+      const next = { ...now.config };
+      next.hooks = [...(next.hooks ?? []), ...got.hooks.map((h) => ({ id: randomUUID(), source: cfg.winner ? "winner" : "ai", ...h }))];
+      next.ctas = [...(next.ctas ?? []), ...got.ctas.map((t) => ({ id: randomUUID(), source: "ai", text: t }))];
+      const short = (cfg.aiHooks ?? 0) > got.hooks.length ? `The AI wrote ${got.hooks.length} of ${cfg.aiHooks} hooks — add your own or try again.` : null;
+      await setCampaign(campaignId, { config: sql.json(next), status: "draft", error: short });
+      console.log(`[deck] campaign ${campaignId}: ${got.hooks.length} hooks, ${got.ctas.length} CTAs`);
+    } catch (e) {
+      console.error(`[deck] campaign hooks ${campaignId} failed: ${e.message}`);
+      await setCampaign(campaignId, { status: "draft", error: `The AI couldn't write options: ${String(e.message).slice(0, 200)}` });
+    }
+  }
+
+  /** Every hook × CTA × length × aspect → a render with its own storyboard snapshot (settings.deckVariant). */
+  async function campaignRender(campaignId) {
+    const [c] = await sql`select * from deck_campaigns where id = ${campaignId}`;
+    if (!c || c.status !== "building") return;
+    try {
+      const [p] = await sql`select id, deck, aspect from projects where id = ${c.project_id}`;
+      const brief = p.deck?.brief ?? {};
+      const base = await sql`select * from deck_scenes where project_id = ${c.project_id} order by order_index`;
+      if (!base.length) throw new Error("the storyboard is empty — plan it first");
+      const durs = await sql`select id, duration_sec from assets where project_id = ${c.project_id} and kind = 'video'`;
+      const mediaDur = new Map(durs.filter((a) => a.duration_sec).map((a) => [a.id, Number(a.duration_sec)]));
+      const cfg = c.config;
+      const combos = combinations({ hooks: cfg.hooks, ctas: cfg.ctas, lengths: cfg.lengths, aspects: cfg.aspects }).slice(0, MAX_VARIANTS);
+      if (!combos.length) throw new Error("pick at least one hook, CTA, length and shape");
+      const voiceOn = !!brief.voice?.mode && brief.voice.mode !== "off";
+      const baseCta = cfg.ctas.find((x) => x.original)?.text ?? brief.cta?.text ?? "";
+      const [{ maxv }] = await sql`select coalesce(max(version), 0)::int as maxv from renders where project_id = ${c.project_id}`;
+      await sql.begin(async (tx) => {
+        // Share links may have been switched on while the pack was building: new variants follow the switch.
+        const [{ shared }] = await tx`select shared from deck_campaigns where id = ${campaignId} for update`;
+        for (const [i, v] of combos.entries()) {
+          const scenes = buildVariant(base, {
+            hook: v.hook.original ? { original: true } : v.hook, cta: v.cta.original ? { original: true } : { text: v.cta.text },
+            lengthSec: v.lengthSec, mediaDur, voiceOn, speed: brief.voice?.speed ?? 1, baseCta, mode: brief.mode,
+          });
+          // A storyboard too short to stretch to the target (scenes top out at 8 s) is labelled with what it really runs.
+          const real = snapshotLength(scenes);
+          const lengthSec = Math.abs(real - v.lengthSec) > 1.5 ? Math.round(real) : v.lengthSec;
+          const { code, label } = variantCode(v.hookIdx, v.ctaIdx, lengthSec, v.aspect);
+          await tx`insert into renders ${tx({
+            id: randomUUID(), project_id: c.project_id, version: maxv + 1 + i, aspect: v.aspect, status: "queued",
+            watermark: cfg.watermark !== false, campaign_id: campaignId, visibility: shared ? "unlisted" : "private",
+            ...(shared ? { shared_at: new Date() } : {}),
+            settings: tx.json({ deckVariant: { scenes: scenes.map((s) => ({ ...s, created_at: undefined, updated_at: undefined })) }, aspect: v.aspect, lengthSec: snapshotLength(scenes) }),
+            variant: tx.json({ code, label, hookId: v.hook.id, ctaId: v.cta.id, lengthSec, targetSec: v.lengthSec, aspect: v.aspect,
+              hookHeadline: v.hook.original ? (base.find((s) => s.role === "hook") ?? base[0]).text?.headline ?? "" : v.hook.headline,
+              ctaText: v.cta.text, angle: v.hook.angle ?? (v.hook.original ? "original" : "") }),
+          })}`;
+        }
+        await tx`update deck_campaigns set status = 'rendering', error = null, updated_at = now() where id = ${campaignId}`;
+        await tx`update projects set status = 'rendering', updated_at = now() where id = ${c.project_id}`;
+      });
+      console.log(`[deck] campaign ${campaignId}: queued ${combos.length} variant renders`);
+    } catch (e) {
+      console.error(`[deck] campaign render ${campaignId} failed: ${e.message}`);
+      await setCampaign(campaignId, { status: "draft", error: `Couldn't build the pack: ${String(e.message).slice(0, 200)}` });
+    }
+  }
+
   const w = new Worker(
     DECK_QUEUE,
     async (job) => {
@@ -298,6 +382,8 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
       else if (job.name === "plan") await plan(d.projectId);
       else if (job.name === "scene") await scene(d.sceneId, d.instruction);
       else if (job.name === "import") await importDeck(d);
+      else if (job.name === "campaign_hooks") await campaignHooks(d.campaignId);
+      else if (job.name === "campaign_render") await campaignRender(d.campaignId);
     },
     // One at a time: the Ollama box is shared, parallel calls only queue there and evict models.
     { connection: new IORedis(redisUrl, { maxRetriesPerRequest: null }), concurrency: 1, lockDuration: 30 * 60 * 1000 },

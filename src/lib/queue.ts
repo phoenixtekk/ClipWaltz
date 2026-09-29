@@ -109,6 +109,8 @@ export type DeckJob =
   | { name: "describe"; data: { assetId: string } }
   | { name: "plan"; data: { projectId: string } }
   | { name: "scene"; data: { sceneId: string; instruction: string } }
+  | { name: "campaign_hooks"; data: { campaignId: string } }
+  | { name: "campaign_render"; data: { campaignId: string } }
   | { name: "import"; data: { projectId: string; source: "pptx" | "pdf" | "url"; key?: string; url?: string; name: string; userId: string } };
 
 let _deckQueue: Queue | null = null;

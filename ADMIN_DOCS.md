@@ -594,6 +594,33 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
   "deck export"`); import failed "isn't a public website" = SSRF guard (expected for LAN/localhost); PPTX fonts
   differ = the viewer lacks the brand font (bold/size/positions are in the file).
 
+## WaltzDeck Phase 4 — campaign packs (2026-09-29)
+- **Data:** migration `0041_deck_campaigns` — `deck_campaigns` (config jsonb: hooks, ctas, lengths, aspects, ctaUrl,
+  aiHooks, aiCtas, watermark, winner; status drafting → draft → building → rendering; `shared`; `parent_id`),
+  `variant_events` (render_id → renders cascade, campaign_id, type view|play|complete|click, visitor = salted SHA-256
+  (`BETTER_AUTH_SECRET`) of the page's random per-browser id + IP (or IP+UA), `net` = salted hash of the IP, day;
+  unique (render, type, visitor, day); ≤ 20 visitors per network address, variant, type and day; a click counts only
+  for a visitor with a view),
+  `renders.campaign_id` + `renders.variant` (code, label, hook/CTA ids, length, hook headline, CTA text, angle).
+- **Flow:** `createCampaign` → deck job `campaign_hooks` (`writeHooks` in `worker/deck/planner.mjs`, qwen3-vl, 8000
+  tokens) → owner edits (`updateCampaignDraft`) → `renderCampaign` (draft → building, atomically; ≤ 12 combinations;
+  watermark per the video rule) → deck job `campaign_render` (`worker/deck/variants.mjs` `buildVariant` per combination
+  → `renders` rows with `settings.deckVariant.scenes`) → the render worker renders the snapshot
+  (`loadRenderInputs(…, deckVariant)`; normal renders unchanged). `listRenders` / `getLatestRender` / the render
+  checkpoint ignore campaign renders.
+- **Public routes** (in `src/proxy.ts` PUBLIC_PATHS): `/c/[id]` (page), `/c/[id]/go` (CTA redirect — destination only
+  from the pack's stored link, never the request), `POST /api/c/[id]/event` (always 204). All 404 unless the render is
+  a finished variant of a pack with `shared = true`. `setCampaignShared` flips the pack's renders private ↔ unlisted
+  (a deliberately public one stays public).
+- **Notifications:** the worker still pings `/api/internal/render-ready` per render; for a pack variant the route sends
+  nothing until the pack's last variant is done, then ONE push + email ("Your campaign pack is ready").
+- **Review fixes (2026-09-29):** no fixed BullMQ job id for `campaign_render` (a retried build was silently dropped);
+  variants insert as `unlisted` when share links were switched on mid-build; draft writes are conditional on
+  `status='draft'`; a storyboard that can't reach a length is labelled with its real length (`variant.targetSec` keeps
+  the ask). Known, by design: `/c/<id>/go` sends visitors to the owner's stored link (see the handoff note on abuse).
+- **Diagnostics:** `node -e "import('./worker/deck/variants.mjs')…"` — `buildVariant` is pure (see the function's
+  comment); stats query = `select type, count(*) from variant_events where campaign_id = … group by type`.
+
 ## Render-complete notifications (Web Push)
 Two per-browser toggles at `/account/notifications`:
 - **Browser notification** — the open tab fires it from the render poll (`render-panel.tsx` →

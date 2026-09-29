@@ -111,3 +111,31 @@ export const defaultBrief = (mode: DeckMode = "ad"): DeckBrief => ({
   voice: { mode: "off", voiceId: "af_heart", speed: 1 },
   captions: { enabled: true },
 });
+
+// ── Campaign packs (phase 4) ───────────────────────────────────────────────────────────────────────
+export const CAMPAIGN_LENGTHS = [6, 15, 30] as const;
+export const CAMPAIGN_ASPECTS = ["9:16", "1:1", "4:5", "16:9"] as const;
+export const MAX_VARIANTS = 12; // keep in sync with worker/deck/variants.mjs
+/** A variant needs this many views before it can be called the winner. */
+export const MIN_VIEWS_FOR_WINNER = 10;
+
+export type CampaignHook = {
+  id: string; original?: boolean; source?: "original" | "ai" | "winner" | "you";
+  assetId: string | null; inSec?: number | null; headline: string; sub?: string; voice?: string; angle?: string; why?: string;
+};
+export type CampaignCta = { id: string; original?: boolean; source?: "original" | "ai" | "you"; text: string };
+export type CampaignConfig = {
+  hooks: CampaignHook[]; ctas: CampaignCta[]; lengths: number[]; aspects: string[];
+  ctaUrl: string | null; aiHooks: number; aiCtas: number; watermark?: boolean;
+  winner?: { renderId: string; headline: string; voice?: string; angle?: string; losers: string[] } | null;
+};
+export type VariantStats = { views: number; plays: number; completes: number; clicks: number };
+export type CampaignVariant = {
+  renderId: string; code: string; label: string; status: string; aspect: string; lengthSec: number;
+  hookHeadline: string; ctaText: string; angle: string; stats: VariantStats;
+};
+export type Campaign = {
+  id: string; name: string; status: "drafting" | "draft" | "building" | "rendering" | "failed"; shared: boolean;
+  error: string | null; parentId: string | null; createdAt: string; config: CampaignConfig; variants: CampaignVariant[];
+  winnerRenderId: string | null;
+};

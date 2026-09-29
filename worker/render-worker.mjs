@@ -1763,7 +1763,7 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
 
 // Everything a render needs from the DB (read-only): the project, its ready assets, the music bed,
 // length, aspect and style. Shared by processRender and the --wmtest diagnostic.
-async function loadRenderInputs(projectId, aspectOverride) {
+async function loadRenderInputs(projectId, aspectOverride, deckVariant = null) {
   const [project] = await sql`select * from projects where id = ${projectId}`;
   const assets = await sql`
     select * from assets
@@ -1806,7 +1806,11 @@ async function loadRenderInputs(projectId, aspectOverride) {
   // WaltzDeck (06_ClipWaltz_WaltzDeck_Feature_Spec.md): the storyboard decides clips, order, timing and
   // text; the look (music, colour, transitions, watermark, overlays) still comes from the project.
   if (project?.kind === "deck") {
-    const scenes = await sql`select * from deck_scenes where project_id = ${projectId} order by order_index asc`;
+    // A campaign variant (phase 4) renders its own storyboard snapshot (renders.settings.deckVariant) — its hook,
+    // CTA and length — not the project's current scenes.
+    const scenes = Array.isArray(deckVariant?.scenes) && deckVariant.scenes.length
+      ? deckVariant.scenes
+      : await sql`select * from deck_scenes where project_id = ${projectId} order by order_index asc`;
     if (!scenes.length) throw new Error("no storyboard scenes — plan the video first");
     let brand = {};
     if (project.brand_kit_id) {
@@ -1832,7 +1836,7 @@ async function loadRenderInputs(projectId, aspectOverride) {
 
 async function processRender(r) {
   const started = Date.now();
-  const { project, assets, music, lengthSec, aspect, style } = await loadRenderInputs(r.project_id, r.aspect);
+  const { project, assets, music, lengthSec, aspect, style } = await loadRenderInputs(r.project_id, r.aspect, r.settings?.deckVariant ?? null);
 
   const dir = mkdtempSync(join(tmpdir(), "cw-render-"));
   try {

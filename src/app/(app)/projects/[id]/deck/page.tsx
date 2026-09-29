@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getProject } from "@/lib/projects";
 import { getDeck } from "@/lib/deck-actions";
 import { getBrandKit } from "@/lib/brand-actions";
+import { getCampaigns } from "@/lib/campaign-actions";
 import { getLatestRender, listRenders } from "@/lib/render";
 import { DeckEditor } from "@/components/deck/deck-editor";
 import { RenderPanel } from "@/components/render-panel";
@@ -14,12 +15,13 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
   const project = await getProject(id);
   if (!project) notFound();
   if (project.kind !== "deck") redirect(`/projects/${id}/edit`);
-  const [data, latestRender, renders, brand] = await Promise.all([getDeck(id), getLatestRender(id), listRenders(id), getBrandKit(id)]);
+  const [data, latestRender, renders, brand, campaigns] = await Promise.all([getDeck(id), getLatestRender(id), listRenders(id), getBrandKit(id), getCampaigns(id)]);
   const canEdit = project.role !== "viewer";
   return (
     <DeckEditor
       initial={data}
       initialBrand={brand}
+      initialCampaigns={campaigns}
       canEdit={canEdit}
       renderSlot={
         <div className="space-y-4">

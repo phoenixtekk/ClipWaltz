@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { aspectClass, isWide } from "@/lib/aspect";
 import {
   DECK_MODES, LAYOUTS, MAX_BULLETS, VOICES,
-  type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type SceneTextMode, type TextMode, type VoiceMode,
+  type Campaign, type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type SceneTextMode, type TextMode, type VoiceMode,
 } from "@/lib/deck/types";
 import {
   getDeck, saveBrief, setAssetNote, describeAsset, requestPlan, updateScene, rewriteSceneText, reorderScenes, addScene, deleteScene,
@@ -19,6 +19,7 @@ import {
   type DeckData, type DeckAsset, type ScenePatch,
 } from "@/lib/deck-actions";
 import { PresentView } from "./present-view";
+import { CampaignPanel } from "./campaign-panel";
 import { uploadProjectFile, isSupported } from "@/lib/upload-client";
 import { SceneFrame, type FrameBrand } from "./scene-frame";
 import { BRAND_FONTS, BRAND_FONTS_CSS, type BrandKit } from "@/lib/brand";
@@ -28,8 +29,8 @@ const BUSY = new Set(["queued", "describing", "planning"]);
 const IMPORT_BUSY = new Set(["queued", "reading", "summarizing"]);
 const field = "w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary";
 
-export function DeckEditor({ initial, initialBrand, canEdit, renderSlot }: {
-  initial: DeckData; initialBrand: BrandKit | null; canEdit: boolean; renderSlot: ReactNode;
+export function DeckEditor({ initial, initialBrand, initialCampaigns, canEdit, renderSlot }: {
+  initial: DeckData; initialBrand: BrandKit | null; initialCampaigns: Campaign[]; canEdit: boolean; renderSlot: ReactNode;
 }) {
   const [data, setData] = useState(initial);
   const [brandKit, setBrandKit] = useState<BrandKit | null>(initialBrand);
@@ -270,6 +271,20 @@ export function DeckEditor({ initial, initialBrand, canEdit, renderSlot }: {
             <h2 className="text-sm font-semibold">3 · Render{brief.mode === "presentation" ? " as a video" : ""}</h2>
             {renderSlot}
           </section>
+
+          {data.scenes.length ? (
+            <CampaignPanel
+              projectId={projectId}
+              initial={initialCampaigns}
+              canEdit={canEdit}
+              scenes={data.scenes}
+              assets={data.assets}
+              brand={frameBrand}
+              aspect={data.project.aspect}
+              voiceOn={(brief.voice?.mode ?? "off") !== "off"}
+              ctaText={brief.cta?.text ?? ""}
+            />
+          ) : null}
         </div>
       </div>
       {presenting !== null && data.scenes.length ? (

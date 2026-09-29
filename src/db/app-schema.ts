@@ -8,6 +8,7 @@ import {
   unique,
   jsonb,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth-schema";
 
@@ -258,6 +259,10 @@ export const renders = pgTable("renders", {
   errorMessage: text(), // why a failed render failed (beta reliability metrics)
   visibility: text().notNull().default("private"), // private | unlisted | public (community feed)
   settings: jsonb(), // snapshot of the effective Format+Style settings at render time (audit + "what changed")
+  // WaltzDeck campaign variant (phase 4): the pack it belongs to + { code, label, hookId, ctaId, lengthSec, ctaText }.
+  // Its storyboard snapshot is settings.deckVariant (the worker renders that instead of the project's scenes).
+  campaignId: text(),
+  variant: jsonb(),
   description: text(), // AI-generated YouTube description (when project.describe is on)
   sharedAt: timestamp({ withTimezone: true }),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -726,6 +731,47 @@ export const deckExports = pgTable("deck_exports", {
   startedAt: timestamp({ withTimezone: true }),
   finishedAt: timestamp({ withTimezone: true }),
 });
+
+// WaltzDeck campaign packs (phase 4): one storyboard → hooks × CTAs × lengths × aspects, rendered as a batch
+// (renders.campaign_id). The AI writes hook / CTA options on the deck worker; the owner reviews them (status draft)
+// and renders. `shared` opens the variants' landing pages (/c/<renderId>). `parentId` = "make more like the winner".
+export const deckCampaigns = pgTable("deck_campaigns", {
+  id: text().primaryKey(),
+  projectId: text()
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  name: text().notNull(),
+  status: text().notNull().default("drafting"), // drafting | draft | building | rendering | failed
+  config: jsonb().notNull(), // { hooks:[…], ctas:[…], lengths:number[], aspects:string[], ctaUrl, aiHooks, aiCtas, winner? }
+  shared: boolean().notNull().default(false),
+  parentId: text(),
+  error: text(),
+  createdBy: text(),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+// Per-variant audience events from the public landing page: view | play | complete | click. One row per visitor,
+// render, type and UTC day (unique index) — `visitor` is a salted hash, never an IP or cookie value.
+export const variantEvents = pgTable(
+  "variant_events",
+  {
+    id: text().primaryKey(),
+    renderId: text()
+      .notNull()
+      .references(() => renders.id, { onDelete: "cascade" }),
+    campaignId: text().notNull(),
+    type: text().notNull(),
+    visitor: text().notNull(),
+    net: text().notNull().default(""), // salted hash of the network address (per-address daily cap)
+    day: text().notNull(), // YYYY-MM-DD (UTC)
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("variant_events_dedupe_idx").on(t.renderId, t.type, t.visitor, t.day),
+    index("variant_events_campaign_idx").on(t.campaignId, t.type),
+  ],
+);
 
 // Registry of AI model families the platform can route to (Architecture §9). Admin-toggleable.
 // ComfyUI stays hidden behind this — the app references models by name, never node internals.
