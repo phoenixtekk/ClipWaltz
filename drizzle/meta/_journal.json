@@ -260,13 +260,6 @@
       "when": 1790622789798,
       "tag": "0036_clip_rotation",
       "breakpoints": true
-    },
-    {
-      "idx": 37,
-      "version": "7",
-      "when": 1790709044184,
-      "tag": "0037_waltzdeck",
-      "breakpoints": true
     }
   ]
 }
