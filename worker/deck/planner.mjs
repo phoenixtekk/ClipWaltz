@@ -365,14 +365,26 @@ export function repairPlan(raw, { brief, media, locked = [] }) {
   const lockedDur = locked.reduce((n, l) => n + (Number(l.durationSec) || 0), 0);
   const sum = scenes.reduce((n, s) => n + s.durationSec, 0);
   const want = Math.max(MIN_SCENE * scenes.length, length - lockedDur);
-  if (sum > 0 && Math.abs(sum - want) > 0.5) {
-    const k = want / sum;
-    for (const s of scenes) {
-      // A CTA end card needs ~2.5-3.5 s to read; extra time goes to the media scenes, not to it.
-      let d = Math.max(MIN_SCENE, Math.min(s.role === "cta" && !s.assetId ? 3.5 : MAX_SCENE, s.durationSec * k));
-      const m = s.assetId ? media.find((x) => x.id === s.assetId) : null;
-      if (m?.kind === "video" && m.durationSec) d = Math.min(d, Math.max(MIN_SCENE, m.durationSec));
-      s.durationSec = d;
+  // Per-scene bounds: a hook needs ≥1.5 s to register, a CTA ≤3.5 s (with or without media — a prod plan put
+  // 6.6 s on a CTA over a photo), a video never past its own length. Scale the scenes that still have room,
+  // a few passes, so time taken from/added to clamped scenes goes to the others.
+  const floorOf = (sc) => (sc.role === "hook" ? 1.5 : MIN_SCENE);
+  const capOf = (sc) => {
+    const m = sc.assetId ? media.find((x) => x.id === sc.assetId) : null;
+    const base = sc.role === "cta" ? 3.5 : MAX_SCENE;
+    return m?.kind === "video" && m.durationSec ? Math.max(Math.min(base, m.durationSec), Math.min(floorOf(sc), m.durationSec)) : base;
+  };
+  for (const sc of scenes) sc.durationSec = Math.max(Math.min(floorOf(sc), capOf(sc)), Math.min(capOf(sc), sc.durationSec));
+  if (sum > 0) {
+    for (let pass = 0; pass < 4; pass++) {
+      const total = scenes.reduce((n, sc) => n + sc.durationSec, 0);
+      const gap = want - total;
+      if (Math.abs(gap) < 0.2) break;
+      const room = scenes.filter((sc) => (gap > 0 ? sc.durationSec < capOf(sc) - 0.01 : sc.durationSec > floorOf(sc) + 0.01));
+      const roomSum = room.reduce((n, sc) => n + sc.durationSec, 0);
+      if (!room.length || roomSum <= 0) break;
+      const k = (roomSum + gap) / roomSum;
+      for (const sc of room) sc.durationSec = Math.max(floorOf(sc), Math.min(capOf(sc), sc.durationSec * k));
     }
   }
   for (const s of scenes) {
