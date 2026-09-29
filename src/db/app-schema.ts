@@ -102,6 +102,11 @@ export const projects = pgTable("projects", {
   category: text(),
   tags: jsonb(), // string[] — searchable/filterable labels; null = none
   overlays: jsonb(), // text + emoji overlays (see lib/overlays.ts); null = none
+  // WaltzDeck (06_ClipWaltz_WaltzDeck_Feature_Spec.md): "autowaltz" = media → music video (default);
+  // "deck" = brief + per-item notes → AI storyboard (deck_scenes) → ad / slideshow / presentation.
+  kind: text().notNull().default("autowaltz"),
+  deck: jsonb(), // DeckBrief (src/lib/deck/types.ts): mode, prompt, cta, textMode, plan status…; null unless kind=deck
+  brandKitId: text(), // brand_kits.id applied to renders (no FK: brand_kits is declared later in this file)
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
@@ -216,6 +221,10 @@ export const assets = pgTable("assets", {
   // User rotation (degrees clockwise: 0/90/180/270), applied ON TOP of the file's own rotation flag.
   // For phone clips whose flag is wrong (recording started pointing at the ground → sideways).
   rotation: integer().notNull().default(0),
+  // WaltzDeck: the user's per-item prompt ("hero shot — say it's organic") and what the vision model
+  // saw in it (subject, text, mood, best moments) — inputs to the storyboard planner.
+  note: text(),
+  aiDescription: jsonb(),
   tags: jsonb(), // string[] — user labels for filtering clips (CW-MVP-024); null = none
   // Free-tier retention: when the owner was emailed that this upload is deleted in ~24 h.
   retentionNoticeAt: timestamp({ withTimezone: true }),
@@ -665,6 +674,32 @@ export const brandKits = pgTable("brand_kits", {
   colorsJson: jsonb(), // string[] hex
   fontsJson: jsonb(),
   styleGuidance: text(),
+  logoKey: text(), // MinIO key of the uploaded logo (PNG/SVG/JPEG) — WaltzDeck end cards + corner logo
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+// WaltzDeck storyboard: one row per scene card of a kind="deck" project, in order. The planner (LLM)
+// writes unlocked rows; the user edits any row and can lock it so re-planning never touches it.
+export const deckScenes = pgTable("deck_scenes", {
+  id: text().primaryKey(),
+  projectId: text()
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  orderIndex: integer().notNull().default(0),
+  role: text().notNull().default("content"), // hook | problem | benefit | proof | content | title | cta | …
+  assetId: text().references(() => assets.id, { onDelete: "set null" }), // null = text-only card (e.g. CTA end card)
+  inSec: real(), // window of a video asset (null = auto / photo)
+  outSec: real(),
+  durationSec: real().notNull().default(3),
+  textMode: text().notNull().default("auto"), // auto (AI writes) | manual (user's words, never rewritten) | none
+  text: jsonb(), // { headline?: string, sub?: string, bullets?: string[] }
+  layout: text().notNull().default("headline-bottom"), // scene template id (worker/deck/templates)
+  motion: text().notNull().default("auto"), // auto | none | push-in | pull-out | pan-left | pan-right
+  transition: text().notNull().default("cut"), // cut | crossfade
+  locked: boolean().notNull().default(false),
+  prompt: text(), // per-scene instruction from the user ("more premium", "mention free shipping")
+  why: text(), // planner's one-line reason for its choices, shown on the card
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
