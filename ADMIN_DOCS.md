@@ -503,8 +503,11 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
 - **Models:** Ollama at `OLLAMA_URL` (the shared box `192.168.166.182`). `DECK_VISION_MODEL` / `DECK_TEXT_MODEL`
   default `qwen3-vl:30b` for both — the box evicts idle models, so a second model costs a 15–60 s reload per switch
   (measured). Do **not** pass Ollama `format=` with this model: replies come back empty (verified) — the planner asks
-  for JSON in the prompt and extracts it (`extractJson`), one retry. Measured: ~40–55 s per description while the box
-  is shared, ~70 s–2.5 min per plan.
+  for JSON in the prompt and extracts it (`extractJson`), one retry. Replies are **streamed**: Node's fetch drops a
+  request whose headers take > 300 s, and a non-streamed Ollama call sends headers only when finished (a prod plan
+  failed with "fetch failed" at exactly 5 min). Timeouts: plan 10 min, job lock 30 min. `DECK_DEBUG=1` logs the raw
+  plan JSON. Measured on prod 2026-09-29: ~40–80 s per description while the box is shared (cached afterwards),
+  planning 18 s – 4.8 min depending on what else is loaded; render of a 6-scene 15 s 1:1 ad: 17 s.
 - **Guards (`repairPlan`):** unknown media dropped; durations clamped (1.2–8 s), videos ≤ their length, scaled to the
   target length (CTA card ≤ 3.5 s); reading speed ≤ 3 words/s; textMode off → no text except the CTA; ads with a CTA
   end on a CTA card containing the owner's exact words; every noted item placed; notes with first/last words reorder;
@@ -526,6 +529,9 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
 - **Brand kit:** `src/lib/brand-actions.ts` (one kit per workspace), logo in MinIO `brand/<workspaceId>/<kitId>-<ts>.<ext>`
   (≤1 MB, png/jpeg/webp/svg), served to the editor by `/api/projects/[id]/brand-logo`; the render worker embeds it
   as a data URL on title/CTA cards.
+- **Known limits (phase 1):** the claim guard only strips numbers — a phrase like "Limited time offer" can slip in;
+  video moments are picked by motion, not by the note (a "sunset" note got the busiest stretch of that clip);
+  first-draft copy is decent, not great (per-scene rewrite + locks cover it).
 - **Local dev:** planning needs Redis — tunnel `ssh -N -L 6380:127.0.0.1:6379 linuxg1`, set `DECK_QUEUE=clipwaltz-deck-dev`
   + `REDIS_URL=redis://127.0.0.1:6380` in `.env.local`, run `node --env-file=.env.local worker/deck/dev-worker.mjs`
   (refuses the prod queue name and any DB but `clipwaltz_dev`). Dev renders: a one-shot copy of the worker on the AI

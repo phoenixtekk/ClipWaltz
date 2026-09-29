@@ -25,6 +25,21 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
   cross-check first (0 live projects/renders/versions/assets referencing them), then deleted 202 objects +
   2 media rows, 0 failed; re-run dry run reports 0.
 
+## WaltzDeck Phase 1 (2026-09-29, v9) — LIVE on prod
+Owner asked for an invideo-class "ads / campaigns / presentations from your media + prompts" feature; spec
+`06_ClipWaltz_WaltzDeck_Feature_Spec.md` (research + gaps, phases 1-5; owner said "go with your recommendations" +
+overlay text Auto/Manual/Off). Phase 1 shipped: Ad + Slideshow, brief, per-item notes, AI storyboard (Ollama
+qwen3-vl:30b on the shared .182 box, streamed), scene cards (edit/lock/reorder/rewrite), instant preview, brand kit,
+1:1 + 4:5 aspects for all projects, deck renders with Chromium text layer. Deploy: full HEAD tree to linuxg1
+(backup `/tmp/cw-pre-waltzdeck-src.tgz`), migration **0038_waltzdeck** (renumbered: merged the unmerged conversion-reset
+branch `claude/trusting-chebyshev-6d16ca` whose 0037_conversion_attempts was already live), gen worker restarted
+(deck queue), render worker on AI box (backup `render-worker.mjs.bak-20260929-waltzdeck`); AI box got chromium +
+fonts + playwright-core (inventory updated). Code review findings all fixed (asset ownership, no SVG logos, stale
+plans, locked CTA, …). Prod test project **"WaltzDeck test — Lake Pleasant ad"** (d0fcb8cd…, owner's workspace; its
+clips point at Lake Day v2 files — delete via the app's purge, which keeps shared files). Known limits: claim guard is
+numbers-only, video moments by motion not note, planning 18 s–5 min on the shared box. Next: Phase 2 (voice +
+captions) per spec.
+
 ## Remix seed logo erase (2026-09-27, v9) — deployed to linuxg1 + verified
 Remix seeds from watermarked sources get `delogo` over the logo box (`wmBox` in worker/watermark.mjs) so the
 i2v model can't redraw a ghost logo. Overlay deploy (generation-worker.mjs + watermark.mjs; backups

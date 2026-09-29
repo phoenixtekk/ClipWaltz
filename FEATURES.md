@@ -39,6 +39,9 @@ campaign packs + analytics, AI fill).
   Clip moments picked by motion only (no vision calls) — a 4-scene 1:1 ad renders in ~10 s.
 - Verified 2026-09-29 end-to-end on the dev DB: wizard → brief → notes → plan (6 files: ~2.5 min on the shared model
   box, mostly describing) → rewrite → brand kit → render (dev renders via a one-shot worker copy).
+- **Live on prod 2026-09-29:** test project "WaltzDeck test — Lake Pleasant ad" (owner's workspace): plan used all 6
+  files, noted first/last placement honoured, CTA with the owner's wording; render 1080×1080, 15 s, 0 decode errors,
+  17 s render time.
 
 ## Waltz AI Remix (2026-09-27)
 Waltz AI tab → **Remix a video**: pick any finished video you can open — AutoWaltz renders and Waltz AI
