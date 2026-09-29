@@ -7,6 +7,7 @@ import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
 import { assertProjectRole, getProjectRole, getWorkspaceRole, roleAtLeast } from "./workspace";
 import { toAspect } from "./aspect";
+import { defaultBrief, type DeckMode } from "./deck/types";
 
 // Confirm the current user may edit the project (workspace role ≥ editor, ADR-0004) before any
 // mutation — defends against a tampered projectId from the client.
@@ -32,7 +33,7 @@ export async function createProject(
   template?: string,
   aspect?: string,
   inWorkspaceId?: string,
-  opts: { title?: string; description?: string; aiTemplateId?: string } = {},
+  opts: { title?: string; description?: string; aiTemplateId?: string; deckMode?: DeckMode } = {},
 ): Promise<string> {
   const userId = await requireUserId();
   const t = template && ACTIVE_TEMPLATES.has(template) ? template : "surprise";
@@ -66,7 +67,15 @@ export async function createProject(
     title: title || (DEFAULT_TITLE[t] ?? "Untitled project"),
     description,
     aiTemplateId,
+    ...(opts.deckMode
+      ? { kind: "deck", deck: { brief: defaultBrief(opts.deckMode) }, lengthSec: defaultBrief(opts.deckMode).lengthSec }
+      : {}),
   });
+  if (opts.deckMode) {
+    // WaltzDeck projects keep their own look (brief + scene layouts); a music-video preset doesn't apply.
+    revalidatePath("/projects");
+    return id;
+  }
 
   // If the user has a default preset, start the new project from it (Format + Style + overlays).
   // The explicit template/aspect above are the project's identity; the preset fills the look.

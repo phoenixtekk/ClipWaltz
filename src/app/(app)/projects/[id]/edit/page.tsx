@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getProject } from "@/lib/projects";
 import { listAssets } from "@/lib/assets";
 import { getMusicTracks, getFavoriteTrackIds } from "@/lib/music";
@@ -24,6 +24,7 @@ export default async function EditPage({
   const { tab } = await searchParams;
   const project = await getProject(id);
   if (!project) notFound();
+  if (project.kind === "deck") redirect(`/projects/${id}/deck`); // WaltzDeck has its own editor
   const userId = await getAuthUserId();
   const [assets, tracks, latestRender, renders, activeContest, favorites, presets] = await Promise.all([
     listAssets(id),

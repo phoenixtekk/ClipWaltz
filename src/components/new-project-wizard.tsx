@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { createProject } from "@/lib/project-actions";
 import type { AiTemplate } from "@/lib/template-actions";
 import type { Aspect } from "@/lib/aspect";
+import { DECK_MODES, type DeckMode } from "@/lib/deck/types";
 
 const TEMPLATE_GLYPH: Record<string, string> = {
   product: "◎", social: "▶", story: "❝", event: "✺", travel: "⛰", cinematic: "🎬",
@@ -22,7 +23,11 @@ type Template = {
 };
 
 // Product names (2026-09-25): AutoWaltz = media → music video; Waltz AI = AI-generated clips.
-const KINDS = [["music", "AutoWaltz", "music video from my media"], ["ai", "Waltz AI", "AI video from a template"]] as const;
+const KINDS = [
+  ["music", "AutoWaltz", "music video from my media"],
+  ["deck", "WaltzDeck", "ad or slideshow with text"],
+  ["ai", "Waltz AI", "AI video from a template"],
+] as const;
 
 const TEMPLATES: Template[] = [
   { key: "trip", label: "Trip", glyph: "✈", desc: "Vacations, road trips, getaways", active: true },
@@ -33,7 +38,8 @@ const TEMPLATES: Template[] = [
 
 export function NewProjectWizard({ workspaceId, aiTemplates = [] }: { workspaceId?: string; aiTemplates?: AiTemplate[] }) {
   const router = useRouter();
-  const [kind, setKind] = useState<"music" | "ai">("music");
+  const [kind, setKind] = useState<"music" | "deck" | "ai">("music");
+  const [deckMode, setDeckMode] = useState<DeckMode>("ad");
   const [selected, setSelected] = useState("trip");
   const [aiTemplateId, setAiTemplateId] = useState<string | null>(aiTemplates[0]?.id ?? null);
   const [aspect, setAspect] = useState<Aspect>("9:16");
@@ -51,8 +57,12 @@ export function NewProjectWizard({ workspaceId, aiTemplates = [] }: { workspaceI
         const tpl = kind === "ai" ? aiTemplates.find((t) => t.id === aiTemplateId) ?? null : null;
         const projectAspect = tpl ? (tpl.settings.aspect === "9:16" ? "9:16" : "16:9") : aspect;
         const id = await createProject(kind === "music" ? selected : "surprise", projectAspect, workspaceId, {
-          title: name, description, aiTemplateId: tpl?.id,
+          title: name, description, aiTemplateId: tpl?.id, deckMode: kind === "deck" ? deckMode : undefined,
         });
+        if (kind === "deck") {
+          router.push(`/projects/${id}/deck`); // WaltzDeck: brief + media + storyboard on one page
+          return;
+        }
         // CW-MVP-010: straight into the project — music videos start by importing media,
         // AI templates open the Generate tab pre-filled (CW-MVP-151).
         router.push(tpl ? `/projects/${id}/edit?tab=generate` : `/projects/${id}/import`);
@@ -118,7 +128,22 @@ export function NewProjectWizard({ workspaceId, aiTemplates = [] }: { workspaceI
         ))}
       </div>
 
-      {kind === "ai" ? (
+      {kind === "deck" ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {DECK_MODES.map((m) => (
+            <button key={m.key} type="button" aria-pressed={deckMode === m.key} disabled={pending} onClick={() => setDeckMode(m.key)}
+              className={cn("flex flex-col items-start gap-1 rounded-xl border p-4 text-left transition-colors hover:border-primary/60",
+                deckMode === m.key ? "border-primary bg-primary/10" : "border-border bg-card")}>
+              <p className="text-sm font-medium">{m.label}</p>
+              <p className="text-xs text-muted-foreground">{m.desc}</p>
+            </button>
+          ))}
+          <p className="text-xs text-muted-foreground sm:col-span-2">
+            Write a brief, add your photos and videos (with a note on any of them), and the AI plans each scene with on-screen
+            text — you edit, lock and preview before rendering.
+          </p>
+        </div>
+      ) : kind === "ai" ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {aiTemplates.map((t) => {
             const isSelected = aiTemplateId === t.id;

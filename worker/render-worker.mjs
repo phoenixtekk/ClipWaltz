@@ -886,7 +886,7 @@ const RANK_VISION_MAX = 16; // cap vision calls per clip (bounds render time on 
 // spaced) is then re-scored by the vision model so windows with people/faces/action beat empty
 // scenery or choppy-water frames (which read as high motion but make dull footage). Falls back
 // to motion-only when vision is off. Returns up to `k` offsets ([0] when the clip is too short).
-async function rankWindows(src, need, srcDur, k = 1) {
+async function rankWindows(src, need, srcDur, k = 1, { vision = true } = {}) {
   if (!need || srcDur <= need + 0.3) return [0];
   try {
     const { stdout } = await run(
@@ -927,7 +927,7 @@ async function rankWindows(src, need, srcDur, k = 1) {
     // Score candidates. Vision (people/faces/subject) dominates; motion breaks ties and ranks
     // any windows the vision pass didn't reach (kept below scored ones).
     let scored;
-    if (OLLAMA_URL) {
+    if (OLLAMA_URL && vision) {
       const list = cand.slice(0, RANK_VISION_MAX);
       const rest = cand.slice(RANK_VISION_MAX);
       scored = [];
@@ -954,7 +954,7 @@ async function rankWindows(src, need, srcDur, k = 1) {
       if (picked.every((p) => Math.abs(p - s.t) >= need)) picked.push(s.t);
       if (picked.length >= k) break;
     }
-    if (picked.length && OLLAMA_URL) {
+    if (picked.length && OLLAMA_URL && vision) {
       console.log(`[worker] ranked ${picked.length} window(s), best ${picked[0].toFixed(1)}s (motion-only best ${clamp(byMotion[0].t).toFixed(1)}s)`);
     }
     return picked.length ? picked : [clamp(byMotion[0].t)];
@@ -1376,9 +1376,95 @@ async function crossfadeChunks(dir, segments, durations, T, chunkSize = XFADE_CH
   return { files, listFile, total };
 }
 
+// ── WaltzDeck ────────────────────────────────────────────────────────────────────────────────────
+// Slots from the storyboard: each scene's clip (or none = text card), duration and window. Video windows
+// use the scene's in-point when set, else the most active stretch (motion only — the planner already
+// chose the clip, and vision ranking would add minutes on the shared Ollama box). With beat sync, scene
+// boundaries move to the nearest beat within ±0.35 s (never below 0.8 s a scene).
+async function deckTimeline(scenes, assets, beats, beatSync, srcDurs) {
+  const byId = new Map(assets.map((a) => [a.id, a]));
+  const slots = [];
+  for (const sc of scenes) {
+    const a = sc.asset_id ? byId.get(sc.asset_id) ?? null : null;
+    let dur = Math.max(0.8, Number(sc.duration_sec) || 3);
+    let offset = 0;
+    if (a?.kind === "video") {
+      const sd = srcDurs.get(a.storage_key) || dur;
+      dur = Math.min(dur, Math.max(0.8, sd));
+      if (sc.in_sec != null) offset = Math.max(0, Math.min(sd - dur, Number(sc.in_sec)));
+      else offset = (await rankWindows(a._src, dur, sd, 1, { vision: false }))[0] ?? 0;
+    }
+    slots.push({ asset: a, dur, offset, scene: sc });
+  }
+  let musicOffset = 0;
+  if (beatSync && beats.length > 4 && slots.length > 1) {
+    musicOffset = beats[0];
+    const rel = beats.map((b) => b - beats[0]);
+    let t = 0;
+    let prevEdge = 0;
+    for (let i = 0; i < slots.length - 1; i++) {
+      t += slots[i].dur;
+      let best = t;
+      for (const b of rel) if (Math.abs(b - t) < Math.abs(best - t) && Math.abs(b - t) <= 0.35) best = b;
+      const d = best - prevEdge;
+      // A video can't be stretched past its window by more than the snap tolerance.
+      const maxD = slots[i].asset?.kind === "video" ? slots[i].dur + 0.35 : Infinity;
+      if (d >= 0.8 && d <= maxD) { slots[i].dur = d; t = best; }
+      prevEdge = t;
+    }
+  }
+  for (const s of slots) s.dur = Math.round(s.dur * 1000) / 1000;
+  return { slots, musicOffset };
+}
+
+// One segment per scene: the clip filling the frame (cropped, not letterboxed — text layouts assume full
+// bleed) or the brand card, with the scene's text layer (worker/deck/text-layer.mjs) composited on top.
+async function deckSegments(dir, slots, W, H, style, segments, durations) {
+  const cover = `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,fps=30`;
+  const needsText = slots.some((s) => hasDeckText(s.scene) || !s.asset);
+  const tr = needsText ? await (await import("./deck/text-layer.mjs")).createTextRenderer() : null;
+  try {
+    for (let i = 0; i < slots.length; i++) {
+      const { asset: a, dur, offset, scene } = slots[i];
+      const seg = join(dir, `seg${i}.mp4`);
+      const enc = ["-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-t", dur.toFixed(3), seg];
+      const text = hasDeckText(scene) ? scene.text : null;
+      let layer = null;
+      if (text || !a) {
+        const ld = join(dir, `txt${i}`);
+        mkdirSync(ld, { recursive: true });
+        layer = await tr.renderScene({ layout: scene.layout, text: text ?? {}, W, H, brand: style.deck.brand, card: !a }, ld);
+      }
+      if (!a) {
+        // Text card: the template painted the brand background; hold its settled last frame.
+        await ffmpeg(["-framerate", "30", "-i", layer.pattern, "-vf", `tpad=stop_mode=clone:stop_duration=${(dur + 1).toFixed(2)},fps=30,format=yuv420p`, ...enc]);
+      } else {
+        const rot = vfRotate(a.rotation);
+        const moving = a.kind !== "video" && style.motion && scene.motion !== "none";
+        const base = a.kind === "video" ? rot + cover : moving ? rot + vfKenBurns(W, H, Math.max(1, Math.round(dur * 30))) : rot + cover;
+        const input = a.kind === "video" ? ["-ss", offset.toFixed(3), "-t", dur.toFixed(3), "-i", a._src] : ["-loop", "1", "-t", dur.toFixed(3), "-i", a._src];
+        if (layer) {
+          await ffmpeg([...input, "-framerate", "30", "-i", layer.pattern, "-filter_complex", `[0:v]${base}[b];[b][1:v]overlay=0:0:eof_action=repeat:format=auto,format=yuv420p[v]`, "-map", "[v]", ...enc]);
+        } else {
+          await ffmpeg([...input, "-vf", `${base},format=yuv420p`, ...enc]);
+        }
+      }
+      segments.push(seg);
+      durations.push(await probe(seg));
+    }
+  } finally {
+    await tr?.close();
+  }
+}
+const hasDeckText = (sc) => sc.text_mode !== "none" && !!(sc.text?.headline || sc.text?.sub || sc.text?.bullets?.length);
+
 async function assemble(dir, assets, music, watermark, lengthSec, aspect, style) {
   const [W, H] = dims(aspect);
   const V = vfStatic(W, H);
+  if (style.deck) {
+    const used = new Set(style.deck.scenes.map((sc) => sc.asset_id).filter(Boolean));
+    assets = assets.filter((a) => used.has(a.id));
+  }
 
   // Download sources first (need durations for smart windowing + timeline).
   const srcDurs = new Map();
@@ -1406,7 +1492,9 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     if (style.waltzToMusic) energyCurve = await getEnergyCurve(musicFile);
   }
 
-  const { slots, musicOffset } = await buildTimeline(
+  const { slots, musicOffset } = style.deck
+    ? await deckTimeline(style.deck.scenes, assets, beats, style.beatSync, srcDurs)
+    : await buildTimeline(
     assets,
     beats,
     lengthSec,
@@ -1423,7 +1511,8 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
   // Build one normalized segment per slot.
   const segments = [];
   const durations = [];
-  for (let i = 0; i < slots.length; i++) {
+  if (style.deck) await deckSegments(dir, slots, W, H, style, segments, durations);
+  else for (let i = 0; i < slots.length; i++) {
     const { asset: a, dur, offset } = slots[i];
     const seg = join(dir, `seg${i}.mp4`);
     const enc = ["-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", seg];
@@ -1629,6 +1718,29 @@ async function loadRenderInputs(projectId, aspectOverride) {
     originalVolume: project?.original_volume ?? null,
     overlays: Array.isArray(project?.overlays) ? project.overlays : [],
   };
+
+  // WaltzDeck (06_ClipWaltz_WaltzDeck_Feature_Spec.md): the storyboard decides clips, order, timing and
+  // text; the look (music, colour, transitions, watermark, overlays) still comes from the project.
+  if (project?.kind === "deck") {
+    const scenes = await sql`select * from deck_scenes where project_id = ${projectId} order by order_index asc`;
+    if (!scenes.length) throw new Error("no storyboard scenes — plan the video first");
+    let brand = {};
+    if (project.brand_kit_id) {
+      const [bk] = await sql`select * from brand_kits where id = ${project.brand_kit_id}`;
+      if (bk) {
+        const colors = Array.isArray(bk.colors_json) ? bk.colors_json : [];
+        const fonts = bk.fonts_json ?? {};
+        brand = { primary: colors[0], secondary: colors[1], headingFont: fonts.heading, bodyFont: fonts.body, logoKey: bk.logo_key };
+      }
+    }
+    style.deck = { scenes, brand };
+    style.titleText = null; // scenes carry their own text
+    style.originalAudio = false;
+    style.maxFootage = false;
+    style.fades = false; // an ad opens on its hook, not from black
+    const total = scenes.reduce((n, sc) => n + (Number(sc.duration_sec) || 0), 0);
+    return { project, assets, music, lengthSec: Math.round(total * 100) / 100, aspect, style };
+  }
 
   return { project, assets, music, lengthSec, aspect, style };
 }

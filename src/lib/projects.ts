@@ -12,6 +12,7 @@ export type ProjectSummary = {
   titleText: string | null; // the Style Title / caption — shown on cards to tell projects apart
   status: ProjectStatus;
   aspect: string;
+  kind: string; // "autowaltz" | "deck" (WaltzDeck) — decides which editor opens
   clips?: number; // uploaded asset count (populated by listProjects)
   category: string | null; // folder name on the projects page; null = Uncategorized
   tags: string[]; // free-form labels
@@ -68,6 +69,7 @@ export async function getProject(id: string): Promise<ProjectDetail | null> {
     title: r.title,
     status: r.status as ProjectStatus,
     aspect: r.aspect,
+    kind: r.kind,
     category: r.category,
     tags: Array.isArray(r.tags) ? (r.tags as string[]) : [],
     template: r.template,
@@ -144,6 +146,7 @@ export async function listProjects(workspaceId?: string, includeLegacy = false):
     titleText: r.titleText,
     status: r.status as ProjectStatus,
     aspect: r.aspect,
+    kind: r.kind,
     clips: clipMap.get(r.id) ?? 0,
     category: r.category,
     tags: Array.isArray(r.tags) ? (r.tags as string[]) : [],

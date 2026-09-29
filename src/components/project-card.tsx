@@ -60,7 +60,7 @@ export function ProjectCard({
   const [thumbOk, setThumbOk] = useState(true);
   const status = STATUS[project.status] ?? STATUS.draft;
   const wide = isWide(project.aspect);
-  const editHref = `/projects/${project.id}/edit`;
+  const editHref = project.kind === "deck" ? `/projects/${project.id}/deck` : `/projects/${project.id}/edit`;
   const clips = project.clips ?? 0;
   const displayName = project.titleText?.trim() || project.title;
   const OrientIcon = wide ? RectangleHorizontal : project.aspect === "1:1" ? Square : RectangleVertical;

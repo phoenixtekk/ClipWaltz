@@ -213,7 +213,8 @@ export async function planStoryboard(brief, media, locked = []) {
     (brief.cta?.text ? `Call to action (use verbatim in the cta scene headline or sub): "${str(brief.cta.text, 120)}"\n` : "") +
     `\nMEDIA (refer to them by number):\n${list}\n${lockedList}\n` +
     `RULES:\n` +
-    `- Use every media item that fits the brief; the owner's notes are instructions (placement, what to say) — follow them.\n` +
+    `- Use every media item that fits the brief; EVERY item with an owner's note must appear. Notes are instructions (placement, what to say) — follow them.\n` +
+    `- Write every headline yourself from the brief — never copy words, brand names or signs visible in the media ("text in image" is context only).\n` +
     `- If a note asks for specific wording in quotes, use those exact words.\n` +
     `- Scene durations must add up to about ${length} seconds (each between ${MIN_SCENE} and ${MAX_SCENE} s; videos no longer than their length).\n` +
     `- ${textRule}\n` +
@@ -288,6 +289,18 @@ export function repairPlan(raw, { brief, media, locked = [] }) {
     // The model returned nothing usable: one scene per media item, in upload order, no text.
     for (const m of media) scenes.push({ role: "content", assetId: m.id, durationSec: 3, text: { headline: "", sub: "", bullets: [] }, layout: "headline-bottom", why: "Fallback: media in upload order." });
   }
+  // Every item the owner wrote a note on appears (the model sometimes drops one — e.g. "end on this").
+  const placed = new Set(scenes.map((sc) => sc.assetId).filter(Boolean));
+  for (const m of media) {
+    if (!m.note || placed.has(m.id)) continue;
+    const dur = m.kind === "video" && m.durationSec ? Math.min(3, Math.max(MIN_SCENE, m.durationSec)) : 3;
+    const at = scenes.length && scenes[scenes.length - 1].role === "cta" ? scenes.length - 1 : scenes.length;
+    scenes.splice(at, 0, {
+      role: "content", assetId: m.id, durationSec: dur, text: { headline: "", sub: "", bullets: [] },
+      layout: "headline-bottom", why: `Added because you wrote a note on it: "${str(m.note, 80)}".`,
+    });
+    placed.add(m.id);
+  }
   // Owner placement notes win over the model's order: "first" media leads, "last" media closes (before a CTA card).
   const noteOf = (sc) => (sc.assetId ? media.find((m) => m.id === sc.assetId)?.note : null);
   const firsts = scenes.filter((sc) => wantsFirst(noteOf(sc)) && !wantsLast(noteOf(sc)));
@@ -340,4 +353,39 @@ export function repairPlan(raw, { brief, media, locked = [] }) {
     if (s.layout === "bullets" && s.text.bullets.length < 2) s.layout = s.assetId ? "headline-bottom" : "title-card";
   }
   return { title: str(raw?.title, 80) || "Untitled", scenes };
+}
+
+// ── 3. Rewrite one scene's text ──────────────────────────────────────────────────────────────────
+
+/**
+ * Rewrite the on-screen text of ONE scene. `instruction` is "rewrite" | "shorter" | "punchier" or the
+ * owner's own words. Same guards as the planner (reading speed, no numbers the owner never gave).
+ * Returns { headline, sub, bullets, flags? }.
+ */
+export async function rewriteScene(brief, scene, mediaItem, instruction, siblings = []) {
+  const ask =
+    instruction === "shorter" ? "Make it shorter and tighter."
+    : instruction === "punchier" ? "Make it punchier and more energetic, still honest."
+    : instruction === "rewrite" || !instruction ? "Write a fresh alternative."
+    : `The owner asks: "${str(instruction, 300)}".`;
+  const maxWords = Math.max(3, Math.floor((Number(scene.durationSec) || 3) * WORDS_PER_SEC) + 1);
+  const d = mediaItem?.desc ?? {};
+  const prompt =
+    `You write on-screen text for one scene of a ${brief.mode === "slideshow" ? "slideshow" : "short ad"}.\n` +
+    `BRIEF: "${str(brief.prompt, 1200)}"` + (brief.tone ? ` Tone: ${str(brief.tone, 100)}.` : "") +
+    (brief.offer ? ` Offer: ${str(brief.offer, 200)}.` : "") + (brief.cta?.text ? ` CTA: "${str(brief.cta.text, 120)}".` : "") + "\n" +
+    `SCENE ${scene.role}, ${scene.durationSec}s, layout ${scene.layout}. ` +
+    (mediaItem ? `It shows: ${d.summary || "(no description)"}${mediaItem.note ? ` — owner's note: "${mediaItem.note}"` : ""}.` : "It is a text card with no media.") + "\n" +
+    `Current text: headline "${scene.text?.headline ?? ""}", sub "${scene.text?.sub ?? ""}", bullets ${JSON.stringify(scene.text?.bullets ?? [])}.\n` +
+    (siblings.length ? `Other scenes already say: ${siblings.map((t) => `"${t}"`).join(", ")} — don't repeat them.\n` : "") +
+    `${ask}\nRules: at most ${maxWords} words in total; ${scene.layout === "bullets" ? "2-3 bullets" : "bullets only if the layout is bullets"}; ` +
+    `never invent facts, prices, numbers or claims not in the brief or note.\n` +
+    `JSON keys: {"headline":string,"sub":string,"bullets":[string]}`;
+  const { data } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.7, numPredict: 3000 });
+  const media = mediaItem ? [mediaItem] : [];
+  const repaired = repairPlan(
+    { title: "x", scenes: [{ role: scene.role, media: mediaItem ? 1 : 0, durationSec: scene.durationSec, headline: data.headline, sub: data.sub, bullets: data.bullets, layout: scene.layout, why: "" }] },
+    { brief: { ...brief, mode: "slideshow", lengthSec: scene.durationSec, cta: null }, media },
+  ).scenes[0];
+  return { ...repaired.text, ...(repaired.flags ? { flags: repaired.flags } : {}) };
 }

@@ -101,3 +101,27 @@ export async function enqueueEnhance(generationJobId: string, opts: JobsOptions 
     },
   );
 }
+
+/** WaltzDeck queue: media descriptions, storyboard planning, scene rewrites (worker/deck/jobs.mjs). */
+// Override for local dev (its own queue + dev worker, worker/deck/dev-worker.mjs) — never share prod's.
+export const DECK_QUEUE = process.env.DECK_QUEUE || "clipwaltz-deck";
+export type DeckJob =
+  | { name: "describe"; data: { assetId: string } }
+  | { name: "plan"; data: { projectId: string } }
+  | { name: "scene"; data: { sceneId: string; instruction: string } };
+
+let _deckQueue: Queue | null = null;
+export function deckQueue(): Queue {
+  if (!_deckQueue) _deckQueue = new Queue(DECK_QUEUE, { connection: redis() });
+  return _deckQueue;
+}
+
+/** Enqueue a WaltzDeck job. `jobId` de-duplicates (e.g. one pending plan per project). */
+export async function enqueueDeck(job: DeckJob, jobId?: string): Promise<void> {
+  await deckQueue().add(job.name, job.data, {
+    ...(jobId ? { jobId } : {}),
+    attempts: 1,
+    removeOnComplete: 500,
+    removeOnFail: 1000,
+  });
+}
