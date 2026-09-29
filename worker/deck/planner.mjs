@@ -340,7 +340,8 @@ export function repairPlan(raw, { brief, media, locked = [] }) {
   if (sum > 0 && Math.abs(sum - want) > 0.5) {
     const k = want / sum;
     for (const s of scenes) {
-      let d = Math.max(MIN_SCENE, Math.min(MAX_SCENE, s.durationSec * k));
+      // A CTA end card needs ~2.5-3.5 s to read; extra time goes to the media scenes, not to it.
+      let d = Math.max(MIN_SCENE, Math.min(s.role === "cta" && !s.assetId ? 3.5 : MAX_SCENE, s.durationSec * k));
       const m = s.assetId ? media.find((x) => x.id === s.assetId) : null;
       if (m?.kind === "video" && m.durationSec) d = Math.min(d, Math.max(MIN_SCENE, m.durationSec));
       s.durationSec = d;

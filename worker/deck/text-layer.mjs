@@ -18,7 +18,7 @@ const hex = (c, d) => (/^#[0-9a-f]{6}$/i.test(c ?? "") ? c : d);
  * HTML for one scene's text at W×H. `card` = the template paints its own brand background (text-only
  * scenes: title / CTA cards); otherwise the page is transparent and sits over the media.
  */
-export function sceneHtml({ layout, text, W, H, brand = {}, card = false }) {
+export function sceneHtml({ layout, text, W, H, brand = {}, card = false, safeBottom = 0 }) {
   const u = W / 100; // 1 "cqw"
   const primary = hex(brand.primary, "#8b5cf6");
   const dark = hex(brand.secondary, "#120a24");
@@ -29,6 +29,9 @@ export function sceneHtml({ layout, text, W, H, brand = {}, card = false }) {
   const sub = t.sub ? `<p class="s a2">${esc(t.sub)}</p>` : "";
   const bullets = (t.bullets ?? []).filter(Boolean);
   const lay = card ? (layout === "cta-card" ? "cta-card" : "title-card") : layout;
+  // Keep text clear of the watermark logo (bottom-left) when there is one.
+  const sb = Math.max(7 * u, safeBottom);
+  const cardOverMedia = !card && (layout === "title-card" || layout === "cta-card");
   let body;
   if (lay === "headline-center") body = `<div class="center">${headline}${sub}</div>`;
   else if (lay === "lower-third") body = `<div class="bar a1">${headline}${sub}</div>`;
@@ -40,20 +43,20 @@ export function sceneHtml({ layout, text, W, H, brand = {}, card = false }) {
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 html,body{margin:0;width:${W}px;height:${H}px;overflow:hidden;background:${card ? `radial-gradient(120% 90% at 20% 10%, ${primary} 0%, ${mix(primary, dark)} 45%, ${dark} 100%)` : "transparent"}}
 *{box-sizing:border-box}
-.h{margin:0;font-family:${hFont};font-weight:800;line-height:1.05;color:#fff;letter-spacing:-.01em;overflow-wrap:anywhere}
-.s{margin:0;font-family:${bFont};font-weight:500;line-height:1.3;color:#f3eeff;overflow-wrap:anywhere}
-.bottom{position:absolute;left:0;right:0;bottom:0;display:flex;flex-direction:column;gap:${1.4 * u}px;padding:${7 * u}px;padding-top:${22 * u}px}
+.h{margin:0;font-family:${hFont};font-weight:800;line-height:1.05;color:#fff;letter-spacing:-.01em;overflow-wrap:normal;max-width:100%}
+.s{margin:0;font-family:${bFont};font-weight:500;line-height:1.3;color:#f3eeff;overflow-wrap:normal;max-width:100%}
+.bottom{position:absolute;left:0;right:0;bottom:0;display:flex;flex-direction:column;gap:${1.4 * u}px;padding:${7 * u}px;padding-bottom:${sb}px;padding-top:${22 * u}px}
 .grad{background:linear-gradient(to top, rgba(0,0,0,.72), rgba(0,0,0,0))}
 .bottom .h{font-size:${7.5 * u}px}.bottom .s{font-size:${4.2 * u}px}
 .center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:${2 * u}px;padding:${7 * u}px;text-align:center;background:rgba(0,0,0,.25)}
 .center .h{font-size:${9 * u}px;text-shadow:0 ${0.3 * u}px ${1.6 * u}px rgba(0,0,0,.6)}.center .s{font-size:${4.2 * u}px;text-shadow:0 1px ${0.8 * u}px rgba(0,0,0,.6)}
-.bar{position:absolute;left:${5 * u}px;right:${5 * u}px;bottom:${6 * u * (H / W)}px;border-radius:${1.5 * u}px;background:rgba(0,0,0,.6);padding:${2.5 * u}px ${4 * u}px}
+.bar{position:absolute;left:${5 * u}px;right:${5 * u}px;bottom:${Math.max(6 * u * (H / W), sb)}px;border-radius:${1.5 * u}px;background:rgba(0,0,0,.6);padding:${2.5 * u}px ${4 * u}px}
 .bar .h{font-size:${5 * u}px}.bar .s{font-size:${3.4 * u}px}
 ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:${1 * u}px}
 li{display:flex;align-items:flex-start;gap:${2 * u}px;font-family:${bFont};font-weight:600;font-size:${4 * u}px;color:#fff}
 li i{flex:none;width:${1.8 * u}px;height:${1.8 * u}px;margin-top:${1.3 * u}px;border-radius:50%;background:${primary}}
 .bottom:has(ul) .h{font-size:${6.5 * u}px}
-.card{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:${2.5 * u}px;padding:${8 * u}px;text-align:center}
+.card{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:${2.5 * u}px;padding:${8 * u}px;padding-bottom:${Math.max(8 * u, sb)}px;text-align:center${cardOverMedia ? ";background:rgba(10,6,24,.55)" : ""}}
 .card .h{font-size:${8.5 * u}px}.card .s{font-size:${4.4 * u}px}
 .pill{background:${primary};color:#fff !important;font-weight:700 !important;border-radius:999px;padding:${2 * u}px ${5 * u}px}
 .meta{font-size:${3.6 * u}px !important;color:#e9dcff}
@@ -64,7 +67,16 @@ li i{flex:none;width:${1.8 * u}px;height:${1.8 * u}px;margin-top:${1.3 * u}px;bo
 @keyframes pop{from{opacity:0;transform:scale(.7)}to{opacity:1;transform:none}}
 </style></head><body>${body}<script>
 // Auto-fit: shrink each text block until the whole layout fits inside the frame (never overflows).
-const fits = () => [...document.querySelectorAll('.bottom,.center,.bar,.card')].every((b) => b.scrollHeight <= b.clientHeight + 1 && b.getBoundingClientRect().top >= 0);
+const fits = () => [...document.querySelectorAll('.bottom,.center,.bar,.card')].every((b) => b.scrollHeight <= b.clientHeight + 1 && b.getBoundingClientRect().top >= 0)
+  && [...document.querySelectorAll('.h,.s,li')].every((el) => {
+    // Inside the frame with the layout's side padding (a flex item can grow past its parent, so compare to the frame).
+    const r = el.getBoundingClientRect(), pad = innerWidth * 0.04;
+    return el.scrollWidth <= el.clientWidth + 1 && r.left >= pad - 1 && r.right <= innerWidth - pad + 1;
+  });
+// Run again by renderScene after document.fonts.ready: measured with a fallback font the text looks
+// narrower than it renders (verified 2026-09-29 — a CTA URL ran off the frame).
+window.__doFit = () => {
+for (const el of document.querySelectorAll('.h,.s,li')) { if (el.dataset.fs) el.style.fontSize = el.dataset.fs + 'px'; el.style.overflowWrap = ''; }
 let k = 1;
 while (!fits() && k > 0.45) {
   k -= 0.05;
@@ -73,7 +85,12 @@ while (!fits() && k > 0.45) {
     el.style.fontSize = (el.dataset.fs * k) + 'px';
   }
 }
+// Last resort (a single word wider than the frame even at the smallest size): allow breaking inside it.
+if (!fits()) for (const el of document.querySelectorAll('.h,.s,li')) el.style.overflowWrap = 'anywhere';
 window.__fit = k;
+return k;
+};
+window.__doFit();
 </script></body></html>`;
 }
 
@@ -93,10 +110,10 @@ export async function createTextRenderer() {
      * Render one scene's text. Returns { pattern, frames, fit } — `pattern` is an ffmpeg image2 pattern
      * (f%03d.png) of `frames` PNGs at FPS: the entrance animation, whose last frame is the settled layout.
      */
-    async renderScene({ layout, text, W, H, brand, card }, outDir) {
+    async renderScene({ layout, text, W, H, brand, card, safeBottom }, outDir) {
       await page.setViewportSize({ width: W, height: H });
-      await page.setContent(sceneHtml({ layout, text, W, H, brand, card }), { waitUntil: "load" });
-      await page.evaluate(() => document.fonts.ready);
+      await page.setContent(sceneHtml({ layout, text, W, H, brand, card, safeBottom }), { waitUntil: "load" });
+      await page.evaluate(async () => { await document.fonts.ready; window.__doFit(); });
       const frames = Math.max(1, Math.round(ENTER_SEC * FPS));
       for (let f = 0; f < frames; f++) {
         const ms = f === frames - 1 ? 5000 : (f * 1000) / FPS; // the last frame is fully settled

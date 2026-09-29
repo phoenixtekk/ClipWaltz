@@ -1419,10 +1419,14 @@ async function deckTimeline(scenes, assets, beats, beatSync, srcDurs) {
 
 // One segment per scene: the clip filling the frame (cropped, not letterboxed — text layouts assume full
 // bleed) or the brand card, with the scene's text layer (worker/deck/text-layer.mjs) composited on top.
-async function deckSegments(dir, slots, W, H, style, segments, durations) {
+async function deckSegments(dir, slots, W, H, style, segments, durations, watermark) {
   const cover = `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,fps=30`;
   const needsText = slots.some((s) => hasDeckText(s.scene) || !s.asset);
   const tr = needsText ? await (await import("./deck/text-layer.mjs")).createTextRenderer() : null;
+  // Watermark logo box (same geometry as the logo overlay: 15.4 % of the short side, 3 % padding, 438×278
+  // PNG) — text layouts stay above it so the logo never covers a word.
+  const short = Math.min(W, H);
+  const safeBottom = watermark ? Math.round(short * 0.03 * 2 + short * WM_SCALE * (278 / 438)) : 0;
   try {
     for (let i = 0; i < slots.length; i++) {
       const { asset: a, dur, offset, scene } = slots[i];
@@ -1433,7 +1437,7 @@ async function deckSegments(dir, slots, W, H, style, segments, durations) {
       if (text || !a) {
         const ld = join(dir, `txt${i}`);
         mkdirSync(ld, { recursive: true });
-        layer = await tr.renderScene({ layout: scene.layout, text: text ?? {}, W, H, brand: style.deck.brand, card: !a }, ld);
+        layer = await tr.renderScene({ layout: scene.layout, text: text ?? {}, W, H, brand: style.deck.brand, card: !a, safeBottom }, ld);
       }
       if (!a) {
         // Text card: the template painted the brand background; hold its settled last frame.
@@ -1511,7 +1515,7 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
   // Build one normalized segment per slot.
   const segments = [];
   const durations = [];
-  if (style.deck) await deckSegments(dir, slots, W, H, style, segments, durations);
+  if (style.deck) await deckSegments(dir, slots, W, H, style, segments, durations, watermark);
   else for (let i = 0; i < slots.length; i++) {
     const { asset: a, dur, offset } = slots[i];
     const seg = join(dir, `seg${i}.mp4`);
