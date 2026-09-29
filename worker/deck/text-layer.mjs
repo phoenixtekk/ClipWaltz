@@ -38,7 +38,7 @@ export function sceneHtml({ layout, text, W, H, brand = {}, card = false, safeBo
   else if (lay === "bullets")
     body = `<div class="bottom grad">${headline}<ul>${bullets.map((b, i) => `<li class="a${Math.min(i + 2, 5)}"><i></i>${esc(b)}</li>`).join("")}</ul></div>`;
   else if (lay === "title-card" || lay === "cta-card")
-    body = `<div class="card">${headline}${t.sub ? `<p class="s a2 ${lay === "cta-card" ? "pill" : ""}">${esc(t.sub)}</p>` : ""}${bullets.length ? `<p class="s a3 meta">${bullets.map(esc).join(" · ")}</p>` : ""}</div>`;
+    body = `<div class="card">${/^data:image\/(png|jpeg|webp|svg\+xml);base64,/.test(brand.logoDataUrl ?? "") ? `<img class="logo a1" src="${brand.logoDataUrl}" alt="">` : ""}${headline}${t.sub ? `<p class="s a2 ${lay === "cta-card" ? "pill" : ""}">${esc(t.sub)}</p>` : ""}${bullets.length ? `<p class="s a3 meta">${bullets.map(esc).join(" · ")}</p>` : ""}</div>`;
   else body = `<div class="bottom grad">${headline}${sub}</div>`; // headline-bottom
   return `<!doctype html><html><head><meta charset="utf-8"><style>
 html,body{margin:0;width:${W}px;height:${H}px;overflow:hidden;background:${card ? `radial-gradient(120% 90% at 20% 10%, ${primary} 0%, ${mix(primary, dark)} 45%, ${dark} 100%)` : "transparent"}}
@@ -58,6 +58,7 @@ li i{flex:none;width:${1.8 * u}px;height:${1.8 * u}px;margin-top:${1.3 * u}px;bo
 .bottom:has(ul) .h{font-size:${6.5 * u}px}
 .card{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:${2.5 * u}px;padding:${8 * u}px;padding-bottom:${Math.max(8 * u, sb)}px;text-align:center${cardOverMedia ? ";background:rgba(10,6,24,.55)" : ""}}
 .card .h{font-size:${8.5 * u}px}.card .s{font-size:${4.4 * u}px}
+.logo{max-height:${Math.round(H * 0.14)}px;max-width:${Math.round(W * 0.4)}px;object-fit:contain}
 .pill{background:${primary};color:#fff !important;font-weight:700 !important;border-radius:999px;padding:${2 * u}px ${5 * u}px}
 .meta{font-size:${3.6 * u}px !important;color:#e9dcff}
 .a1{animation:up .6s cubic-bezier(.2,.8,.2,1) both}.a2{animation:up .6s .12s cubic-bezier(.2,.8,.2,1) both}
@@ -67,7 +68,12 @@ li i{flex:none;width:${1.8 * u}px;height:${1.8 * u}px;margin-top:${1.3 * u}px;bo
 @keyframes pop{from{opacity:0;transform:scale(.7)}to{opacity:1;transform:none}}
 </style></head><body>${body}<script>
 // Auto-fit: shrink each text block until the whole layout fits inside the frame (never overflows).
-const fits = () => [...document.querySelectorAll('.bottom,.center,.bar,.card')].every((b) => b.scrollHeight <= b.clientHeight + 1 && b.getBoundingClientRect().top >= 0)
+// Full-frame layouts (.center, .card) must not overflow their box; blocks that grow upward from the bottom
+// (.bottom, .bar) only need to stay inside the frame — their scrollHeight includes glyph ink past the line
+// box (Lato: 97 vs 80 px), which no amount of shrinking removes (verified 2026-09-29).
+const fits = () => [...document.querySelectorAll('.center,.card')].every((b) => b.scrollHeight <= b.clientHeight + 6)
+  && [...document.querySelectorAll('.center,.card')].every((b) => b.getBoundingClientRect().top >= 0)
+  && [...document.querySelectorAll('.bottom,.bar')].every((b) => b.getBoundingClientRect().top >= innerHeight * 0.2)
   && [...document.querySelectorAll('.h,.s,li')].every((el) => {
     // Inside the frame with the layout's side padding (a flex item can grow past its parent, so compare to the frame).
     const r = el.getBoundingClientRect(), pad = innerWidth * 0.04;

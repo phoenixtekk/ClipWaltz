@@ -1425,6 +1425,19 @@ async function deckSegments(dir, slots, W, H, style, segments, durations, waterm
   const tr = needsText ? await (await import("./deck/text-layer.mjs")).createTextRenderer() : null;
   // Watermark logo box (same geometry as the logo overlay: 15.4 % of the short side, 3 % padding, 438×278
   // PNG) — text layouts stay above it so the logo never covers a word.
+  // Brand logo (title / CTA cards): downloaded once, handed to the templates as a data URL.
+  const brand = { ...style.deck.brand };
+  if (brand.logoKey && needsText) {
+    try {
+      const ext = brand.logoKey.split(".").pop().toLowerCase();
+      const lf = join(dir, `brand-logo.${ext}`);
+      await download(brand.logoKey, lf);
+      const mime = ext === "svg" ? "image/svg+xml" : ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+      brand.logoDataUrl = `data:${mime};base64,${readFileSync(lf).toString("base64")}`;
+    } catch (e) {
+      console.warn(`[worker] brand logo unavailable: ${e.message}`);
+    }
+  }
   const short = Math.min(W, H);
   const safeBottom = watermark ? Math.round(short * 0.03 * 2 + short * WM_SCALE * (278 / 438)) : 0;
   try {
@@ -1437,7 +1450,7 @@ async function deckSegments(dir, slots, W, H, style, segments, durations, waterm
       if (text || !a) {
         const ld = join(dir, `txt${i}`);
         mkdirSync(ld, { recursive: true });
-        layer = await tr.renderScene({ layout: scene.layout, text: text ?? {}, W, H, brand: style.deck.brand, card: !a, safeBottom }, ld);
+        layer = await tr.renderScene({ layout: scene.layout, text: text ?? {}, W, H, brand, card: !a, safeBottom }, ld);
       }
       if (!a) {
         // Text card: the template painted the brand background; hold its settled last frame.

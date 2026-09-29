@@ -6,6 +6,9 @@ import { cn } from "cn";
 import { rotatedFill, rotationParent } from "@/lib/rotation";
 import type { SceneText } from "@/lib/deck/types";
 
+/** Brand look for the preview (null = ClipWaltz defaults). */
+export type FrameBrand = { primary: string; secondary: string; headingFont: string; bodyFont: string; logoUrl: string | null } | null;
+
 export type FrameScene = {
   layout: string;
   textMode: string;
@@ -21,6 +24,7 @@ export function SceneFrame({
   playing = false,
   startAt,
   className,
+  brand = null,
 }: {
   projectId: string;
   scene: FrameScene;
@@ -29,17 +33,20 @@ export function SceneFrame({
   playing?: boolean;
   startAt?: number | null;
   className?: string;
+  brand?: FrameBrand;
 }) {
   const t = scene.textMode === "none" ? {} : scene.text ?? {};
   const hasText = !!(t.headline || t.sub || t.bullets?.length);
+  // Text-only scenes are brand cards; a card layout WITH media keeps the media under a dark scrim (as rendered).
   const card = !asset || scene.layout === "title-card" || scene.layout === "cta-card";
+  const cardOnly = !asset;
   const src = asset ? `/api/projects/${projectId}/assets/${asset.id}` : null;
   return (
     <div
       className={cn("relative w-full overflow-hidden rounded-lg bg-black [container-type:size]", aspectCss, className)}
-      style={asset && !card ? rotationParent(asset.rotation) : undefined}
+      style={asset ? rotationParent(asset.rotation) : undefined}
     >
-      {asset && !card ? (
+      {asset && (!card || !cardOnly) ? (
         asset.kind === "video" ? (
           <video
             key={`${asset.id}-${playing}`}
@@ -56,21 +63,29 @@ export function SceneFrame({
           <img src={src!} alt="" className="absolute inset-0 size-full object-cover" style={rotatedFill(asset.rotation)} />
         )
       ) : (
-        <div className="absolute inset-0 bg-[radial-gradient(120%_90%_at_20%_10%,#8b5cf6_0%,#4c1d95_45%,#120a24_100%)]" />
+        <div
+          className="absolute inset-0"
+          style={{ background: `radial-gradient(120% 90% at 20% 10%, ${brand?.primary ?? "#8b5cf6"} 0%, ${brand?.secondary ?? "#120a24"} 100%)` }}
+        />
       )}
 
-      {hasText ? <TextLayer layout={card ? (scene.layout === "cta-card" ? "cta-card" : "title-card") : scene.layout} text={t} /> : null}
+      {hasText || (card && brand?.logoUrl) ? (
+        <TextLayer layout={card ? (scene.layout === "cta-card" ? "cta-card" : "title-card") : scene.layout} text={t} brand={brand} scrim={card && !!asset} />
+      ) : null}
     </div>
   );
 }
 
 // Sizes in container-query units (cqw/cqh) so text scales with the frame at any size.
-function TextLayer({ layout, text }: { layout: string; text: SceneText }) {
+function TextLayer({ layout, text, brand, scrim }: { layout: string; text: SceneText; brand: FrameBrand; scrim: boolean }) {
   const { headline, sub, bullets = [] } = text;
+  const primary = brand?.primary ?? "#8b5cf6";
+  const hf = { fontFamily: `'${brand?.headingFont ?? "Montserrat"}', sans-serif` };
+  const bf = { fontFamily: `'${brand?.bodyFont ?? "Inter"}', sans-serif` };
   const H = (className?: string) =>
-    headline ? <p className={cn("font-['Montserrat',sans-serif] font-extrabold leading-[1.05] text-white", className)}>{headline}</p> : null;
+    headline ? <p style={hf} className={cn("font-extrabold leading-[1.05] text-white", className)}>{headline}</p> : null;
   const S = (className?: string) =>
-    sub ? <p className={cn("font-['Inter',sans-serif] font-medium leading-snug text-violet-50", className)}>{sub}</p> : null;
+    sub ? <p style={bf} className={cn("font-medium leading-snug text-violet-50", className)}>{sub}</p> : null;
 
   if (layout === "headline-center")
     return (
@@ -92,8 +107,8 @@ function TextLayer({ layout, text }: { layout: string; text: SceneText }) {
         {H("text-[6.5cqw]")}
         <ul className="space-y-[1cqh]">
           {bullets.map((b, i) => (
-            <li key={i} className="flex items-start gap-[2cqw] font-['Inter',sans-serif] text-[4cqw] font-semibold text-white">
-              <span className="mt-[1.3cqw] size-[1.8cqw] shrink-0 rounded-full bg-[#8b5cf6]" />
+            <li key={i} style={bf} className="flex items-start gap-[2cqw] text-[4cqw] font-semibold text-white">
+              <span className="mt-[1.3cqw] size-[1.8cqw] shrink-0 rounded-full" style={{ background: primary }} />
               {b}
             </li>
           ))}
@@ -102,9 +117,11 @@ function TextLayer({ layout, text }: { layout: string; text: SceneText }) {
     );
   if (layout === "title-card" || layout === "cta-card")
     return (
-      <div className="absolute inset-0 flex flex-col items-center justify-center gap-[2.5cqh] p-[8cqw] text-center">
+      <div className={cn("absolute inset-0 flex flex-col items-center justify-center gap-[2.5cqh] p-[8cqw] text-center", scrim && "bg-[rgba(10,6,24,.55)]")}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {brand?.logoUrl ? <img src={brand.logoUrl} alt="" className="max-h-[14cqh] max-w-[40cqw] object-contain" /> : null}
         {H("text-[8.5cqw]")}
-        {S(cn("text-[4.4cqw]", layout === "cta-card" && "rounded-full bg-[#8b5cf6] px-[5cqw] py-[2cqw] font-bold text-white"))}
+        {sub ? <p style={{ ...bf, ...(layout === "cta-card" ? { background: primary } : {}) }} className={cn("text-[4.4cqw] font-medium leading-snug text-violet-50", layout === "cta-card" && "rounded-full px-[5cqw] py-[2cqw] font-bold text-white")}>{sub}</p> : null}
         {bullets.length ? <p className="font-['Inter',sans-serif] text-[3.6cqw] text-violet-100">{bullets.join(" · ")}</p> : null}
       </div>
     );

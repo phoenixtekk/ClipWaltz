@@ -14,13 +14,19 @@ import {
   type DeckData, type DeckAsset, type ScenePatch,
 } from "@/lib/deck-actions";
 import { uploadProjectFile, isSupported } from "@/lib/upload-client";
-import { SceneFrame } from "./scene-frame";
+import { SceneFrame, type FrameBrand } from "./scene-frame";
+import { BRAND_FONTS, BRAND_FONTS_CSS, type BrandKit } from "@/lib/brand";
+import { saveBrandKit, uploadBrandLogo } from "@/lib/brand-actions";
 
 const BUSY = new Set(["queued", "describing", "planning"]);
 const field = "w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary";
 
-export function DeckEditor({ initial, canEdit, renderSlot }: { initial: DeckData; canEdit: boolean; renderSlot: ReactNode }) {
+export function DeckEditor({ initial, initialBrand, canEdit, renderSlot }: {
+  initial: DeckData; initialBrand: BrandKit | null; canEdit: boolean; renderSlot: ReactNode;
+}) {
   const [data, setData] = useState(initial);
+  const [brandKit, setBrandKit] = useState<BrandKit | null>(initialBrand);
+  const [logoVersion, setLogoVersion] = useState(0);
   const [brief, setBrief] = useState<DeckBrief>(initial.deck.brief);
   const [pending, start] = useTransition();
   const projectId = data.project.id;
@@ -60,12 +66,18 @@ export function DeckEditor({ initial, canEdit, renderSlot }: { initial: DeckData
   };
 
   const assetById = new Map(data.assets.map((a) => [a.id, a]));
+  const frameBrand: FrameBrand = brandKit?.applied
+    ? { primary: brandKit.primary, secondary: brandKit.secondary, headingFont: brandKit.headingFont, bodyFont: brandKit.bodyFont,
+        logoUrl: brandKit.hasLogo ? `/api/projects/${projectId}/brand-logo?v=${logoVersion}` : null }
+    : null;
   const total = data.scenes.reduce((n, s) => n + s.durationSec, 0);
   const aspectCss = aspectClass(data.project.aspect);
   const unused = plan.status === "ready" ? (plan.unusedAssetIds ?? []).filter((id) => !data.scenes.some((s) => s.assetId === id)) : [];
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
+      {/* Same font families the render box has installed (src/lib/brand.ts) — so the preview matches. */}
+      <link rel="stylesheet" href={BRAND_FONTS_CSS} precedence="default" />
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-[color:var(--cw-violet)]">
@@ -150,6 +162,8 @@ export function DeckEditor({ initial, canEdit, renderSlot }: { initial: DeckData
             </div>
           </section>
 
+          <BrandSection projectId={projectId} kit={brandKit} canEdit={canEdit} onSaved={(k, logo) => { setBrandKit(k); if (logo) setLogoVersion((v) => v + 1); }} />
+
           <MediaSection projectId={projectId} assets={data.assets} canEdit={canEdit} onChange={refresh} />
         </div>
 
@@ -184,6 +198,7 @@ export function DeckEditor({ initial, canEdit, renderSlot }: { initial: DeckData
                   aspectCss={aspectCss}
                   wide={isWide(data.project.aspect)}
                   canEdit={canEdit}
+                  brand={frameBrand}
                   onPatch={(patch) => act(() => updateScene(projectId, s.id, patch))}
                   onRewrite={(ins) => act(() => rewriteSceneText(projectId, s.id, ins))}
                   onMove={(dir) => {
@@ -214,7 +229,7 @@ export function DeckEditor({ initial, canEdit, renderSlot }: { initial: DeckData
             ) : null}
           </section>
 
-          {data.scenes.length ? <DeckPreview projectId={projectId} scenes={data.scenes} assets={assetById} aspectCss={aspectCss} wide={isWide(data.project.aspect)} /> : null}
+          {data.scenes.length ? <DeckPreview projectId={projectId} scenes={data.scenes} assets={assetById} aspectCss={aspectCss} wide={isWide(data.project.aspect)} brand={frameBrand} /> : null}
 
           <section className="space-y-2">
             <h2 className="text-sm font-semibold">3 · Render</h2>
@@ -223,6 +238,84 @@ export function DeckEditor({ initial, canEdit, renderSlot }: { initial: DeckData
         </div>
       </div>
     </div>
+  );
+}
+
+function BrandSection({ projectId, kit, canEdit, onSaved }: {
+  projectId: string; kit: BrandKit | null; canEdit: boolean; onSaved: (k: BrandKit, logoChanged?: boolean) => void;
+}) {
+  const [v, setV] = useState({
+    primary: kit?.primary ?? "#8b5cf6", secondary: kit?.secondary ?? "#120a24",
+    headingFont: kit?.headingFont ?? "Montserrat", bodyFont: kit?.bodyFont ?? "Inter", applied: kit?.applied ?? false,
+  });
+  const [busy, setBusy] = useState(false);
+  const logo = useRef<HTMLInputElement | null>(null);
+  const save = async (next = v) => {
+    setV(next);
+    setBusy(true);
+    try { onSaved(await saveBrandKit(projectId, next)); } catch (e) { toast.error((e as Error).message || "Couldn't save the brand kit."); }
+    setBusy(false);
+  };
+  const upload = async (f: File | undefined) => {
+    if (!f) return;
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("logo", f);
+      await uploadBrandLogo(projectId, fd);
+      onSaved(await saveBrandKit(projectId, { ...v, applied: true }), true);
+      setV({ ...v, applied: true });
+      toast.success("Logo added — it shows on title and call-to-action cards.");
+    } catch (e) { toast.error((e as Error).message || "Couldn't upload the logo."); }
+    setBusy(false);
+  };
+  return (
+    <section className="cw-glass space-y-3 rounded-xl p-4">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">Brand</h2>
+        <label className="inline-flex items-center gap-2 text-xs">
+          <input type="checkbox" checked={v.applied} disabled={!canEdit || busy} onChange={(e) => save({ ...v, applied: e.target.checked })} />
+          Use my brand on this video
+        </label>
+      </div>
+      <div className={cn("grid gap-3 sm:grid-cols-2", !v.applied && "opacity-60")}>
+        <label className="flex items-center gap-2 text-xs">
+          <input type="color" value={v.primary} disabled={!canEdit || busy} onChange={(e) => setV({ ...v, primary: e.target.value })} onBlur={() => save()} className="h-8 w-10 rounded border border-border bg-background" />
+          Main colour (buttons, bullets, cards)
+        </label>
+        <label className="flex items-center gap-2 text-xs">
+          <input type="color" value={v.secondary} disabled={!canEdit || busy} onChange={(e) => setV({ ...v, secondary: e.target.value })} onBlur={() => save()} className="h-8 w-10 rounded border border-border bg-background" />
+          Background colour (cards)
+        </label>
+        <label className="space-y-1 text-xs">
+          <span className="text-muted-foreground">Headline font</span>
+          <select value={v.headingFont} disabled={!canEdit || busy} onChange={(e) => save({ ...v, headingFont: e.target.value })} className={cn(field, "h-8")} style={{ fontFamily: `'${v.headingFont}'` }}>
+            {BRAND_FONTS.map((f) => <option key={f} value={f} style={{ fontFamily: `'${f}'` }}>{f}</option>)}
+          </select>
+        </label>
+        <label className="space-y-1 text-xs">
+          <span className="text-muted-foreground">Text font</span>
+          <select value={v.bodyFont} disabled={!canEdit || busy} onChange={(e) => save({ ...v, bodyFont: e.target.value })} className={cn(field, "h-8")} style={{ fontFamily: `'${v.bodyFont}'` }}>
+            {BRAND_FONTS.map((f) => <option key={f} value={f} style={{ fontFamily: `'${f}'` }}>{f}</option>)}
+          </select>
+        </label>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        {kit?.hasLogo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={`/api/projects/${projectId}/brand-logo?t=${kit.id}`} alt="Brand logo" className="h-10 max-w-[120px] rounded bg-muted object-contain p-1" />
+        ) : null}
+        {canEdit ? (
+          <>
+            <input ref={logo} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden" onChange={(e) => upload(e.target.files?.[0])} />
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => logo.current?.click()}>
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <ImageIcon className="size-4" />} {kit?.hasLogo ? "Replace logo" : "Add logo"}
+            </Button>
+          </>
+        ) : null}
+        <span className="text-[11px] text-muted-foreground">Saved for your workspace — reuse it on every video.</span>
+      </div>
+    </section>
   );
 }
 
@@ -312,10 +405,10 @@ function MediaRow({ projectId, asset, canEdit }: { projectId: string; asset: Dec
 }
 
 function SceneCard({
-  projectId, scene, index, count, asset, assets, aspectCss, wide, canEdit, onPatch, onRewrite, onMove, onDelete, onAddAfter,
+  projectId, scene, index, count, asset, assets, aspectCss, wide, canEdit, brand, onPatch, onRewrite, onMove, onDelete, onAddAfter,
 }: {
   projectId: string; scene: DeckScene; index: number; count: number; asset: DeckAsset | null; assets: DeckAsset[];
-  aspectCss: string; wide: boolean; canEdit: boolean;
+  aspectCss: string; wide: boolean; canEdit: boolean; brand: FrameBrand;
   onPatch: (p: ScenePatch) => void; onRewrite: (instruction: string) => void; onMove: (dir: -1 | 1) => void; onDelete: () => void; onAddAfter: () => void;
 }) {
   const [headline, setHeadline] = useState(scene.text.headline ?? "");
@@ -341,7 +434,7 @@ function SceneCard({
   return (
     <article className={cn("rounded-xl border bg-card p-3", scene.locked ? "border-[color:var(--cw-violet)]/60" : "border-border")}>
       <div className={cn("grid gap-3", wide ? "sm:grid-cols-[180px_minmax(0,1fr)]" : "sm:grid-cols-[110px_minmax(0,1fr)]")}>
-        <SceneFrame projectId={projectId} scene={{ ...scene, text: { headline, sub, bullets: bullets.split("\n").filter(Boolean) } }} asset={asset} aspectCss={aspectCss} startAt={scene.inSec} />
+        <SceneFrame projectId={projectId} scene={{ ...scene, text: { headline, sub, bullets: bullets.split("\n").filter(Boolean) } }} asset={asset} aspectCss={aspectCss} startAt={scene.inSec} brand={brand} />
         <div className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="font-semibold">#{index + 1}</span>
@@ -414,8 +507,8 @@ const IconBtn = ({ label, disabled, onClick, children }: { label: string; disabl
 );
 
 /** Plays the storyboard scene by scene with its text (instant, low-res, no render). */
-function DeckPreview({ projectId, scenes, assets, aspectCss, wide }: {
-  projectId: string; scenes: DeckScene[]; assets: Map<string, DeckAsset>; aspectCss: string; wide: boolean;
+function DeckPreview({ projectId, scenes, assets, aspectCss, wide, brand }: {
+  projectId: string; scenes: DeckScene[]; assets: Map<string, DeckAsset>; aspectCss: string; wide: boolean; brand: FrameBrand;
 }) {
   const [i, setI] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -436,7 +529,7 @@ function DeckPreview({ projectId, scenes, assets, aspectCss, wide }: {
         Preview <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">instant · low-res · no music</span>
       </h2>
       <div className={cn("mx-auto", wide ? "max-w-[520px]" : "max-w-[300px]")}>
-        <SceneFrame key={`${cur.id}-${i}`} projectId={projectId} scene={cur} asset={asset} aspectCss={aspectCss} playing={playing} startAt={cur.inSec} />
+        <SceneFrame key={`${cur.id}-${i}`} projectId={projectId} scene={cur} asset={asset} aspectCss={aspectCss} playing={playing} startAt={cur.inSec} brand={brand} />
       </div>
       <div className="flex items-center justify-center gap-2">
         <Button size="sm" variant="secondary" onClick={() => setPlaying(!playing)}>
