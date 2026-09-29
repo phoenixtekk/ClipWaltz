@@ -476,6 +476,47 @@ first). Then: copy `worker/`, `npm i postgres @aws-sdk/client-s3`, set env, and 
 - **Not rotated:** Waltz AI image-to-video seeds read the raw asset (`generation-worker.mjs`), and AutoWaltz's
   motion/vision window ranking looks at unrotated frames (orientation doesn't change motion scores).
 
+## WaltzDeck (Phase 1, 2026-09-29)
+Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz` | `deck`), `projects.deck` jsonb
+(`{brief, plan}`), `projects.brand_kit_id`, `deck_scenes` (one row per storyboard card), `assets.note` /
+`assets.ai_description`, `brand_kits.logo_key` (migration `0037_waltzdeck`).
+- **Planning — generation worker (linuxg1):** queue `clipwaltz-deck` (`DECK_QUEUE`), consumed by
+  `worker/deck/jobs.mjs` (started from `generation-worker.mjs`), concurrency 1. Jobs: `describe {assetId}` (3 frames of a
+  video / 1 of a photo → vision description, cached on the asset; skipped when already described by the same model),
+  `plan {projectId}` (describe missing → `planStoryboard` → replace unlocked scenes, locked ones keep their slot;
+  progress in `projects.deck.plan`), `scene {sceneId, instruction}` (rewrite one scene's text). Editor polls
+  `getDeck()` every 2.5 s while busy.
+- **Models:** Ollama at `OLLAMA_URL` (the shared box `192.168.166.182`). `DECK_VISION_MODEL` / `DECK_TEXT_MODEL`
+  default `qwen3-vl:30b` for both — the box evicts idle models, so a second model costs a 15–60 s reload per switch
+  (measured). Do **not** pass Ollama `format=` with this model: replies come back empty (verified) — the planner asks
+  for JSON in the prompt and extracts it (`extractJson`), one retry. Measured: ~40–55 s per description while the box
+  is shared, ~70 s–2.5 min per plan.
+- **Guards (`repairPlan`):** unknown media dropped; durations clamped (1.2–8 s), videos ≤ their length, scaled to the
+  target length (CTA card ≤ 3.5 s); reading speed ≤ 3 words/s; textMode off → no text except the CTA; ads with a CTA
+  end on a CTA card containing the owner's exact words; every noted item placed; notes with first/last words reorder;
+  any number not in the brief/offer/CTA/notes is removed (flag shown on the card).
+- **Render — render worker (AI box):** `loadRenderInputs` returns `style.deck = {scenes, brand}` for `kind='deck'`
+  (length = sum of scene durations, no title, no fade-in, original audio off). `deckTimeline` (scene windows: in-point
+  or motion-only `rankWindows(..., {vision:false})`; beat snap ±0.35 s, ≥0.8 s) → `deckSegments` (full-bleed crop,
+  rotation, Ken Burns for photos, text layer overlay `eof_action=repeat`; text-only cards = template background held
+  with `tpad`) → the normal concat / music / look / watermark / overlays pipeline.
+- **Text layer:** `worker/deck/text-layer.mjs` — `playwright-core` driving the system **Chromium**
+  (`CHROMIUM_PATH`, default `/usr/bin/chromium`); 6 layouts; 21 entrance frames (0.7 s @30 fps) then ffmpeg holds the
+  last; auto-fit runs again after `document.fonts.ready`; bottom text stays above the watermark box. Timing: ~0.4 s
+  browser start, ~0.7–1.4 s per media scene, ~5.5 s per card scene (opaque frames). Self-check:
+  `node worker/deck/text-layer.mjs <outDir> [W H]` renders every layout.
+- **AI box packages (installed 2026-09-29, Debian):** `chromium`, `fonts-noto-core`, `fonts-noto-color-emoji`,
+  `fonts-inter`, `fonts-lato`, `fonts-montserrat`, `fonts-open-sans`, `fonts-roboto`; `playwright-core@1.63.0` in
+  `/home/lacy/clipwaltz/node_modules` (also in package.json). Brand fonts are limited to installed families
+  (`src/lib/brand.ts`).
+- **Brand kit:** `src/lib/brand-actions.ts` (one kit per workspace), logo in MinIO `brand/<workspaceId>/<kitId>-<ts>.<ext>`
+  (≤1 MB, png/jpeg/webp/svg), served to the editor by `/api/projects/[id]/brand-logo`; the render worker embeds it
+  as a data URL on title/CTA cards.
+- **Local dev:** planning needs Redis — tunnel `ssh -N -L 6380:127.0.0.1:6379 linuxg1`, set `DECK_QUEUE=clipwaltz-deck-dev`
+  + `REDIS_URL=redis://127.0.0.1:6380` in `.env.local`, run `node --env-file=.env.local worker/deck/dev-worker.mjs`
+  (refuses the prod queue name and any DB but `clipwaltz_dev`). Dev renders: a one-shot copy of the worker on the AI
+  box with `DATABASE_URL` pointed at `clipwaltz_dev` and `--once`.
+
 ## Render-complete notifications (Web Push)
 Two per-browser toggles at `/account/notifications`:
 - **Browser notification** — the open tab fires it from the render poll (`render-panel.tsx` →

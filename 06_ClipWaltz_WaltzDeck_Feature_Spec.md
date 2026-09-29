@@ -1,6 +1,7 @@
 # ClipWaltz — WaltzDeck: ads, campaigns & presentations from your own media
 
-**Status:** Phase 1 in progress (owner approved 2026-09-29, with all section-7 recommendations). 2026-09-29.
+**Status:** Phase 1 built and verified on the dev DB (2026-09-29); see FEATURES.md "WaltzDeck" and ADMIN_DOCS.md
+"WaltzDeck" for what shipped and how it runs. Owner approved 2026-09-29 with all section-7 recommendations.
 **Working name:** **WaltzDeck** (sits beside **AutoWaltz** = media → music video and **Waltz AI** = AI clips).
 Name is the owner's call; alternatives: *WaltzStudio*, *PitchWaltz*, *Waltz Story*.
 

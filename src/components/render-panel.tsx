@@ -28,12 +28,15 @@ export function RenderPanel({
   canRender,
   contest,
   title,
+  blurb,
 }: {
   projectId: string;
   initial: R;
   canRender: boolean;
   contest?: Contest;
   title?: string;
+  /** Replaces the default "AutoWaltz assembles…" line (e.g. WaltzDeck). */
+  blurb?: React.ReactNode;
 }) {
   const router = useRouter();
   const [render, setRender] = useState<R>(initial);
@@ -224,7 +227,7 @@ export function RenderPanel({
             <AlertTriangle className="size-4" /> Last render failed — try again.
           </span>
         ) : (
-          <span className="text-muted-foreground"><span className="font-semibold text-foreground">AutoWaltz</span> assembles your clips into a beat-synced music video.</span>
+          <span className="text-muted-foreground">{blurb ?? <><span className="font-semibold text-foreground">AutoWaltz</span> assembles your clips into a beat-synced music video.</>}</span>
         )}
       </div>
       <Button onClick={requestRender} disabled={!canRender || pending || checking}>

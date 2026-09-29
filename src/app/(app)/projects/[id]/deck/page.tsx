@@ -23,7 +23,13 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
       canEdit={canEdit}
       renderSlot={
         <div className="space-y-4">
-          <RenderPanel projectId={id} initial={latestRender} canRender={canEdit && data.scenes.length > 0} title={project.title} />
+          <RenderPanel
+            projectId={id}
+            initial={latestRender}
+            canRender={canEdit && data.scenes.length > 0}
+            title={project.title}
+            blurb={<><span className="font-semibold text-foreground">WaltzDeck</span> renders your storyboard in HD — your clips, your text, on the beat.</>}
+          />
           {renders.length ? <RenderHistory renders={renders} /> : null}
         </div>
       }

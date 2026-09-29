@@ -9,8 +9,36 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 |---|---|---|
 | **AutoWaltz** | Your photos + videos → a beat-synced music video (the original feature; includes Auto-Batch). | `renders`, `src/lib/render-actions.ts`, `worker/render-worker.mjs` (AI box) |
 | **Waltz AI** | New AI clips from a prompt or image (text/image-to-video), plus Enhance, storyboard assembly and exports of those clips. | `generation_jobs` / `generation_versions`, `src/lib/generation-actions.ts`, `worker/generation-worker.mjs` (linuxg1) → AISERVER |
+| **WaltzDeck** | Your photos + videos + a brief (+ a note per item) → an AI-planned **ad or slideshow** with on-screen text, scene by scene. | `projects.kind='deck'`, `deck_scenes`, `src/lib/deck-actions.ts`, `worker/deck/*` (planner on linuxg1, text layer in the render worker) |
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
+
+## WaltzDeck — ads & slideshows from your own media (Phase 1, 2026-09-29)
+Spec: `06_ClipWaltz_WaltzDeck_Feature_Spec.md` (vs invideo; phases 2–5 = voice/captions, presentations + PPTX,
+campaign packs + analytics, AI fill).
+- **New project → WaltzDeck** → **Ad** (hook → benefits → call to action) or **Slideshow**; aspect **9:16, 16:9, 1:1
+  or 4:5** (1:1 and 4:5 are new for every project type — `src/lib/aspect.ts`, worker `dims()`).
+- **Brief:** what the video is for, tone, offer, call to action, length (6–60 s ad / up to 180 s slideshow).
+  **Text on video: Auto** (AI writes it) / **Manual** / **Off** — plus per scene *Auto / Manual / None*.
+- **Media notes:** a note per photo/video steers the plan ("hero shot — say it's organic", "show this first",
+  "end on this", exact wording in quotes). Every noted item is used; *first / last* placement is enforced in code.
+- **Plan:** the self-hosted AI (Ollama `qwen3-vl:30b`, one model for both steps) looks at each file (cached per file,
+  also warmed on upload) and writes a storyboard; `repairPlan` enforces known media, timing to the target length,
+  reading speed (≤3 words/s), the CTA end card with the owner's exact words, and **strips any number the owner never
+  gave** (verified: "1500+ rides" read off a trailer sign was removed).
+- **Storyboard cards:** per scene — media (swap), role, duration, layout (headline bottom / big statement / caption bar /
+  bullets / title card / CTA card), text mode, headline + subline + bullets, **lock** (re-plans keep it; editing your
+  own words locks automatically), move / add text card / delete, **Rewrite / Shorter / Punchier** or a free
+  instruction for that scene only, and the planner's one-line *why*. Unused files listed with one-tap add.
+- **Instant preview** in the browser (scene by scene with text, same layouts and fonts); no render needed.
+- **Brand kit** (per workspace): main + background colour, headline + text font (Montserrat, Inter, Lato, Open Sans,
+  Roboto, Noto Serif — installed on the render box), logo on title/CTA cards; opt-in per video.
+- **Render:** clips fill the frame (cropped, not letterboxed), photos with Ken Burns, scene boundaries snapped to the
+  beat (±0.35 s), text drawn by headless Chromium templates (`worker/deck/text-layer.mjs`, entrance animation then
+  hold, auto-fit after fonts load, kept above the watermark), then the usual music / look / watermark / overlays.
+  Clip moments picked by motion only (no vision calls) — a 4-scene 1:1 ad renders in ~10 s.
+- Verified 2026-09-29 end-to-end on the dev DB: wizard → brief → notes → plan (6 files: ~2.5 min on the shared model
+  box, mostly describing) → rewrite → brand kit → render (dev renders via a one-shot worker copy).
 
 ## Waltz AI Remix (2026-09-27)
 Waltz AI tab → **Remix a video**: pick any finished video you can open — AutoWaltz renders and Waltz AI

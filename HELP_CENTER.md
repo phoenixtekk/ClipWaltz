@@ -137,6 +137,21 @@ them there, then come back. (These are in addition to the "video ready" email, w
   them, then **Assemble** — they're joined into one new "Storyboard" version.
 - **Export** any version as MP4 or WebM at its native size, 720p or 1080p, then download it.
 
+## WaltzDeck — ads and slideshows with text
+- **New project → WaltzDeck**, pick **Ad** or **Slideshow** and a shape (vertical, wide, square or 4:5), then **Continue**.
+- **Write the brief:** what the video is for, the tone, any offer and your call to action (e.g. "Book at example.com").
+  Choose **Text on video**: *Auto* (the AI writes it), *Manual* (you write it) or *Off*.
+- **Add your photos and videos.** Give any of them a note and the AI follows it — "show this first", "end on this",
+  "say it's organic". Put exact wording in quotes. The AI never invents prices, numbers or claims you didn't give it.
+- **Plan my video.** The AI looks at your files and builds a storyboard — one card per scene with the clip, the text
+  and a short reason. It takes a minute or two the first time.
+- **Make it yours:** edit any text (that scene is then locked so re-planning keeps it), change the layout, the length
+  or the clip, reorder, add a text card, or ask the AI to **Rewrite**, make it **Shorter** or **Punchier** — or type
+  what you want changed in that scene. **Re-plan** rewrites everything you haven't locked.
+- **Brand:** set your colours and fonts, add your logo, and tick **Use my brand on this video**. Your logo appears on
+  title and call-to-action cards; the kit is saved for all your videos.
+- **Preview** plays the storyboard instantly; **Render HD** makes the final video with your music, on the beat.
+
 ## Waltz AI Remix — make a video you've already made even better
 - Open a project → **Waltz AI** tab → **Remix a video**. You'll see every finished video you've made:
   AutoWaltz music videos and Waltz AI clips, from all your projects. Pick one.
