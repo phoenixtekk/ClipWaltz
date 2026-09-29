@@ -14,6 +14,31 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
+## WaltzDeck Phase 4 (2026-09-29, v10) — LIVE on prod (`69fcc57`)
+Campaign packs: editor section "4 · Campaign pack" → AI hooks (`writeHooks`) + CTA wordings → owner-reviewed draft →
+every hook × CTA × length (6/15/30) × shape (≤ 12) rendered as its own render with a storyboard snapshot
+(`renders.settings.deckVariant`, `worker/deck/variants.mjs`) → share switch opens `/c/<renderId>` landing pages with a
+tracked UTM redirect (`/c/<id>/go`) → per-variant views / completion / clicks (`variant_events`, migration **0041**) →
+winner (≥ 10 views, 2+ variants) → "make more like this". Code Reviewer: no IDOR; 7 bugs fixed + retested before deploy
+(fixed-jobId retry hang, share-during-build 404s, 12× notifications → one per pack, unguarded draft write, lost typed
+hook, click-without-view / per-IP cap, honest length labels).
+- **Deployed:** linuxg1 full tree (backup `/tmp/cw-pre-phase4-src.tgz`, tree matched 8ab3a75 before), migration 0041,
+  build, pm2 restart app + gen worker; AI box `render-worker.mjs` (+ `deck/variants.mjs`, `deck/planner.mjs`; backup
+  `render-worker.mjs.bak-20260929-phase4`). Wiki (features, admin-docs, help-center, spec) updated. No new deps / ports.
+- **Verified:** dev — 8-variant pack at exactly 6.00/15.00 s with the right hook/CTA frames, 23 simulated visitors
+  counted exactly (dupes, bot, owner ignored), UTM redirect, winner "B2 25 % over 12 views", more-like-winner → 3
+  question hooks, share off → 404s, one pack notification (dev log). Prod — 1-video test pack **"Prod test pack
+  (phase 4)"** in "WaltzDeck test — Lake Pleasant ad" rendered via the live deck + render workers (unlisted because
+  shared), www landing 200 with CTA, event 204, redirect with UTM, counts 1 view + 1 click (my curl test), share off →
+  landing/redirect/video 404 (share now OFF). The owner got one "campaign pack ready" email from it (callback 200).
+- **Open decision for the owner:** any signed-up account can make `www.clipwaltz.com/c/…/go` redirect to any http(s)
+  link (phishing risk on our domain). Options: interstitial for free/new accounts, Safe Browsing check on save, or
+  accept. Not decided — ask.
+- Dev: `.env.development.local` now also sets `WORKER_CALLBACK_SECRET` (dev-only) and `SES_SMTP_HOST=` (dev emails are
+  logged, never sent). Dev packs in "Phase 3 test — URL import".
+- **Next:** Phase 5 (AI fill: animate stills / generate missing shots with credits + auto-refund, brand kit from website,
+  translations) — needs the credits decision (spec §7.4). Ask the owner.
+
 ## WaltzDeck Phase 3 (2026-09-29, v10) — LIVE on prod (`8ab3a75`)
 Owner chose "All of Phase 3". Shipped: **Presentation** mode + `slide` layout (template, preview, planner), **Present**
 full-screen view (arrows/click, N notes, P auto-play), **PDF / PPTX export** (`deck_exports`, migration **0040**, built by
