@@ -103,7 +103,7 @@ export function startDeckWorker({ sql, getBytes, run, redisUrl }) {
           const textMode = brief.textMode === "off" && s.role !== "cta" ? "none" : "auto";
           await tx`insert into deck_scenes ${tx({
             id: randomUUID(), project_id: projectId, order_index: i, role: s.role, asset_id: s.assetId,
-            duration_sec: s.durationSec, in_sec: s.inSec ?? null, text_mode: textMode, text: tx.json(s.text), layout: s.layout,
+            duration_sec: s.durationSec, in_sec: s.inSec ?? null, text_mode: textMode, text: tx.json(s.text), layout: s.layout, voice: s.voice || null,
             why: s.flags?.length ? `${s.why} (Removed ${s.flags.includes("removed-unverified-claim") ? "a claim" : "a number"} that wasn't in your brief.)`.trim() : s.why,
           })}`;
         }
@@ -138,7 +138,8 @@ export function startDeckWorker({ sql, getBytes, run, redisUrl }) {
         instruction,
         others.map((o) => o.text?.headline).filter(Boolean),
       );
-      const { flags, ...clean } = text;
+      const { flags, voice, ...clean } = text;
+      if (voice !== undefined) await sql`update deck_scenes set voice = ${voice || null} where id = ${sceneId}`;
       await sql`update deck_scenes set text = ${sql.json(clean)}, text_mode = 'auto',
         why = ${flags ? "Rewritten (removed a claim that wasn't in your brief)." : "Rewritten."}, updated_at = now() where id = ${sceneId}`;
     } catch (e) {

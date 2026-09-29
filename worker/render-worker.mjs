@@ -1405,7 +1405,7 @@ async function crossfadeChunks(dir, segments, durations, T, chunkSize = XFADE_CH
 // use the scene's in-point when set, else the most active stretch (motion only — the planner already
 // chose the clip, and vision ranking would add minutes on the shared Ollama box). With beat sync, scene
 // boundaries move to the nearest beat within ±0.35 s (never below 0.8 s a scene).
-async function deckTimeline(scenes, assets, beats, beatSync, srcDurs) {
+async function deckTimeline(scenes, assets, beats, beatSync, srcDurs, voiceCfg, dir) {
   const byId = new Map(assets.map((a) => [a.id, a]));
   const slots = [];
   for (const sc of scenes) {
@@ -1420,6 +1420,13 @@ async function deckTimeline(scenes, assets, beats, beatSync, srcDurs) {
     }
     slots.push({ asset: a, dur, offset, scene: sc, srcEnd: a?.kind === "video" ? srcDurs.get(a.storage_key) || null : null });
   }
+  // Voiceover (phase 2): narrate first — a scene is never shorter than its spoken line (+ a breath). A video
+  // shorter than its narration holds its last frame (tpad in deckSegments).
+  if (voiceCfg?.mode && voiceCfg.mode !== "off" && slots.some((s) => String(s.scene.voice ?? "").trim())) {
+    const { synthScenes } = await import("./deck/voice.mjs");
+    await synthScenes(slots, { voiceId: voiceCfg.voiceId, speed: voiceCfg.speed }, dir);
+    for (const s of slots) if (s.voice) { s.minDur = s.voice.dur + 0.35; s.dur = Math.max(s.dur, s.minDur); }
+  }
   let musicOffset = 0;
   if (beatSync && beats.length > 4 && slots.length > 1) {
     musicOffset = beats[0];
@@ -1431,9 +1438,9 @@ async function deckTimeline(scenes, assets, beats, beatSync, srcDurs) {
       let best = t;
       for (const b of rel) if (Math.abs(b - t) < Math.abs(best - t) && Math.abs(b - t) <= 0.35) best = b;
       const d = best - prevEdge;
-      // A video can grow at most to the end of its source (never read past the clip).
-      const maxD = slots[i].srcEnd ? slots[i].srcEnd - slots[i].offset : Infinity;
-      if (d >= 0.8 && d <= maxD) { slots[i].dur = d; t = best; }
+      // A video can grow at most to the end of its source (never read past the clip) — or to its narration.
+      const maxD = slots[i].srcEnd ? Math.max(slots[i].srcEnd - slots[i].offset, slots[i].minDur ?? 0) : Infinity;
+      if (d >= Math.max(0.8, slots[i].minDur ?? 0) && d <= maxD) { slots[i].dur = d; t = best; }
       prevEdge = t;
     }
   }
@@ -1482,7 +1489,9 @@ async function deckSegments(dir, slots, W, H, style, segments, durations, waterm
       } else {
         const rot = vfRotate(a.rotation);
         const moving = a.kind !== "video" && style.motion && scene.motion !== "none";
-        const base = a.kind === "video" ? rot + cover : moving ? rot + vfKenBurns(W, H, Math.max(1, Math.round(dur * 30))) : rot + cover;
+        const base = a.kind === "video"
+          ? `${rot}${cover},tpad=stop_mode=clone:stop_duration=${dur.toFixed(2)}` // narration may outlast the clip
+          : moving ? rot + vfKenBurns(W, H, Math.max(1, Math.round(dur * 30))) : rot + cover;
         const input = a.kind === "video" ? ["-ss", offset.toFixed(3), "-t", dur.toFixed(3), "-i", a._src] : ["-loop", "1", "-t", dur.toFixed(3), "-i", a._src];
         if (layer) {
           await ffmpeg([...input, "-framerate", "30", "-i", layer.pattern, "-filter_complex", `[0:v]${base}[b];[b][1:v]overlay=0:0:eof_action=repeat:format=auto,format=yuv420p[v]`, "-map", "[v]", ...enc]);
@@ -1534,7 +1543,7 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
   }
 
   const { slots, musicOffset } = style.deck
-    ? await deckTimeline(style.deck.scenes, assets, beats, style.beatSync, srcDurs)
+    ? await deckTimeline(style.deck.scenes, assets, beats, style.beatSync, srcDurs, style.deck.voice, dir)
     : await buildTimeline(
     assets,
     beats,
@@ -1552,8 +1561,25 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
   // Build one normalized segment per slot.
   const segments = [];
   const durations = [];
-  if (style.deck) await deckSegments(dir, slots, W, H, style, segments, durations, watermark);
-  else for (let i = 0; i < slots.length; i++) {
+  if (style.deck) {
+    await deckSegments(dir, slots, W, H, style, segments, durations, watermark);
+    const starts = [];
+    let acc = 0;
+    for (const d of durations) { starts.push(acc); acc += d || 0; }
+    lengthSec = Math.round(acc * 1000) / 1000; // narration may have lengthened scenes
+    if (slots.some((sl) => sl.voice)) {
+      const v = await import("./deck/voice.mjs");
+      style.deck.voiceFile = await v.buildNarration(slots, starts, acc, dir, ffmpeg);
+      if (style.deck.captions?.enabled !== false) {
+        const ass = v.buildCaptionsAss(slots, starts, W, H, style.deck.brand);
+        if (ass) {
+          style.deck.captionsFile = join(dir, "captions.ass");
+          writeFileSync(style.deck.captionsFile, ass);
+        }
+      }
+      console.log(`[worker] deck voiceover: ${slots.filter((sl) => sl.voice).length} line(s), captions ${style.deck.captionsFile ? "on" : "off"}`);
+    }
+  } else for (let i = 0; i < slots.length; i++) {
     const { asset: a, dur, offset } = slots[i];
     const seg = join(dir, `seg${i}.mp4`);
     const enc = ["-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", seg];
@@ -1603,7 +1629,7 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
   const T = Math.max(0.2, Math.min(0.4, minDur * 0.35));
   // Crossfade overlaps segments (shortens the video); original audio is a straight concat matching
   // the CUT timeline, so the two would drift. When original audio is on, force cut transitions.
-  const wantCross = style.transition === "crossfade" && segments.length > 1 && !style.originalAudio;
+  const wantCross = style.transition === "crossfade" && segments.length > 1 && !style.originalAudio && !style.deck?.voiceFile;
   // Watermark: the logo PNG, bottom-left, sized to ~15.4% of the frame's short side (owner: 30% smaller than the original 22%, 2026-09-25), slightly
   // translucent. Overlaid before the fades so it fades in/out with the picture.
   const wmOk = existsSync(WATERMARK_PATH);
@@ -1619,6 +1645,7 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     if (cf) parts.push(cf);
     const lf = lightFilter(style.lightFx);
     if (lf) parts.push(lf);
+    if (style.deck?.captionsFile) parts.push(`ass=filename='${fwd(style.deck.captionsFile)}'`);
     if (useTitle && titleT) {
       const fs = Math.round(H * 0.055);
       parts.push(
@@ -1656,6 +1683,8 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     let origIdx = -1;
     if (musicFile) { args.push("-ss", musicOffset.toFixed(3), "-stream_loop", "-1", "-i", fwd(musicFile)); musicIdx = idx++; }
     if (origAudioFile) { args.push("-i", fwd(origAudioFile)); origIdx = idx++; }
+    let voIdx = -1;
+    if (style.deck?.voiceFile) { args.push("-i", fwd(style.deck.voiceFile)); voIdx = idx++; }
     // The logo is generated INSIDE the filter graph (movie + loop + regular 30 fps timestamps),
     // not as an ffmpeg input. On ffmpeg 7.1 a PNG input dropped the logo: a single frame vanished
     // after ~2 s, and `-loop 1` dropped frames at random (verified 2026-09-25, 3 runs each).
@@ -1684,6 +1713,19 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     let aLabel = null;
     if (stems.length === 2) { fc += `;${stems.join("")}amix=inputs=2:duration=first:dropout_transition=0:normalize=0[amx]`; aLabel = "[amx]"; }
     else if (stems.length === 1) { aLabel = stems[0]; }
+    // Voiceover: the music ducks under the voice (sidechain), then both are mixed.
+    if (voIdx >= 0) {
+      if (aLabel) {
+        // Narration is loudness-normalised (-16 LUFS) in buildNarration; the music bed sits lower under a
+        // voiceover and ducks hard while the voice speaks (measured: speech was level with music at 1.0x).
+        fc += `;[${voIdx}:a]asplit=2[vo][vosc];${aLabel}volume=0.55[bed];[bed][vosc]sidechaincompress=threshold=0.03:ratio=10:attack=15:release=400[duck]` +
+          `;[duck][vo]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[vmx]`;
+        aLabel = "[vmx]";
+      } else {
+        fc += `;[${voIdx}:a]anull[vmx]`;
+        aLabel = "[vmx]";
+      }
+    }
     if (aLabel && endFade) { fc += `;${aLabel}afade=t=out:st=${(outDur - 0.7).toFixed(2)}:d=0.7[aout]`; aLabel = "[aout]"; }
 
     args.push("-filter_complex", vfc);
@@ -1775,7 +1817,8 @@ async function loadRenderInputs(projectId, aspectOverride) {
         brand = { primary: colors[0], secondary: colors[1], headingFont: fonts.heading, bodyFont: fonts.body, logoKey: bk.logo_key };
       }
     }
-    style.deck = { scenes, brand };
+    const brief = project.deck?.brief ?? {};
+    style.deck = { scenes, brand, voice: brief.voice ?? { mode: "off" }, captions: brief.captions ?? { enabled: true } };
     style.titleText = null; // scenes carry their own text
     style.originalAudio = false;
     style.maxFootage = false;

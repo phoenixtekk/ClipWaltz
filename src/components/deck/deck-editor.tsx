@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
-  Sparkles, Upload, Loader2, Lock, Unlock, Trash2, Plus, ArrowUp, ArrowDown, Wand2, Play, Pause, RotateCcw, Info, ImageIcon,
+  Sparkles, Upload, Loader2, Lock, Unlock, Trash2, Plus, ArrowUp, ArrowDown, Wand2, Play, Pause, RotateCcw, Info, ImageIcon, Mic, Captions,
 } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { aspectClass, isWide } from "@/lib/aspect";
-import { DECK_MODES, LAYOUTS, type DeckBrief, type DeckScene, type SceneTextMode, type TextMode } from "@/lib/deck/types";
+import { DECK_MODES, LAYOUTS, VOICES, type DeckBrief, type DeckScene, type SceneTextMode, type TextMode, type VoiceMode } from "@/lib/deck/types";
 import {
   getDeck, saveBrief, setAssetNote, describeAsset, requestPlan, updateScene, rewriteSceneText, reorderScenes, addScene, deleteScene,
   type DeckData, type DeckAsset, type ScenePatch,
@@ -160,6 +160,7 @@ export function DeckEditor({ initial, initialBrand, canEdit, renderSlot }: {
                 ))}
               </div>
             </div>
+            <VoiceControls brief={brief} canEdit={canEdit} onChange={(patch) => saveBriefNow(patch)} />
           </section>
 
           <BrandSection projectId={projectId} kit={brandKit} canEdit={canEdit} onSaved={(k, logo) => { setBrandKit(k); if (logo) setLogoVersion((v) => v + 1); }} />
@@ -199,6 +200,7 @@ export function DeckEditor({ initial, initialBrand, canEdit, renderSlot }: {
                   wide={isWide(data.project.aspect)}
                   canEdit={canEdit}
                   brand={frameBrand}
+                  voiceMode={brief.voice?.mode ?? "off"}
                   onPatch={(patch) => act(() => updateScene(projectId, s.id, patch))}
                   onRewrite={(ins) => act(() => rewriteSceneText(projectId, s.id, ins))}
                   onMove={(dir) => {
@@ -237,6 +239,62 @@ export function DeckEditor({ initial, initialBrand, canEdit, renderSlot }: {
           </section>
         </div>
       </div>
+    </div>
+  );
+}
+
+function VoiceControls({ brief, canEdit, onChange }: { brief: DeckBrief; canEdit: boolean; onChange: (p: Partial<DeckBrief>) => void }) {
+  const v = brief.voice ?? { mode: "off" as VoiceMode, voiceId: "af_heart", speed: 1 };
+  const captions = brief.captions?.enabled ?? true;
+  const [speed, setSpeed] = useState(v.speed);
+  const audio = useRef<HTMLAudioElement | null>(null);
+  const preview = () => {
+    const a = audio.current;
+    if (!a) return;
+    a.src = `/voices/${v.voiceId}.mp3`;
+    a.playbackRate = speed;
+    void a.play().catch(() => {});
+  };
+  return (
+    <div className="space-y-2 border-t border-border pt-3">
+      <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Mic className="size-3.5" /> Voiceover</span>
+      <div className="flex flex-wrap gap-2">
+        {([
+          ["off", "Off"],
+          ["auto", "AI writes it"],
+          ["manual", "I'll write it"],
+        ] as [VoiceMode, string][]).map(([k, label]) => (
+          <button key={k} type="button" disabled={!canEdit} aria-pressed={v.mode === k} onClick={() => onChange({ voice: { ...v, mode: k } })}
+            className={cn("rounded-full border px-3 py-1 text-xs font-medium", v.mode === k ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10" : "border-border text-muted-foreground hover:text-foreground")}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {v.mode !== "off" ? (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={v.voiceId} disabled={!canEdit} onChange={(e) => onChange({ voice: { ...v, voiceId: e.target.value } })} className={cn(field, "h-8 max-w-[240px] text-xs")} aria-label="Voice">
+              {VOICES.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
+            <Button type="button" size="sm" variant="secondary" onClick={preview}><Play className="size-3.5" /> Hear it</Button>
+            <audio ref={audio} preload="none" />
+          </div>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            Speed {speed.toFixed(2)}×
+            <input type="range" min={0.8} max={1.25} step={0.05} value={speed} disabled={!canEdit}
+              onChange={(e) => setSpeed(Number(e.target.value))}
+              onPointerUp={() => onChange({ voice: { ...v, speed } })} onKeyUp={() => onChange({ voice: { ...v, speed } })} className="flex-1" />
+          </label>
+          <label className="flex items-center gap-2 text-xs">
+            <input type="checkbox" checked={captions} disabled={!canEdit} onChange={(e) => onChange({ captions: { enabled: e.target.checked } })} />
+            <Captions className="size-3.5" /> Captions — each word lights up as it&apos;s spoken
+          </label>
+          <p className="text-[11px] text-muted-foreground">
+            {v.mode === "auto" ? "Plan (or re-plan) and the AI writes a line per scene; scenes get longer if a line needs it." : "Write a line on each scene card; scenes get longer if a line needs it."}
+            {" "}Voices are generated privately on ClipWaltz&apos;s own servers.
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -405,16 +463,17 @@ function MediaRow({ projectId, asset, canEdit }: { projectId: string; asset: Dec
 }
 
 function SceneCard({
-  projectId, scene, index, count, asset, assets, aspectCss, wide, canEdit, brand, onPatch, onRewrite, onMove, onDelete, onAddAfter,
+  projectId, scene, index, count, asset, assets, aspectCss, wide, canEdit, brand, voiceMode, onPatch, onRewrite, onMove, onDelete, onAddAfter,
 }: {
   projectId: string; scene: DeckScene; index: number; count: number; asset: DeckAsset | null; assets: DeckAsset[];
-  aspectCss: string; wide: boolean; canEdit: boolean; brand: FrameBrand;
+  aspectCss: string; wide: boolean; canEdit: boolean; brand: FrameBrand; voiceMode: VoiceMode;
   onPatch: (p: ScenePatch) => void; onRewrite: (instruction: string) => void; onMove: (dir: -1 | 1) => void; onDelete: () => void; onAddAfter: () => void;
 }) {
   const [headline, setHeadline] = useState(scene.text.headline ?? "");
   const [sub, setSub] = useState(scene.text.sub ?? "");
   const [bullets, setBullets] = useState((scene.text.bullets ?? []).join("\n"));
   const [ask, setAsk] = useState("");
+  const [voice, setVoice] = useState(scene.voice ?? "");
   // Pick up server-side rewrites (the card stays mounted while the worker updates the text).
   const serverText = JSON.stringify(scene.text);
   const [seen, setSeen] = useState(serverText);
@@ -423,6 +482,11 @@ function SceneCard({
     setHeadline(scene.text.headline ?? "");
     setSub(scene.text.sub ?? "");
     setBullets((scene.text.bullets ?? []).join("\n"));
+  }
+  const [seenVoice, setSeenVoice] = useState(scene.voice ?? "");
+  if ((scene.voice ?? "") !== seenVoice) {
+    setSeenVoice(scene.voice ?? "");
+    setVoice(scene.voice ?? "");
   }
   const commitText = () => {
     const next = { headline: headline.trim(), sub: sub.trim(), bullets: bullets.split("\n").map((b) => b.trim()).filter(Boolean) };
@@ -472,6 +536,22 @@ function SceneCard({
               ) : null}
             </div>
           ) : <p className="text-xs text-muted-foreground">No text on this scene.</p>}
+
+          {voiceMode !== "off" ? (
+            <label className="flex items-start gap-2">
+              <Mic className="mt-2 size-3.5 shrink-0 text-[color:var(--cw-violet)]" />
+              <textarea
+                value={voice}
+                disabled={!canEdit || busy}
+                onChange={(e) => setVoice(e.target.value)}
+                onBlur={() => { if (voice.trim() !== (scene.voice ?? "").trim()) onPatch({ voice: voice.trim() }); }}
+                rows={2}
+                maxLength={400}
+                placeholder={voiceMode === "auto" ? "Narration (the AI writes it when you plan)" : "What the voice says in this scene (leave empty for silence)"}
+                className={cn(field, "py-1.5 text-xs")}
+              />
+            </label>
+          ) : null}
 
           <div className="flex flex-wrap items-center gap-1.5">
             {!textOff ? (["rewrite", "shorter", "punchier"] as const).map((k) => (

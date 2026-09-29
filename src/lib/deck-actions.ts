@@ -9,7 +9,7 @@ import { requireUserId } from "./auth";
 import { userCanAccessProject } from "./workspace";
 import { enqueueDeck } from "./queue";
 import {
-  DECK_MODES, LAYOUTS, MOTIONS, ROLES, defaultBrief,
+  DECK_MODES, LAYOUTS, MOTIONS, ROLES, VOICES, defaultBrief,
   type DeckBrief, type DeckScene, type DeckState, type SceneText, type SceneTextMode,
 } from "./deck/types";
 
@@ -44,7 +44,7 @@ export type DeckData = {
 const toScene = (r: typeof schema.deckScenes.$inferSelect): DeckScene => ({
   id: r.id, orderIndex: r.orderIndex, role: r.role, assetId: r.assetId, inSec: r.inSec, outSec: r.outSec,
   durationSec: r.durationSec, textMode: r.textMode as SceneTextMode, text: (r.text ?? {}) as SceneText,
-  layout: r.layout, motion: r.motion, transition: r.transition, locked: r.locked, prompt: r.prompt, why: r.why,
+  layout: r.layout, motion: r.motion, transition: r.transition, locked: r.locked, voice: r.voice, prompt: r.prompt, why: r.why,
 });
 
 /** Everything the WaltzDeck editor shows. Polled while a plan or rewrite is running. */
@@ -88,6 +88,14 @@ export async function saveBrief(projectId: string, input: Partial<DeckBrief>): P
       : cur.cta,
     lengthSec: input.lengthSec !== undefined ? Math.max(6, Math.min(180, Math.round(Number(input.lengthSec) || cur.lengthSec))) : cur.lengthSec,
     textMode: input.textMode && ["auto", "manual", "off"].includes(input.textMode) ? input.textMode : cur.textMode,
+    voice: input.voice !== undefined
+      ? {
+          mode: ["off", "auto", "manual"].includes(input.voice?.mode ?? "") ? input.voice!.mode : "off",
+          voiceId: VOICES.some((v) => v.id === input.voice?.voiceId) ? input.voice!.voiceId : "af_heart",
+          speed: Math.max(0.8, Math.min(1.25, Number(input.voice?.speed) || 1)),
+        }
+      : cur.voice ?? defaultBrief().voice,
+    captions: input.captions !== undefined ? { enabled: !!input.captions?.enabled } : cur.captions ?? defaultBrief().captions,
   };
   await db.update(schema.projects).set({
     deck: sql`jsonb_set(coalesce(${schema.projects.deck}, '{}'::jsonb), '{brief}', ${JSON.stringify(next)}::jsonb)`,
@@ -136,7 +144,7 @@ export async function requestPlan(projectId: string): Promise<void> {
 }
 
 export type ScenePatch = Partial<{
-  text: SceneText; textMode: SceneTextMode; layout: string; durationSec: number; assetId: string | null;
+  text: SceneText; textMode: SceneTextMode; layout: string; durationSec: number; assetId: string | null; voice: string;
   inSec: number | null; outSec: number | null; locked: boolean; motion: string; transition: string; role: string;
 }>;
 
@@ -151,6 +159,11 @@ export async function updateScene(projectId: string, sceneId: string, patch: Sce
       bullets: (patch.text.bullets ?? []).map((b) => clip(b, 60)).filter(Boolean).slice(0, 4),
     };
     set.textMode = "manual";
+    set.locked = true;
+  }
+  if (patch.voice !== undefined) {
+    // Your own narration is kept by re-plans, like your own text.
+    set.voice = clip(patch.voice, 400) || null;
     set.locked = true;
   }
   if (patch.textMode && ["auto", "manual", "none"].includes(patch.textMode)) set.textMode = patch.textMode;

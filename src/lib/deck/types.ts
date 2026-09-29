@@ -25,6 +25,19 @@ export type SceneRole = (typeof ROLES)[number];
 
 export const MOTIONS = ["auto", "none", "push-in", "pull-out", "pan-left", "pan-right"] as const;
 
+/** Kokoro voices served by worker/tts/server.py (keep in sync); previews in public/voices/<id>.mp3. */
+export const VOICES = [
+  { id: "af_heart", label: "Heart — warm, female (US)" },
+  { id: "af_bella", label: "Bella — bright, female (US)" },
+  { id: "af_nicole", label: "Nicole — soft, female (US)" },
+  { id: "am_michael", label: "Michael — friendly, male (US)" },
+  { id: "am_fenrir", label: "Fenrir — deep, male (US)" },
+  { id: "am_puck", label: "Puck — upbeat, male (US)" },
+  { id: "bf_emma", label: "Emma — clear, female (UK)" },
+  { id: "bm_george", label: "George — calm, male (UK)" },
+] as const;
+export type VoiceMode = "off" | "auto" | "manual";
+
 export type DeckBrief = {
   mode: DeckMode;
   prompt: string; // the overall brief
@@ -35,6 +48,10 @@ export type DeckBrief = {
   cta?: { text: string; url?: string } | null;
   lengthSec: number;
   textMode: TextMode; // project default for on-screen text
+  /** Voiceover (phase 2): off, AI-written narration per scene, or the user's own lines. */
+  voice?: { mode: VoiceMode; voiceId: string; speed: number };
+  /** Burned-in captions of the narration, each word highlighted as it's spoken. */
+  captions?: { enabled: boolean };
 };
 
 export type DeckPlanStatus =
@@ -61,6 +78,7 @@ export type DeckScene = {
   motion: string;
   transition: string;
   locked: boolean;
+  voice: string | null; // narration line (empty = silent)
   prompt: string | null;
   why: string | null;
 };
@@ -71,4 +89,6 @@ export const defaultBrief = (mode: DeckMode = "ad"): DeckBrief => ({
   lengthSec: DECK_MODES.find((m) => m.key === mode)?.defaultLength ?? 15,
   textMode: "auto",
   cta: null,
+  voice: { mode: "off", voiceId: "af_heart", speed: 1 },
+  captions: { enabled: true },
 });

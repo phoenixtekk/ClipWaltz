@@ -701,6 +701,7 @@ export const deckScenes = pgTable("deck_scenes", {
   motion: text().notNull().default("auto"), // auto | none | push-in | pull-out | pan-left | pan-right
   transition: text().notNull().default("cut"), // cut | crossfade
   locked: boolean().notNull().default(false),
+  voice: text(), // narration line for this scene (phase 2); null/empty = silent
   prompt: text(), // per-scene instruction from the user ("more premium", "mention free shipping")
   why: text(), // planner's one-line reason for its choices, shown on the card
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),

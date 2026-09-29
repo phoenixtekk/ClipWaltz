@@ -16,6 +16,9 @@ export const MODES = ["ad", "slideshow"]; // phase 1 (presentation, explainer, r
 export const LAYOUTS = ["headline-bottom", "headline-center", "lower-third", "bullets", "title-card", "cta-card"];
 export const ROLES = ["hook", "problem", "benefit", "proof", "content", "title", "cta"];
 const WORDS_PER_SEC = 3; // comfortable on-screen reading speed
+const SPEECH_WPS = 2.8; // Kokoro at speed 1.0 (measured 2.7-3.3 words/s incl. pauses)
+/** Seconds a narration line needs at `speed`, with a short breath after it. */
+export const speechSec = (line, speed = 1) => (line ? words(line) / (SPEECH_WPS * (speed || 1)) + 0.4 : 0);
 const MIN_SCENE = 1.2;
 const MAX_SCENE = 8;
 
@@ -257,11 +260,16 @@ export async function planStoryboard(brief, media, locked = []) {
     `- layout: headline-bottom (default over media), headline-center (bold statement), lower-third (subtle caption), ` +
     `bullets (2-3 short bullet points), title-card (text on a plain brand background, media 0), cta-card (final call to action).\n` +
     `- why: one short sentence explaining the choice of media and text for that scene.\n` +
+    (brief.voice?.mode === "auto"
+      ? `- voice: a spoken narration line for EVERY scene (a voiceover, read at ~${SPEECH_WPS} words per second): conversational, ` +
+        `complements the on-screen text instead of repeating it word for word, and fits the scene (a 3 s scene ≈ 7 words). ` +
+        `The cta scene's voice says the call to action. Same rule: no invented facts or claims.\n`
+      : "") +
     `- title: a short internal name for this video.
 
 ` +
     `JSON shape: {"title":string,"scenes":[{"role":${ROLES.map((r) => `"${r}"`).join("|")},"media":integer (1-based, 0 = none),` +
-    `"durationSec":number,"moment":integer,"headline":string,"sub":string,"bullets":[string],"layout":${LAYOUTS.map((l) => `"${l}"`).join("|")},"why":string}]}`;
+    `"durationSec":number,"moment":integer,${brief.voice?.mode === "auto" ? '"voice":string,' : ""}"headline":string,"sub":string,"bullets":[string],"layout":${LAYOUTS.map((l) => `"${l}"`).join("|")},"why":string}]}`;
   const t0 = Date.now();
   const { data: raw, raw: j } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.5, numPredict: 8000, numCtx: 16384, timeoutMs: 600000 });
   if (process.env.DECK_DEBUG === "1") console.log(`[deck] raw plan: ${JSON.stringify(raw).slice(0, 4000)}`);
@@ -351,6 +359,7 @@ export function repairPlan(raw, { brief, media, locked = [] }) {
       role,
       assetId: m?.id ?? null,
       momentT: mi >= 0 ? moments[mi].t : null,
+      voice: brief.voice?.mode === "auto" ? str(s.voice, 300) : "",
       durationSec: dur,
       text: {
         headline: str(s.headline, 90),
@@ -395,6 +404,7 @@ export function repairPlan(raw, { brief, media, locked = [] }) {
     if (unverified(t.sub, okNums)) { t.sub = ""; removed = true; }
     const before = t.bullets.length;
     t.bullets = t.bullets.filter((b) => !unverified(b, okNums));
+    if (sc.voice && unverified(sc.voice, okNums)) { sc.voice = ""; removed = true; }
     if (removed || t.bullets.length !== before) sc.flags = [...(sc.flags ?? []), "removed-unverified-number"];
   }
   // No invented claims beyond numbers: a line making one of these claims is kept only when the owner's own
@@ -406,6 +416,7 @@ export function repairPlan(raw, { brief, media, locked = [] }) {
     let removed = false;
     if (bad(t.headline)) { t.headline = ""; removed = true; }
     if (bad(t.sub)) { t.sub = ""; removed = true; }
+    if (sc.voice && bad(sc.voice)) { sc.voice = ""; removed = true; }
     const n = t.bullets.length;
     t.bullets = t.bullets.filter((b) => !bad(b));
     if (removed || t.bullets.length !== n) sc.flags = [...(sc.flags ?? []), "removed-unverified-claim"];
@@ -433,10 +444,11 @@ export function repairPlan(raw, { brief, media, locked = [] }) {
   // Per-scene bounds: a hook needs ≥1.5 s to register, a CTA ≤3.5 s (with or without media — a prod plan put
   // 6.6 s on a CTA over a photo), a video never past its own length. Scale the scenes that still have room,
   // a few passes, so time taken from/added to clamped scenes goes to the others.
-  const floorOf = (sc) => (sc.role === "hook" ? 1.5 : MIN_SCENE);
+  const floorOf = (sc) => Math.max(sc.role === "hook" ? 1.5 : MIN_SCENE, Math.min(MAX_SCENE, speechSec(sc.voice, brief.voice?.speed)));
   const capOf = (sc) => {
     const m = sc.assetId ? media.find((x) => x.id === sc.assetId) : null;
-    const base = sc.role === "cta" ? 3.5 : MAX_SCENE;
+    // The CTA cap yields to its narration (a spoken CTA must fit).
+    const base = sc.role === "cta" ? Math.max(3.5, Math.min(MAX_SCENE, speechSec(sc.voice, brief.voice?.speed))) : MAX_SCENE;
     return m?.kind === "video" && m.durationSec ? Math.max(Math.min(base, m.durationSec), Math.min(floorOf(sc), m.durationSec)) : base;
   };
   for (const sc of scenes) sc.durationSec = Math.max(Math.min(floorOf(sc), capOf(sc)), Math.min(capOf(sc), sc.durationSec));
@@ -494,13 +506,14 @@ export async function rewriteScene(brief, scene, mediaItem, instruction, sibling
     (siblings.length ? `Other scenes already say: ${siblings.map((t) => `"${t}"`).join(", ")} — don't repeat them.\n` : "") +
     `${ask}\nRules: at most ${maxWords} words in total; ${scene.layout === "bullets" ? "2-3 bullets" : "bullets only if the layout is bullets"}; ` +
     `never invent facts, prices, numbers or claims not in the brief or note (no "limited time", "best", "free", "guaranteed", ratings…).\n` +
-    `JSON keys: {"headline":string,"sub":string,"bullets":[string]}`;
+    (brief.voice?.mode === "auto" ? `Also write "voice": the spoken narration for this scene (≈${Math.max(3, Math.round((Number(scene.durationSec) || 3) * SPEECH_WPS))} words, complements the text).\n` : "") +
+    `JSON keys: {"headline":string,"sub":string,"bullets":[string]${brief.voice?.mode === "auto" ? ',"voice":string' : ""}}`;
   const { data } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.7, numPredict: 3000 });
   const media = mediaItem ? [mediaItem] : [];
   const repaired = repairPlan(
-    { title: "x", scenes: [{ role: scene.role, media: mediaItem ? 1 : 0, durationSec: scene.durationSec, headline: data.headline, sub: data.sub, bullets: data.bullets, layout: scene.layout, why: "" }] },
+    { title: "x", scenes: [{ role: scene.role, media: mediaItem ? 1 : 0, durationSec: scene.durationSec, headline: data.headline, sub: data.sub, bullets: data.bullets, voice: data.voice, layout: scene.layout, why: "" }] },
     // textMode "auto": the owner asked for text on THIS scene, even if the project default is Off.
     { brief: { ...brief, mode: "slideshow", lengthSec: scene.durationSec, cta: null, textMode: "auto" }, media },
   ).scenes[0];
-  return { ...repaired.text, ...(repaired.flags ? { flags: repaired.flags } : {}) };
+  return { ...repaired.text, ...(brief.voice?.mode === "auto" ? { voice: repaired.voice } : {}), ...(repaired.flags ? { flags: repaired.flags } : {}) };
 }

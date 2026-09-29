@@ -274,6 +274,13 @@
       "when": 1790712985675,
       "tag": "0038_waltzdeck",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1790716804867,
+      "tag": "0039_deck_voice",
+      "breakpoints": true
     }
   ]
 }
