@@ -1,11 +1,12 @@
 "use client";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { History, Trash2, RectangleHorizontal, RectangleVertical, Loader2 } from "lucide-react";
+import { History, Trash2, RectangleHorizontal, RectangleVertical, Square, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { DownloadButton } from "@/components/download-controls";
 import { deleteRender } from "@/lib/render-actions";
 import type { RenderHistoryItem } from "@/lib/render";
+import { isWide } from "@/lib/aspect";
 
 function when(iso: string): string {
   const d = new Date(iso);
@@ -47,7 +48,7 @@ export function RenderHistory({ renders }: { renders: RenderHistoryItem[] }) {
       </h3>
       <ul className="divide-y divide-border">
         {renders.map((r, i) => {
-          const Orient = r.aspect === "16:9" ? RectangleHorizontal : RectangleVertical;
+          const Orient = isWide(r.aspect) ? RectangleHorizontal : r.aspect === "1:1" ? Square : RectangleVertical;
           return (
             <li key={r.id} className="flex items-center gap-2 py-2">
               <Orient className="size-4 shrink-0 text-muted-foreground" />

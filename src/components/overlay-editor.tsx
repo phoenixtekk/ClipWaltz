@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { cn } from "cn";
 import type { Overlay, OverlayAnim } from "@/lib/overlays";
 import { setProjectOverlays } from "@/lib/overlay-actions";
+import { aspectClass, aspectDims, isWide } from "@/lib/aspect";
 
 const EMOJI_PALETTE = ["❤️", "🎉", "✨", "😍", "🔥", "😂", "🥳", "😎", "🌞", "🌊", "🎂", "💯", "👏", "🙌", "⭐", "🎶"];
 const ANIMS: { key: OverlayAnim; label: string }[] = [
@@ -45,7 +46,7 @@ export function OverlayEditor({
   backdropAssetId: string | null;
   lengthSec: number;
 }) {
-  const wide = aspect === "16:9";
+  const wide = isWide(aspect);
   const [overlays, setOverlays] = useState<Overlay[]>(initialOverlays);
   const [selected, setSelected] = useState<string | null>(initialOverlays[0]?.id ?? null);
   const [stageH, setStageH] = useState(360);
@@ -130,7 +131,7 @@ export function OverlayEditor({
           onPointerLeave={onPointerUp}
           className={cn(
             "relative mx-auto w-full overflow-hidden rounded-xl border border-border bg-black",
-            wide ? "aspect-[16/9] max-w-[420px]" : "aspect-[9/16] max-w-[220px]",
+            cn(aspectClass(aspect), wide ? "max-w-[420px]" : aspect === "9:16" ? "max-w-[220px]" : "max-w-[300px]"),
           )}
         >
           {backdropAssetId ? (
@@ -221,8 +222,7 @@ export function OverlayEditor({
 
               {/* Position: quick anchors + pixel-precise sliders (from every edge). */}
               {(() => {
-                const W = wide ? 1920 : 1080;
-                const H = wide ? 1080 : 1920;
+                const { w: W, h: H } = aspectDims(aspect);
                 const px = Math.round(sel.x * W);
                 const py = Math.round(sel.y * H);
                 return (

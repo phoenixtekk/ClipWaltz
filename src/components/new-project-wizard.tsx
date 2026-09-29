@@ -7,6 +7,7 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { createProject } from "@/lib/project-actions";
 import type { AiTemplate } from "@/lib/template-actions";
+import type { Aspect } from "@/lib/aspect";
 
 const TEMPLATE_GLYPH: Record<string, string> = {
   product: "◎", social: "▶", story: "❝", event: "✺", travel: "⛰", cinematic: "🎬",
@@ -35,7 +36,7 @@ export function NewProjectWizard({ workspaceId, aiTemplates = [] }: { workspaceI
   const [kind, setKind] = useState<"music" | "ai">("music");
   const [selected, setSelected] = useState("trip");
   const [aiTemplateId, setAiTemplateId] = useState<string | null>(aiTemplates[0]?.id ?? null);
-  const [aspect, setAspect] = useState<"9:16" | "16:9">("9:16");
+  const [aspect, setAspect] = useState<Aspect>("9:16");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [pending, start] = useTransition();
@@ -186,6 +187,8 @@ export function NewProjectWizard({ workspaceId, aiTemplates = [] }: { workspaceI
           {([
             { key: "9:16", label: "9:16 vertical", box: "h-5 w-3" },
             { key: "16:9", label: "16:9 wide", box: "h-3 w-5" },
+            { key: "1:1", label: "1:1 square", box: "h-4 w-4" },
+            { key: "4:5", label: "4:5 portrait", box: "h-5 w-4" },
           ] as const).map((a) => (
             <button
               key={a.key}

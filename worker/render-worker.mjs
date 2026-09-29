@@ -98,8 +98,9 @@ async function notifyReady(renderId) {
   }
 }
 
+// Output size per aspect — keep in sync with src/lib/aspect.ts.
 function dims(aspect) {
-  return aspect === "16:9" ? [1920, 1080] : [1080, 1920];
+  return aspect === "16:9" ? [1920, 1080] : aspect === "1:1" ? [1080, 1080] : aspect === "4:5" ? [1080, 1350] : [1080, 1920];
 }
 function vfStatic(W, H) {
   return `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30`;

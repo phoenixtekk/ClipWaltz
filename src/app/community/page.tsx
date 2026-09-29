@@ -7,6 +7,7 @@ import { getTopLiked, getTopPosters, type LeaderRow } from "@/lib/community";
 import { getChatMessages } from "@/lib/chat";
 import { getAuthUserId } from "@/lib/auth";
 import { CommunityChat } from "@/components/community-chat";
+import { aspectClass } from "@/lib/aspect";
 
 export const metadata = {
   title: "Community feed",
@@ -79,7 +80,7 @@ export default async function FeedPage() {
                   <Link key={e.renderId} href={`/w/${e.renderId}`} className="cw-lift group block">
                     <div
                       className={`relative flex items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-[color:var(--cw-blue)]/25 via-[color:var(--cw-magenta)]/20 to-[color:var(--cw-coral)]/20 ${
-                        e.aspect === "16:9" ? "aspect-[16/9]" : "aspect-[9/16]"
+                        aspectClass(e.aspect)
                       }`}
                     >
                       {i === 0 ? (
@@ -130,7 +131,7 @@ export default async function FeedPage() {
                     <Link href={`/w/${it.renderId}`} className="group block" aria-label={`Watch ${it.title}`}>
                       <div
                         className={`relative flex items-center justify-center bg-gradient-to-br from-[color:var(--cw-blue)]/25 via-[color:var(--cw-magenta)]/20 to-[color:var(--cw-coral)]/20 ${
-                          it.aspect === "16:9" ? "aspect-[16/9]" : "aspect-[9/16]"
+                          aspectClass(it.aspect)
                         }`}
                       >
                         <div className="flex size-11 items-center justify-center rounded-full bg-white/85 transition-transform group-hover:scale-110">

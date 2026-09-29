@@ -6,6 +6,7 @@ import { after } from "next/server";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
 import { assertProjectRole, getProjectRole, getWorkspaceRole, roleAtLeast } from "./workspace";
+import { toAspect } from "./aspect";
 
 // Confirm the current user may edit the project (workspace role ≥ editor, ADR-0004) before any
 // mutation — defends against a tampered projectId from the client.
@@ -21,7 +22,6 @@ const DEFAULT_TITLE: Record<string, string> = {
   surprise: "Untitled project",
 };
 
-const ASPECTS = new Set(["9:16", "16:9"]);
 
 /**
  * Create a new draft project for the current user. Returns its id. CW-MVP-010: a name (required when
@@ -36,7 +36,7 @@ export async function createProject(
 ): Promise<string> {
   const userId = await requireUserId();
   const t = template && ACTIVE_TEMPLATES.has(template) ? template : "surprise";
-  const a = aspect && ASPECTS.has(aspect) ? aspect : "9:16";
+  const a = toAspect(aspect);
   const title = opts.title?.trim().slice(0, 100);
   if (opts.title !== undefined && !title) throw new Error("Give the project a name");
   const description = opts.description?.trim().slice(0, 500) || null;
@@ -100,7 +100,7 @@ export async function createProject(
 export async function setProjectAspect(projectId: string, aspect: string): Promise<void> {
   const userId = await requireUserId();
   await assertEditor(userId, projectId);
-  const a = ASPECTS.has(aspect) ? aspect : "9:16";
+  const a = toAspect(aspect);
   await db
     .update(schema.projects)
     .set({ aspect: a, updatedAt: new Date() })

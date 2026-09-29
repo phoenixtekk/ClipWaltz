@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   MoreVertical, Pencil, Copy, Trash2, FolderOpen, ImagePlus, Play,
-  RectangleHorizontal, RectangleVertical, Tag, FolderInput,
+  RectangleHorizontal, RectangleVertical, Square, Tag, FolderInput,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -25,6 +25,7 @@ import {
   setProjectCategory, setProjectTags,
 } from "@/lib/project-actions";
 import { createCategory } from "@/lib/category-actions";
+import { aspectLabel, isWide } from "@/lib/aspect";
 
 const STATUS: Record<ProjectStatus, { label: string; className: string }> = {
   draft: { label: "Draft", className: "text-muted-foreground border-border bg-background/80" },
@@ -58,11 +59,11 @@ export function ProjectCard({
   const [pending, start] = useTransition();
   const [thumbOk, setThumbOk] = useState(true);
   const status = STATUS[project.status] ?? STATUS.draft;
-  const wide = project.aspect === "16:9";
+  const wide = isWide(project.aspect);
   const editHref = `/projects/${project.id}/edit`;
   const clips = project.clips ?? 0;
   const displayName = project.titleText?.trim() || project.title;
-  const OrientIcon = wide ? RectangleHorizontal : RectangleVertical;
+  const OrientIcon = wide ? RectangleHorizontal : project.aspect === "1:1" ? Square : RectangleVertical;
 
   function run(fn: () => Promise<unknown>, errMsg: string) {
     start(async () => {
@@ -115,7 +116,7 @@ export function ProjectCard({
           </span>
           <span
             className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-background/70 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground backdrop-blur-sm"
-            title={wide ? "Landscape (16:9)" : "Portrait (9:16)"}
+            title={aspectLabel(project.aspect)}
           >
             <OrientIcon className="size-3.5" /> {project.aspect}
           </span>

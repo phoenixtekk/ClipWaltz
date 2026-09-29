@@ -1,6 +1,6 @@
 # ClipWaltz — WaltzDeck: ads, campaigns & presentations from your own media
 
-**Status:** proposal / design — nothing built yet. 2026-09-29.
+**Status:** Phase 1 in progress (owner approved 2026-09-29, with all section-7 recommendations). 2026-09-29.
 **Working name:** **WaltzDeck** (sits beside **AutoWaltz** = media → music video and **Waltz AI** = AI clips).
 Name is the owner's call; alternatives: *WaltzStudio*, *PitchWaltz*, *Waltz Story*.
 
@@ -28,6 +28,22 @@ It is one engine with **output modes** that change the structure the AI writes:
 
 The overall brief sets **goal, audience, tone, offer, CTA, length, platform**; per-item notes steer **what that
 scene says and where it goes**; the AI fills everything else and shows its reasoning per scene.
+
+### Overlay text — optional, manual or AI-written (owner requirement 2026-09-29)
+
+On-screen text is fully optional and controllable at two levels:
+
+- **Project default — "Text on video":** **Auto** (the AI writes headline / sub / bullets per scene from the brief,
+  the per-item notes and what it sees in the media) · **Manual** (the user writes it; the AI suggests on request) ·
+  **Off** (no overlay text — a clean video, CTA end card optional).
+- **Per scene override:** *Auto* · *Manual* (the user's words, never rewritten — locked automatically once edited) ·
+  *None* (no text on this scene). A per-item note like "say it's organic" steers Auto without being quoted verbatim;
+  quoting in the note (`text: "100% organic"`) makes it Manual.
+- **Controls:** "Write text for me" / "Rewrite" / "Shorter" / "Punchier" per scene; tone and reading level from the
+  brief; max words per scene auto-fitted to the scene's duration (readable at ~3 words/s); brand fonts and colours;
+  text placement avoids faces and products detected in stage 1.
+- **Extra free overlays:** the existing project overlay editor (text/emoji, position, timing, animations) still works
+  on top, for stickers, prices or badges outside the scene layouts.
 
 ---
 
@@ -151,7 +167,7 @@ honoured per render + `renders.variant` (campaign); `deck_exports` (pptx/pdf/srt
 
 | Phase | Ships | Depends on |
 |---|---|---|
-| **1 — MVP (Ad + Slideshow)** | Brief + per-item notes → LLM storyboard → scene-card editor (reorder, edit text, swap media, per-scene prompt, lock) → render with text layouts, beat sync, brand kit (logo/colours/fonts), CTA end card; **9:16, 1:1, 16:9** | text-LLM wiring, layout engine spike, 1:1 in the worker, brand kits |
+| **1 — MVP (Ad + Slideshow)** | Brief + per-item notes → LLM storyboard → scene-card editor (reorder, edit text, swap media, per-scene prompt, lock) → render with text layouts, beat sync, brand kit (logo/colours/fonts), CTA end card; **overlay text Auto / Manual / Off** (project + per scene); **9:16, 1:1, 16:9** | text-LLM wiring, layout engine spike, 1:1 in the worker, brand kits |
 | **2 — Voice & captions** | TTS narration per scene, Whisper word-timed captions (styled, burned in + SRT), auto-ducking, narration-aware timing | TTS + STT services on AISERVER |
 | **3 — Presentation** | Presentation mode; **PPTX + PDF export**; PPTX / PDF / URL import → brief + scenes | PPTX writer (e.g. python-pptx or pptxgenjs), PDF from the same templates |
 | **4 — Campaigns + analytics** | Variant packs (hooks × CTAs × lengths × aspects), batch render, per-variant watch stats + UTM links, "make more like the winner" | multi-aspect renders, analytics events on watch pages |
@@ -159,7 +175,11 @@ honoured per render + `renders.variant` (campaign); `deck_exports` (pptx/pdf/srt
 
 ---
 
-## 7. Decisions for the owner
+## 7. Decisions (owner, 2026-09-29: "go with your recommendations")
+
+Recorded: name **WaltzDeck**; **no stock** footage; voice engine to be evaluated in Phase 2 (licence check first);
+**no avatars**; plan gating + credits decided when AI fill ships (Phase 5); **Chromium-template layout engine**,
+subject to the spike. Original options kept below for context.
 
 1. **Name** — WaltzDeck or another.
 2. **Stock footage** — none (our "your media only" stance; recommended) vs a licensed library later.

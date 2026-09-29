@@ -9,6 +9,7 @@ import { isAdminEmail } from "@/lib/admin";
 import { LikeButton } from "@/components/like-button";
 import { RenderComments } from "@/components/render-comments";
 import { RemoveFromCommunity } from "@/components/remove-from-community";
+import { aspectClass, isWide } from "@/lib/aspect";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -23,7 +24,7 @@ export default async function WatchPage({ params }: { params: Promise<{ id: stri
   const { id } = await params;
   const r = await getSharedRender(id);
   if (!r) notFound();
-  const wide = r.aspect === "16:9";
+  const wide = isWide(r.aspect);
   const [comments, session] = await Promise.all([getRenderComments(id), getSession()]);
   const currentUserId = session?.user?.id ?? null;
   const isAdmin = session ? isAdminEmail(session.user.email) : false;
@@ -57,7 +58,7 @@ export default async function WatchPage({ params }: { params: Promise<{ id: stri
             muted
             loop
             playsInline
-            className={`w-full ${wide ? "aspect-[16/9]" : "aspect-[9/16]"} object-contain`}
+            className={`w-full ${aspectClass(r.aspect)} object-contain`}
           />
         </div>
 

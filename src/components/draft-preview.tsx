@@ -7,6 +7,7 @@ import type { AssetSummary } from "@/lib/assets";
 import { buildDraftTimeline } from "@/lib/draft";
 import { trackClientEvent } from "@/lib/analytics-actions";
 import { rotatedFill, rotationParent } from "@/lib/rotation";
+import { aspectClass, isWide } from "@/lib/aspect";
 
 function fmt(sec: number) {
   const s = Math.max(0, Math.round(sec));
@@ -36,7 +37,7 @@ export function DraftPreview({
   aspect?: string;
   loopToFill?: boolean;
 }) {
-  const wide = aspect === "16:9";
+  const wide = isWide(aspect);
   const uploaded = useMemo(
     () =>
       assets.filter(
@@ -148,12 +149,12 @@ export function DraftPreview({
         </span>
       </h2>
 
-      <div className={cn("mx-auto flex w-full flex-col gap-3", wide ? "max-w-[420px]" : "max-w-[240px]")}>
+      <div className={cn("mx-auto flex w-full flex-col gap-3", wide ? "max-w-[420px]" : aspect === "9:16" ? "max-w-[240px]" : "max-w-[320px]")}>
         {/* preview stage */}
         <div
           className={cn(
             "relative w-full overflow-hidden rounded-xl border border-border bg-black",
-            wide ? "aspect-[16/9]" : "aspect-[9/16]",
+            aspectClass(aspect),
           )}
           style={rotationParent(current?.rotation)}
         >

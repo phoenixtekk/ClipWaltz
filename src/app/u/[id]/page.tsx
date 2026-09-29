@@ -3,6 +3,7 @@ import Image from "next/image";
 import { notFound } from "next/navigation";
 import { Heart, Play, Globe, AtSign, Video, Music2 } from "lucide-react";
 import { getPublicProfile, socialUrl } from "@/lib/profile";
+import { aspectClass } from "@/lib/aspect";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -78,7 +79,7 @@ export default async function CreatorProfilePage({ params }: { params: Promise<{
               <Link key={r.renderId} href={`/w/${r.renderId}`} className="cw-glass cw-lift group overflow-hidden rounded-2xl">
                 <div
                   className={`relative flex items-center justify-center bg-gradient-to-br from-[color:var(--cw-blue)]/25 via-[color:var(--cw-magenta)]/20 to-[color:var(--cw-coral)]/20 ${
-                    r.aspect === "16:9" ? "aspect-[16/9]" : "aspect-[9/16]"
+                    aspectClass(r.aspect)
                   }`}
                 >
                   <div className="flex size-11 items-center justify-center rounded-full bg-white/85 transition-transform group-hover:scale-110">

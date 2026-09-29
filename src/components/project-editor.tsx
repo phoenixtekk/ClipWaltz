@@ -15,6 +15,7 @@ const fmtClipLen = (sec: number) => {
   return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
 };
 import { deleteAsset } from "@/lib/asset-actions";
+import { ASPECT_OPTIONS } from "@/lib/aspect";
 import {
   setProjectLength,
   setProjectAspect,
@@ -264,10 +265,7 @@ export function ProjectEditor({
       <section className="cw-glass space-y-2 rounded-xl p-4">
         <h2 className="text-sm font-medium">Aspect</h2>
         <div className="flex flex-wrap gap-2">
-          {[
-            { key: "9:16", label: "9:16 vertical" },
-            { key: "16:9", label: "16:9 wide" },
-          ].map((a) => (
+          {ASPECT_OPTIONS.map((a) => (
             <TrackChip
               key={a.key}
               selected={aspect === a.key}
