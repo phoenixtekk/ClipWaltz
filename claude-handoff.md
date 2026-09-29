@@ -25,6 +25,14 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
   cross-check first (0 live projects/renders/versions/assets referencing them), then deleted 202 objects +
   2 media rows, 0 failed; re-run dry run reports 0.
 
+## WaltzDeck Phase 2 + guards (2026-09-29, v9) — LIVE on prod
+Claim guard beyond numbers + note-aware clip moments (describe v2), then Phase 2: voiceover (Kokoro TTS service
+`clipwaltz-tts` on the AI box, 127.0.0.1:8191, /opt/clipwaltz-tts), narration per scene (AI or manual, second pass when
+lines repeat the screen text), word-highlight ASS captions, -16 LUFS narration + ducked music; migration 0039; voice
+previews public/voices. Deployed: linuxg1 full tree (backup /tmp/cw-pre-phase2-src.tgz), gen worker, render worker
+(backup render-worker.mjs.bak-20260929-phase2). Prod test project now has AI voice + captions. Next: Phase 3
+(presentation mode + PPTX/PDF export + PPTX/PDF/URL import) per spec.
+
 ## WaltzDeck Phase 1 (2026-09-29, v9) — LIVE on prod
 Owner asked for an invideo-class "ads / campaigns / presentations from your media + prompts" feature; spec
 `06_ClipWaltz_WaltzDeck_Feature_Spec.md` (research + gaps, phases 1-5; owner said "go with your recommendations" +

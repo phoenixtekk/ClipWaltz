@@ -13,6 +13,28 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## WaltzDeck Phase 2 — voiceover & captions (2026-09-29)
+- **Voiceover:** brief → *Off / AI writes it / I'll write it*; 8 self-hosted voices (Kokoro-82M, Apache-2.0) with
+  **Hear it** previews (`public/voices/*.mp3`), speed 0.8–1.25×. AI mode writes a narration line per scene; a second
+  focused pass rewrites the narration when most lines just repeat the on-screen text (verified on prod: 6/6 duplicates →
+  6 complementary lines). Your own line on a scene card locks the scene. Same claim/number guards as the text.
+- **Timing follows the voice:** scenes lengthen to fit their line (+0.35 s), beat snapping never cuts a line, a clip
+  shorter than its line holds its last frame.
+- **Captions:** each word lights up as it's spoken (ASS `\kf` karaoke via libass), brand font + main colour, top-centre
+  (clear of the text layouts and the watermark), on/off in the brief.
+- **Mix:** narration loudness-normalised to −16 LUFS, music bed 0.55× and sidechain-ducked under the voice — measured
+  speech ≈ 7–8 dB above music; whole mix ≈ −16 LUFS.
+- Verified 2026-09-29 on prod: "WaltzDeck test — Lake Pleasant ad" with AI voice (Heart) + captions, 16.8 s, 0 decode
+  errors, 15 s render.
+
+## WaltzDeck — claim guard + note-aware clip moments (2026-09-29)
+- **Claim guard beyond numbers:** urgency ("limited time", "today only"), guarantees, awards/best/#1, free, lowest price,
+  certifications/organic/official, ratings/reviews/"trusted by", exclusivity, scientific claims — stripped unless the
+  owner's own brief/offer/CTA/notes contain the claim (word-start matching; offer words fine when the brief has an offer).
+- **Clip moments:** videos are described with 4 captioned moments; the planner picks the moment matching the scene's
+  text or your note (keyword fallback) and the scene window centres on it. Verified on prod: the "sunset" scene now shows
+  the sunset, not the busiest stretch.
+
 ## WaltzDeck — ads & slideshows from your own media (Phase 1, 2026-09-29)
 Spec: `06_ClipWaltz_WaltzDeck_Feature_Spec.md` (vs invideo; phases 2–5 = voice/captions, presentations + PPTX,
 campaign packs + analytics, AI fill).

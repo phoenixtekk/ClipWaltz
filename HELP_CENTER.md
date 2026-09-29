@@ -151,6 +151,10 @@ them there, then come back. (These are in addition to the "video ready" email, w
 - **Brand:** set your colours and fonts, add your logo, and tick **Use my brand on this video**. Your logo appears on
   title and call-to-action cards; the kit is saved for all your videos.
 - **Preview** plays the storyboard instantly; **Render HD** makes the final video with your music, on the beat.
+- **Voiceover:** in the brief choose *AI writes it* or *I'll write it*, pick a voice (tap **Hear it**) and the speed.
+  With AI, plan or re-plan and each scene gets a spoken line; you can edit any line on its card. Scenes get longer
+  if a line needs it, and the music dips while the voice speaks.
+- **Captions:** leave **Captions** on and each word lights up as it's spoken, in your brand font and colour.
 
 ## Waltz AI Remix — make a video you've already made even better
 - Open a project → **Waltz AI** tab → **Remix a video**. You'll see every finished video you've made:

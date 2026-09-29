@@ -529,6 +529,11 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
 - **Brand kit:** `src/lib/brand-actions.ts` (one kit per workspace), logo in MinIO `brand/<workspaceId>/<kitId>-<ts>.<ext>`
   (≤1 MB, png/jpeg/webp/svg), served to the editor by `/api/projects/[id]/brand-logo`; the render worker embeds it
   as a data URL on title/CTA cards.
+- **Claim guard:** `CLAIM_RULES` / `unverifiedClaim` in `planner.mjs` — claim classes with the owner words that must
+  back them (word-start regex, so "eco" doesn't match "second"); applied to headline, sub, bullets and narration.
+- **Clip moments:** `describeMedia` captions 4 frames (12/37/62/87 %) → `ai_description.moments [{t, caption}]`
+  (`DESCRIBE_VERSION` 2 — older cached descriptions are redone); the plan's `moment` (or `bestMoment` keyword overlap)
+  sets `deck_scenes.in_sec` = window start centred on it.
 - **Known limits (phase 1):** the claim guard only strips numbers — a phrase like "Limited time offer" can slip in;
   video moments are picked by motion, not by the note (a "sunset" note got the busiest stretch of that clip);
   first-draft copy is decent, not great (per-scene rewrite + locks cover it).
@@ -536,6 +541,29 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
   + `REDIS_URL=redis://127.0.0.1:6380` in `.env.local`, run `node --env-file=.env.local worker/deck/dev-worker.mjs`
   (refuses the prod queue name and any DB but `clipwaltz_dev`). Dev renders: a one-shot copy of the worker on the AI
   box with `DATABASE_URL` pointed at `clipwaltz_dev` and `--once`.
+
+## WaltzDeck voice & captions (Phase 2, 2026-09-29)
+- **Voice service:** `clipwaltz-tts` systemd unit on the AI box (User=lacy), **127.0.0.1:8191** only — Kokoro-82M
+  (`kokoro==0.9.4`, Apache-2.0 code + weights) in a Python 3.12 venv `/opt/clipwaltz-tts/venv` (kokoro needs <3.13; the
+  box has 3.13, so `uv` from PyPI installed a standalone 3.12), CPU torch, `TTS_THREADS=8`, `HF_HOME=/opt/clipwaltz-tts/hf`.
+  `POST /tts {text, voice, speed}` → base64 WAV + per-word `{w,s,e}`; `GET /voices`, `/health`. Source
+  `worker/tts/server.py` (+ README); deploy = copy it to `/opt/clipwaltz-tts/` + `systemctl restart clipwaltz-tts`.
+  Measured: ~6 s model load (once), ~0.23× real time (18 s of speech in 4.2 s). Licences checked (research 2026-09-29):
+  XTTS-v2 and F5-TTS are non-commercial, Piper voices vary per voice, Chatterbox watermarks output — not used.
+- **Data:** brief `voice {mode: off|auto|manual, voiceId, speed}` + `captions {enabled}` (jsonb), `deck_scenes.voice`
+  (migration `0039_deck_voice`). Voices list in `src/lib/deck/types.ts` must match `server.py`; previews
+  `public/voices/<id>.mp3` (public in `src/proxy.ts`).
+- **Planner:** AI mode asks for a `voice` line per scene; if >50 % of lines repeat the on-screen text, `writeNarration`
+  (one focused call) rewrites them. Scene floor = `speechSec(line)` (2.8 words/s ÷ speed + 0.4 s); CTA cap yields to it.
+- **Render (`worker/deck/voice.mjs`):** `synthScenes` (TTS per scene; a failed call fails the render with "voiceover
+  service unavailable — try again") → scene min = voice + 0.35 s → `buildNarration` (adelay per scene start + 0.12 s,
+  amix, `loudnorm=I=-16:TP=-1.5:LRA=11`) → `buildCaptionsAss` (≤4 words per line or split at pauses >0.35 s, `\kf`
+  per word incl. the gap, lines never overlap, font = brand heading font, Primary = brand colour (default #fde047),
+  Alignment 8 top-centre, MarginV 10 % of height). The look pass adds `ass=filename=…` (libass, before the watermark).
+  Audio: `[voice]asplit` → `[music]volume=0.55` → `sidechaincompress=threshold=0.03:ratio=10:attack=15:release=400` →
+  `amix` with the voice. Crossfade is forced off under narration.
+- **Tuning evidence:** at music 1.0× speech measured level with music (−19…−22.5 dB vs −20.8 dB music-only); after the
+  change −17.7/−19.0 dB speech vs −26 dB music-only.
 
 ## Render-complete notifications (Web Push)
 Two per-browser toggles at `/account/notifications`:
