@@ -29,7 +29,9 @@ Both carry the bottom-left logo watermark (Free always; paid per the `/admin` sw
 - **Share links:** one switch per pack makes every variant reachable at **`/c/<id>`** — a clean landing page with the
   ad and its CTA button (not listed in Community; off again = 404). The button goes through a tracked redirect to
   your link with **UTM tags** (`utm_source=clipwaltz&utm_medium=video&utm_campaign=<pack>&utm_content=<b2-15s-9x16>`);
-  the tracked link can be copied per variant for ad platforms, and each MP4 downloaded.
+  the tracked link can be copied per variant for ad platforms, and each MP4 downloaded. Packs made on the **Free plan**
+  show a *"You're leaving ClipWaltz"* page (destination shown, Continue / Go back, report link) before the site —
+  our domain can't front an arbitrary site for an anonymous sign-up; Plus/Pro go straight through (plan checked per click).
 - **Stats per variant:** views, watched-to-the-end rate (≥ 90 %), CTA clicks and click rate — unique visitors per day,
   bots / link-preview fetchers and anyone who can open the project excluded; a click counts only after a view, and one
   network address counts at most 20 visitors a day. One "pack ready" email/push when the whole pack is done. **Winner** = best click rate (ties →

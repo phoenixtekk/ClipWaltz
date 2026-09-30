@@ -12,6 +12,8 @@ import type { CampaignConfig } from "./deck/types";
 export type PublicVariant = {
   renderId: string; projectId: string; campaignId: string; title: string; aspect: string;
   code: string; ctaText: string; ctaHref: string | null; watermark: boolean;
+  /** Who made the pack (else the project owner) — their plan decides whether the CTA goes through the interstitial. */
+  ownerId: string;
 };
 
 /** A variant whose pack has share links on and whose video is finished — else null (the page 404s). */
@@ -25,7 +27,7 @@ export async function getPublicVariant(renderId: string): Promise<PublicVariant 
   const [c] = await db.select().from(schema.deckCampaigns)
     .where(and(eq(schema.deckCampaigns.id, r.campaignId), eq(schema.deckCampaigns.projectId, r.projectId)));
   if (!c?.shared) return null;
-  const [p] = await db.select({ title: schema.projects.title }).from(schema.projects).where(eq(schema.projects.id, r.projectId));
+  const [p] = await db.select({ title: schema.projects.title, ownerId: schema.projects.ownerId }).from(schema.projects).where(eq(schema.projects.id, r.projectId));
   const v = (r.variant ?? {}) as { code?: string; ctaText?: string; lengthSec?: number };
   const cfg = c.config as CampaignConfig;
   return {
@@ -33,6 +35,7 @@ export async function getPublicVariant(renderId: string): Promise<PublicVariant 
     ctaText: v.ctaText && v.ctaText !== "(no call to action)" ? v.ctaText : "",
     ctaHref: utmUrl(cfg.ctaUrl, c.name, { code: v.code ?? "v", lengthSec: Number(v.lengthSec) || 0, aspect: r.aspect }),
     watermark: r.watermark,
+    ownerId: c.createdBy ?? p?.ownerId ?? "",
   };
 }
 

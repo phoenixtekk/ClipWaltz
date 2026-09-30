@@ -18,7 +18,7 @@ const PUBLIC_PATHS = [
   /^\/w\/[^/]+$/, // public watch page
   /^\/u\/[^/]+$/, // public creator profile
   /^\/api\/renders\/[^/]+\/watch(?:\/|$)/, // public shared-render stream
-  /^\/c\/[^/]+(?:\/go)?$/, // WaltzDeck campaign variant landing page + CTA redirect (404 unless the pack is shared)
+  /^\/c\/[^/]+(?:\/go|\/leaving)?$/, // WaltzDeck campaign variant landing page, CTA redirect, leaving page (404 unless shared)
   /^\/api\/c\/[^/]+\/event$/, // campaign variant audience beacon
   /^\/voices\/[a-z_]+\.mp3$/, // WaltzDeck voice previews (static files in public/voices)
   /^\/api\/auth(?:\/|$)/,

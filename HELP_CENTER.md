@@ -189,6 +189,8 @@ them there, then come back. (These are in addition to the "video ready" email, w
   visits don't count. Once two videos have 10+ views, the leader gets a 🏆.
 - **Make more like the winner** starts a new pack that keeps the winning video and asks the AI for fresh hooks in the
   same style — or use ✨ on any row to build on that one.
+- On the Free plan, people who press the button first see a short *"You're leaving ClipWaltz"* page showing where the
+  link goes, and choose to continue. On Plus and Pro the button goes straight to your site.
 - Turn **Share links** off to close all the pages again.
 
 ## Waltz AI Remix — make a video you've already made even better

@@ -31,9 +31,9 @@ hook, click-without-view / per-IP cap, honest length labels).
   (phase 4)"** in "WaltzDeck test — Lake Pleasant ad" rendered via the live deck + render workers (unlisted because
   shared), www landing 200 with CTA, event 204, redirect with UTM, counts 1 view + 1 click (my curl test), share off →
   landing/redirect/video 404 (share now OFF). The owner got one "campaign pack ready" email from it (callback 200).
-- **Open decision for the owner:** any signed-up account can make `www.clipwaltz.com/c/…/go` redirect to any http(s)
-  link (phishing risk on our domain). Options: interstitial for free/new accounts, Safe Browsing check on save, or
-  accept. Not decided — ask.
+- **Owner decision (2026-09-29): interstitial for Free accounts** — `/c/<id>/go` → `/c/<id>/leaving` ("You're leaving
+  ClipWaltz", destination shown, Continue / Go back / report) when the pack creator (else project owner) is Free, checked
+  per click; Plus/Pro redirect straight. Verified on dev both ways (plan flipped + reverted).
 - Dev: `.env.development.local` now also sets `WORKER_CALLBACK_SECRET` (dev-only) and `SES_SMTP_HOST=` (dev emails are
   logged, never sent). Dev packs in "Phase 3 test — URL import".
 - **Next:** Phase 5 (AI fill: animate stills / generate missing shots with credits + auto-refund, brand kit from website,

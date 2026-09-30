@@ -610,14 +610,17 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
   checkpoint ignore campaign renders.
 - **Public routes** (in `src/proxy.ts` PUBLIC_PATHS): `/c/[id]` (page), `/c/[id]/go` (CTA redirect — destination only
   from the pack's stored link, never the request), `POST /api/c/[id]/event` (always 204). All 404 unless the render is
-  a finished variant of a pack with `shared = true`. `setCampaignShared` flips the pack's renders private ↔ unlisted
+  a finished variant of a pack with `shared = true`. `/c/[id]/go` counts the click, then — when the pack's creator
+  (else the project owner) is on the Free plan (`getEffectiveTier`, per click) — redirects to `/c/[id]/leaving`, the
+  interstitial showing the destination host + path with Continue / Go back / report (support@clipwaltz.com).
+  Owner decision 2026-09-29 (abuse risk: open sign-up could front phishing with a www.clipwaltz.com link). `setCampaignShared` flips the pack's renders private ↔ unlisted
   (a deliberately public one stays public).
 - **Notifications:** the worker still pings `/api/internal/render-ready` per render; for a pack variant the route sends
   nothing until the pack's last variant is done, then ONE push + email ("Your campaign pack is ready").
 - **Review fixes (2026-09-29):** no fixed BullMQ job id for `campaign_render` (a retried build was silently dropped);
   variants insert as `unlisted` when share links were switched on mid-build; draft writes are conditional on
   `status='draft'`; a storyboard that can't reach a length is labelled with its real length (`variant.targetSec` keeps
-  the ask). Known, by design: `/c/<id>/go` sends visitors to the owner's stored link (see the handoff note on abuse).
+  the ask). Free-plan packs go through the `/c/<id>/leaving` interstitial (owner decision 2026-09-29).
 - **Diagnostics:** `node -e "import('./worker/deck/variants.mjs')…"` — `buildVariant` is pure (see the function's
   comment); stats query = `select type, count(*) from variant_events where campaign_id = … group by type`.
 
