@@ -5,9 +5,10 @@ import { db, schema } from "@/db";
 import { userCanAccessProject } from "./workspace";
 import { requireUserId } from "./auth";
 import { sanitizeOverlays, type Overlay } from "./overlays";
+import { toResult } from "./action-result";
 
 /** Replace a project's overlays (owner-checked, validated). */
-export async function setProjectOverlays(projectId: string, overlays: Overlay[]): Promise<void> {
+async function setProjectOverlaysImpl(projectId: string, overlays: Overlay[]): Promise<void> {
   const userId = await requireUserId();
   const [proj] = await db
     .select({ id: schema.projects.id })
@@ -21,3 +22,7 @@ export async function setProjectOverlays(projectId: string, overlays: Overlay[])
     .where(eq(schema.projects.id, projectId));
   revalidatePath(`/projects/${projectId}/edit`);
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function setProjectOverlays(...args: Parameters<typeof setProjectOverlaysImpl>) { return toResult(() => setProjectOverlaysImpl(...args)); }

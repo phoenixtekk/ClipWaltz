@@ -63,7 +63,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, canEdit, r
 
   const refresh = useCallback(async () => {
     try {
-      setData(await getDeck(projectId));
+      setData(unwrap(await getDeck(projectId)));
     } catch { /* keep the last good state */ }
   }, [projectId]);
 
@@ -102,7 +102,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, canEdit, r
   const saveBriefNow = (patch: Partial<DeckBrief> = {}) => {
     const next = { ...brief, ...patch };
     setBrief(next);
-    act(() => saveBrief(projectId, next));
+    act(async () => unwrap(await saveBrief(projectId, next)));
   };
 
   const assetById = new Map(data.assets.map((a) => [a.id, a]));
@@ -134,7 +134,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, canEdit, r
               onChange={(e) => {
                 const lang = e.target.value;
                 if (!lang) return;
-                act(async () => { const id = await translateDeck(projectId, lang); router.push(`/projects/${id}/deck`); },
+                act(async () => { const id = unwrap(await translateDeck(projectId, lang)); router.push(`/projects/${id}/deck`); },
                   "Translated copy created — the words are being translated now.");
               }}
               className="h-8 rounded-full border border-border bg-background px-3 text-xs text-muted-foreground">
@@ -253,7 +253,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, canEdit, r
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-sm font-semibold">2 · Storyboard</h2>
               <Button disabled={!canEdit || pending || planBusy || !data.assets.length}
-                onClick={() => act(async () => { await saveBrief(projectId, brief); await requestPlan(projectId); })}>
+                onClick={() => act(async () => { unwrap(await saveBrief(projectId, brief)); unwrap(await requestPlan(projectId)); })}>
                 {planBusy ? <Loader2 className="size-4 animate-spin" /> : <Wand2 className="size-4" />}
                 {data.scenes.length ? "Re-plan (keeps locked scenes)" : "Plan my video"}
               </Button>
@@ -285,17 +285,17 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, canEdit, r
                   credits={credits}
                   onFill={(mode, prompt) => new Promise<void>((resolve) => act(async () => { try { unwrap(await fillScene(projectId, s.id, { mode, prompt })); } finally { resolve(); } },
                     mode === "animate" ? "Bringing it to life — the clip replaces this scene's photo when it's ready." : "Making the shot — it goes into this scene when it's ready."))}
-                  onPatch={(patch) => act(() => updateScene(projectId, s.id, patch))}
-                  onRewrite={(ins) => act(() => rewriteSceneText(projectId, s.id, ins))}
+                  onPatch={(patch) => act(async () => unwrap(await updateScene(projectId, s.id, patch)))}
+                  onRewrite={(ins) => act(async () => unwrap(await rewriteSceneText(projectId, s.id, ins)))}
                   onMove={(dir) => {
                     const ids = data.scenes.map((x) => x.id);
                     const j = i + dir;
                     if (j < 0 || j >= ids.length) return;
                     [ids[i], ids[j]] = [ids[j], ids[i]];
-                    act(() => reorderScenes(projectId, ids));
+                    act(async () => unwrap(await reorderScenes(projectId, ids)));
                   }}
-                  onDelete={() => act(() => deleteScene(projectId, s.id))}
-                  onAddAfter={() => act(() => addScene(projectId, i, null))}
+                  onDelete={() => act(async () => unwrap(await deleteScene(projectId, s.id)))}
+                  onAddAfter={() => act(async () => unwrap(await addScene(projectId, i, null)))}
                 />
               ))}
             </div>
@@ -306,7 +306,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, canEdit, r
                   {unused.map((id) => {
                     const a = assetById.get(id);
                     return a ? (
-                      <button key={id} type="button" onClick={() => act(() => addScene(projectId, data.scenes.length - 1, id))}
+                      <button key={id} type="button" onClick={() => act(async () => unwrap(await addScene(projectId, data.scenes.length - 1, id)))}
                         className="rounded-md border border-border px-2 py-1 text-xs hover:border-primary">+ {a.name}</button>
                     ) : null;
                   })}
@@ -324,7 +324,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, canEdit, r
               canEdit={canEdit}
               presentation={brief.mode === "presentation"}
               onPresent={() => setPresenting(0)}
-              onExport={(f) => act(() => requestDeckExport(projectId, f), f === "pdf" ? "Making your PDF…" : "Making your PowerPoint…")}
+              onExport={(f) => act(async () => unwrap(await requestDeckExport(projectId, f)), f === "pdf" ? "Making your PDF…" : "Making your PowerPoint…")}
             />
           ) : null}
 
@@ -391,7 +391,7 @@ function ImportBar({ projectId, status, busy, onStarted }: {
     if (!url.trim()) return;
     setSending(true);
     try {
-      await importFromUrl(projectId, url);
+      unwrap(await importFromUrl(projectId, url));
       toast.success("Reading the page…");
       setUrl("");
       setOpen(false);
@@ -540,7 +540,7 @@ function BrandSection({ projectId, kit, canEdit, suggestion, onChanged, onSaved 
   const save = async (next = v) => {
     setV(next);
     setBusy(true);
-    try { onSaved(await saveBrandKit(projectId, next)); } catch (e) { toast.error((e as Error).message || "Couldn't save the brand kit."); }
+    try { onSaved(unwrap(await saveBrandKit(projectId, next))); } catch (e) { toast.error((e as Error).message || "Couldn't save the brand kit."); }
     setBusy(false);
   };
   const upload = async (f: File | undefined) => {
@@ -549,8 +549,8 @@ function BrandSection({ projectId, kit, canEdit, suggestion, onChanged, onSaved 
     try {
       const fd = new FormData();
       fd.append("logo", f);
-      await uploadBrandLogo(projectId, fd);
-      onSaved(await saveBrandKit(projectId, { ...v, applied: true }), true);
+      unwrap(await uploadBrandLogo(projectId, fd));
+      onSaved(unwrap(await saveBrandKit(projectId, { ...v, applied: true })), true);
       setV({ ...v, applied: true });
       toast.success("Logo added — it shows on title and call-to-action cards.");
     } catch (e) { toast.error((e as Error).message || "Couldn't upload the logo."); }
@@ -625,7 +625,7 @@ function BrandFromSite({ projectId, suggestion, onChanged, onApplied }: {
   const reading = suggestion.status === "queued" || suggestion.status === "reading";
   return (
     <div className="space-y-2 border-t border-border pt-3">
-      <form onSubmit={(e) => { e.preventDefault(); if (url.trim()) void run(() => suggestBrandFromSite(projectId, url)); }} className="flex gap-2">
+      <form onSubmit={(e) => { e.preventDefault(); if (url.trim()) void run(async () => unwrap(await suggestBrandFromSite(projectId, url))); }} className="flex gap-2">
         <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="your-site.com — build my kit from my website" maxLength={500}
           className={cn(field, "h-8 text-xs")} aria-label="Your website" />
         <Button size="sm" variant="secondary" type="submit" disabled={busy || reading || !url.trim()}>
@@ -650,8 +650,8 @@ function BrandFromSite({ projectId, suggestion, onChanged, onApplied }: {
             <span className="block text-[11px] text-muted-foreground">From {new URL(suggestion.url).hostname}{suggestion.found && !suggestion.found.fonts ? " · fonts: our closest defaults" : ""}</span>
           </span>
           <span className="ml-auto flex gap-1">
-            <Button size="sm" disabled={busy} onClick={() => void run(async () => { onApplied(await applyBrandSuggestion(projectId)); toast.success("Brand kit updated from your website."); })}>Use these</Button>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => dismissBrandSuggestion(projectId))}>Dismiss</Button>
+            <Button size="sm" disabled={busy} onClick={() => void run(async () => { onApplied(unwrap(await applyBrandSuggestion(projectId))); toast.success("Brand kit updated from your website."); })}>Use these</Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(async () => unwrap(await dismissBrandSuggestion(projectId)))}>Dismiss</Button>
           </span>
         </div>
       ) : null}
@@ -682,7 +682,7 @@ function MediaSection({ projectId, assets, canEdit, onChange }: { projectId: str
       setPct(0);
       try {
         const res = await uploadProjectFile(projectId, f, setPct);
-        await describeAsset(projectId, res.id).catch(() => {});
+        await describeAsset(projectId, res.id).then(unwrap).catch(() => {});
       } catch (e) {
         toast.error(`${f.name}: ${(e as Error).message || "upload failed"}`);
       }
@@ -734,7 +734,7 @@ function MediaRow({ projectId, asset, canEdit }: { projectId: string; asset: Dec
           value={note}
           disabled={!canEdit}
           onChange={(e) => setNote(e.target.value)}
-          onBlur={() => { if (note !== (asset.note ?? "")) void setAssetNote(projectId, asset.id, note).catch(() => toast.error("Couldn't save the note.")); }}
+          onBlur={() => { if (note !== (asset.note ?? "")) void setAssetNote(projectId, asset.id, note).then(unwrap).catch(() => toast.error("Couldn't save the note.")); }}
           maxLength={300}
           placeholder="Note for the AI (optional)"
           className={cn(field, "h-8 text-xs")}

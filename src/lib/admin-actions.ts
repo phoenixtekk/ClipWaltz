@@ -6,6 +6,7 @@ import { db, schema } from "@/db";
 import { requireAdmin } from "./admin";
 import { applyGrant, getEffectiveTier } from "./tier";
 import { sendEmail, simpleEmail } from "./email";
+import { toResult } from "./action-result";
 
 export type AdminUser = {
   id: string;
@@ -38,7 +39,7 @@ export async function listInvitesAdmin() {
  * immediately; otherwise a pending invite is stored and redeemed on their signup.
  * lifetime=true → no expiry; else expiresAt (ISO date) is required.
  */
-export async function grantAccess(input: {
+async function grantAccessImpl(input: {
   email: string;
   tier: "plus" | "pro";
   lifetime: boolean;
@@ -98,14 +99,14 @@ export async function grantAccess(input: {
 }
 
 /** Revoke a user's paid access (back to free). */
-export async function revokeAccess(userId: string) {
+async function revokeAccessImpl(userId: string) {
   await requireAdmin();
   await applyGrant(userId, "free", null);
   revalidatePath("/admin");
 }
 
 /** Admin: watermark paid plans (Plus/Pro) too? Free is always watermarked. Affects new videos only. */
-export async function setWatermarkPaidPlans(on: boolean): Promise<void> {
+async function setWatermarkPaidPlansImpl(on: boolean): Promise<void> {
   await requireAdmin();
   const { setWatermarkPaidPlansSetting } = await import("./watermark");
   await setWatermarkPaidPlansSetting(!!on);
@@ -113,3 +114,9 @@ export async function setWatermarkPaidPlans(on: boolean): Promise<void> {
   revalidatePath("/account/billing");
   revalidatePath("/");
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function grantAccess(...args: Parameters<typeof grantAccessImpl>) { return toResult(() => grantAccessImpl(...args)); }
+export async function revokeAccess(...args: Parameters<typeof revokeAccessImpl>) { return toResult(() => revokeAccessImpl(...args)); }
+export async function setWatermarkPaidPlans(...args: Parameters<typeof setWatermarkPaidPlansImpl>) { return toResult(() => setWatermarkPaidPlansImpl(...args)); }

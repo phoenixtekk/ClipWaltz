@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireAdmin } from "./admin";
+import { toResult } from "./action-result";
 
 const PLACEMENTS = new Set(["dashboard_banner", "dashboard_card", "community"]);
 const AUDIENCES = new Set(["all", "free", "paid"]);
@@ -17,7 +18,7 @@ function parseDate(v: FormDataEntryValue | null): Date | null {
 }
 
 /** Admin: create an in-app announcement / promo from the admin form. */
-export async function createAnnouncement(form: FormData): Promise<void> {
+async function createAnnouncementImpl(form: FormData): Promise<void> {
   const admin = await requireAdmin();
   const title = (form.get("title") ?? "").toString().trim().slice(0, 120);
   if (!title) throw new Error("Title is required");
@@ -45,7 +46,7 @@ export async function createAnnouncement(form: FormData): Promise<void> {
 }
 
 /** Admin: toggle an announcement live/paused. */
-export async function toggleAnnouncement(id: string, active: boolean): Promise<void> {
+async function toggleAnnouncementImpl(id: string, active: boolean): Promise<void> {
   await requireAdmin();
   await db
     .update(schema.announcements)
@@ -56,9 +57,15 @@ export async function toggleAnnouncement(id: string, active: boolean): Promise<v
 }
 
 /** Admin: delete an announcement. */
-export async function deleteAnnouncement(id: string): Promise<void> {
+async function deleteAnnouncementImpl(id: string): Promise<void> {
   await requireAdmin();
   await db.delete(schema.announcements).where(eq(schema.announcements.id, id));
   revalidatePath("/admin");
   revalidatePath("/dashboard");
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function createAnnouncement(...args: Parameters<typeof createAnnouncementImpl>) { return toResult(() => createAnnouncementImpl(...args)); }
+export async function toggleAnnouncement(...args: Parameters<typeof toggleAnnouncementImpl>) { return toResult(() => toggleAnnouncementImpl(...args)); }
+export async function deleteAnnouncement(...args: Parameters<typeof deleteAnnouncementImpl>) { return toResult(() => deleteAnnouncementImpl(...args)); }

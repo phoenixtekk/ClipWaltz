@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { grantAccess, revokeAccess } from "@/lib/admin-actions";
+import { unwrap } from "@/lib/action-result";
 
 export function AdminGrantForm() {
   const router = useRouter();
@@ -19,12 +20,12 @@ export function AdminGrantForm() {
     e.preventDefault();
     start(async () => {
       try {
-        const res = await grantAccess({
+        const res = unwrap(await grantAccess({
           email,
           tier,
           lifetime: mode === "lifetime",
           expiresAt: mode === "expires" ? expiresAt : null,
-        });
+        }));
         toast.success(
           res.applied === "user"
             ? `Granted ${tier} to ${email}.`
@@ -121,7 +122,7 @@ export function RevokeButton({ userId, email }: { userId: string; email: string 
         if (!window.confirm(`Revoke paid access for ${email}?`)) return;
         start(async () => {
           try {
-            await revokeAccess(userId);
+            unwrap(await revokeAccess(userId));
             toast.success(`Revoked — ${email} is now Free.`);
             router.refresh();
           } catch (err) {

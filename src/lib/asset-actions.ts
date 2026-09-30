@@ -4,12 +4,13 @@ import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
 import { assertProjectRole, userCanAccessProject } from "./workspace";
+import { toResult } from "./action-result";
 
 /**
  * Remove a clip from a project (the placement only). The underlying file stays in the
  * user's media library (delete it there to remove the object). Editor-checked.
  */
-export async function deleteAsset(projectId: string, assetId: string): Promise<void> {
+async function deleteAssetImpl(projectId: string, assetId: string): Promise<void> {
   const userId = await requireUserId();
   const [row] = await db
     .select({ ownerId: schema.projects.ownerId })
@@ -32,7 +33,7 @@ export async function deleteAsset(projectId: string, assetId: string): Promise<v
  * Set (or clear, with null) a clip's manual screen time in seconds. Editor-checked. Clamped to
  * 0.4–60s; for videos, capped at the source length so we never read past the clip.
  */
-export async function setAssetDuration(
+async function setAssetDurationImpl(
   projectId: string,
   assetId: string,
   seconds: number | null,
@@ -60,7 +61,7 @@ export async function setAssetDuration(
  * Editor-checked. Clamped to the source length; enforces a ≥0.4s window. Takes precedence over the
  * smart-cut window and the manual duration for that clip.
  */
-export async function setAssetTrim(
+async function setAssetTrimImpl(
   projectId: string,
   assetId: string,
   start: number | null,
@@ -92,7 +93,7 @@ export async function setAssetTrim(
  * Set a clip's rotation (degrees clockwise, 0/90/180/270), applied on top of the file's own rotation
  * flag in the editor, preview and render. Editor-checked. For phone clips that come out sideways.
  */
-export async function setAssetRotation(projectId: string, assetId: string, degrees: number): Promise<void> {
+async function setAssetRotationImpl(projectId: string, assetId: string, degrees: number): Promise<void> {
   const userId = await requireUserId();
   const [row] = await db
     .select({ id: schema.assets.id })
@@ -109,7 +110,7 @@ export async function setAssetRotation(projectId: string, assetId: string, degre
  * CW-MVP-024: set a clip's tags (editor-checked). Normalised to lowercase, trimmed, de-duplicated;
  * up to 10 tags of up to 24 characters.
  */
-export async function setAssetTags(projectId: string, assetId: string, tags: string[]): Promise<string[]> {
+async function setAssetTagsImpl(projectId: string, assetId: string, tags: string[]): Promise<string[]> {
   const userId = await requireUserId();
   if (!(await userCanAccessProject(userId, projectId, "editor"))) throw new Error("Asset not found");
   const clean = [...new Set((Array.isArray(tags) ? tags : [])
@@ -131,7 +132,7 @@ const REFRAME_MODES = ["flat", "follow", "tiny"] as const;
  * lives on the source media, so every project using that file gets the new view; renders wait
  * until the re-conversion is ready (a few minutes for long clips).
  */
-export async function setClipReframe(projectId: string, assetId: string, mode: string): Promise<void> {
+async function setClipReframeImpl(projectId: string, assetId: string, mode: string): Promise<void> {
   const userId = await requireUserId();
   if (!(REFRAME_MODES as readonly string[]).includes(mode)) throw new Error("Unknown 360 view");
   const [row] = await db
@@ -149,7 +150,7 @@ export async function setClipReframe(projectId: string, assetId: string, mode: s
  * Set the full clip order for a project (timeline drag-reorder + insert). Editor-checked;
  * only assets that belong to the project are (re)numbered, any omitted keep a stable tail.
  */
-export async function reorderAssets(projectId: string, orderedIds: string[]): Promise<void> {
+async function reorderAssetsImpl(projectId: string, orderedIds: string[]): Promise<void> {
   const userId = await requireUserId();
   await assertProjectRole(userId, projectId, "editor");
 
@@ -168,3 +169,13 @@ export async function reorderAssets(projectId: string, orderedIds: string[]): Pr
   }
   revalidatePath(`/projects/${projectId}/edit`);
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function deleteAsset(...args: Parameters<typeof deleteAssetImpl>) { return toResult(() => deleteAssetImpl(...args)); }
+export async function setAssetDuration(...args: Parameters<typeof setAssetDurationImpl>) { return toResult(() => setAssetDurationImpl(...args)); }
+export async function setAssetTrim(...args: Parameters<typeof setAssetTrimImpl>) { return toResult(() => setAssetTrimImpl(...args)); }
+export async function setAssetRotation(...args: Parameters<typeof setAssetRotationImpl>) { return toResult(() => setAssetRotationImpl(...args)); }
+export async function setAssetTags(...args: Parameters<typeof setAssetTagsImpl>) { return toResult(() => setAssetTagsImpl(...args)); }
+export async function setClipReframe(...args: Parameters<typeof setClipReframeImpl>) { return toResult(() => setClipReframeImpl(...args)); }
+export async function reorderAssets(...args: Parameters<typeof reorderAssetsImpl>) { return toResult(() => reorderAssetsImpl(...args)); }

@@ -6,6 +6,7 @@ import { requireUserId } from "./auth";
 import { userCanAccessProject } from "./workspace";
 import { driveConfigured, hasDriveConnection, driveAccessToken, ensureClipWaltzFolder, uploadToDriveResumable } from "./drive";
 import { headObject, getObjectRange } from "./storage";
+import { toResult } from "./action-result";
 
 // Google Drive backup of a project's ORIGINAL uploads (restored after the Media Library removal).
 // Backups run in the background inside the app process (long videos take minutes); the timeline
@@ -13,7 +14,7 @@ import { headObject, getObjectRange } from "./storage";
 
 export type DriveStatus = { configured: boolean; connected: boolean };
 
-export async function getDriveStatus(): Promise<DriveStatus> {
+async function getDriveStatusImpl(): Promise<DriveStatus> {
   const userId = await requireUserId();
   const configured = driveConfigured();
   return { configured, connected: configured ? await hasDriveConnection(userId) : false };
@@ -45,7 +46,7 @@ async function backupOne(userId: string, media: { id: string; key: string; name:
  * Back up a project's original uploads to the user's Google Drive ("ClipWaltz" folder). `assetIds`
  * limits it to some clips; otherwise every clip not yet backed up. Returns how many started.
  */
-export async function backupToDrive(projectId: string, assetIds?: string[]): Promise<{ started: number }> {
+async function backupToDriveImpl(projectId: string, assetIds?: string[]): Promise<{ started: number }> {
   const userId = await requireUserId();
   if (!(await userCanAccessProject(userId, projectId, "editor"))) throw new Error("Project not found");
   if (!driveConfigured()) throw new Error("Google Drive backup isn't configured on this server");
@@ -70,3 +71,8 @@ export async function backupToDrive(projectId: string, assetIds?: string[]): Pro
   })();
   return { started: todo.length };
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function getDriveStatus(...args: Parameters<typeof getDriveStatusImpl>) { return toResult(() => getDriveStatusImpl(...args)); }
+export async function backupToDrive(...args: Parameters<typeof backupToDriveImpl>) { return toResult(() => backupToDriveImpl(...args)); }

@@ -26,6 +26,7 @@ import {
 } from "@/lib/project-actions";
 import { createCategory } from "@/lib/category-actions";
 import { aspectLabel, isWide } from "@/lib/aspect";
+import { unwrap } from "@/lib/action-result";
 
 const STATUS: Record<ProjectStatus, { label: string; className: string }> = {
   draft: { label: "Draft", className: "text-muted-foreground border-border bg-background/80" },
@@ -72,24 +73,24 @@ export function ProjectCard({
   }
   const onRename = () => {
     const next = window.prompt("Rename project", project.title);
-    if (next != null) run(() => renameProject(project.id, next), "Could not rename the project.");
+    if (next != null) run(async () => unwrap(await renameProject(project.id, next)), "Could not rename the project.");
   };
   const onDelete = () => {
     if (window.confirm(`Delete "${project.title}"? This cannot be undone.`))
-      run(() => deleteProject(project.id), "Could not delete the project.");
+      run(async () => unwrap(await deleteProject(project.id)), "Could not delete the project.");
   };
   const onEditTags = () => {
     const next = window.prompt("Tags (comma-separated):", project.tags.join(", "));
     if (next == null) return;
     const tags = next.split(",").map((t) => t.trim()).filter(Boolean);
-    run(() => setProjectTags(project.id, tags), "Could not save tags.");
+    run(async () => unwrap(await setProjectTags(project.id, tags)), "Could not save tags.");
   };
-  const moveTo = (c: string | null) => run(() => setProjectCategory(project.id, c), "Could not move the project.");
+  const moveTo = (c: string | null) => run(async () => unwrap(await setProjectCategory(project.id, c)), "Could not move the project.");
   const onNewCategory = () => {
     const c = window.prompt("New category name:");
     if (!c || !c.trim()) return;
     const name = c.trim();
-    run(async () => { await createCategory(name); await setProjectCategory(project.id, name); }, "Could not create category.");
+    run(async () => { unwrap(await createCategory(name)); unwrap(await setProjectCategory(project.id, name)); }, "Could not create category.");
   };
 
   return (
@@ -165,7 +166,7 @@ export function ProjectCard({
                   <DropdownMenuItem onClick={onNewCategory}>+ New category…</DropdownMenuItem>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
-              <DropdownMenuItem onClick={() => run(() => duplicateProject(project.id), "Could not duplicate.")}>
+              <DropdownMenuItem onClick={() => run(async () => unwrap(await duplicateProject(project.id)), "Could not duplicate.")}>
                 <Copy className="size-4" /> Duplicate
               </DropdownMenuItem>
               <DropdownMenuSeparator />

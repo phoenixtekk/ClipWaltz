@@ -5,12 +5,13 @@ import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
 import { requireAdmin } from "./admin";
+import { toResult } from "./action-result";
 
 // Beta feedback: the "Send feedback" item in the user menu. Reviewed on /admin.
 const KINDS = new Set(["idea", "bug", "praise", "other"]);
 export type FeedbackItem = { id: string; email: string | null; page: string | null; kind: string; message: string; status: string; createdAt: string };
 
-export async function submitFeedback(kind: string, message: string, page: string | null): Promise<void> {
+async function submitFeedbackImpl(kind: string, message: string, page: string | null): Promise<void> {
   const userId = await requireUserId();
   const text = message.trim().slice(0, 4000);
   if (text.length < 3) throw new Error("Please write a little more");
@@ -28,9 +29,14 @@ export async function listFeedback(limit = 50): Promise<FeedbackItem[]> {
   return rows.map((r) => ({ id: r.id, email: r.email, page: r.page, kind: r.kind, message: r.message, status: r.status, createdAt: r.createdAt.toISOString() }));
 }
 
-export async function setFeedbackStatus(id: string, status: "new" | "read" | "done"): Promise<void> {
+async function setFeedbackStatusImpl(id: string, status: "new" | "read" | "done"): Promise<void> {
   await requireAdmin();
   if (!["new", "read", "done"].includes(status)) throw new Error("Bad status");
   await db.update(schema.feedback).set({ status }).where(eq(schema.feedback.id, id));
   revalidatePath("/admin");
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function submitFeedback(...args: Parameters<typeof submitFeedbackImpl>) { return toResult(() => submitFeedbackImpl(...args)); }
+export async function setFeedbackStatus(...args: Parameters<typeof setFeedbackStatusImpl>) { return toResult(() => setFeedbackStatusImpl(...args)); }

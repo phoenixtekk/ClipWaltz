@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { setFeedbackStatus, type FeedbackItem } from "@/lib/feedback-actions";
+import { unwrap } from "@/lib/action-result";
 
 const KIND_LABEL: Record<string, string> = { idea: "Idea", bug: "Bug", praise: "Praise", other: "Other" };
 
@@ -13,7 +14,7 @@ export function AdminFeedback({ items }: { items: FeedbackItem[] }) {
   const [pending, start] = useTransition();
   const mark = (id: string, status: "read" | "done" | "new") =>
     start(async () => {
-      try { await setFeedbackStatus(id, status); router.refresh(); } catch (e) { toast.error((e as Error).message); }
+      try { unwrap(await setFeedbackStatus(id, status)); router.refresh(); } catch (e) { toast.error((e as Error).message); }
     });
   if (!items.length) return <p className="text-sm text-muted-foreground">No feedback yet. It arrives from “Send feedback” in the user menu.</p>;
   return (

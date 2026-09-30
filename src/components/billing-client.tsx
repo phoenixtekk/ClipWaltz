@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { startCheckout, openBillingPortal } from "@/lib/billing-actions";
+import { unwrap } from "@/lib/action-result";
 
 const TIER_INFO = [
   { key: "free", name: "Free", blurb: "Watermark · 720p · ~30s · limited music" },
@@ -27,7 +28,7 @@ export function BillingClient({
   function upgrade(tier: "plus" | "pro") {
     start(async () => {
       try {
-        const url = await startCheckout(tier);
+        const url = unwrap(await startCheckout(tier));
         window.location.href = url;
       } catch (e) {
         toast.error((e as Error).message || "Could not start checkout.");
@@ -38,7 +39,7 @@ export function BillingClient({
   function portal() {
     start(async () => {
       try {
-        const url = await openBillingPortal();
+        const url = unwrap(await openBillingPortal());
         window.location.href = url;
       } catch (e) {
         toast.error((e as Error).message || "Could not open the billing portal.");

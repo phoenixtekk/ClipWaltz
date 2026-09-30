@@ -12,6 +12,7 @@ import {
   deleteRoutingRule,
   type AiRegistry,
 } from "@/lib/ai-admin-actions";
+import { unwrap } from "@/lib/action-result";
 
 const TASKS = [
   { key: "text_to_video", label: "Text → video" },
@@ -92,7 +93,7 @@ export function AdminAi({ registry }: { registry: AiRegistry }) {
                   <td className={cell}>{m.role}</td>
                   <td className={cell}>{m.vramProfileMb ? `${(m.vramProfileMb / 1024).toFixed(1)} GB` : "—"}</td>
                   <td className={cell}>
-                    <Toggle on={m.enabled} disabled={pending} onChange={(v) => run(() => setModelEnabled(m.id, v), `${m.name} ${v ? "enabled" : "disabled"}`)} />
+                    <Toggle on={m.enabled} disabled={pending} onChange={(v) => run(async () => unwrap(await setModelEnabled(m.id, v)), `${m.name} ${v ? "enabled" : "disabled"}`)} />
                   </td>
                 </tr>
               ))}
@@ -120,7 +121,7 @@ export function AdminAi({ registry }: { registry: AiRegistry }) {
                     ) : null}
                   </td>
                   <td className={cell}>
-                    <Toggle on={w.enabled} disabled={pending} onChange={(v) => run(() => setWorkflowEnabled(w.id, v), `${w.id} ${v ? "enabled" : "disabled"}`)} />
+                    <Toggle on={w.enabled} disabled={pending} onChange={(v) => run(async () => unwrap(await setWorkflowEnabled(w.id, v)), `${w.id} ${v ? "enabled" : "disabled"}`)} />
                   </td>
                 </tr>
               ))}
@@ -210,15 +211,15 @@ function RuleRow({
       {active ? <span className="rounded-full bg-emerald-600/10 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">in use</span> : null}
       <div className="ml-auto flex gap-1">
         {isNew ? (
-          <Button size="sm" variant="outline" disabled={pending || !wf} onClick={() => run(() => saveRoutingRule(null, input()), "Rule added")}>
+          <Button size="sm" variant="outline" disabled={pending || !wf} onClick={() => run(async () => unwrap(await saveRoutingRule(null, input())), "Rule added")}>
             {pending ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />} Add fallback
           </Button>
         ) : (
           <>
-            <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => saveRoutingRule(rule.id, input()), "Rule saved")}>
+            <Button size="sm" variant="outline" disabled={pending} onClick={() => run(async () => unwrap(await saveRoutingRule(rule.id, input())), "Rule saved")}>
               <Save className="size-3.5" /> Save
             </Button>
-            <Button size="sm" variant="ghost" disabled={pending} onClick={() => run(() => deleteRoutingRule(rule.id), "Rule deleted")} aria-label="Delete rule">
+            <Button size="sm" variant="ghost" disabled={pending} onClick={() => run(async () => unwrap(await deleteRoutingRule(rule.id)), "Rule deleted")} aria-label="Delete rule">
               <Trash2 className="size-3.5" />
             </Button>
           </>

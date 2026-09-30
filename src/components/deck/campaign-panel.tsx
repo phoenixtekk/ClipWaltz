@@ -18,6 +18,7 @@ import {
 import { rate, utmUrl } from "@/lib/campaign";
 import type { DeckAsset } from "@/lib/deck-actions";
 import { SceneFrame, type FrameBrand } from "./scene-frame";
+import { unwrap } from "@/lib/action-result";
 
 const field = "w-full rounded-lg border border-border bg-background px-2.5 text-sm outline-none focus:border-primary";
 const LIVE = new Set(["drafting", "building"]);
@@ -29,7 +30,7 @@ export function CampaignPanel({ projectId, initial, canEdit, scenes, assets, bra
   const [packs, setPacks] = useState<Campaign[] | null>(initial);
   const [showNew, setShowNew] = useState(false);
   const refresh = useCallback(async () => {
-    try { setPacks(await getCampaigns(projectId)); } catch { /* keep the last good state */ }
+    try { setPacks(unwrap(await getCampaigns(projectId))); } catch { /* keep the last good state */ }
   }, [projectId]);
   const live = !!packs?.some((p) => LIVE.has(p.status) || (p.status === "rendering" && p.variants.some((v) => v.status === "queued" || v.status === "rendering")));
   useEffect(() => {
@@ -58,18 +59,18 @@ export function CampaignPanel({ projectId, initial, canEdit, scenes, assets, bra
       {packs === null ? <p className="inline-flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" /> Loading packs…</p> : null}
       {canEdit && packs && (!packs.length || showNew) ? (
         <NewPack defaultAspect={aspect} ctaText={ctaText} onCancel={packs.length ? () => setShowNew(false) : undefined}
-          onCreate={(input) => run(async () => { await createCampaign(projectId, input); setShowNew(false); })} />
+          onCreate={(input) => run(async () => { unwrap(await createCampaign(projectId, input)); setShowNew(false); })} />
       ) : null}
       {packs?.map((p) => p.status === "drafting" || p.status === "draft" ? (
         <DraftPack key={p.id} pack={p} canEdit={canEdit} assets={assets} assetById={assetById} brand={brand} baseLayout={hook?.layout ?? "headline-bottom"}
           voiceOn={voiceOn} projectId={projectId}
-          onSave={(patch) => run(() => updateCampaignDraft(projectId, p.id, patch))}
-          onRender={() => run(() => renderCampaign(projectId, p.id), "Rendering your pack — videos appear here as they finish.")}
-          onDiscard={() => run(() => discardCampaignDraft(projectId, p.id), "Draft discarded.")} />
+          onSave={(patch) => run(async () => unwrap(await updateCampaignDraft(projectId, p.id, patch)))}
+          onRender={() => run(async () => unwrap(await renderCampaign(projectId, p.id)), "Rendering your pack — videos appear here as they finish.")}
+          onDiscard={() => run(async () => unwrap(await discardCampaignDraft(projectId, p.id)), "Draft discarded.")} />
       ) : (
         <PackResults key={p.id} pack={p} canEdit={canEdit}
-          onShare={(on) => run(() => setCampaignShared(projectId, p.id, on), on ? "Share links are on." : "Share links are off.")}
-          onMore={(renderId) => run(() => moreLikeThis(projectId, renderId), "New draft pack: the AI is writing hooks in the same style.")} />
+          onShare={(on) => run(async () => unwrap(await setCampaignShared(projectId, p.id, on)), on ? "Share links are on." : "Share links are off.")}
+          onMore={(renderId) => run(async () => unwrap(await moreLikeThis(projectId, renderId)), "New draft pack: the AI is writing hooks in the same style.")} />
       ))}
     </section>
   );

@@ -11,6 +11,7 @@ import {
   updatePresetFromProject,
   deletePreset,
 } from "@/lib/preset-actions";
+import { unwrap } from "@/lib/action-result";
 
 /**
  * Format + Style + overlay presets, in the editor. Pick a preset then Apply it, snapshot the
@@ -32,7 +33,7 @@ export function PresetBar({ projectId, presets }: { projectId: string; presets: 
     if (!selected) return;
     start(async () => {
       try {
-        await applyPreset(projectId, selected);
+        unwrap(await applyPreset(projectId, selected));
         toast.success("Preset applied");
         router.refresh();
       } catch (e) {
@@ -46,7 +47,7 @@ export function PresetBar({ projectId, presets }: { projectId: string; presets: 
     if (name == null) return;
     start(async () => {
       try {
-        await createPresetFromProject(projectId, name);
+        unwrap(await createPresetFromProject(projectId, name));
         toast.success("Preset saved");
         router.refresh();
       } catch (e) {
@@ -60,7 +61,7 @@ export function PresetBar({ projectId, presets }: { projectId: string; presets: 
     if (!window.confirm(`Overwrite “${selectedPreset.name}” with this project's current settings?`)) return;
     start(async () => {
       try {
-        await updatePresetFromProject(projectId, selectedPreset.id);
+        unwrap(await updatePresetFromProject(projectId, selectedPreset.id));
         toast.success(`Updated “${selectedPreset.name}”`);
         router.refresh();
       } catch (e) {
@@ -74,7 +75,7 @@ export function PresetBar({ projectId, presets }: { projectId: string; presets: 
     if (!window.confirm(`Delete the preset “${selectedPreset.name}”? This can't be undone.`)) return;
     start(async () => {
       try {
-        await deletePreset(selectedPreset.id);
+        unwrap(await deletePreset(selectedPreset.id));
         toast.success(`Deleted “${selectedPreset.name}”`);
         setSelected("");
         router.refresh();

@@ -257,7 +257,7 @@ export function GenerationPanel({
 
   const refreshVersions = useCallback(async () => {
     try {
-      const list = await listGenerationVersions(projectId);
+      const list = unwrap(await listGenerationVersions(projectId));
       setVersions(list);
       return list;
     } catch {
@@ -268,7 +268,7 @@ export function GenerationPanel({
 
   const refreshExports = useCallback(async () => {
     try {
-      const list = await listExportJobs(projectId);
+      const list = unwrap(await listExportJobs(projectId));
       setExports(list);
       return list;
     } catch {
@@ -285,7 +285,7 @@ export function GenerationPanel({
 
   // Which modes / qualities / enhance engines are enabled in the admin registry.
   useEffect(() => {
-    getGenerationAvailability().then(setAvail, () => { /* keep everything enabled */ });
+    getGenerationAvailability().then(unwrap).then(setAvail, () => { /* keep everything enabled */ });
   }, []);
   // ── Settings snapshot / apply (recent settings, presets, templates, Edit & regenerate) ──
   function currentSettings(): GenerationSettings {
@@ -317,10 +317,10 @@ export function GenerationPanel({
   const [studio, setStudio] = useState<AiStudioStatus | null>(null);
   useEffect(() => {
     let alive = true;
-    const initial = templateSettings ? Promise.resolve(templateSettings) : getRecentGenerationSettings().catch(() => null);
+    const initial = templateSettings ? Promise.resolve(templateSettings) : getRecentGenerationSettings().then(unwrap).catch(() => null);
     initial.then((st) => { if (alive && st) applySettings(st, { keepMode: modeTouched.current }); });
-    listGenerationPresets().then((l) => { if (alive) setPresets(l); }, () => {});
-    const poll = () => getAiStudioStatus().then((st) => { if (alive) setStudio(st); }, () => {});
+    listGenerationPresets().then(unwrap).then((l) => { if (alive) setPresets(l); }, () => {});
+    const poll = () => getAiStudioStatus().then(unwrap).then((st) => { if (alive) setStudio(st); }, () => {});
     poll();
     const t = setInterval(poll, 60_000);
     return () => { alive = false; clearInterval(t); };
@@ -330,12 +330,12 @@ export function GenerationPanel({
   function savePreset() {
     const name = window.prompt("Name this preset (e.g. “Jet ski action”):")?.trim();
     if (!name) return;
-    saveGenerationPreset(name, currentSettings())
-      .then(() => listGenerationPresets().then(setPresets))
+    saveGenerationPreset(name, currentSettings()).then(unwrap)
+      .then(() => listGenerationPresets().then(unwrap).then(setPresets))
       .then(() => toast.success(`Saved “${name}”.`), (e) => toast.error((e as Error).message || "Could not save the preset."));
   }
   function removePreset(id: string) {
-    deleteGenerationPreset(id).then(() => setPresets((cur) => cur.filter((p) => p.id !== id)), () => toast.error("Could not delete the preset."));
+    deleteGenerationPreset(id).then(unwrap).then(() => setPresets((cur) => cur.filter((p) => p.id !== id)), () => toast.error("Could not delete the preset."));
   }
 
   // CW-MVP-171 suggestions from the source photo's shape + the prompt's wording.
@@ -357,7 +357,7 @@ export function GenerationPanel({
 
   // CW-MVP-121: load a version's settings into the form to change and generate again.
   function editFrom(versionId: string) {
-    getVersionSettings(versionId).then((st) => {
+    getVersionSettings(versionId).then(unwrap).then((st) => {
       applySettings(st);
       if (st.sourceAssetId && photos.some((p) => p.id === st.sourceAssetId)) setSourceAssetId(st.sourceAssetId);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -414,7 +414,7 @@ export function GenerationPanel({
     // a slow poll still catches terminal completion so the UI never gets stuck.
     const backstop = setInterval(async () => {
       try {
-        const next = await getGenerationJob(activeJobId);
+        const next = unwrap(await getGenerationJob(activeJobId));
         setJob({ id: activeJobId, status: next.status, progress: next.progress ?? 0, errorMessage: next.errorMessage ?? null });
         if (next.status === "completed") {
           const list = await refreshVersions();
@@ -499,9 +499,9 @@ export function GenerationPanel({
     const id = job.id;
     // Optimistically reflect the cancel; the poll will confirm.
     setJob((cur) => (cur ? { ...cur, status: "cancelled" } : cur));
-    cancelGenerationJob(id).catch(() => {
+    cancelGenerationJob(id).then(unwrap).catch(() => {
       toast.error("Could not cancel the job.");
-      void getGenerationJob(id).then((j) =>
+      void getGenerationJob(id).then(unwrap).then((j) =>
         setJob({ id: j.id, status: j.status, progress: j.progress ?? 0, errorMessage: j.errorMessage ?? null }),
       );
     });
@@ -516,7 +516,7 @@ export function GenerationPanel({
   // Delete a version (row + MinIO object), clearing it from selection/compare.
   function removeVersion(id: string) {
     if (!window.confirm("Delete this version? The video is removed permanently.")) return;
-    deleteGenerationVersion(id)
+    deleteGenerationVersion(id).then(unwrap)
       .then(async () => {
         if (selectedVersionId === id) setSelectedVersionId(null);
         if (compareId === id) setCompareId(null);
@@ -567,11 +567,11 @@ export function GenerationPanel({
   // Toggle favorite / set the project's selected pick, then refresh the list.
   function favVersion(id: string) {
     setVersions((cur) => cur.map((v) => (v.id === id ? { ...v, favorite: !v.favorite } : v))); // optimistic
-    toggleVersionFavorite(id).then(() => refreshVersions()).catch(() => { void refreshVersions(); toast.error("Could not update favorite."); });
+    toggleVersionFavorite(id).then(unwrap).then(() => refreshVersions()).catch(() => { void refreshVersions(); toast.error("Could not update favorite."); });
   }
   function pickVersion(id: string) {
     setVersions((cur) => cur.map((v) => ({ ...v, selected: v.id === id }))); // optimistic (one pick/project)
-    setVersionSelected(id).then(() => refreshVersions()).catch(() => { void refreshVersions(); toast.error("Could not set the pick."); });
+    setVersionSelected(id).then(unwrap).then(() => refreshVersions()).catch(() => { void refreshVersions(); toast.error("Could not set the pick."); });
   }
 
   const selected = versions.find((v) => v.id === selectedVersionId) ?? null;
@@ -586,7 +586,7 @@ export function GenerationPanel({
     const versionId = selected.id;
     startExport(async () => {
       try {
-        await createExportJob({ versionId, outputFormat: exportFormat, resolution: exportResolution });
+        unwrap(await createExportJob({ versionId, outputFormat: exportFormat, resolution: exportResolution }));
         toast.success("Export started…");
         setExportOpen(false);
         await refreshExports();
@@ -598,7 +598,7 @@ export function GenerationPanel({
 
   // Delete an export job (row + MinIO object), then refresh the Export Center.
   function removeExport(id: string) {
-    deleteExportJob(id)
+    deleteExportJob(id).then(unwrap)
       .then(async () => {
         await refreshExports();
         toast.success("Export deleted.");

@@ -5,6 +5,7 @@ import { db, schema } from "@/db";
 import { requireUserId, getSession } from "./auth";
 import { isAdminEmail } from "./admin";
 import { getRenderComments, type CommentItem } from "./comments";
+import { toResult } from "./action-result";
 
 /** Re-fetch a render's comments (used by the client to refresh). */
 export async function listRenderComments(renderId: string): Promise<CommentItem[]> {
@@ -12,7 +13,7 @@ export async function listRenderComments(renderId: string): Promise<CommentItem[
 }
 
 /** Post a comment on a shared (non-private) render. Returns the full updated thread. */
-export async function addRenderComment(renderId: string, body: string): Promise<CommentItem[]> {
+async function addRenderCommentImpl(renderId: string, body: string): Promise<CommentItem[]> {
   const userId = await requireUserId();
   const text = body.trim().slice(0, 1000);
   if (!text) throw new Error("Comment can't be empty");
@@ -28,7 +29,7 @@ export async function addRenderComment(renderId: string, body: string): Promise<
 }
 
 /** Delete a comment — the author or an admin. Returns the updated thread. */
-export async function deleteRenderComment(commentId: string): Promise<CommentItem[]> {
+async function deleteRenderCommentImpl(commentId: string): Promise<CommentItem[]> {
   const userId = await requireUserId();
   const [c] = await db
     .select({ userId: schema.renderComments.userId, renderId: schema.renderComments.renderId })
@@ -43,3 +44,8 @@ export async function deleteRenderComment(commentId: string): Promise<CommentIte
   await db.delete(schema.renderComments).where(eq(schema.renderComments.id, commentId));
   return getRenderComments(c.renderId);
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function addRenderComment(...args: Parameters<typeof addRenderCommentImpl>) { return toResult(() => addRenderCommentImpl(...args)); }
+export async function deleteRenderComment(...args: Parameters<typeof deleteRenderCommentImpl>) { return toResult(() => deleteRenderCommentImpl(...args)); }

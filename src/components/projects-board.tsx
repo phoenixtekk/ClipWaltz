@@ -11,6 +11,7 @@ import { ProjectCard } from "@/components/project-card";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { unwrap } from "@/lib/action-result";
 
 const UNCATEGORIZED = "Uncategorized";
 
@@ -58,7 +59,7 @@ export function ProjectsBoard({ projects, categories }: { projects: ProjectSumma
 
   function addCategory() {
     const name = window.prompt("New category name:");
-    if (name?.trim()) act(() => createCategory(name.trim()), "Could not create category.");
+    if (name?.trim()) act(async () => unwrap(await createCategory(name.trim())), "Could not create category.");
   }
   function drop(name: string) {
     const id = dragId;
@@ -68,7 +69,7 @@ export function ProjectsBoard({ projects, categories }: { projects: ProjectSumma
     if ((items.find((p) => p.id === id)?.category ?? null) === target) return;
     setItems((cur) => cur.map((p) => (p.id === id ? { ...p, category: target } : p))); // optimistic
     start(async () => {
-      try { await setProjectCategory(id, target); router.refresh(); }
+      try { unwrap(await setProjectCategory(id, target)); router.refresh(); }
       catch { toast.error("Could not move the project."); setItems(projects); }
     });
   }
@@ -163,29 +164,29 @@ function CategoryMenu({
     <div className="ml-auto flex items-center gap-0.5">
       <label className="grid size-7 cursor-pointer place-items-center rounded-full text-muted-foreground hover:text-foreground" title="Category colour">
         <Palette className="size-4" />
-        <input type="color" value={color ?? "#7c3aed"} onChange={(e) => act(() => setCategoryColor(id, e.target.value), "Could not set colour.")} className="sr-only" />
+        <input type="color" value={color ?? "#7c3aed"} onChange={(e) => act(async () => unwrap(await setCategoryColor(id, e.target.value)), "Could not set colour.")} className="sr-only" />
       </label>
       <DropdownMenu>
         <DropdownMenuTrigger render={<button type="button" aria-label={`${name} options`} disabled={busy} className="grid size-7 place-items-center rounded-full text-muted-foreground hover:text-foreground disabled:opacity-50" />}>
           <MoreVertical className="size-4" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={() => { const n = window.prompt("Rename category", name); if (n?.trim()) act(() => renameCategory(id, n.trim()), "Could not rename."); }}>
+          <DropdownMenuItem onClick={() => { const n = window.prompt("Rename category", name); if (n?.trim()) act(async () => unwrap(await renameCategory(id, n.trim())), "Could not rename."); }}>
             <Pencil className="size-4" /> Rename
           </DropdownMenuItem>
-          <DropdownMenuItem disabled={!canUp} onClick={() => act(() => moveCategory(id, -1), "Could not move.")}>
+          <DropdownMenuItem disabled={!canUp} onClick={() => act(async () => unwrap(await moveCategory(id, -1)), "Could not move.")}>
             <ChevronUp className="size-4" /> Move up
           </DropdownMenuItem>
-          <DropdownMenuItem disabled={!canDown} onClick={() => act(() => moveCategory(id, 1), "Could not move.")}>
+          <DropdownMenuItem disabled={!canDown} onClick={() => act(async () => unwrap(await moveCategory(id, 1)), "Could not move.")}>
             <ChevronDown className="size-4" /> Move down
           </DropdownMenuItem>
           {color ? (
-            <DropdownMenuItem onClick={() => act(() => setCategoryColor(id, null), "Could not clear colour.")}>
+            <DropdownMenuItem onClick={() => act(async () => unwrap(await setCategoryColor(id, null)), "Could not clear colour.")}>
               <Palette className="size-4" /> Clear colour
             </DropdownMenuItem>
           ) : null}
           <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onClick={() => { if (window.confirm(`Delete category “${name}”? Its projects move to Uncategorized.`)) act(() => deleteCategory(id), "Could not delete."); }}>
+          <DropdownMenuItem variant="destructive" onClick={() => { if (window.confirm(`Delete category “${name}”? Its projects move to Uncategorized.`)) act(async () => unwrap(await deleteCategory(id)), "Could not delete."); }}>
             <Trash2 className="size-4" /> Delete
           </DropdownMenuItem>
         </DropdownMenuContent>

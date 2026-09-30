@@ -12,6 +12,7 @@ import { shareRender } from "@/lib/feed-actions";
 import { EnterContestButton } from "@/components/enter-contest";
 import { DownloadButton, DownloadFolderChip } from "@/components/download-controls";
 import { RenderCheckpointModal, SKIP_KEY } from "@/components/render-checkpoint-modal";
+import { unwrap } from "@/lib/action-result";
 
 type R = { id: string; status: string; version: number; hasOutput: boolean; visibility: string; description?: string | null } | null;
 type Contest = { theme: string; entered: boolean } | null;
@@ -82,7 +83,7 @@ export function RenderPanel({
     setChecking(true);
     (async () => {
       try {
-        const cp = await getRenderCheckpoint(projectId);
+        const cp = unwrap(await getRenderCheckpoint(projectId));
         const needsAttention = cp.hasBlocking || cp.warnings.some((w) => w.level !== "info");
         let skip = false;
         try {
@@ -104,7 +105,7 @@ export function RenderPanel({
   function doCreate() {
     start(async () => {
       try {
-        const id = await createRender(projectId);
+        const id = unwrap(await createRender(projectId));
         setCheckpoint(null);
         setRender({ id, status: "queued", version: (render?.version ?? 0) + 1, hasOutput: false, visibility: "private", description: null });
       } catch (e) {
@@ -127,7 +128,7 @@ export function RenderPanel({
     if (!render) return;
     start(async () => {
       try {
-        const applied = await shareRender(render.id, v);
+        const applied = unwrap(await shareRender(render.id, v));
         setRender((cur) => (cur ? { ...cur, visibility: applied } : cur));
       } catch {
         toast.error("Could not update sharing.");

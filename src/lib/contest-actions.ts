@@ -8,11 +8,12 @@ import { requireUserId } from "./auth";
 import { requireAdmin } from "./admin";
 import { applyGrant } from "./tier";
 import { sendEmail, simpleEmail } from "./email";
+import { toResult } from "./action-result";
 
 const WINNER_COMP_DAYS = 30;
 
 /** Start a new Monthly Theme Challenge. One active contest at a time. */
-export async function createContest(input: { theme: string; description?: string }): Promise<void> {
+async function createContestImpl(input: { theme: string; description?: string }): Promise<void> {
   const admin = await requireAdmin();
   const theme = input.theme.trim().slice(0, 120);
   if (!theme) throw new Error("Enter a theme");
@@ -38,7 +39,7 @@ export async function createContest(input: { theme: string; description?: string
  * Close a contest and crown the likes-leader. The winner is auto-granted Pro for
  * WINNER_COMP_DAYS via the comp system (applyGrant), and emailed.
  */
-export async function closeContest(contestId: string): Promise<{ winner: string | null }> {
+async function closeContestImpl(contestId: string): Promise<{ winner: string | null }> {
   await requireAdmin();
   const [c] = await db
     .select({ id: schema.contests.id, status: schema.contests.status, theme: schema.contests.theme })
@@ -98,7 +99,7 @@ export async function closeContest(contestId: string): Promise<{ winner: string 
 }
 
 /** Enter one of your public renders into the active contest. */
-export async function enterContest(renderId: string): Promise<{ theme: string }> {
+async function enterContestImpl(renderId: string): Promise<{ theme: string }> {
   const userId = await requireUserId();
   const [active] = await db
     .select({ id: schema.contests.id, theme: schema.contests.theme })
@@ -133,7 +134,7 @@ export async function enterContest(renderId: string): Promise<{ theme: string }>
 }
 
 /** Withdraw a render from the active contest. */
-export async function withdrawContest(renderId: string): Promise<void> {
+async function withdrawContestImpl(renderId: string): Promise<void> {
   const userId = await requireUserId();
   const [active] = await db
     .select({ id: schema.contests.id })
@@ -153,3 +154,10 @@ export async function withdrawContest(renderId: string): Promise<void> {
     );
   revalidatePath("/community");
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function createContest(...args: Parameters<typeof createContestImpl>) { return toResult(() => createContestImpl(...args)); }
+export async function closeContest(...args: Parameters<typeof closeContestImpl>) { return toResult(() => closeContestImpl(...args)); }
+export async function enterContest(...args: Parameters<typeof enterContestImpl>) { return toResult(() => enterContestImpl(...args)); }
+export async function withdrawContest(...args: Parameters<typeof withdrawContestImpl>) { return toResult(() => withdrawContestImpl(...args)); }

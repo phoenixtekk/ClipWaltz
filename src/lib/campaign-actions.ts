@@ -16,6 +16,7 @@ import {
   CAMPAIGN_ASPECTS, CAMPAIGN_LENGTHS, MAX_VARIANTS, defaultBrief,
   type Campaign, type CampaignConfig, type CampaignCta, type CampaignHook, type CampaignVariant, type DeckState, type VariantStats,
 } from "./deck/types";
+import { toResult } from "./action-result";
 
 const clip = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "");
 
@@ -37,7 +38,7 @@ const count = (cfg: Pick<CampaignConfig, "hooks" | "ctas" | "lengths" | "aspects
   cfg.hooks.length * cfg.ctas.length * cfg.lengths.length * cfg.aspects.length;
 
 /** The project's packs (newest first) with each variant's render status and audience stats. Polled by the editor. */
-export async function getCampaigns(projectId: string): Promise<Campaign[]> {
+async function getCampaignsImpl(projectId: string): Promise<Campaign[]> {
   await assertDeck(projectId, "viewer");
   const rows = await db.select().from(schema.deckCampaigns).where(eq(schema.deckCampaigns.projectId, projectId))
     .orderBy(desc(schema.deckCampaigns.createdAt)).limit(10);
@@ -81,7 +82,7 @@ export async function getCampaigns(projectId: string): Promise<Campaign[]> {
 export type NewCampaignInput = { aiHooks: number; aiCtas: number; extraCtas: string[]; lengths: number[]; aspects: string[] };
 
 /** Start a pack from the current storyboard: the original hook + CTA, the owner's extra CTAs, and AI options. */
-export async function createCampaign(projectId: string, input: NewCampaignInput): Promise<string> {
+async function createCampaignImpl(projectId: string, input: NewCampaignInput): Promise<string> {
   const userId = await assertDeck(projectId, "editor");
   const [p] = await db.select({ deck: schema.projects.deck, aspect: schema.projects.aspect, lengthSec: schema.projects.lengthSec })
     .from(schema.projects).where(eq(schema.projects.id, projectId));
@@ -132,7 +133,7 @@ export type DraftPatch = {
 };
 
 /** Edit a draft pack: hook wording / clip, CTA wording, which lengths and shapes, the button link, the name. */
-export async function updateCampaignDraft(projectId: string, campaignId: string, patch: DraftPatch): Promise<void> {
+async function updateCampaignDraftImpl(projectId: string, campaignId: string, patch: DraftPatch): Promise<void> {
   await assertDeck(projectId, "editor");
   const c = await loadCampaign(projectId, campaignId);
   if (c.status !== "draft") throw new Error("This pack can't be edited any more.");
@@ -186,7 +187,7 @@ export async function updateCampaignDraft(projectId: string, campaignId: string,
 }
 
 /** Render every combination (at most MAX_VARIANTS). Watermark follows the video rule for whoever presses it. */
-export async function renderCampaign(projectId: string, campaignId: string): Promise<void> {
+async function renderCampaignImpl(projectId: string, campaignId: string): Promise<void> {
   const userId = await assertDeck(projectId, "editor");
   const c = await loadCampaign(projectId, campaignId);
   if (c.status !== "draft") throw new Error("This pack is already rendering.");
@@ -210,7 +211,7 @@ export async function renderCampaign(projectId: string, campaignId: string): Pro
 }
 
 /** Share links on/off: on makes every variant's landing page (and video) reachable by link — never listed publicly. */
-export async function setCampaignShared(projectId: string, campaignId: string, shared: boolean): Promise<void> {
+async function setCampaignSharedImpl(projectId: string, campaignId: string, shared: boolean): Promise<void> {
   await assertDeck(projectId, "editor");
   await loadCampaign(projectId, campaignId);
   await db.update(schema.deckCampaigns).set({ shared: !!shared, updatedAt: new Date() }).where(eq(schema.deckCampaigns.id, campaignId));
@@ -221,7 +222,7 @@ export async function setCampaignShared(projectId: string, campaignId: string, s
 }
 
 /** Throw away a draft (nothing rendered yet). */
-export async function discardCampaignDraft(projectId: string, campaignId: string): Promise<void> {
+async function discardCampaignDraftImpl(projectId: string, campaignId: string): Promise<void> {
   await assertDeck(projectId, "editor");
   const c = await loadCampaign(projectId, campaignId);
   if (c.status !== "draft" && c.status !== "drafting") throw new Error("Only a draft can be discarded.");
@@ -232,7 +233,7 @@ export async function discardCampaignDraft(projectId: string, campaignId: string
  * "Make more like this": a new draft pack that keeps this variant's hook, CTA, length and shape, and asks the AI for
  * new hooks in the same style (the other hooks of the pack are shown to it as what did worse).
  */
-export async function moreLikeThis(projectId: string, renderId: string): Promise<string> {
+async function moreLikeThisImpl(projectId: string, renderId: string): Promise<string> {
   const userId = await assertDeck(projectId, "editor");
   const [r] = await db.select().from(schema.renders).where(and(eq(schema.renders.id, renderId), eq(schema.renders.projectId, projectId)));
   if (!r?.campaignId) throw new Error("That video isn't part of a pack.");
@@ -265,3 +266,13 @@ export async function moreLikeThis(projectId: string, renderId: string): Promise
   revalidatePath(`/projects/${projectId}/deck`);
   return id;
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function getCampaigns(...args: Parameters<typeof getCampaignsImpl>) { return toResult(() => getCampaignsImpl(...args)); }
+export async function createCampaign(...args: Parameters<typeof createCampaignImpl>) { return toResult(() => createCampaignImpl(...args)); }
+export async function updateCampaignDraft(...args: Parameters<typeof updateCampaignDraftImpl>) { return toResult(() => updateCampaignDraftImpl(...args)); }
+export async function renderCampaign(...args: Parameters<typeof renderCampaignImpl>) { return toResult(() => renderCampaignImpl(...args)); }
+export async function setCampaignShared(...args: Parameters<typeof setCampaignSharedImpl>) { return toResult(() => setCampaignSharedImpl(...args)); }
+export async function discardCampaignDraft(...args: Parameters<typeof discardCampaignDraftImpl>) { return toResult(() => discardCampaignDraftImpl(...args)); }
+export async function moreLikeThis(...args: Parameters<typeof moreLikeThisImpl>) { return toResult(() => moreLikeThisImpl(...args)); }

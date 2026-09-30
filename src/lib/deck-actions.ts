@@ -54,7 +54,7 @@ const toScene = (r: typeof schema.deckScenes.$inferSelect): DeckScene => ({
 });
 
 /** Everything the WaltzDeck editor shows. Polled while a plan or rewrite is running. */
-export async function getDeck(projectId: string): Promise<DeckData> {
+async function getDeckImpl(projectId: string): Promise<DeckData> {
   await assertAccess(projectId, "viewer");
   const [p] = await db.select().from(schema.projects).where(eq(schema.projects.id, projectId));
   const scenes = await db.select().from(schema.deckScenes).where(eq(schema.deckScenes.projectId, projectId)).orderBy(asc(schema.deckScenes.orderIndex));
@@ -103,7 +103,7 @@ export async function getDeck(projectId: string): Promise<DeckData> {
 }
 
 /** Save the overall brief (mode, prompt, offer, CTA, length, text default). */
-export async function saveBrief(projectId: string, input: Partial<DeckBrief>): Promise<void> {
+async function saveBriefImpl(projectId: string, input: Partial<DeckBrief>): Promise<void> {
   await assertAccess(projectId, "editor");
   const [p] = await db.select({ deck: schema.projects.deck }).from(schema.projects).where(eq(schema.projects.id, projectId));
   const cur = { ...defaultBrief(), ...(((p.deck ?? {}) as Partial<DeckState>).brief ?? {}) };
@@ -149,21 +149,21 @@ export async function saveBrief(projectId: string, input: Partial<DeckBrief>): P
 }
 
 /** The per-item prompt for one photo/video ("hero shot — say it's organic", "show this last"). */
-export async function setAssetNote(projectId: string, assetId: string, note: string): Promise<void> {
+async function setAssetNoteImpl(projectId: string, assetId: string, note: string): Promise<void> {
   await assertAccess(projectId, "editor");
   await db.update(schema.assets).set({ note: clip(note, 300) || null })
     .where(and(eq(schema.assets.id, assetId), eq(schema.assets.projectId, projectId)));
 }
 
 /** Warm the description cache for a just-uploaded file (planning later needs no wait for it). */
-export async function describeAsset(projectId: string, assetId: string): Promise<void> {
+async function describeAssetImpl(projectId: string, assetId: string): Promise<void> {
   await assertAccess(projectId, "editor");
   await assertProjectAsset(projectId, assetId);
   await enqueueDeck({ name: "describe", data: { assetId } }, `describe-${assetId}`);
 }
 
 /** (Re)plan the storyboard. Locked scenes are kept; everything else is replaced. */
-export async function requestPlan(projectId: string): Promise<void> {
+async function requestPlanImpl(projectId: string): Promise<void> {
   await assertAccess(projectId, "editor");
   const [p] = await db.select({ deck: schema.projects.deck }).from(schema.projects).where(eq(schema.projects.id, projectId));
   const cur = ((p.deck ?? {}) as Partial<DeckState>).plan as { status?: string; startedAt?: string } | undefined;
@@ -192,7 +192,7 @@ export type ScenePatch = Partial<{
 }>;
 
 /** Edit one scene. Typing your own words makes the text Manual and locks the scene (re-plans keep it). */
-export async function updateScene(projectId: string, sceneId: string, patch: ScenePatch): Promise<void> {
+async function updateSceneImpl(projectId: string, sceneId: string, patch: ScenePatch): Promise<void> {
   await assertAccess(projectId, "editor");
   const set: Partial<typeof schema.deckScenes.$inferInsert> = { updatedAt: new Date() };
   if (patch.text) {
@@ -229,7 +229,7 @@ export async function updateScene(projectId: string, sceneId: string, patch: Sce
 }
 
 /** Ask the AI to rewrite one scene's text: "rewrite" | "shorter" | "punchier" | the user's own instruction. */
-export async function rewriteSceneText(projectId: string, sceneId: string, instruction: string): Promise<void> {
+async function rewriteSceneTextImpl(projectId: string, sceneId: string, instruction: string): Promise<void> {
   await assertAccess(projectId, "editor");
   const ins = clip(instruction, 300) || "rewrite";
   const [s] = await db.select({ id: schema.deckScenes.id }).from(schema.deckScenes)
@@ -243,7 +243,7 @@ export async function rewriteSceneText(projectId: string, sceneId: string, instr
 }
 
 /** New scene order (all scene ids of the project, in order). */
-export async function reorderScenes(projectId: string, ids: string[]): Promise<void> {
+async function reorderScenesImpl(projectId: string, ids: string[]): Promise<void> {
   await assertAccess(projectId, "editor");
   const rows = await db.select({ id: schema.deckScenes.id }).from(schema.deckScenes).where(eq(schema.deckScenes.projectId, projectId));
   const known = new Set(rows.map((r) => r.id));
@@ -255,7 +255,7 @@ export async function reorderScenes(projectId: string, ids: string[]): Promise<v
 }
 
 /** Add a scene after `afterIndex` (-1 = at the start) showing `assetId`, or a text card when null. */
-export async function addScene(projectId: string, afterIndex: number, assetId: string | null): Promise<string> {
+async function addSceneImpl(projectId: string, afterIndex: number, assetId: string | null): Promise<string> {
   await assertAccess(projectId, "editor");
   if (assetId) await assertProjectAsset(projectId, assetId);
   const rows = await db.select({ id: schema.deckScenes.id, orderIndex: schema.deckScenes.orderIndex })
@@ -273,7 +273,7 @@ export async function addScene(projectId: string, afterIndex: number, assetId: s
   return id;
 }
 
-export async function deleteScene(projectId: string, sceneId: string): Promise<void> {
+async function deleteSceneImpl(projectId: string, sceneId: string): Promise<void> {
   await assertAccess(projectId, "editor");
   await db.delete(schema.deckScenes).where(and(eq(schema.deckScenes.id, sceneId), eq(schema.deckScenes.projectId, projectId)));
 }
@@ -284,7 +284,7 @@ export async function deleteScene(projectId: string, sceneId: string): Promise<v
  * Queue a PDF or PowerPoint export of the storyboard. The render worker on the AI box builds it from the same
  * templates as the video (worker/deck/export.mjs); the editor polls getDeck(). One export per format at a time.
  */
-export async function requestDeckExport(projectId: string, format: DeckExportFormat): Promise<void> {
+async function requestDeckExportImpl(projectId: string, format: DeckExportFormat): Promise<void> {
   const userId = await assertAccess(projectId, "editor");
   if (format !== "pdf" && format !== "pptx") throw new Error("Unknown export format");
   const [n] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.deckScenes).where(eq(schema.deckScenes.projectId, projectId));
@@ -306,7 +306,7 @@ export async function requestDeckExport(projectId: string, format: DeckExportFor
  * guards (worker/deck/importer.mjs) and, when the project already has media and no storyboard, plans right away.
  * Files (PPTX / PDF) go through POST /api/projects/[id]/deck-import instead.
  */
-export async function importFromUrl(projectId: string, rawUrl: string): Promise<void> {
+async function importFromUrlImpl(projectId: string, rawUrl: string): Promise<void> {
   const userId = await assertAccess(projectId, "editor");
   let url: URL;
   try {
@@ -388,7 +388,7 @@ async function fillSceneImpl(projectId: string, sceneId: string, input: { mode: 
  * text, points, narration and brief — translated on the deck worker, voiced by a voice of that language and captioned
  * in it. The original is never touched. Returns the new project id (the editor opens it and shows the progress).
  */
-export async function translateDeck(projectId: string, lang: string): Promise<string> {
+async function translateDeckImpl(projectId: string, lang: string): Promise<string> {
   const userId = await assertAccess(projectId, "editor");
   const L = LANGUAGES.find((l) => l.code === lang);
   if (!L) throw new Error("Pick a language");
@@ -434,3 +434,19 @@ export async function translateDeck(projectId: string, lang: string): Promise<st
   revalidatePath("/projects");
   return id;
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function getDeck(...args: Parameters<typeof getDeckImpl>) { return toResult(() => getDeckImpl(...args)); }
+export async function saveBrief(...args: Parameters<typeof saveBriefImpl>) { return toResult(() => saveBriefImpl(...args)); }
+export async function setAssetNote(...args: Parameters<typeof setAssetNoteImpl>) { return toResult(() => setAssetNoteImpl(...args)); }
+export async function describeAsset(...args: Parameters<typeof describeAssetImpl>) { return toResult(() => describeAssetImpl(...args)); }
+export async function requestPlan(...args: Parameters<typeof requestPlanImpl>) { return toResult(() => requestPlanImpl(...args)); }
+export async function updateScene(...args: Parameters<typeof updateSceneImpl>) { return toResult(() => updateSceneImpl(...args)); }
+export async function rewriteSceneText(...args: Parameters<typeof rewriteSceneTextImpl>) { return toResult(() => rewriteSceneTextImpl(...args)); }
+export async function reorderScenes(...args: Parameters<typeof reorderScenesImpl>) { return toResult(() => reorderScenesImpl(...args)); }
+export async function addScene(...args: Parameters<typeof addSceneImpl>) { return toResult(() => addSceneImpl(...args)); }
+export async function deleteScene(...args: Parameters<typeof deleteSceneImpl>) { return toResult(() => deleteSceneImpl(...args)); }
+export async function requestDeckExport(...args: Parameters<typeof requestDeckExportImpl>) { return toResult(() => requestDeckExportImpl(...args)); }
+export async function importFromUrl(...args: Parameters<typeof importFromUrlImpl>) { return toResult(() => importFromUrlImpl(...args)); }
+export async function translateDeck(...args: Parameters<typeof translateDeckImpl>) { return toResult(() => translateDeckImpl(...args)); }

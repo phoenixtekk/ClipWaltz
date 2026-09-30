@@ -8,9 +8,10 @@ import { requireUserId } from "./auth";
 import { deleteObject } from "./storage";
 import { track } from "./analytics";
 import type { RenderSettings, RenderCheckpoint, CheckWarning } from "./render";
+import { toResult } from "./action-result";
 
 /** Delete a saved render (the DB row + its MinIO object), editor-checked. */
-export async function deleteRender(renderId: string): Promise<void> {
+async function deleteRenderImpl(renderId: string): Promise<void> {
   const userId = await requireUserId();
   const [row] = await db
     .select({ key: schema.renders.outputKey, projectId: schema.renders.projectId })
@@ -48,7 +49,7 @@ function snapshotSettings(
 }
 
 /** Queue an HD render for a project (owner-checked). A worker picks it up. */
-export async function createRender(projectId: string): Promise<string> {
+async function createRenderImpl(projectId: string): Promise<string> {
   const userId = await requireUserId();
 
   const [proj] = await db
@@ -128,7 +129,7 @@ function diffSettings(prev: RenderSettings, cur: RenderSettings): string[] {
  * what's shown is exactly what will render), a projected length, tiered warnings, and a diff vs the
  * previous render. Called from the client the moment the user clicks Render / Re-render.
  */
-export async function getRenderCheckpoint(projectId: string): Promise<RenderCheckpoint> {
+async function getRenderCheckpointImpl(projectId: string): Promise<RenderCheckpoint> {
   const userId = await requireUserId();
   const [proj] = await db
     .select()
@@ -241,3 +242,9 @@ export async function getRenderCheckpoint(projectId: string): Promise<RenderChec
     hasBlocking: clips === 0,
   };
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function deleteRender(...args: Parameters<typeof deleteRenderImpl>) { return toResult(() => deleteRenderImpl(...args)); }
+export async function createRender(...args: Parameters<typeof createRenderImpl>) { return toResult(() => createRenderImpl(...args)); }
+export async function getRenderCheckpoint(...args: Parameters<typeof getRenderCheckpointImpl>) { return toResult(() => getRenderCheckpointImpl(...args)); }

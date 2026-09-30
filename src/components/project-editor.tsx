@@ -22,6 +22,7 @@ import {
   setProjectStyle,
   moveAsset,
 } from "@/lib/project-actions";
+import { unwrap } from "@/lib/action-result";
 
 const FILTERS = [
   { key: "none", label: "None" },
@@ -123,8 +124,8 @@ export function ProjectEditor({
   // Setting a fixed length turns Max footage off (they're opposing intents).
   const setLen = (s: number) =>
     runAction(async () => {
-      await setProjectLength(projectId, s);
-      if (maxFootage) await setProjectStyle(projectId, { maxFootage: false });
+      unwrap(await setProjectLength(projectId, s));
+      if (maxFootage) unwrap(await setProjectStyle(projectId, { maxFootage: false }));
     }, "Could not set length.");
 
   const runAction = (fn: () => Promise<unknown>, err: string) =>
@@ -225,7 +226,7 @@ export function ProjectEditor({
                     size="icon-sm"
                     aria-label="Move up"
                     disabled={pending || i === 0}
-                    onClick={() => runAction(() => moveAsset(projectId, a.id, "up"), "Could not reorder.")}
+                    onClick={() => runAction(async () => unwrap(await moveAsset(projectId, a.id, "up")), "Could not reorder.")}
                   >
                     <ChevronUp className="size-4" />
                   </Button>
@@ -234,7 +235,7 @@ export function ProjectEditor({
                     size="icon-sm"
                     aria-label="Move down"
                     disabled={pending || i === assets.length - 1}
-                    onClick={() => runAction(() => moveAsset(projectId, a.id, "down"), "Could not reorder.")}
+                    onClick={() => runAction(async () => unwrap(await moveAsset(projectId, a.id, "down")), "Could not reorder.")}
                   >
                     <ChevronDown className="size-4" />
                   </Button>
@@ -245,7 +246,7 @@ export function ProjectEditor({
                     disabled={pending}
                     onClick={() => {
                       if (window.confirm(`Remove "${a.name}"?`))
-                        runAction(() => deleteAsset(projectId, a.id), "Could not remove.");
+                        runAction(async () => unwrap(await deleteAsset(projectId, a.id)), "Could not remove.");
                     }}
                   >
                     <Trash2 className="size-4 text-destructive" />
@@ -270,7 +271,7 @@ export function ProjectEditor({
               key={a.key}
               selected={aspect === a.key}
               label={a.label}
-              onClick={() => runAction(() => setProjectAspect(projectId, a.key), "Could not set aspect.")}
+              onClick={() => runAction(async () => unwrap(await setProjectAspect(projectId, a.key)), "Could not set aspect.")}
               disabled={pending}
             />
           ))}
@@ -334,13 +335,13 @@ export function ProjectEditor({
             <TrackChip
               selected={maxFootage}
               label="♾️ Max — use all footage"
-              onClick={() => runAction(() => setProjectStyle(projectId, { maxFootage: !maxFootage }), "Could not toggle Max footage.")}
+              onClick={() => runAction(async () => unwrap(await setProjectStyle(projectId, { maxFootage: !maxFootage })), "Could not toggle Max footage.")}
               disabled={pending}
             />
             <TrackChip
               selected={loopToFill}
               label="🔁 Loop to fill length"
-              onClick={() => runAction(() => setProjectStyle(projectId, { loopToFill: !loopToFill }), "Could not toggle loop.")}
+              onClick={() => runAction(async () => unwrap(await setProjectStyle(projectId, { loopToFill: !loopToFill })), "Could not toggle loop.")}
               disabled={pending}
             />
           </div>
@@ -378,7 +379,7 @@ export function ProjectEditor({
                 key={f.key}
                 selected={styleFilter === f.key}
                 label={f.label}
-                onClick={() => runAction(() => setProjectStyle(projectId, { styleFilter: f.key }), "Could not set filter.")}
+                onClick={() => runAction(async () => unwrap(await setProjectStyle(projectId, { styleFilter: f.key })), "Could not set filter.")}
                 disabled={pending}
               />
             ))}
@@ -393,7 +394,7 @@ export function ProjectEditor({
                 key={f.key}
                 selected={lightFx === f.key}
                 label={f.label}
-                onClick={() => runAction(() => setProjectStyle(projectId, { lightFx: f.key }), "Could not set lighting.")}
+                onClick={() => runAction(async () => unwrap(await setProjectStyle(projectId, { lightFx: f.key })), "Could not set lighting.")}
                 disabled={pending}
               />
             ))}
@@ -409,7 +410,7 @@ export function ProjectEditor({
                   key={t.k}
                   selected={transition === t.k}
                   label={t.l}
-                  onClick={() => runAction(() => setProjectStyle(projectId, { transition: t.k }), "Could not set transition.")}
+                  onClick={() => runAction(async () => unwrap(await setProjectStyle(projectId, { transition: t.k })), "Could not set transition.")}
                   disabled={pending}
                 />
               ))}
@@ -421,43 +422,43 @@ export function ProjectEditor({
               <TrackChip
                 selected={smartCut}
                 label="✦ Smart cut"
-                onClick={() => runAction(() => setProjectStyle(projectId, { smartCut: !smartCut }), "Could not toggle smart cut.")}
+                onClick={() => runAction(async () => unwrap(await setProjectStyle(projectId, { smartCut: !smartCut })), "Could not toggle smart cut.")}
                 disabled={pending}
               />
               <TrackChip
                 selected={beatSync}
                 label="♪ Beat sync"
-                onClick={() => runAction(() => setProjectStyle(projectId, { beatSync: !beatSync }), "Could not toggle beat sync.")}
+                onClick={() => runAction(async () => unwrap(await setProjectStyle(projectId, { beatSync: !beatSync })), "Could not toggle beat sync.")}
                 disabled={pending}
               />
               <TrackChip
                 selected={waltzToMusic}
                 label="💃 Waltz to the Music"
-                onClick={() => runAction(() => setProjectStyle(projectId, { waltzToMusic: !waltzToMusic }), "Could not toggle Waltz to the Music.")}
+                onClick={() => runAction(async () => unwrap(await setProjectStyle(projectId, { waltzToMusic: !waltzToMusic })), "Could not toggle Waltz to the Music.")}
                 disabled={pending}
               />
               <TrackChip
                 selected={motion}
                 label="Ken Burns"
-                onClick={() => runAction(() => setProjectStyle(projectId, { motion: !motion }), "Could not toggle motion.")}
+                onClick={() => runAction(async () => unwrap(await setProjectStyle(projectId, { motion: !motion })), "Could not toggle motion.")}
                 disabled={pending}
               />
               <TrackChip
                 selected={fades}
                 label="Fade in"
-                onClick={() => runAction(() => setProjectStyle(projectId, { fades: !fades }), "Could not toggle fade in.")}
+                onClick={() => runAction(async () => unwrap(await setProjectStyle(projectId, { fades: !fades })), "Could not toggle fade in.")}
                 disabled={pending}
               />
               <TrackChip
                 selected={fadeOut}
                 label="Fade out ending"
-                onClick={() => runAction(() => setProjectStyle(projectId, { fadeOut: !fadeOut }), "Could not toggle fade out.")}
+                onClick={() => runAction(async () => unwrap(await setProjectStyle(projectId, { fadeOut: !fadeOut })), "Could not toggle fade out.")}
                 disabled={pending}
               />
               <TrackChip
                 selected={describe}
                 label="📝 Generate post text"
-                onClick={() => runAction(() => setProjectStyle(projectId, { describe: !describe }), "Could not toggle post text.")}
+                onClick={() => runAction(async () => unwrap(await setProjectStyle(projectId, { describe: !describe })), "Could not toggle post text.")}
                 disabled={pending}
               />
             </div>
@@ -472,7 +473,7 @@ export function ProjectEditor({
               <TrackChip
                 selected={originalAudio}
                 label="🔊 Use original video audio"
-                onClick={() => runAction(() => setProjectStyle(projectId, { originalAudio: !originalAudio }), "Could not toggle original audio.")}
+                onClick={() => runAction(async () => unwrap(await setProjectStyle(projectId, { originalAudio: !originalAudio })), "Could not toggle original audio.")}
                 disabled={pending}
               />
             </div>
@@ -562,7 +563,7 @@ function PostTextSettings({
   function save() {
     start(async () => {
       try {
-        await setProjectStyle(projectId, { postTopic: topic, postTemplate: template });
+        unwrap(await setProjectStyle(projectId, { postTopic: topic, postTemplate: template }));
         toast.success("Post-text settings saved.");
       } catch (e) {
         toast.error((e as Error).message || "Could not save post-text settings.");
@@ -626,7 +627,7 @@ function AudioMixSettings({
   const save = (m: number, o: number) => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
-      setProjectStyle(projectId, { musicVolume: m, originalVolume: o }).catch(() =>
+      setProjectStyle(projectId, { musicVolume: m, originalVolume: o }).then(unwrap).catch(() =>
         toast.error("Could not save audio levels."),
       );
     }, 500);

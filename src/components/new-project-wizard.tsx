@@ -9,6 +9,7 @@ import { createProject } from "@/lib/project-actions";
 import type { AiTemplate } from "@/lib/template-actions";
 import type { Aspect } from "@/lib/aspect";
 import { DECK_MODES, type DeckMode } from "@/lib/deck/types";
+import { unwrap } from "@/lib/action-result";
 
 const TEMPLATE_GLYPH: Record<string, string> = {
   product: "◎", social: "▶", story: "❝", event: "✺", travel: "⛰", cinematic: "🎬",
@@ -56,9 +57,9 @@ export function NewProjectWizard({ workspaceId, aiTemplates = [] }: { workspaceI
       try {
         const tpl = kind === "ai" ? aiTemplates.find((t) => t.id === aiTemplateId) ?? null : null;
         const projectAspect = tpl ? (tpl.settings.aspect === "9:16" ? "9:16" : "16:9") : aspect;
-        const id = await createProject(kind === "music" ? selected : "surprise", projectAspect, workspaceId, {
+        const id = unwrap(await createProject(kind === "music" ? selected : "surprise", projectAspect, workspaceId, {
           title: name, description, aiTemplateId: tpl?.id, deckMode: kind === "deck" ? deckMode : undefined,
-        });
+        }));
         if (kind === "deck") {
           router.push(`/projects/${id}/deck`); // WaltzDeck: brief + media + storyboard on one page
           return;

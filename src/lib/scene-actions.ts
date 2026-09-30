@@ -7,6 +7,7 @@ import { requireUserId } from "./auth";
 import { userCanAccessProject } from "./workspace";
 import { enqueueEnhance } from "./queue";
 import { shouldWatermark } from "./watermark";
+import { toResult } from "./action-result";
 
 // CW-MVP-160..162 scenes: a simple ordered storyboard per project. Each scene has a title, a target
 // length and the generated version picked for it; "Assemble" joins the picks in order into one new
@@ -24,7 +25,7 @@ async function assertAccess(projectId: string, role: "viewer" | "editor") {
 }
 const touch = (projectId: string) => revalidatePath(`/projects/${projectId}/edit`);
 
-export async function listScenes(projectId: string): Promise<SceneItem[]> {
+async function listScenesImpl(projectId: string): Promise<SceneItem[]> {
   await assertAccess(projectId, "viewer");
   const rows = await db
     .select({
@@ -45,7 +46,7 @@ export async function listScenes(projectId: string): Promise<SceneItem[]> {
 const cleanTitle = (t: string) => t.trim().slice(0, 80) || "Scene";
 const cleanDuration = (d: number | null) => (d == null || !Number.isFinite(d) ? null : Math.max(1, Math.min(30, Math.round(d * 10) / 10)));
 
-export async function addScene(projectId: string, title: string, durationTarget: number | null): Promise<string> {
+async function addSceneImpl(projectId: string, title: string, durationTarget: number | null): Promise<string> {
   await assertAccess(projectId, "editor");
   const existing = await db.select({ n: schema.scenes.sequenceNumber }).from(schema.scenes).where(eq(schema.scenes.projectId, projectId));
   if (existing.length >= 50) throw new Error("A project can have up to 50 scenes");
@@ -58,7 +59,7 @@ export async function addScene(projectId: string, title: string, durationTarget:
   return id;
 }
 
-export async function updateScene(projectId: string, sceneId: string, patch: { title?: string; durationTarget?: number | null }): Promise<void> {
+async function updateSceneImpl(projectId: string, sceneId: string, patch: { title?: string; durationTarget?: number | null }): Promise<void> {
   await assertAccess(projectId, "editor");
   const set: Partial<typeof schema.scenes.$inferInsert> = { updatedAt: new Date() };
   if (patch.title !== undefined) set.title = cleanTitle(patch.title);
@@ -67,14 +68,14 @@ export async function updateScene(projectId: string, sceneId: string, patch: { t
   touch(projectId);
 }
 
-export async function deleteScene(projectId: string, sceneId: string): Promise<void> {
+async function deleteSceneImpl(projectId: string, sceneId: string): Promise<void> {
   await assertAccess(projectId, "editor");
   await db.delete(schema.scenes).where(and(eq(schema.scenes.id, sceneId), eq(schema.scenes.projectId, projectId)));
   touch(projectId);
 }
 
 /** CW-MVP-161: set the full scene order (ids not in the project are ignored). */
-export async function reorderScenes(projectId: string, orderedIds: string[]): Promise<void> {
+async function reorderScenesImpl(projectId: string, orderedIds: string[]): Promise<void> {
   await assertAccess(projectId, "editor");
   const rows = await db.select({ id: schema.scenes.id }).from(schema.scenes).where(eq(schema.scenes.projectId, projectId));
   const valid = new Set(rows.map((r) => r.id));
@@ -88,7 +89,7 @@ export async function reorderScenes(projectId: string, orderedIds: string[]): Pr
 }
 
 /** Use a generated version (of this project) for a scene; null clears it. */
-export async function setSceneVersion(projectId: string, sceneId: string, versionId: string | null): Promise<void> {
+async function setSceneVersionImpl(projectId: string, sceneId: string, versionId: string | null): Promise<void> {
   await assertAccess(projectId, "editor");
   if (versionId) {
     const [v] = await db.select({ id: schema.generationVersions.id }).from(schema.generationVersions)
@@ -104,9 +105,9 @@ export async function setSceneVersion(projectId: string, sceneId: string, versio
  * Assemble the storyboard: every scene with a picked version, in order, each trimmed to its target
  * length (clips shorter than the target play in full), joined into one new version. Returns the job id.
  */
-export async function assembleScenes(projectId: string): Promise<string> {
+async function assembleScenesImpl(projectId: string): Promise<string> {
   const userId = await assertAccess(projectId, "editor");
-  const scenes = await listScenes(projectId);
+  const scenes = await listScenesImpl(projectId);
   const picked = scenes.filter((s) => s.selectedVersionId);
   if (picked.length < 2) throw new Error("Pick a version for at least two scenes first");
   const versions = await db.select({ id: schema.generationVersions.id, key: sql<string | null>`coalesce(${schema.generationVersions.cleanKey}, ${schema.generationVersions.outputKey})` })
@@ -125,3 +126,13 @@ export async function assembleScenes(projectId: string): Promise<string> {
   touch(projectId);
   return id;
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function listScenes(...args: Parameters<typeof listScenesImpl>) { return toResult(() => listScenesImpl(...args)); }
+export async function addScene(...args: Parameters<typeof addSceneImpl>) { return toResult(() => addSceneImpl(...args)); }
+export async function updateScene(...args: Parameters<typeof updateSceneImpl>) { return toResult(() => updateSceneImpl(...args)); }
+export async function deleteScene(...args: Parameters<typeof deleteSceneImpl>) { return toResult(() => deleteSceneImpl(...args)); }
+export async function reorderScenes(...args: Parameters<typeof reorderScenesImpl>) { return toResult(() => reorderScenesImpl(...args)); }
+export async function setSceneVersion(...args: Parameters<typeof setSceneVersionImpl>) { return toResult(() => setSceneVersionImpl(...args)); }
+export async function assembleScenes(...args: Parameters<typeof assembleScenesImpl>) { return toResult(() => assembleScenesImpl(...args)); }

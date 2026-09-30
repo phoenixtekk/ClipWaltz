@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { MyProfile } from "@/lib/profile";
 import { updateProfile } from "@/lib/profile-actions";
+import { unwrap } from "@/lib/action-result";
 
 export function ProfileForm({ initial, userId }: { initial: MyProfile; userId: string }) {
   const router = useRouter();
@@ -26,7 +27,7 @@ export function ProfileForm({ initial, userId }: { initial: MyProfile; userId: s
   function save() {
     start(async () => {
       try {
-        await updateProfile(f);
+        unwrap(await updateProfile(f));
         toast.success("Profile saved.");
         router.refresh();
       } catch (e) {

@@ -4,6 +4,7 @@ import { Type } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { setProjectStyle } from "@/lib/project-actions";
+import { unwrap } from "@/lib/action-result";
 
 /** Title / caption for the finished video. Lives in the Timeline tab so it sits with the clips. */
 export function TitleCaptionField({
@@ -20,7 +21,7 @@ export function TitleCaptionField({
     if ((title.trim() || null) === (initialTitle ?? null)) return;
     startTransition(async () => {
       try {
-        await setProjectStyle(projectId, { titleText: title });
+        unwrap(await setProjectStyle(projectId, { titleText: title }));
       } catch {
         toast.error("Could not save title.");
       }

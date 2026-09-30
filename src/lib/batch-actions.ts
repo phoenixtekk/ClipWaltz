@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireAdmin } from "./admin";
 import { getPresetShape } from "./presets";
+import { toResult } from "./action-result";
 
 // Auto-Batch is admin-only: it stores absolute server paths that the batch worker reads/writes as
 // the `lacy` user, so only a trusted operator may configure it.
@@ -38,7 +39,7 @@ export type BatchSettings = {
 };
 
 /** Create an auto-batch. Settings come from a preset (if given) + a couple of explicit options. */
-export async function createBatch(input: {
+async function createBatchImpl(input: {
   name: string;
   inboxPath: string;
   outputPath: string;
@@ -94,7 +95,7 @@ export async function createBatch(input: {
 }
 
 /** active ⇄ paused (or reactivate a finished batch to rescan). */
-export async function setBatchStatus(id: string, status: "active" | "paused"): Promise<void> {
+async function setBatchStatusImpl(id: string, status: "active" | "paused"): Promise<void> {
   const s = await requireAdmin();
   const userId = (s as { user: { id: string } }).user.id;
   await db
@@ -104,9 +105,15 @@ export async function setBatchStatus(id: string, status: "active" | "paused"): P
   revalidatePath("/admin/batch");
 }
 
-export async function deleteBatch(id: string): Promise<void> {
+async function deleteBatchImpl(id: string): Promise<void> {
   const s = await requireAdmin();
   const userId = (s as { user: { id: string } }).user.id;
   await db.delete(schema.batchJobs).where(and(eq(schema.batchJobs.id, id), eq(schema.batchJobs.ownerId, userId)));
   revalidatePath("/admin/batch");
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function createBatch(...args: Parameters<typeof createBatchImpl>) { return toResult(() => createBatchImpl(...args)); }
+export async function setBatchStatus(...args: Parameters<typeof setBatchStatusImpl>) { return toResult(() => setBatchStatusImpl(...args)); }
+export async function deleteBatch(...args: Parameters<typeof deleteBatchImpl>) { return toResult(() => deleteBatchImpl(...args)); }

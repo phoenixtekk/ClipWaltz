@@ -4,6 +4,7 @@ import { asc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireAdmin } from "./admin";
+import { toResult } from "./action-result";
 
 // Admin control of the AI registry + routing rules (CW-MVP-070/071/190/191, ADR-0009).
 // All actions are admin-only; the routing engine (src/lib/ai/routing.ts) reads these tables live.
@@ -43,7 +44,7 @@ function done() {
   revalidatePath("/admin/ai");
 }
 
-export async function setModelEnabled(id: string, enabled: boolean): Promise<void> {
+async function setModelEnabledImpl(id: string, enabled: boolean): Promise<void> {
   await requireAdmin();
   const r = await db.update(schema.modelRegistry).set({ enabled: !!enabled, updatedAt: new Date() })
     .where(eq(schema.modelRegistry.id, id)).returning({ id: schema.modelRegistry.id });
@@ -51,7 +52,7 @@ export async function setModelEnabled(id: string, enabled: boolean): Promise<voi
   done();
 }
 
-export async function setWorkflowEnabled(id: string, enabled: boolean): Promise<void> {
+async function setWorkflowEnabledImpl(id: string, enabled: boolean): Promise<void> {
   await requireAdmin();
   const r = await db.update(schema.workflowRegistry).set({ enabled: !!enabled, updatedAt: new Date() })
     .where(eq(schema.workflowRegistry.id, id)).returning({ id: schema.workflowRegistry.id });
@@ -76,7 +77,7 @@ async function validRule(input: RuleInput): Promise<RuleInput> {
   return { task: input.task, quality: input.quality, workflowRegistryId: input.workflowRegistryId, steps, priority, enabled: !!input.enabled };
 }
 
-export async function saveRoutingRule(id: string | null, input: RuleInput): Promise<void> {
+async function saveRoutingRuleImpl(id: string | null, input: RuleInput): Promise<void> {
   await requireAdmin();
   const v = await validRule(input);
   if (id) {
@@ -89,8 +90,15 @@ export async function saveRoutingRule(id: string | null, input: RuleInput): Prom
   done();
 }
 
-export async function deleteRoutingRule(id: string): Promise<void> {
+async function deleteRoutingRuleImpl(id: string): Promise<void> {
   await requireAdmin();
   await db.delete(schema.routingRules).where(eq(schema.routingRules.id, id));
   done();
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function setModelEnabled(...args: Parameters<typeof setModelEnabledImpl>) { return toResult(() => setModelEnabledImpl(...args)); }
+export async function setWorkflowEnabled(...args: Parameters<typeof setWorkflowEnabledImpl>) { return toResult(() => setWorkflowEnabledImpl(...args)); }
+export async function saveRoutingRule(...args: Parameters<typeof saveRoutingRuleImpl>) { return toResult(() => saveRoutingRuleImpl(...args)); }
+export async function deleteRoutingRule(...args: Parameters<typeof deleteRoutingRuleImpl>) { return toResult(() => deleteRoutingRuleImpl(...args)); }

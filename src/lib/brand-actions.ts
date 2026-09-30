@@ -11,6 +11,7 @@ import { putObject } from "./storage";
 import { enqueueDeck } from "./queue";
 import type { BrandSuggestion, DeckState } from "./deck/types";
 import { BRAND_FONTS, type BrandKit } from "./brand";
+import { toResult } from "./action-result";
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -44,7 +45,7 @@ export async function getBrandKit(projectId: string): Promise<BrandKit | null> {
 }
 
 /** Create/update the workspace kit and apply it to (or remove it from) this project. */
-export async function saveBrandKit(
+async function saveBrandKitImpl(
   projectId: string,
   input: { primary: string; secondary: string; headingFont: string; bodyFont: string; applied: boolean },
 ): Promise<BrandKit> {
@@ -68,7 +69,7 @@ export async function saveBrandKit(
 
 /** Upload the kit's logo (PNG, JPEG or WebP, ≤ 1 MB). Creates the kit if needed. No SVG: served from the app's
  *  origin an SVG can carry script (security review 2026-09-29). */
-export async function uploadBrandLogo(projectId: string, form: FormData): Promise<BrandKit> {
+async function uploadBrandLogoImpl(projectId: string, form: FormData): Promise<BrandKit> {
   const p = await projectWorkspace(projectId, "editor");
   const file = form.get("logo");
   if (!(file instanceof File)) throw new Error("Choose an image file");
@@ -91,7 +92,7 @@ const setSuggestion = (projectId: string, st: BrandSuggestion) => db.update(sche
 }).where(eq(schema.projects.id, projectId));
 
 /** Read a public web page on the deck worker and suggest colours, fonts and a logo (nothing changes until applied). */
-export async function suggestBrandFromSite(projectId: string, rawUrl: string): Promise<void> {
+async function suggestBrandFromSiteImpl(projectId: string, rawUrl: string): Promise<void> {
   await projectWorkspace(projectId, "editor");
   let url: URL;
   try {
@@ -110,12 +111,12 @@ export async function suggestBrandFromSite(projectId: string, rawUrl: string): P
 }
 
 /** Apply the suggestion to the workspace kit (colours, fonts, logo) and to this project. */
-export async function applyBrandSuggestion(projectId: string): Promise<BrandKit> {
+async function applyBrandSuggestionImpl(projectId: string): Promise<BrandKit> {
   const p = await projectWorkspace(projectId, "editor");
   const [row] = await db.select({ deck: schema.projects.deck }).from(schema.projects).where(eq(schema.projects.id, projectId));
   const sug = ((row?.deck ?? {}) as Partial<DeckState>).brandSuggestion;
   if (sug?.status !== "ready") throw new Error("There's no suggestion to apply.");
-  const kit = await saveBrandKit(projectId, { primary: sug.primary, secondary: sug.secondary, headingFont: sug.headingFont, bodyFont: sug.bodyFont, applied: true });
+  const kit = await saveBrandKitImpl(projectId, { primary: sug.primary, secondary: sug.secondary, headingFont: sug.headingFont, bodyFont: sug.bodyFont, applied: true });
   // Only a logo the worker stored for THIS workspace (never a key from anywhere else).
   if (sug.logoKey && sug.logoKey.startsWith(`brand/${p.workspaceId}/suggest-`) && sug.logoKey.endsWith(".png")) {
     await db.update(schema.brandKits).set({ logoKey: sug.logoKey, updatedAt: new Date() }).where(eq(schema.brandKits.id, kit.id));
@@ -125,7 +126,15 @@ export async function applyBrandSuggestion(projectId: string): Promise<BrandKit>
   return { ...kit, hasLogo: kit.hasLogo || !!sug.logoKey };
 }
 
-export async function dismissBrandSuggestion(projectId: string): Promise<void> {
+async function dismissBrandSuggestionImpl(projectId: string): Promise<void> {
   await projectWorkspace(projectId, "editor");
   await setSuggestion(projectId, { status: "idle" });
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function saveBrandKit(...args: Parameters<typeof saveBrandKitImpl>) { return toResult(() => saveBrandKitImpl(...args)); }
+export async function uploadBrandLogo(...args: Parameters<typeof uploadBrandLogoImpl>) { return toResult(() => uploadBrandLogoImpl(...args)); }
+export async function suggestBrandFromSite(...args: Parameters<typeof suggestBrandFromSiteImpl>) { return toResult(() => suggestBrandFromSiteImpl(...args)); }
+export async function applyBrandSuggestion(...args: Parameters<typeof applyBrandSuggestionImpl>) { return toResult(() => applyBrandSuggestionImpl(...args)); }
+export async function dismissBrandSuggestion(...args: Parameters<typeof dismissBrandSuggestionImpl>) { return toResult(() => dismissBrandSuggestionImpl(...args)); }

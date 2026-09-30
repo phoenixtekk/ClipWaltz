@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { AdminContest, ContestEntry } from "@/lib/contest";
 import { createContest, closeContest } from "@/lib/contest-actions";
+import { unwrap } from "@/lib/action-result";
 
 export function AdminContest({
   contests,
@@ -28,7 +29,7 @@ export function AdminContest({
     if (!theme.trim()) return;
     start(async () => {
       try {
-        await createContest({ theme, description: desc });
+        unwrap(await createContest({ theme, description: desc }));
         setTheme("");
         setDesc("");
         toast.success("Challenge started.");
@@ -43,7 +44,7 @@ export function AdminContest({
     if (!window.confirm("Close this challenge and grant the likes-leader Pro (30 days)?")) return;
     start(async () => {
       try {
-        const { winner } = await closeContest(id);
+        const { winner } = unwrap(await closeContest(id));
         toast.success(winner ? `Closed — ${winner} won and was granted Pro.` : "Closed (no entries).");
         router.refresh();
       } catch (e) {

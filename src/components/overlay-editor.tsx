@@ -6,6 +6,7 @@ import { cn } from "cn";
 import type { Overlay, OverlayAnim } from "@/lib/overlays";
 import { setProjectOverlays } from "@/lib/overlay-actions";
 import { aspectClass, aspectDims, isWide } from "@/lib/aspect";
+import { unwrap } from "@/lib/action-result";
 
 const EMOJI_PALETTE = ["❤️", "🎉", "✨", "😍", "🔥", "😂", "🥳", "😎", "🌞", "🌊", "🎂", "💯", "👏", "🙌", "⭐", "🎶"];
 const ANIMS: { key: OverlayAnim; label: string }[] = [
@@ -66,7 +67,7 @@ export function OverlayEditor({
   function persist(next: Overlay[]) {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      setProjectOverlays(projectId, next).catch(() => toast.error("Could not save overlays."));
+      setProjectOverlays(projectId, next).then(unwrap).catch(() => toast.error("Could not save overlays."));
     }, 500);
   }
   function update(next: Overlay[]) {

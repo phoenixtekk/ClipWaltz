@@ -5,6 +5,7 @@ import { MessageCircle, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { CommentItem } from "@/lib/comments";
 import { addRenderComment, deleteRenderComment } from "@/lib/comments-actions";
+import { unwrap } from "@/lib/action-result";
 
 function initials(name: string) {
   return name.trim().charAt(0).toUpperCase() || "?";
@@ -38,7 +39,7 @@ export function RenderComments({
     if (!body) return;
     start(async () => {
       try {
-        const next = await addRenderComment(renderId, body);
+        const next = unwrap(await addRenderComment(renderId, body));
         setComments(next);
         setText("");
       } catch (e) {
@@ -50,7 +51,7 @@ export function RenderComments({
   function remove(id: string) {
     start(async () => {
       try {
-        setComments(await deleteRenderComment(id));
+        setComments(unwrap(await deleteRenderComment(id)));
       } catch {
         toast.error("Could not delete the comment.");
       }

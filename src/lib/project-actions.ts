@@ -8,6 +8,7 @@ import { requireUserId } from "./auth";
 import { assertProjectRole, getProjectRole, getWorkspaceRole, roleAtLeast } from "./workspace";
 import { toAspect } from "./aspect";
 import { defaultBrief, type DeckMode } from "./deck/types";
+import { toResult } from "./action-result";
 
 // Confirm the current user may edit the project (workspace role ≥ editor, ADR-0004) before any
 // mutation — defends against a tampered projectId from the client.
@@ -29,7 +30,7 @@ const DEFAULT_TITLE: Record<string, string> = {
  * given via `opts`) and an optional description; CW-MVP-151: `aiTemplateId` starts the project from
  * an AI template (the Generate tab opens pre-filled with its settings).
  */
-export async function createProject(
+async function createProjectImpl(
   template?: string,
   aspect?: string,
   inWorkspaceId?: string,
@@ -106,7 +107,7 @@ export async function createProject(
   return id;
 }
 
-export async function setProjectAspect(projectId: string, aspect: string): Promise<void> {
+async function setProjectAspectImpl(projectId: string, aspect: string): Promise<void> {
   const userId = await requireUserId();
   await assertEditor(userId, projectId);
   const a = toAspect(aspect);
@@ -117,7 +118,7 @@ export async function setProjectAspect(projectId: string, aspect: string): Promi
   revalidatePath(`/projects/${projectId}/edit`);
 }
 
-export async function deleteProject(projectId: string): Promise<void> {
+async function deleteProjectImpl(projectId: string): Promise<void> {
   const userId = await requireUserId();
   // Admins/owners may delete any project in the workspace; an editor only the ones they created.
   const role = await getProjectRole(userId, projectId);
@@ -136,7 +137,7 @@ export async function deleteProject(projectId: string): Promise<void> {
 }
 
 /** Move a project into a category (folder). Empty/whitespace → null (Uncategorized). */
-export async function setProjectCategory(projectId: string, category: string | null): Promise<void> {
+async function setProjectCategoryImpl(projectId: string, category: string | null): Promise<void> {
   const userId = await requireUserId();
   await assertEditor(userId, projectId);
   const c = (category ?? "").trim().slice(0, 60);
@@ -148,7 +149,7 @@ export async function setProjectCategory(projectId: string, category: string | n
 }
 
 /** Replace a project's tags (deduped, trimmed, max 12 × 30 chars). */
-export async function setProjectTags(projectId: string, tags: string[]): Promise<void> {
+async function setProjectTagsImpl(projectId: string, tags: string[]): Promise<void> {
   const userId = await requireUserId();
   await assertEditor(userId, projectId);
   const clean = Array.from(
@@ -161,7 +162,7 @@ export async function setProjectTags(projectId: string, tags: string[]): Promise
   revalidatePath("/projects");
 }
 
-export async function renameProject(projectId: string, title: string): Promise<void> {
+async function renameProjectImpl(projectId: string, title: string): Promise<void> {
   const userId = await requireUserId();
   await assertEditor(userId, projectId);
   const clean = title.trim().slice(0, 120) || "Untitled project";
@@ -173,7 +174,7 @@ export async function renameProject(projectId: string, title: string): Promise<v
 }
 
 // Length in seconds: 15s minimum up to 60 minutes (3600s). Non-finite → 30s.
-export async function setProjectLength(projectId: string, lengthSec: number): Promise<void> {
+async function setProjectLengthImpl(projectId: string, lengthSec: number): Promise<void> {
   const userId = await requireUserId();
   await assertEditor(userId, projectId);
   const n = Math.round(lengthSec);
@@ -194,7 +195,7 @@ const LIGHT_FX = new Set(["none", "vignette", "glow", "grain", "dreamy", "noir"]
 const TRANSITIONS = new Set(["cut", "crossfade"]);
 
 /** Update Editor Phase-1 styling on a project (owner-checked). Partial patch. */
-export async function setProjectStyle(
+async function setProjectStyleImpl(
   projectId: string,
   patch: {
     titleText?: string | null;
@@ -280,7 +281,7 @@ export async function setProjectStyle(
   }
 }
 
-export async function setProjectMusic(projectId: string, trackId: string | null): Promise<void> {
+async function setProjectMusicImpl(projectId: string, trackId: string | null): Promise<void> {
   const userId = await requireUserId();
   await assertEditor(userId, projectId);
   if (trackId) {
@@ -298,7 +299,7 @@ export async function setProjectMusic(projectId: string, trackId: string | null)
   revalidatePath(`/projects/${projectId}/edit`);
 }
 
-export async function moveAsset(
+async function moveAssetImpl(
   projectId: string,
   assetId: string,
   dir: "up" | "down",
@@ -321,7 +322,7 @@ export async function moveAsset(
   revalidatePath(`/projects/${projectId}/edit`);
 }
 
-export async function duplicateProject(projectId: string): Promise<string> {
+async function duplicateProjectImpl(projectId: string): Promise<string> {
   const userId = await requireUserId();
   await assertEditor(userId, projectId);
   const [orig] = await db
@@ -344,3 +345,17 @@ export async function duplicateProject(projectId: string): Promise<string> {
   revalidatePath("/projects");
   return id;
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function createProject(...args: Parameters<typeof createProjectImpl>) { return toResult(() => createProjectImpl(...args)); }
+export async function setProjectAspect(...args: Parameters<typeof setProjectAspectImpl>) { return toResult(() => setProjectAspectImpl(...args)); }
+export async function deleteProject(...args: Parameters<typeof deleteProjectImpl>) { return toResult(() => deleteProjectImpl(...args)); }
+export async function setProjectCategory(...args: Parameters<typeof setProjectCategoryImpl>) { return toResult(() => setProjectCategoryImpl(...args)); }
+export async function setProjectTags(...args: Parameters<typeof setProjectTagsImpl>) { return toResult(() => setProjectTagsImpl(...args)); }
+export async function renameProject(...args: Parameters<typeof renameProjectImpl>) { return toResult(() => renameProjectImpl(...args)); }
+export async function setProjectLength(...args: Parameters<typeof setProjectLengthImpl>) { return toResult(() => setProjectLengthImpl(...args)); }
+export async function setProjectStyle(...args: Parameters<typeof setProjectStyleImpl>) { return toResult(() => setProjectStyleImpl(...args)); }
+export async function setProjectMusic(...args: Parameters<typeof setProjectMusicImpl>) { return toResult(() => setProjectMusicImpl(...args)); }
+export async function moveAsset(...args: Parameters<typeof moveAssetImpl>) { return toResult(() => moveAssetImpl(...args)); }
+export async function duplicateProject(...args: Parameters<typeof duplicateProjectImpl>) { return toResult(() => duplicateProjectImpl(...args)); }

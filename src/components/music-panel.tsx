@@ -9,6 +9,7 @@ import type { Track } from "@/lib/music";
 import { setProjectMusic } from "@/lib/project-actions";
 import { toggleFavorite, deleteMusicTrack } from "@/lib/music-actions";
 import { getWaltzRecommendations } from "@/lib/waltzmatch-actions";
+import { unwrap } from "@/lib/action-result";
 
 type TabKey = "foryou" | "browse" | "premium" | "mymusic" | "upload";
 const TABS: { key: TabKey; label: string }[] = [
@@ -73,7 +74,7 @@ export function MusicPanel({
     if (!window.confirm("Delete this uploaded track? This can't be undone.")) return;
     start(async () => {
       try {
-        await deleteMusicTrack(id);
+        unwrap(await deleteMusicTrack(id));
         toast.success("Track deleted.");
         router.refresh();
       } catch (e) {
@@ -90,7 +91,7 @@ export function MusicPanel({
   async function runWaltzMatch() {
     setWaltzLoading(true);
     try {
-      setWaltz(await getWaltzRecommendations(projectId));
+      setWaltz(unwrap(await getWaltzRecommendations(projectId)));
     } catch (e) {
       toast.error((e as Error).message || "Could not analyze your media.");
     } finally {
@@ -124,7 +125,7 @@ export function MusicPanel({
   function select(id: string | null) {
     start(async () => {
       try {
-        await setProjectMusic(projectId, id);
+        unwrap(await setProjectMusic(projectId, id));
         router.refresh();
       } catch (e) {
         toast.error((e as Error).message || "Could not update music.");
@@ -152,7 +153,7 @@ export function MusicPanel({
     if (wasFav) next.delete(id);
     else next.add(id);
     setFavorites(next);
-    void toggleFavorite(id).catch(() => {
+    void toggleFavorite(id).then(unwrap).catch(() => {
       // revert on failure
       setFavorites((cur) => {
         const s = new Set(cur);

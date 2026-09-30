@@ -11,6 +11,7 @@ import {
   toggleAnnouncement,
   deleteAnnouncement,
 } from "@/lib/announcement-actions";
+import { unwrap } from "@/lib/action-result";
 
 const PLACEMENT_LABEL: Record<string, string> = {
   dashboard_banner: "Dashboard banner",
@@ -31,7 +32,7 @@ export function AdminAnnouncements({ announcements }: { announcements: Announcem
   const submit = (form: FormData) =>
     start(async () => {
       try {
-        await createAnnouncement(form);
+        unwrap(await createAnnouncement(form));
         toast.success("Announcement published");
         router.refresh();
       } catch (e) {
@@ -165,7 +166,7 @@ export function AdminAnnouncements({ announcements }: { announcements: Announcem
                         size="icon-sm"
                         aria-label={a.active ? "Pause" : "Activate"}
                         disabled={pending}
-                        onClick={() => act(() => toggleAnnouncement(a.id, !a.active), a.active ? "Paused" : "Live")}
+                        onClick={() => act(async () => unwrap(await toggleAnnouncement(a.id, !a.active)), a.active ? "Paused" : "Live")}
                       >
                         {a.active ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                       </Button>
@@ -176,7 +177,7 @@ export function AdminAnnouncements({ announcements }: { announcements: Announcem
                         disabled={pending}
                         onClick={() => {
                           if (window.confirm(`Delete "${a.title}"?`))
-                            act(() => deleteAnnouncement(a.id), "Deleted");
+                            act(async () => unwrap(await deleteAnnouncement(a.id)), "Deleted");
                         }}
                       >
                         <Trash2 className="size-4 text-destructive" />

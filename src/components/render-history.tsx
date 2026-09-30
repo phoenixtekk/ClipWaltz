@@ -7,6 +7,7 @@ import { DownloadButton } from "@/components/download-controls";
 import { deleteRender } from "@/lib/render-actions";
 import type { RenderHistoryItem } from "@/lib/render";
 import { isWide } from "@/lib/aspect";
+import { unwrap } from "@/lib/action-result";
 
 function when(iso: string): string {
   const d = new Date(iso);
@@ -29,7 +30,7 @@ export function RenderHistory({ renders }: { renders: RenderHistoryItem[] }) {
     setDeleting(id);
     start(async () => {
       try {
-        await deleteRender(id);
+        unwrap(await deleteRender(id));
         toast.success(`Deleted render v${version}.`);
         router.refresh();
       } catch (e) {

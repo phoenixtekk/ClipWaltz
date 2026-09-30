@@ -3,6 +3,7 @@ import { useState, useTransition } from "react";
 import { Trophy, Check } from "lucide-react";
 import { toast } from "sonner";
 import { enterContest, withdrawContest } from "@/lib/contest-actions";
+import { unwrap } from "@/lib/action-result";
 
 /** Enter/withdraw the current render in the active Monthly Theme Challenge. */
 export function EnterContestButton({
@@ -23,10 +24,10 @@ export function EnterContestButton({
     start(async () => {
       try {
         if (entered) {
-          await withdrawContest(renderId);
+          unwrap(await withdrawContest(renderId));
           setEntered(false);
         } else {
-          const { theme: t } = await enterContest(renderId);
+          const { theme: t } = unwrap(await enterContest(renderId));
           setEntered(true);
           toast.success(`Entered the “${t}” challenge — likes are votes!`);
         }

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { BatchSummary } from "@/lib/batch";
 import { createBatch, setBatchStatus, deleteBatch } from "@/lib/batch-actions";
+import { unwrap } from "@/lib/action-result";
 
 const STATUS: Record<string, string> = {
   active: "text-emerald-700 border-emerald-600/40 bg-emerald-600/10 dark:text-emerald-400",
@@ -44,7 +45,7 @@ export function BatchManager({
   function create() {
     start(async () => {
       try {
-        await createBatch({
+        unwrap(await createBatch({
           name: f.name,
           inboxPath: f.inboxPath,
           outputPath: f.outputPath,
@@ -54,7 +55,7 @@ export function BatchManager({
           presetId: f.presetId || null,
           musicTrackId: f.musicTrackId || null,
           describe: f.describe,
-        });
+        }));
         toast.success("Batch created — the worker will start it shortly.");
         setF((c) => ({ ...c, name: "", inboxPath: "", outputPath: "", donePath: "" }));
         setOpen(false);
@@ -146,15 +147,15 @@ export function BatchManager({
               </div>
               <div className="flex items-center gap-1">
                 {b.status !== "paused" ? (
-                  <Button variant="outline" size="sm" disabled={pending} onClick={() => act(() => setBatchStatus(b.id, "paused"), "Could not pause.")}><Pause className="size-4" /> Pause</Button>
+                  <Button variant="outline" size="sm" disabled={pending} onClick={() => act(async () => unwrap(await setBatchStatus(b.id, "paused")), "Could not pause.")}><Pause className="size-4" /> Pause</Button>
                 ) : (
-                  <Button variant="outline" size="sm" disabled={pending} onClick={() => act(() => setBatchStatus(b.id, "active"), "Could not resume.")}><Play className="size-4" /> Resume</Button>
+                  <Button variant="outline" size="sm" disabled={pending} onClick={() => act(async () => unwrap(await setBatchStatus(b.id, "active")), "Could not resume.")}><Play className="size-4" /> Resume</Button>
                 )}
                 {b.status === "done" ? (
-                  <Button variant="outline" size="sm" disabled={pending} onClick={() => act(() => setBatchStatus(b.id, "active"), "Could not rescan.")}><Play className="size-4" /> Rescan</Button>
+                  <Button variant="outline" size="sm" disabled={pending} onClick={() => act(async () => unwrap(await setBatchStatus(b.id, "active")), "Could not rescan.")}><Play className="size-4" /> Rescan</Button>
                 ) : null}
                 <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" disabled={pending}
-                  onClick={() => { if (window.confirm(`Delete batch “${b.name}”? (Files are not touched.)`)) act(() => deleteBatch(b.id), "Could not delete."); }}>
+                  onClick={() => { if (window.confirm(`Delete batch “${b.name}”? (Files are not touched.)`)) act(async () => unwrap(await deleteBatch(b.id)), "Could not delete."); }}>
                   <Trash2 className="size-4" />
                 </Button>
               </div>

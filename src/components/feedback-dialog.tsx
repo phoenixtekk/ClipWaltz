@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { submitFeedback } from "@/lib/feedback-actions";
+import { unwrap } from "@/lib/action-result";
 
 const KINDS = [
   { key: "idea", label: "Idea" },
@@ -35,7 +36,7 @@ export function FeedbackDialog({ open, onClose }: { open: boolean; onClose: () =
   const send = () =>
     start(async () => {
       try {
-        await submitFeedback(kind, message, pathname);
+        unwrap(await submitFeedback(kind, message, pathname));
         toast.success("Thanks — we read every message.");
         setMessage("");
         onClose();

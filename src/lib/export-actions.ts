@@ -8,6 +8,7 @@ import { enqueueExport } from "./queue";
 import { deleteObject } from "./storage";
 import { userCanAccessProject } from "./workspace";
 import { shouldWatermark } from "./watermark";
+import { toResult } from "./action-result";
 
 export type ExportFormat = "mp4" | "webm";
 export type ExportResolution = "native" | "720p" | "1080p";
@@ -24,7 +25,7 @@ export type ExportJobItem = {
 };
 
 /** Create + queue an export (transcode a generated version to a deliverable). Owner-checked. */
-export async function createExportJob(input: {
+async function createExportJobImpl(input: {
   versionId: string;
   outputFormat: ExportFormat;
   resolution: ExportResolution;
@@ -62,7 +63,7 @@ export async function createExportJob(input: {
 }
 
 /** List a project's export jobs, newest first (owner-checked) — the Export Center. */
-export async function listExportJobs(projectId: string): Promise<ExportJobItem[]> {
+async function listExportJobsImpl(projectId: string): Promise<ExportJobItem[]> {
   const userId = await requireUserId();
   const [proj] = await db
     .select({ id: schema.projects.id })
@@ -96,7 +97,7 @@ export async function listExportJobs(projectId: string): Promise<ExportJobItem[]
 }
 
 /** Delete an export job (owner-checked): row + its MinIO object. */
-export async function deleteExportJob(exportId: string): Promise<void> {
+async function deleteExportJobImpl(exportId: string): Promise<void> {
   const userId = await requireUserId();
   const [row] = await db
     .select({
@@ -113,3 +114,9 @@ export async function deleteExportJob(exportId: string): Promise<void> {
   if (row.key) await deleteObject(row.key).catch(() => {});
   revalidatePath(`/projects/${row.projectId}/edit`);
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function createExportJob(...args: Parameters<typeof createExportJobImpl>) { return toResult(() => createExportJobImpl(...args)); }
+export async function listExportJobs(...args: Parameters<typeof listExportJobsImpl>) { return toResult(() => listExportJobsImpl(...args)); }
+export async function deleteExportJob(...args: Parameters<typeof deleteExportJobImpl>) { return toResult(() => deleteExportJobImpl(...args)); }

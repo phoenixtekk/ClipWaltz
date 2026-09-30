@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
+import { toResult } from "./action-result";
 
 function clean(v: string | undefined | null, max = 200): string | null {
   if (!v) return null;
@@ -11,7 +12,7 @@ function clean(v: string | undefined | null, max = 200): string | null {
 }
 
 /** Update the signed-in user's public profile (name, bio, social links). */
-export async function updateProfile(input: {
+async function updateProfileImpl(input: {
   name?: string;
   bio?: string;
   website?: string;
@@ -39,3 +40,7 @@ export async function updateProfile(input: {
   revalidatePath("/account/profile");
   revalidatePath(`/u/${userId}`);
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function updateProfile(...args: Parameters<typeof updateProfileImpl>) { return toResult(() => updateProfileImpl(...args)); }

@@ -5,10 +5,11 @@ import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
 import { deleteObject } from "./storage";
+import { toResult } from "./action-result";
 
 /** Delete a user's own uploaded MP3 (row + MinIO object). Any project using it falls back to
  *  the default track on the next render. Owner-checked; catalog tracks can't be deleted. */
-export async function deleteMusicTrack(trackId: string): Promise<void> {
+async function deleteMusicTrackImpl(trackId: string): Promise<void> {
   const userId = await requireUserId();
   const [row] = await db
     .select({ ownerId: schema.musicTracks.ownerId, key: schema.musicTracks.storageKey })
@@ -26,7 +27,7 @@ export async function deleteMusicTrack(trackId: string): Promise<void> {
 }
 
 /** Favourite / unfavourite a track. Returns the new favourited state. */
-export async function toggleFavorite(trackId: string): Promise<boolean> {
+async function toggleFavoriteImpl(trackId: string): Promise<boolean> {
   const userId = await requireUserId();
   const [existing] = await db
     .select({ id: schema.musicFavorites.id })
@@ -42,3 +43,8 @@ export async function toggleFavorite(trackId: string): Promise<boolean> {
     .onConflictDoNothing();
   return true;
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function deleteMusicTrack(...args: Parameters<typeof deleteMusicTrackImpl>) { return toResult(() => deleteMusicTrackImpl(...args)); }
+export async function toggleFavorite(...args: Parameters<typeof toggleFavoriteImpl>) { return toResult(() => toggleFavoriteImpl(...args)); }

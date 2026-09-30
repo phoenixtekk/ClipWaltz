@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { shareRender } from "@/lib/feed-actions";
+import { unwrap } from "@/lib/action-result";
 
 /** Owner-only control on a watch page to pull their video from the community feed. */
 export function RemoveFromCommunity({ renderId }: { renderId: string }) {
@@ -15,7 +16,7 @@ export function RemoveFromCommunity({ renderId }: { renderId: string }) {
     if (!window.confirm("Remove this video from the community? It becomes private again.")) return;
     start(async () => {
       try {
-        await shareRender(renderId, "private");
+        unwrap(await shareRender(renderId, "private"));
         setRemoved(true);
         toast.success("Removed from the community.");
         router.push("/community");

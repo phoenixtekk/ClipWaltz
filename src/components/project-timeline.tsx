@@ -10,6 +10,7 @@ import { DriveBackupButton } from "@/components/drive-backup-button";
 import { reorderAssets, deleteAsset, setAssetDuration, setAssetTrim, setClipReframe, setAssetTags, setAssetRotation } from "@/lib/asset-actions";
 import { uploadProjectFile, isSupported } from "@/lib/upload-client";
 import { nextRotation, rotatedFill, rotationParent } from "@/lib/rotation";
+import { unwrap } from "@/lib/action-result";
 
 type InsertStatus = "uploading" | "done" | "error";
 
@@ -82,7 +83,7 @@ export function ProjectTimeline({
     const s = x?.trimStart ?? 0;
     const en = x?.trimEnd ?? dur;
     const full = s <= 0.05 && en >= dur - 0.05;
-    setAssetTrim(projectId, a.id, full ? null : s, full ? null : en)
+    setAssetTrim(projectId, a.id, full ? null : s, full ? null : en).then(unwrap)
       .then(() => router.refresh())
       .catch(() => toast.error("Could not trim the clip."));
   }
@@ -119,7 +120,7 @@ export function ProjectTimeline({
 
   function commit(next: AssetSummary[]) {
     setOrder(next);
-    reorderAssets(projectId, next.map((a) => a.id))
+    reorderAssets(projectId, next.map((a) => a.id)).then(unwrap)
       .then(() => router.refresh())
       .catch(() => toast.error("Could not reorder clips."));
   }
@@ -157,7 +158,7 @@ export function ProjectTimeline({
     if (!window.confirm(`Remove "${a.name}" from the timeline?`)) return;
     const next = order.filter((x) => x.id !== a.id);
     setOrder(next);
-    deleteAsset(projectId, a.id)
+    deleteAsset(projectId, a.id).then(unwrap)
       .then(() => router.refresh())
       .catch(() => toast.error("Could not remove the clip."));
   }
@@ -535,19 +536,19 @@ function ClipModal({
     setSaving(true);
     try {
       if (tagText !== initialTags) {
-        await setAssetTags(projectId, asset.id, tagText.split(","));
+        unwrap(await setAssetTags(projectId, asset.id, tagText.split(",")));
       }
       if (rotation !== (asset.rotation ?? 0)) {
-        await setAssetRotation(projectId, asset.id, rotation);
+        unwrap(await setAssetRotation(projectId, asset.id, rotation));
       }
       if (is360 && view !== initialView) {
-        await setClipReframe(projectId, asset.id, view);
+        unwrap(await setClipReframe(projectId, asset.id, view));
         toast.message("Re-making this 360 clip with the new view — it's ready in a few minutes.");
       }
       if (isVideo) {
-        await setAssetTrim(projectId, asset.id, trimmed ? start : null, trimmed ? end : null);
+        unwrap(await setAssetTrim(projectId, asset.id, trimmed ? start : null, trimmed ? end : null));
       } else {
-        await setAssetDuration(projectId, asset.id, manual ? secs : null);
+        unwrap(await setAssetDuration(projectId, asset.id, manual ? secs : null));
       }
       onSaved();
       onClose();

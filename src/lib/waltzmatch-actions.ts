@@ -12,6 +12,7 @@ import {
   type MediaProfile,
   type Recommendation,
 } from "./waltzmatch";
+import { toResult } from "./action-result";
 
 const OLLAMA_URL = (process.env.OLLAMA_URL ?? "").replace(/\/$/, "");
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "qwen2.5vl:7b";
@@ -65,7 +66,7 @@ function mode<T>(xs: T[]): T | null {
  * WaltzMatch: analyze the project's media (best-effort vision on photos, media-mix fallback)
  * and return ranked soundtrack recommendations. Owner-checked.
  */
-export async function getWaltzRecommendations(
+async function getWaltzRecommendationsImpl(
   projectId: string,
 ): Promise<{ label: string; source: MediaProfile["source"]; recs: Recommendation[] }> {
   const userId = await requireUserId();
@@ -108,3 +109,7 @@ export async function getWaltzRecommendations(
 
   return { label: profile.label, source: profile.source, recs: recommend(profile, tracks) };
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function getWaltzRecommendations(...args: Parameters<typeof getWaltzRecommendationsImpl>) { return toResult(() => getWaltzRecommendationsImpl(...args)); }

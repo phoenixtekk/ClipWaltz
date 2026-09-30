@@ -5,11 +5,12 @@ import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { userCanAccessProject } from "./workspace";
 import { requireUserId } from "./auth";
+import { toResult } from "./action-result";
 
 const VISIBILITY = new Set(["private", "unlisted", "public"]);
 
 /** Set a render's share visibility (owner-checked). Returns the applied value. */
-export async function shareRender(renderId: string, visibility: string): Promise<string> {
+async function shareRenderImpl(renderId: string, visibility: string): Promise<string> {
   const userId = await requireUserId();
   const [row] = await db
     .select({ ownerId: schema.projects.ownerId, projectId: schema.renders.projectId })
@@ -30,7 +31,7 @@ export async function shareRender(renderId: string, visibility: string): Promise
 }
 
 /** Like / unlike a shared render (auth). Returns the new liked state. */
-export async function toggleLike(renderId: string): Promise<boolean> {
+async function toggleLikeImpl(renderId: string): Promise<boolean> {
   const userId = await requireUserId();
   const [existing] = await db
     .select({ id: schema.renderLikes.id })
@@ -44,3 +45,8 @@ export async function toggleLike(renderId: string): Promise<boolean> {
   revalidatePath("/community");
   return true;
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function shareRender(...args: Parameters<typeof shareRenderImpl>) { return toResult(() => shareRenderImpl(...args)); }
+export async function toggleLike(...args: Parameters<typeof toggleLikeImpl>) { return toResult(() => toggleLikeImpl(...args)); }

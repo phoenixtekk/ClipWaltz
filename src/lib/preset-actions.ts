@@ -7,6 +7,7 @@ import { userCanAccessProject } from "./workspace";
 import { requireUserId } from "./auth";
 import { requireAdmin } from "./admin";
 import { getPresetShape } from "./presets";
+import { toResult } from "./action-result";
 
 async function assertProjectOwner(userId: string, projectId: string) {
   const [p] = await db
@@ -17,7 +18,7 @@ async function assertProjectOwner(userId: string, projectId: string) {
 }
 
 /** Snapshot a project's current Format + Style + overlays into a new personal preset. */
-export async function createPresetFromProject(projectId: string, name: string): Promise<string> {
+async function createPresetFromProjectImpl(projectId: string, name: string): Promise<string> {
   const userId = await requireUserId();
   await assertProjectOwner(userId, projectId);
   const clean = name.trim().slice(0, 60) || "My preset";
@@ -52,7 +53,7 @@ export async function createPresetFromProject(projectId: string, name: string): 
 }
 
 /** Re-snapshot a project's current Format + Style + overlays INTO an existing personal preset. */
-export async function updatePresetFromProject(projectId: string, presetId: string): Promise<void> {
+async function updatePresetFromProjectImpl(projectId: string, presetId: string): Promise<void> {
   const userId = await requireUserId();
   await assertProjectOwner(userId, projectId);
   const [p] = await db.select().from(schema.projects).where(eq(schema.projects.id, projectId));
@@ -82,7 +83,7 @@ export async function updatePresetFromProject(projectId: string, presetId: strin
 }
 
 /** Apply a preset (built-in, personal, or global) onto a project the user owns. */
-export async function applyPreset(projectId: string, presetId: string): Promise<void> {
+async function applyPresetImpl(projectId: string, presetId: string): Promise<void> {
   const userId = await requireUserId();
   await assertProjectOwner(userId, projectId);
   const shape = await getPresetShape(presetId);
@@ -111,7 +112,7 @@ export async function applyPreset(projectId: string, presetId: string): Promise<
 }
 
 /** Delete a personal preset (owner-checked). */
-export async function deletePreset(presetId: string): Promise<void> {
+async function deletePresetImpl(presetId: string): Promise<void> {
   const userId = await requireUserId();
   await db
     .delete(schema.presets)
@@ -188,3 +189,10 @@ export async function deleteGlobalPreset(presetId: string): Promise<void> {
     .where(and(eq(schema.presets.id, presetId), eq(schema.presets.isGlobal, true)));
   revalidatePath("/admin");
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function createPresetFromProject(...args: Parameters<typeof createPresetFromProjectImpl>) { return toResult(() => createPresetFromProjectImpl(...args)); }
+export async function updatePresetFromProject(...args: Parameters<typeof updatePresetFromProjectImpl>) { return toResult(() => updatePresetFromProjectImpl(...args)); }
+export async function applyPreset(...args: Parameters<typeof applyPresetImpl>) { return toResult(() => applyPresetImpl(...args)); }
+export async function deletePreset(...args: Parameters<typeof deletePresetImpl>) { return toResult(() => deletePresetImpl(...args)); }

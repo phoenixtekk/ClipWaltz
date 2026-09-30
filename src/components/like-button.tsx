@@ -4,6 +4,7 @@ import { Heart } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { toggleLike } from "@/lib/feed-actions";
+import { unwrap } from "@/lib/action-result";
 
 export function LikeButton({
   renderId,
@@ -26,7 +27,7 @@ export function LikeButton({
     setCount((c) => c + (next ? 1 : -1));
     start(async () => {
       try {
-        const res = await toggleLike(renderId);
+        const res = unwrap(await toggleLike(renderId));
         setLiked(res);
       } catch {
         setLiked(prevLiked);

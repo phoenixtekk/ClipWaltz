@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { setWatermarkPaidPlans } from "@/lib/admin-actions";
+import { unwrap } from "@/lib/action-result";
 
 /** /admin switch: does the ClipWaltz logo go on Plus/Pro videos too? (Free is always watermarked.) */
 export function AdminWatermark({ paidWatermarked }: { paidWatermarked: boolean }) {
@@ -15,7 +16,7 @@ export function AdminWatermark({ paidWatermarked }: { paidWatermarked: boolean }
     start(async () => {
       const next = !on;
       try {
-        await setWatermarkPaidPlans(next);
+        unwrap(await setWatermarkPaidPlans(next));
         setOn(next);
         toast.success(next ? "Paid plans are watermarked again" : "Paid plans are now watermark-free");
         router.refresh();

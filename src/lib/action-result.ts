@@ -2,6 +2,8 @@
 // "error #441 — message omitted in production builds" (verified 2026-09-29 against a local `next build`). Actions whose
 // errors the user must read (e.g. "not enough AI credits") RETURN them instead, as the Next docs recommend for
 // expected errors; the client unwraps and throws locally, so existing try/catch + toast code keeps working.
+import { unstable_rethrow } from "next/navigation";
+
 export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
 // Messages that are clearly internal (DB / network) are replaced — only hand-written user messages are shown.
@@ -12,6 +14,7 @@ export async function toResult<T>(fn: () => Promise<T>): Promise<ActionResult<T>
   try {
     return { ok: true, data: await fn() };
   } catch (e) {
+    unstable_rethrow(e); // redirect() / notFound() must still reach Next
     const msg = e instanceof Error ? e.message : "";
     if (!msg || INTERNAL.test(msg)) {
       console.error("[action] internal error:", e);

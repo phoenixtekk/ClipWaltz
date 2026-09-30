@@ -62,6 +62,31 @@ See [`env.example`](env.example) for the full list. Groups:
 `next build` needs `BETTER_AUTH_SECRET` and `DATABASE_URL` present in the environment
 (Postgres connects lazily, so a live DB is not required to build).
 
+## Server action errors — return them, don't throw (rule, 2026-09-29)
+In a **production** build React replaces every error *thrown* from a Server Action with a generic
+"Minified React error #441 … message omitted in production builds" — the user never sees
+`throw new Error("Project not found")`. Dev mode shows the real message, so this only bites on
+www.clipwaltz.com. Verified 2026-09-29 against a local `next build` + `next start`.
+
+**Rule:** every server action a client component calls must **return** `ActionResult<T>`
+(`src/lib/action-result.ts`) instead of throwing:
+
+- Server: keep the logic in a private `fooImpl()` that throws friendly messages as before, and export
+  `export async function foo(...args: Parameters<typeof fooImpl>) { return toResult(() => fooImpl(...args)); }`.
+  Other server code in the same file calls `fooImpl` directly.
+- `toResult` passes hand-written messages through (max 400 chars), replaces internal DB/network errors
+  with "Something went wrong — please try again." (and logs them), and re-throws Next's
+  `redirect()`/`notFound()` via `unstable_rethrow`.
+- Client: `unwrap(await foo(...))` (or `foo(...).then(unwrap)`) — it throws the message locally, so the
+  usual `try/catch` + `toast.error((e as Error).message)` code keeps working. Server components calling
+  a converted action also `unwrap`.
+- Converted: every client-called action in `src/lib/*-actions.ts`. `workspace-actions.ts` already returns
+  `{ ok:false, error }` via its own `ActionError`/`run`. Deliberately left throwing: server-only getters
+  (admin/feedback/ai-admin lists, `listAiTemplates`, `getBrandKit`), `trackClientEvent` (fire-and-forget),
+  `getMyCredits`, the ops-admin getters, and actions with no caller.
+- **New action?** Add it to the wrapper block at the bottom of its file and `unwrap` it in the client.
+  A void action called without `unwrap` fails *silently* (tsc won't catch that), so check every call site.
+
 ## Deployment (planned — per fleet rules)
 - Bind Next to `0.0.0.0` on a free port (verify live with `ss -tlnp`; check `server-inventory.md`).
 - Route publicly via the host's existing **Cloudflare Tunnel** (owner adds the Public Hostname

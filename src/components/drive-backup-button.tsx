@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { CloudUpload, Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { getDriveStatus, backupToDrive, type DriveStatus } from "@/lib/drive-actions";
+import { unwrap } from "@/lib/action-result";
 
 /**
  * Google Drive backup of a project's original uploads (restored after the Media Library removal).
@@ -15,7 +16,7 @@ export function DriveBackupButton({ projectId, total, backedUp }: { projectId: s
   const [pending, start] = useTransition();
   const [waiting, setWaiting] = useState(false);
 
-  useEffect(() => { getDriveStatus().then(setStatus, () => {}); }, []);
+  useEffect(() => { getDriveStatus().then(unwrap).then(setStatus, () => {}); }, []);
   // While backups run in the background, refresh the clip list every 20 s until all are done.
   const active = waiting && backedUp < total;
   useEffect(() => {
@@ -42,7 +43,7 @@ export function DriveBackupButton({ projectId, total, backedUp }: { projectId: s
     <button type="button" className={cls} disabled={pending || active}
       onClick={() => start(async () => {
         try {
-          const r = await backupToDrive(projectId);
+          const r = unwrap(await backupToDrive(projectId));
           setWaiting(r.started > 0);
           toast.message(r.started ? `Backing up ${r.started} original${r.started === 1 ? "" : "s"} to Google Drive…` : "Nothing new to back up.");
         } catch (e) {

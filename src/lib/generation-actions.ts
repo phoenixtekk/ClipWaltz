@@ -65,7 +65,7 @@ async function routeOrUserError(task: "text_to_video" | "image_to_video", qualit
 }
 
 /** What the Generate tab can offer right now (enabled workflows/models via the routing rules). */
-export async function getGenerationAvailability() {
+async function getGenerationAvailabilityImpl() {
   await requireUserId();
   return getAiAvailability();
 }
@@ -222,7 +222,7 @@ const PRESET_LABEL: Record<string, string> = { clean: "Clean", smooth: "Smooth",
 const ENGINE_LABEL: Record<string, string> = { ffmpeg: "Fast", ai: "AI upscale", restore: "AI Restore" };
 
 /** List a project's generated versions, newest first (owner-checked) — for the version browser. */
-export async function listGenerationVersions(projectId: string): Promise<GenerationVersionItem[]> {
+async function listGenerationVersionsImpl(projectId: string): Promise<GenerationVersionItem[]> {
   const userId = await requireUserId();
   const [proj] = await db
     .select({ id: schema.projects.id })
@@ -534,7 +534,7 @@ async function ownedVersion(versionId: string, userId: string) {
 }
 
 /** Toggle a version's favorite flag (owner-checked). */
-export async function toggleVersionFavorite(versionId: string): Promise<void> {
+async function toggleVersionFavoriteImpl(versionId: string): Promise<void> {
   const userId = await requireUserId();
   const row = await ownedVersion(versionId, userId);
   await db
@@ -548,7 +548,7 @@ export async function toggleVersionFavorite(versionId: string): Promise<void> {
  * Mark a version as the project's selected/preferred pick (owner-checked). One pick per project:
  * setting this clears `selected` on the project's other versions.
  */
-export async function setVersionSelected(versionId: string): Promise<void> {
+async function setVersionSelectedImpl(versionId: string): Promise<void> {
   const userId = await requireUserId();
   const row = await ownedVersion(versionId, userId);
   await db
@@ -563,7 +563,7 @@ export async function setVersionSelected(versionId: string): Promise<void> {
 }
 
 /** Delete a generated version (owner-checked): its DB row + the MinIO output object. */
-export async function deleteGenerationVersion(versionId: string): Promise<void> {
+async function deleteGenerationVersionImpl(versionId: string): Promise<void> {
   const userId = await requireUserId();
   const [row] = await db
     .select({
@@ -584,7 +584,7 @@ export async function deleteGenerationVersion(versionId: string): Promise<void> 
 }
 
 /** Fetch a generation job (owner-checked) — for status polling in the editor. */
-export async function getGenerationJob(jobId: string) {
+async function getGenerationJobImpl(jobId: string) {
   const userId = await requireUserId();
   const [row] = await db
     .select({
@@ -612,7 +612,7 @@ export async function getGenerationJob(jobId: string) {
  * cancelled; the worker also checks for cancellation and interrupts the provider job if it is
  * already running.
  */
-export async function cancelGenerationJob(jobId: string): Promise<void> {
+async function cancelGenerationJobImpl(jobId: string): Promise<void> {
   const userId = await requireUserId();
   const [row] = await db
     .select({
@@ -645,7 +645,7 @@ export async function cancelGenerationJob(jobId: string): Promise<void> {
  * CW-MVP-121 "Edit & regenerate": the Generate-tab settings that produced a version, so the form can
  * be re-opened with them, changed, and generated as a new version. Viewer access is enough to read.
  */
-export async function getVersionSettings(versionId: string): Promise<GenerationSettings & { sourceAssetId: string | null }> {
+async function getVersionSettingsImpl(versionId: string): Promise<GenerationSettings & { sourceAssetId: string | null }> {
   const userId = await requireUserId();
   const [row] = await db
     .select({
@@ -678,7 +678,7 @@ export async function getVersionSettings(versionId: string): Promise<GenerationS
 export type GenerationPresetItem = { id: string; name: string; settings: GenerationSettings };
 
 /** CW-MVP-172: the current user's last-used Generate settings (null if none yet). */
-export async function getRecentGenerationSettings(): Promise<GenerationSettings | null> {
+async function getRecentGenerationSettingsImpl(): Promise<GenerationSettings | null> {
   const userId = await requireUserId();
   const [r] = await db.select({ settings: schema.generationPresets.settings }).from(schema.generationPresets)
     .where(and(eq(schema.generationPresets.userId, userId), eq(schema.generationPresets.isRecent, true)));
@@ -686,7 +686,7 @@ export async function getRecentGenerationSettings(): Promise<GenerationSettings 
 }
 
 /** CW-MVP-173: the current user's named favourite presets, newest first. */
-export async function listGenerationPresets(): Promise<GenerationPresetItem[]> {
+async function listGenerationPresetsImpl(): Promise<GenerationPresetItem[]> {
   const userId = await requireUserId();
   const rows = await db.select().from(schema.generationPresets)
     .where(and(eq(schema.generationPresets.userId, userId), eq(schema.generationPresets.isRecent, false)))
@@ -694,7 +694,7 @@ export async function listGenerationPresets(): Promise<GenerationPresetItem[]> {
   return rows.map((r) => ({ id: r.id, name: r.name ?? "Preset", settings: normalizeSettings(r.settings) }));
 }
 
-export async function saveGenerationPreset(name: string, settings: GenerationSettings): Promise<string> {
+async function saveGenerationPresetImpl(name: string, settings: GenerationSettings): Promise<string> {
   const userId = await requireUserId();
   const clean = name.trim().slice(0, 40);
   if (!clean) throw new Error("Give the preset a name");
@@ -706,7 +706,7 @@ export async function saveGenerationPreset(name: string, settings: GenerationSet
   return id;
 }
 
-export async function deleteGenerationPreset(id: string): Promise<void> {
+async function deleteGenerationPresetImpl(id: string): Promise<void> {
   const userId = await requireUserId();
   await db.delete(schema.generationPresets)
     .where(and(eq(schema.generationPresets.id, id), eq(schema.generationPresets.userId, userId), eq(schema.generationPresets.isRecent, false)));
@@ -717,7 +717,7 @@ export type AiStudioStatus = { state: "online" | "busy" | "degraded" | "offline"
 // Cached so a page full of Generate tabs doesn't hammer the AISERVER (30 s).
 let studioCache: { at: number; value: AiStudioStatus } | null = null;
 /** CW-MVP-080: AI studio (AISERVER) health for the Generate tab's status pill. */
-export async function getAiStudioStatus(): Promise<AiStudioStatus> {
+async function getAiStudioStatusImpl(): Promise<AiStudioStatus> {
   await requireUserId();
   if (studioCache && Date.now() - studioCache.at < 30_000) return studioCache.value;
   let value: AiStudioStatus;
@@ -766,3 +766,19 @@ export async function enhanceVersion(input: {
 }): Promise<ActionResult<string>> {
   return toResult(() => enhanceVersionImpl(input));
 }
+
+// Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
+// Client: unwrap(await action(...)).
+export async function getGenerationAvailability(...args: Parameters<typeof getGenerationAvailabilityImpl>) { return toResult(() => getGenerationAvailabilityImpl(...args)); }
+export async function listGenerationVersions(...args: Parameters<typeof listGenerationVersionsImpl>) { return toResult(() => listGenerationVersionsImpl(...args)); }
+export async function toggleVersionFavorite(...args: Parameters<typeof toggleVersionFavoriteImpl>) { return toResult(() => toggleVersionFavoriteImpl(...args)); }
+export async function setVersionSelected(...args: Parameters<typeof setVersionSelectedImpl>) { return toResult(() => setVersionSelectedImpl(...args)); }
+export async function deleteGenerationVersion(...args: Parameters<typeof deleteGenerationVersionImpl>) { return toResult(() => deleteGenerationVersionImpl(...args)); }
+export async function getGenerationJob(...args: Parameters<typeof getGenerationJobImpl>) { return toResult(() => getGenerationJobImpl(...args)); }
+export async function cancelGenerationJob(...args: Parameters<typeof cancelGenerationJobImpl>) { return toResult(() => cancelGenerationJobImpl(...args)); }
+export async function getVersionSettings(...args: Parameters<typeof getVersionSettingsImpl>) { return toResult(() => getVersionSettingsImpl(...args)); }
+export async function getRecentGenerationSettings(...args: Parameters<typeof getRecentGenerationSettingsImpl>) { return toResult(() => getRecentGenerationSettingsImpl(...args)); }
+export async function listGenerationPresets(...args: Parameters<typeof listGenerationPresetsImpl>) { return toResult(() => listGenerationPresetsImpl(...args)); }
+export async function saveGenerationPreset(...args: Parameters<typeof saveGenerationPresetImpl>) { return toResult(() => saveGenerationPresetImpl(...args)); }
+export async function deleteGenerationPreset(...args: Parameters<typeof deleteGenerationPresetImpl>) { return toResult(() => deleteGenerationPresetImpl(...args)); }
+export async function getAiStudioStatus(...args: Parameters<typeof getAiStudioStatusImpl>) { return toResult(() => getAiStudioStatusImpl(...args)); }
