@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { X, Megaphone, ArrowRight } from "lucide-react";
 import type { Announcement } from "@/lib/announcements";
@@ -14,26 +14,49 @@ const ACCENT: Record<string, string> = {
 
 const KEY = "cw-dismissed-announcements";
 
+// Dismissed ids live in localStorage, read via useSyncExternalStore (server snapshot = none dismissed).
+// If storage is blocked, dismissals are kept in memory for this page load.
+const listeners = new Set<() => void>();
+let memoryRaw: string | null = null;
+
+function subscribe(cb: () => void) {
+  listeners.add(cb);
+  window.addEventListener("storage", cb);
+  return () => {
+    listeners.delete(cb);
+    window.removeEventListener("storage", cb);
+  };
+}
+
+function readRaw() {
+  if (memoryRaw !== null) return memoryRaw;
+  try {
+    return localStorage.getItem(KEY) ?? "";
+  } catch {
+    return ""; /* private mode / blocked storage — show everything */
+  }
+}
+
+function parseIds(raw: string): string[] {
+  try {
+    const v = raw ? JSON.parse(raw) : [];
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
 function useDismissed() {
-  const [ids, setIds] = useState<string[]>([]);
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) setIds(JSON.parse(raw));
-    } catch {
-      /* private mode / blocked storage — show everything */
-    }
-  }, []);
+  const raw = useSyncExternalStore(subscribe, readRaw, () => "");
+  const ids = useMemo(() => parseIds(raw), [raw]);
   const dismiss = (id: string) => {
-    setIds((prev) => {
-      const next = [...new Set([...prev, id])];
-      try {
-        localStorage.setItem(KEY, JSON.stringify(next));
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
+    const next = JSON.stringify([...new Set([...parseIds(readRaw()), id])]);
+    try {
+      localStorage.setItem(KEY, next);
+    } catch {
+      memoryRaw = next;
+    }
+    listeners.forEach((l) => l());
   };
   return { ids, dismiss };
 }

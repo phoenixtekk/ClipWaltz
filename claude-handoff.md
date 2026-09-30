@@ -1,4 +1,4 @@
-<!-- session-version: 10 -->
+<!-- session-version: 11 -->
 
 # ClipWaltz — session handoff
 
@@ -13,6 +13,23 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 `DESIGN_BUILD_PLAN.md` (settled decisions in §7); features in `FEATURES.md`.
 
 ---
+
+## Working state (2026-09-30, rotation to v11)
+Tree **clean**, in sync with origin/main (`709fe78`). tsc clean; lint clean (v11: fixed generation-panel + announcements-view set-state-in-effect; eslint now ignores `.claude/**` worktree copies). All deployed.
+```
+709fe78 docs(handoff): action-errors fix deployed
+dcc5fd7 Merge remote-tracking branch 'origin/main' into claude/jovial-wescoff-66e528
+38b4ecf fix: return server action errors as ActionResult so users see them in production
+f48b8d6 feat(deck): music & voice mix, dynamic camera, brief history, tone presets
+79ee0c0 feat: AI credits + WaltzDeck phase 5 — AI fill, brand kit from website, translations
+```
+- Shipped in v10: WaltzDeck **Phase 3** (presentations, PDF/PPTX export, import), **Phase 4** (campaign packs + stats +
+  Free-plan "leaving ClipWaltz" interstitial), **Phase 5** (AI credits Free 30/Plus 300/Pro 1,000, AI fill, brand from
+  website, translations + 7 voices), music & voice mix (Steady duck default), dynamic camera, brief history, tone presets,
+  and the app-wide action-errors fix (ActionResult). Migrations 0040–0043 applied on prod.
+- **Next focus:** nothing queued — all 5 WaltzDeck phases are live. Ideas noted: per-user credit grants (admin),
+  Hindi/Japanese/Chinese (fonts + misaki extras). Ask the owner. Rule: new client-called actions must return ActionResult
+  and be unwrapped (ADMIN_DOCS "Server action errors").
 
 ## Music & voice mix, dynamic camera, brief history, tone presets (2026-09-30, v10) — LIVE on prod (`f48b8d6`)
 Owner asks: music select/upload, gain + tone for music and voice, fix the ducking "pumping", brief history (15), tone

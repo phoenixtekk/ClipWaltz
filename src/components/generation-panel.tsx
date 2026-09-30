@@ -279,9 +279,11 @@ export function GenerationPanel({
 
   // Initial versions + exports load.
   useEffect(() => {
-    void refreshVersions();
-    void refreshExports();
-  }, [refreshVersions, refreshExports]);
+    let cancelled = false;
+    listGenerationVersions(projectId).then(unwrap).then((list) => { if (!cancelled) setVersions(list); }, () => { /* transient */ });
+    listExportJobs(projectId).then(unwrap).then((list) => { if (!cancelled) setExports(list); }, () => { /* transient */ });
+    return () => { cancelled = true; };
+  }, [projectId]);
 
   // Which modes / qualities / enhance engines are enabled in the admin registry.
   useEffect(() => {
