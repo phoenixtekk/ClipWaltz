@@ -25,7 +25,13 @@ export type LayoutKey = (typeof LAYOUTS)[number]["key"];
 export const ROLES = ["hook", "problem", "benefit", "proof", "content", "title", "cta"] as const;
 export type SceneRole = (typeof ROLES)[number];
 
-export const MOTIONS = ["auto", "none", "push-in", "pull-out", "pan-left", "pan-right"] as const;
+/** Per-scene camera move (the render's dynamic camera + the preview). "auto" = chosen from the scene's role, mood and the
+ *  deck's camera mode. Keep in sync with worker/deck/camera.mjs. */
+export const MOTIONS = ["auto", "none", "push-in", "pull-out", "pan-left", "pan-right", "drift", "punch", "shake"] as const;
+export const MOTION_LABELS: Record<(typeof MOTIONS)[number], string> = {
+  auto: "Camera: Auto", none: "Camera: Still", "push-in": "Push in", "pull-out": "Pull out", "pan-left": "Pan left",
+  "pan-right": "Pan right", drift: "Drift", punch: "Punch on the beat", shake: "Handheld shake",
+};
 
 /** Languages a deck can be written, voiced and captioned in (phase 5). `en` = the default. */
 export const LANGUAGES = [
@@ -73,6 +79,10 @@ export type DeckBrief = {
   voice?: { mode: VoiceMode; voiceId: string; speed: number };
   /** Burned-in captions of the narration, each word highlighted as it's spoken. */
   captions?: { enabled: boolean };
+  /** Music + voice mix (levels in dB, tone presets, how the music behaves under the voice). Absent = defaults. */
+  audio?: DeckAudio;
+  /** Dynamic camera: pans, zooms, beat punches and shake chosen per scene. Absent = off. */
+  camera?: { mode: CameraMode };
   /** Language of the on-screen text, narration and captions (phase 5); absent = English. */
   language?: LanguageCode;
   /** Set on a translated copy: the deck it was translated from. */
@@ -176,3 +186,45 @@ export type Campaign = {
   error: string | null; parentId: string | null; createdAt: string; config: CampaignConfig; variants: CampaignVariant[];
   winnerRenderId: string | null;
 };
+
+/** Tone presets for the brief (sent to the model as written; "Custom…" keeps free text). No claim words — the claim
+ *  guard would strip lines like "limited time". */
+export const TONES = [
+  "Energetic & upbeat", "Friendly & warm", "Professional & trustworthy", "Luxurious & elegant", "Playful & fun",
+  "Inspirational & uplifting", "Calm & soothing", "Bold & confident", "Heartfelt & emotional", "Witty & light-hearted",
+  "Urgent & direct", "Informative & clear", "Adventurous & exciting", "Minimal & modern",
+] as const;
+export const MAX_BRIEF_HISTORY = 15;
+
+// ── Music & voice mix ──────────────────────────────────────────────────────────────────────────────
+export type DuckMode = "steady" | "gentle" | "strong";
+export type DeckAudio = {
+  music: boolean; // false = no music at all (voice / silence only)
+  musicGainDb: number; // −24 … +6
+  voiceGainDb: number; // −12 … +6
+  musicTone: "neutral" | "warm" | "bright" | "bass" | "lofi";
+  voiceTone: "neutral" | "warm" | "clear" | "radio";
+  duck: DuckMode;
+};
+export const DEFAULT_AUDIO: DeckAudio = { music: true, musicGainDb: 0, voiceGainDb: 0, musicTone: "neutral", voiceTone: "neutral", duck: "steady" };
+export const MUSIC_TONES = [
+  { key: "neutral", label: "Neutral" }, { key: "warm", label: "Warm" }, { key: "bright", label: "Bright" },
+  { key: "bass", label: "Bass boost" }, { key: "lofi", label: "Lo-fi" },
+] as const;
+export const VOICE_TONES = [
+  { key: "neutral", label: "Neutral" }, { key: "warm", label: "Warm" }, { key: "clear", label: "Clear (crisper)" }, { key: "radio", label: "Radio" },
+] as const;
+export const DUCK_MODES = [
+  { key: "steady", label: "Steady", desc: "Music sits lower, evenly, while there's a voiceover — no rising and falling." },
+  { key: "gentle", label: "Gentle duck", desc: "Music dips slowly while the voice talks and comes back slowly in longer pauses." },
+  { key: "strong", label: "Strong duck", desc: "Music drops quickly under every line and swells back between them (ad-style)." },
+] as const;
+
+// ── Dynamic camera ─────────────────────────────────────────────────────────────────────────────────
+export type CameraMode = "off" | "subtle" | "cinematic" | "energetic";
+export const CAMERA_MODES = [
+  { key: "off", label: "Off", desc: "Clips play as filmed; photos keep the gentle Ken Burns from the project's style." },
+  { key: "subtle", label: "Subtle", desc: "Slow push-ins, drifts and pans — a polished, calm feel." },
+  { key: "cinematic", label: "Cinematic", desc: "Bigger moves matched to each scene, a punch-in on the hook, a slow push on the call to action." },
+  { key: "energetic", label: "Energetic", desc: "Zoom punches on the beat and handheld shake on action scenes — for promos and sport." },
+] as const;

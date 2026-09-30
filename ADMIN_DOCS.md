@@ -649,6 +649,21 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
 - **Diagnostics:** `node -e "import('./worker/deck/variants.mjs')…"` — `buildVariant` is pure (see the function's
   comment); stats query = `select type, count(*) from variant_events where campaign_id = … group by type`.
 
+## WaltzDeck mix, dynamic camera, brief history (2026-09-29)
+- **Brief fields:** `brief.audio` `{ music, musicGainDb, voiceGainDb, musicTone, voiceTone, duck }` (validated by `normAudio`),
+  `brief.camera.mode` (off|subtle|cinematic|energetic); scene `motion` gains drift | punch | shake.
+- **Render (`worker/render-worker.mjs`):** `audio.music === false` → no music input at all (the worker otherwise falls
+  back to the first catalogue track when a project has none). Music stem `volume=level×dB` + `MUSIC_TONE` filter; voice
+  stem `volume` + `VOICE_TONE`; duck: steady = bed `volume=0.42`, gentle = `sidechaincompress` 0.05 / ratio 3 / 300 ms /
+  2.5 s / knee 4 (bed 0.6), strong = 0.03 / ratio 10 / 15 ms / 400 ms (bed 0.55). Presets only map to fixed filter strings
+  (no user text reaches ffmpeg).
+- **Camera (`worker/deck/camera.mjs`):** `pickMove` (auto rules) + `cameraChain` → `fps=30,scale 1.5×,crop,zoompan(d=1)`
+  with frame-number expressions; beat times = music beats − musicOffset − scene start (≤ 10 per scene). `fps=30` before
+  zoompan is required (d=1 emits one frame per input frame). Diagnostic: `node worker/deck/camera.mjs`. Client copy of
+  the rules: `src/lib/deck/camera.ts`; preview keyframes in `scene-frame.tsx` (on a wrapper so clip rotation survives).
+- **History:** migration `0043_brief_history` — `deck_brief_history` (user_id, text, used_at; unique user+text), trimmed
+  to 15 per user on every save (`rememberBrief`).
+
 ## AI credits + WaltzDeck Phase 5 (2026-09-29)
 - **Credits:** migration `0042_ai_credits` (`generation_jobs.credits`, default 0 — older jobs cost nothing). Rules in
   `src/lib/credits.ts`; balance + atomic spend in `src/lib/credits-server.ts` (`spendCredits`: `pg_advisory_xact_lock

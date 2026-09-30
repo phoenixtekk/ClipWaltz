@@ -193,6 +193,17 @@ them there, then come back. (These are in addition to the "video ready" email, w
   link goes, and choose to continue. On Plus and Pro the button goes straight to your site.
 - Turn **Share links** off to close all the pages again.
 
+## WaltzDeck — music, voice mix and camera moves
+- **Music & voice** (left column): choose a track, upload your own (My Music / Upload), or untick **Music in this video**.
+  Set the **music level** and **tone**, and — with a voiceover — the **voice level** and **tone**.
+- **Music while the voice talks:** *Steady* keeps the music evenly lower under the voice (recommended); *Gentle duck*
+  dips it softly; *Strong duck* drops it under every line (punchy ad style).
+- **Camera** (in the brief): *Subtle*, *Cinematic* or *Energetic* add camera moves to your photos and clips — push-ins,
+  pans, drifts, zoom punches on the beat, handheld shake on action scenes. Your text always stays still. Change the move
+  on any scene card (*Camera* menu); press **Play** in the preview to see it.
+- **Recent briefs:** press **Recent** next to "What is this video for?" to reuse one of your last 15.
+- **Tone:** pick a preset (or *Custom…* to write your own).
+
 ## AI credits
 - AI video (Waltz AI clips, Remix, AI enhance and WaltzDeck's AI fill) uses **AI credits**: **1 credit = 1 second** of AI
   video at standard quality (preview costs half, high quality double). Your plan gives you a monthly allowance —

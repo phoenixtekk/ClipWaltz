@@ -1,6 +1,9 @@
 import { notFound, redirect } from "next/navigation";
 import { getProject } from "@/lib/projects";
-import { getDeck } from "@/lib/deck-actions";
+import { getDeck, getBriefHistory } from "@/lib/deck-actions";
+import { getMusicTracks, getFavoriteTrackIds } from "@/lib/music";
+import { getAuthUserId } from "@/lib/auth";
+import { MusicPanel } from "@/components/music-panel";
 import { getBrandKit } from "@/lib/brand-actions";
 import { getCampaigns } from "@/lib/campaign-actions";
 import { unwrap } from "@/lib/action-result";
@@ -16,13 +19,19 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
   const project = await getProject(id);
   if (!project) notFound();
   if (project.kind !== "deck") redirect(`/projects/${id}/edit`);
-  const [data, latestRender, renders, brand, campaigns] = await Promise.all([getDeck(id).then(unwrap), getLatestRender(id), listRenders(id), getBrandKit(id), getCampaigns(id).then(unwrap)]);
+  const userId = await getAuthUserId();
+  const [data, latestRender, renders, brand, campaigns, history, tracks, favorites] = await Promise.all([
+    getDeck(id).then(unwrap), getLatestRender(id), listRenders(id), getBrandKit(id), getCampaigns(id).then(unwrap), getBriefHistory().then(unwrap),
+    getMusicTracks(userId), getFavoriteTrackIds(userId),
+  ]);
   const canEdit = project.role !== "viewer";
   return (
     <DeckEditor
       initial={data}
       initialBrand={brand}
       initialCampaigns={campaigns}
+      initialHistory={history}
+      musicSlot={<MusicPanel projectId={id} tracks={tracks} musicTrackId={project.musicTrackId} favorites={[...favorites]} embedded />}
       canEdit={canEdit}
       renderSlot={
         <div className="space-y-4">

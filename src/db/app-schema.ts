@@ -735,6 +735,18 @@ export const deckExports = pgTable("deck_exports", {
   finishedAt: timestamp({ withTimezone: true }),
 });
 
+// WaltzDeck "What is this video for?" history: a user's last 15 briefs (newest first by usedAt), to reuse in a click.
+export const deckBriefHistory = pgTable(
+  "deck_brief_history",
+  {
+    id: text().primaryKey(),
+    userId: text().notNull().references(() => user.id, { onDelete: "cascade" }),
+    text: text().notNull(),
+    usedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("deck_brief_history_user_text_idx").on(t.userId, t.text), index("deck_brief_history_user_idx").on(t.userId, t.usedAt)],
+);
+
 // WaltzDeck campaign packs (phase 4): one storyboard → hooks × CTAs × lengths × aspects, rendered as a batch
 // (renders.campaign_id). The AI writes hook / CTA options on the deck worker; the owner reviews them (status draft)
 // and renders. `shared` opens the variants' landing pages (/c/<renderId>). `parentId` = "make more like the winner".

@@ -138,6 +138,16 @@ function lightFilter(fx) {
     default: return null;
   }
 }
+// WaltzDeck tone presets (src/lib/deck/types.ts MUSIC_TONES / VOICE_TONES) → ffmpeg audio filters.
+const MUSIC_TONE = {
+  neutral: "", warm: "bass=g=3:f=120,treble=g=-2:f=5000", bright: "treble=g=3:f=4000",
+  bass: "bass=g=6:f=90", lofi: "highpass=f=120,lowpass=f=4500,bass=g=2:f=150",
+};
+const VOICE_TONE = {
+  neutral: "", warm: "bass=g=2:f=180,treble=g=-1.5:f=6000", clear: "highpass=f=90,equalizer=f=3200:t=q:w=1.2:g=3",
+  radio: "highpass=f=300,lowpass=f=3400,acompressor=threshold=0.1:ratio=3",
+};
+
 function safeText(s) {
   return String(s || "").replace(/[^A-Za-z0-9 .,!?&#@()\-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
 }
@@ -1471,9 +1481,23 @@ async function deckSegments(dir, slots, W, H, style, segments, durations, waterm
   }
   const short = Math.min(W, H);
   const safeBottom = watermark ? Math.round(short * 0.03 * 2 + short * WM_SCALE * (278 / 438)) : 0;
+  // Dynamic camera (brief.camera.mode): a move per scene, beat times relative to each scene's start.
+  const camMode = style.deck.camera ?? "off";
+  const cam = camMode !== "off" ? await import("./deck/camera.mjs") : null;
+  let sceneStart = 0;
+  // With crossfades each seam overlaps by T (same rule as the join below: no crossfade under a voiceover), so a scene
+  // starts T earlier per seam — beat hits must use that start or they drift later scene by scene (review 2026-09-29).
+  const crossT = style.transition === "crossfade" && slots.length > 1 && !style.originalAudio && !slots.some((sl) => sl.voice)
+    ? Math.max(0.2, Math.min(0.4, Math.min(...slots.map((sl) => sl.dur || PER_IMAGE)) * 0.35)) : 0;
   try {
     for (let i = 0; i < slots.length; i++) {
       const { asset: a, dur, offset, scene } = slots[i];
+      const start = sceneStart - i * crossT;
+      sceneStart += dur;
+      const move = cam && a ? cam.pickMove(scene, a, camMode, i) : null;
+      const camera = move ? cam.cameraChain(move, camMode, {
+        W, H, dur, video: a.kind === "video", beats: (style.deck.beats ?? []).map((b) => b - start).filter((b) => b >= 0 && b < dur),
+      }) : null;
       const seg = join(dir, `seg${i}.mp4`);
       const enc = ["-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-t", dur.toFixed(3), seg];
       const text = hasDeckText(scene) ? scene.text : null;
@@ -1489,9 +1513,11 @@ async function deckSegments(dir, slots, W, H, style, segments, durations, waterm
       } else {
         const rot = vfRotate(a.rotation);
         const moving = a.kind !== "video" && style.motion && scene.motion !== "none";
-        const base = a.kind === "video"
-          ? `${rot}${cover},tpad=stop_mode=clone:stop_duration=${dur.toFixed(2)}` // narration may outlast the clip
-          : moving ? rot + vfKenBurns(W, H, Math.max(1, Math.round(dur * 30))) : rot + cover;
+        const base = camera
+          ? `${rot}${camera}${a.kind === "video" ? `,tpad=stop_mode=clone:stop_duration=${dur.toFixed(2)}` : ""}`
+          : a.kind === "video"
+            ? `${rot}${cover},tpad=stop_mode=clone:stop_duration=${dur.toFixed(2)}` // narration may outlast the clip
+            : moving ? rot + vfKenBurns(W, H, Math.max(1, Math.round(dur * 30))) : rot + cover;
         const input = a.kind === "video" ? ["-ss", offset.toFixed(3), "-t", dur.toFixed(3), "-i", a._src] : ["-loop", "1", "-t", dur.toFixed(3), "-i", a._src];
         if (layer) {
           await ffmpeg([...input, "-framerate", "30", "-i", layer.pattern, "-filter_complex", `[0:v]${base}[b];[b][1:v]overlay=0:0:eof_action=repeat:format=auto,format=yuv420p[v]`, "-map", "[v]", ...enc]);
@@ -1562,6 +1588,8 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
   const segments = [];
   const durations = [];
   if (style.deck) {
+    // Beat times on the video's timeline (the music starts at musicOffset) — for the dynamic camera's beat punches.
+    style.deck.beats = (beats ?? []).map((b) => b - (musicOffset || 0)).filter((b) => b >= 0);
     await deckSegments(dir, slots, W, H, style, segments, durations, watermark);
     const starts = [];
     let acc = 0;
@@ -1708,21 +1736,38 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     // Assemble the audio graph from whichever sources are present.
     let fc = "";
     const stems = [];
-    if (musicIdx >= 0 && musicVol > 0) { fc += `;[${musicIdx}:a]volume=${musicVol.toFixed(3)}[ma]`; stems.push("[ma]"); }
+    // WaltzDeck mix: music level in dB and a tone preset on the music stem (deck projects only).
+    const mix = style.deck?.audio ?? null;
+    const dbGain = (db) => Math.pow(10, (Number(db) || 0) / 20);
+    const musicLevel = mix ? Math.min(3, musicVol * dbGain(mix.musicGainDb)) : musicVol;
+    const musicTone = mix ? (MUSIC_TONE[mix.musicTone] ?? "") : "";
+    if (musicIdx >= 0 && musicLevel > 0) { fc += `;[${musicIdx}:a]volume=${musicLevel.toFixed(3)}${musicTone ? `,${musicTone}` : ""}[ma]`; stems.push("[ma]"); }
     if (origIdx >= 0 && origVol > 0) { fc += `;[${origIdx}:a]volume=${origVol.toFixed(3)}[oa]`; stems.push("[oa]"); }
     let aLabel = null;
     if (stems.length === 2) { fc += `;${stems.join("")}amix=inputs=2:duration=first:dropout_transition=0:normalize=0[amx]`; aLabel = "[amx]"; }
     else if (stems.length === 1) { aLabel = stems[0]; }
-    // Voiceover: the music ducks under the voice (sidechain), then both are mixed.
+    // Voiceover: voice level + tone, then the music bed under it per the deck's duck mode, then both mixed.
+    // Narration is loudness-normalised (-16 LUFS) in buildNarration (measured: speech was level with music at 1.0x).
+    //   steady — the bed simply sits lower for the whole video (no rise and fall: owner feedback 2026-09-29, the old
+    //            fast duck "pumped" — music dropped under each line and swelled back in every pause)
+    //   gentle — slow sidechain (300 ms in, 2.5 s out, ratio 3): dips under speech, recovers only in long pauses
+    //   strong — the original ad-style duck (15 ms / 400 ms, ratio 10)
     if (voIdx >= 0) {
+      const vTone = mix ? (VOICE_TONE[mix.voiceTone] ?? "") : "";
+      const vGain = mix ? dbGain(mix.voiceGainDb) : 1;
+      fc += `;[${voIdx}:a]volume=${vGain.toFixed(3)}${vTone ? `,${vTone}` : ""}[vox]`;
       if (aLabel) {
-        // Narration is loudness-normalised (-16 LUFS) in buildNarration; the music bed sits lower under a
-        // voiceover and ducks hard while the voice speaks (measured: speech was level with music at 1.0x).
-        fc += `;[${voIdx}:a]asplit=2[vo][vosc];${aLabel}volume=0.55[bed];[bed][vosc]sidechaincompress=threshold=0.03:ratio=10:attack=15:release=400[duck]` +
-          `;[duck][vo]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[vmx]`;
+        const duck = mix?.duck ?? "strong";
+        if (duck === "steady") {
+          fc += `;${aLabel}volume=0.42[duck];[duck][vox]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[vmx]`;
+        } else {
+          const sc = duck === "gentle" ? "threshold=0.05:ratio=3:attack=300:release=2500:knee=4" : "threshold=0.03:ratio=10:attack=15:release=400";
+          fc += `;[vox]asplit=2[vo][vosc];${aLabel}volume=${duck === "gentle" ? "0.6" : "0.55"}[bed];[bed][vosc]sidechaincompress=${sc}[duck]` +
+            `;[duck][vo]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[vmx]`;
+        }
         aLabel = "[vmx]";
       } else {
-        fc += `;[${voIdx}:a]anull[vmx]`;
+        fc += `;[vox]anull[vmx]`;
         aLabel = "[vmx]";
       }
     }
@@ -1822,13 +1867,18 @@ async function loadRenderInputs(projectId, aspectOverride, deckVariant = null) {
       }
     }
     const brief = project.deck?.brief ?? {};
-    style.deck = { scenes, brand, voice: brief.voice ?? { mode: "off" }, captions: brief.captions ?? { enabled: true } };
+    // Music & voice mix (phase 5+): levels, tone presets, how the music behaves under the voice; music can be off.
+    const audio = { music: true, musicGainDb: 0, voiceGainDb: 0, musicTone: "neutral", voiceTone: "neutral", duck: "steady", ...(brief.audio ?? {}) };
+    style.deck = {
+      scenes, brand, voice: brief.voice ?? { mode: "off" }, captions: brief.captions ?? { enabled: true }, audio,
+      camera: brief.camera?.mode ?? "off",
+    };
     style.titleText = null; // scenes carry their own text
     style.originalAudio = false;
     style.maxFootage = false;
     style.fades = false; // an ad opens on its hook, not from black
     const total = scenes.reduce((n, sc) => n + (Number(sc.duration_sec) || 0), 0);
-    return { project, assets, music, lengthSec: Math.round(total * 100) / 100, aspect, style };
+    return { project, assets, music: audio.music === false ? null : music, lengthSec: Math.round(total * 100) / 100, aspect, style };
   }
 
   return { project, assets, music, lengthSec, aspect, style };

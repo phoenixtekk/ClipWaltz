@@ -13,6 +13,24 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## WaltzDeck — music & voice mix, dynamic camera, brief history, tone presets (2026-09-29)
+- **Music & voice** section in the deck editor: pick any library track (For You / Browse / My Music) or **upload your
+  own**, or turn **music off**. **Mix:** music level (−24…+6 dB) and tone (Neutral / Warm / Bright / Bass boost / Lo-fi);
+  voice level (−12…+6 dB) and tone (Neutral / Warm / Clear / Radio); **music while the voice talks**: **Steady** (new
+  default — the music sits evenly lower under a voiceover, no rise and fall), **Gentle duck** (slow dip, recovers only in
+  long pauses) or **Strong duck** (the previous behaviour). Measured on a narrated clip: music-bed swing 0.17 dB (Steady)
+  vs 1.8 dB (Gentle) vs 4.3 dB / 14 dB range (Strong — the "pumping" the owner heard).
+- **Dynamic camera** (brief → Camera: Off / Subtle / Cinematic / Energetic): per-scene moves on the media — push in,
+  pull out, pan left/right, drift, **punch on the beat** (zoom punches landing on the music's beats), **handheld shake**
+  (stronger right after beats). *Auto* picks from the scene's role and what the AI saw: hook → punch (Energetic) or push;
+  action (sport, speed, splash, dance…) → shake / punch; calm (sunset, relaxing…) → drift; CTA → slow push; others
+  alternate so neighbours differ. Each scene card can override it. Text never moves. The instant preview plays the same
+  moves (CSS approximation). Frame timing verified exact (90 frames per 3 s on photos and video).
+- **Brief history:** "What is this video for?" keeps your last **15** briefs (across projects) — **Recent ▾** to reuse one,
+  × to forget it.
+- **Tone** is now a dropdown of model-friendly presets (Energetic & upbeat, Friendly & warm, Professional & trustworthy,
+  Luxurious & elegant, … 14) plus **Custom…**.
+
 ## AI credits + WaltzDeck Phase 5 — AI fill, brand kit from website, translations (2026-09-29)
 - **AI credits** (owner decision — BILLING.md): monthly allowance **Free 30 · Plus 300 · Pro 1,000** (1 credit = 1 s of AI
   video at standard quality; preview ½, high ×2). Used by every Waltz AI job — clips, Remix, AI enhance, WaltzDeck AI

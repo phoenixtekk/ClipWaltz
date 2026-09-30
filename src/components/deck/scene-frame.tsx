@@ -4,7 +4,33 @@
 // storyboard cards and the instant preview; the render uses the real templates.
 import { cn } from "cn";
 import { rotatedFill, rotationParent } from "@/lib/rotation";
-import type { SceneText } from "@/lib/deck/types";
+import type { CameraMode, SceneText } from "@/lib/deck/types";
+import { CAMERA_SIZE, type CameraMove } from "@/lib/deck/camera";
+
+// Preview versions of the render's camera moves (worker/deck/camera.mjs) as CSS animations on the media only.
+const CAMERA_CSS = `
+@keyframes cw-push { from { transform: scale(1) } to { transform: scale(var(--z)) } }
+@keyframes cw-pull { from { transform: scale(var(--z)) } to { transform: scale(1) } }
+@keyframes cw-pan-l { from { transform: scale(var(--p)) translateX(calc(var(--p) * 4%)) } to { transform: scale(var(--p)) translateX(calc(var(--p) * -4%)) } }
+@keyframes cw-pan-r { from { transform: scale(var(--p)) translateX(calc(var(--p) * -4%)) } to { transform: scale(var(--p)) translateX(calc(var(--p) * 4%)) } }
+@keyframes cw-drift { from { transform: scale(var(--p)) translate(2%, 1%) } to { transform: scale(calc(var(--p) + 0.03)) translate(-2%, -1%) } }
+@keyframes cw-punch { 0% { transform: scale(calc(1 + var(--k))) } 35% { transform: scale(1.01) } 100% { transform: scale(1.01) } }
+@keyframes cw-shake { 0%,100% { transform: scale(1.08) translate(0,0) } 20% { transform: scale(1.08) translate(calc(var(--s) * -1), var(--s)) }
+  40% { transform: scale(1.08) translate(var(--s), calc(var(--s) * -0.6)) } 60% { transform: scale(1.08) translate(calc(var(--s) * -0.5), calc(var(--s) * -1)) }
+  80% { transform: scale(1.08) translate(calc(var(--s) * 0.8), calc(var(--s) * 0.5)) } }
+`;
+function cameraStyle(move: CameraMove | null | undefined, mode: CameraMode | undefined, dur: number, playing: boolean): React.CSSProperties | undefined {
+  if (!move || !mode || mode === "off" || !playing) return undefined;
+  const S = CAMERA_SIZE[mode];
+  const vars = { "--z": String(1 + S.zoom), "--p": String(1 + S.pan), "--k": String(S.punch), "--s": `${(S.shake * 100).toFixed(2)}%` } as React.CSSProperties;
+  const d = `${Math.max(0.5, dur)}s`;
+  const anim: Record<CameraMove, string> = {
+    "push-in": `cw-push ${d} ease-in-out forwards`, "pull-out": `cw-pull ${d} ease-in-out forwards`,
+    "pan-left": `cw-pan-l ${d} ease-in-out forwards`, "pan-right": `cw-pan-r ${d} ease-in-out forwards`,
+    drift: `cw-drift ${d} ease-in-out forwards`, punch: "cw-punch 0.5s ease-out infinite", shake: "cw-shake 0.35s linear infinite",
+  };
+  return { ...vars, animation: anim[move] };
+}
 
 /** Brand look for the preview (null = ClipWaltz defaults). */
 export type FrameBrand = { primary: string; secondary: string; headingFont: string; bodyFont: string; logoUrl: string | null } | null;
@@ -25,6 +51,9 @@ export function SceneFrame({
   startAt,
   className,
   brand = null,
+  move = null,
+  cameraMode,
+  durationSec = 3,
 }: {
   projectId: string;
   scene: FrameScene;
@@ -34,7 +63,12 @@ export function SceneFrame({
   startAt?: number | null;
   className?: string;
   brand?: FrameBrand;
+  /** Dynamic camera preview (only while playing). */
+  move?: CameraMove | null;
+  cameraMode?: CameraMode;
+  durationSec?: number;
 }) {
+  const cam = cameraStyle(move, cameraMode, durationSec, playing);
   const t = scene.textMode === "none" ? {} : scene.text ?? {};
   // Same rule as the template (W >= H): 16:9 and 1:1 put a slide's panel on the left, tall frames at the bottom.
   const wide = !/9\/16|4\/5/.test(aspectCss);
@@ -48,8 +82,11 @@ export function SceneFrame({
       className={cn("relative w-full overflow-hidden rounded-lg bg-black [container-type:size]", aspectCss, className)}
       style={asset ? rotationParent(asset.rotation) : undefined}
     >
+      {cam ? <style>{CAMERA_CSS}</style> : null}
       {asset && (!card || !cardOnly) ? (
-        asset.kind === "video" ? (
+        // The camera preview moves a wrapper, never the media itself (its transform carries the clip's rotation).
+        <div className="absolute inset-0" style={cam}>
+        {asset.kind === "video" ? (
           <video
             key={`${asset.id}-${playing}`}
             src={`${src}#t=${Math.max(0.1, startAt ?? 0.1)}`}
@@ -63,7 +100,8 @@ export function SceneFrame({
         ) : (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={src!} alt="" className="absolute inset-0 size-full object-cover" style={rotatedFill(asset.rotation)} />
-        )
+        )}
+        </div>
       ) : (
         <div
           className="absolute inset-0"
