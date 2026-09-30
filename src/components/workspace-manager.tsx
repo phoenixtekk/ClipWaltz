@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { WorkspaceRole } from "@/lib/workspace";
+import { LocalDate } from "@/components/local-date";
 import {
   changeMemberRole,
   inviteMember,
@@ -249,7 +250,7 @@ export function WorkspaceManager({
                   <p className="truncate text-sm">{i.email}</p>
                   <p className="text-xs text-muted-foreground">
                     <span className="capitalize">{i.role}</span>
-                    {i.invitedBy ? ` · invited by ${i.invitedBy}` : ""} · expires {new Date(i.expiresAt).toLocaleDateString()}
+                    {i.invitedBy ? ` · invited by ${i.invitedBy}` : ""} · expires <LocalDate value={i.expiresAt} kind="date" />
                   </p>
                 </div>
                 <Button

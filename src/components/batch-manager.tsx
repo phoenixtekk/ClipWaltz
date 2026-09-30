@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import type { BatchSummary } from "@/lib/batch";
 import { createBatch, setBatchStatus, deleteBatch } from "@/lib/batch-actions";
 import { unwrap } from "@/lib/action-result";
+import { LocalDate } from "@/components/local-date";
 
 const STATUS: Record<string, string> = {
   active: "text-emerald-700 border-emerald-600/40 bg-emerald-600/10 dark:text-emerald-400",
@@ -164,7 +165,7 @@ export function BatchManager({
               <span className="truncate"><FolderInput className="mr-1 inline size-3.5" />{b.inboxPath}</span>
               <span className="truncate"><FolderOutput className="mr-1 inline size-3.5" />{b.outputPath}</span>
               <span className="truncate"><FolderCheck className="mr-1 inline size-3.5" />{b.donePath}</span>
-              <span>Group: {b.grouping} · Schedule: {b.scheduleMinutes ? `${b.scheduleMinutes} min` : "as fast as possible"}{b.lastRunAt ? ` · last run ${new Date(b.lastRunAt).toLocaleString()}` : ""}</span>
+              <span>Group: {b.grouping} · Schedule: {b.scheduleMinutes ? `${b.scheduleMinutes} min` : "as fast as possible"}{b.lastRunAt ? <> · last run <LocalDate value={b.lastRunAt} /></> : ""}</span>
             </div>
           </div>
         ))

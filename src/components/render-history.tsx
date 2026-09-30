@@ -8,12 +8,8 @@ import { deleteRender } from "@/lib/render-actions";
 import type { RenderHistoryItem } from "@/lib/render";
 import { isWide } from "@/lib/aspect";
 import { unwrap } from "@/lib/action-result";
+import { useDateFormat } from "@/lib/local-date";
 
-function when(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " " +
-    d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-}
 
 /**
  * Every saved render for the project — download or delete any past version, not just the latest.
@@ -23,6 +19,8 @@ export function RenderHistory({ renders }: { renders: RenderHistoryItem[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [deleting, setDeleting] = useState<string | null>(null);
+  const fmt = useDateFormat();
+  const when = (iso: string) => fmt(iso, "datetime", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   if (renders.length === 0) return null;
 
   function onDelete(id: string, version: number) {

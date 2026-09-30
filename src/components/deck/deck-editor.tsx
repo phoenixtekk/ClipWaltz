@@ -34,6 +34,7 @@ import { SceneMediaDialog } from "./scene-media-dialog";
 import { StudioShell, StudioPanel, type StudioTab, type StudioStep } from "@/components/studio/studio-shell";
 import { aspectNumber } from "@/lib/deck/frame";
 import { rotatedFill } from "@/lib/rotation";
+import { LocalDate } from "@/components/local-date";
 import { deleteAsset } from "@/lib/asset-actions";
 import { BRAND_FONTS, BRAND_FONTS_CSS, type BrandKit } from "@/lib/brand";
 import { saveBrandKit, uploadBrandLogo, suggestBrandFromSite, applyBrandSuggestion, dismissBrandSuggestion } from "@/lib/brand-actions";
@@ -501,7 +502,7 @@ function SlidesSection({ projectId, exports, canEdit, presentation, onPresent, o
         </Button>
         {e?.status === "done" ? (
           <a href={`/api/projects/${projectId}/deck-exports/${e.id}`} className="inline-flex items-center gap-1 text-xs font-medium text-[color:var(--cw-violet)] hover:underline">
-            <Download className="size-3.5" /> Download ({new Date(e.finishedAt ?? e.createdAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })})
+            <Download className="size-3.5" /> Download (<LocalDate value={e.finishedAt ?? e.createdAt} options={{ dateStyle: "short", timeStyle: "short" }} />)
           </a>
         ) : null}
         {busy ? <span className="text-xs text-muted-foreground">Making it…</span> : null}

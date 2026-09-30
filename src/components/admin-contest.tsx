@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import type { AdminContest, ContestEntry } from "@/lib/contest";
 import { createContest, closeContest } from "@/lib/contest-actions";
 import { unwrap } from "@/lib/action-result";
+import { LocalDate } from "@/components/local-date";
 
 export function AdminContest({
   contests,
@@ -115,7 +116,7 @@ export function AdminContest({
                   <td className="px-4 py-2 text-muted-foreground">{c.entries}</td>
                   <td className="px-4 py-2">{c.winnerName ?? "—"}</td>
                   <td className="px-4 py-2 text-xs text-muted-foreground">
-                    {c.closedAt ? new Date(c.closedAt).toLocaleDateString() : "—"}
+                    {c.closedAt ? <LocalDate value={c.closedAt} kind="date" /> : "—"}
                   </td>
                 </tr>
               ))}

@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { cn } from "cn";
 import { setFeedbackStatus, type FeedbackItem } from "@/lib/feedback-actions";
 import { unwrap } from "@/lib/action-result";
+import { LocalDate } from "@/components/local-date";
 
 const KIND_LABEL: Record<string, string> = { idea: "Idea", bug: "Bug", praise: "Praise", other: "Other" };
 
@@ -25,7 +26,7 @@ export function AdminFeedback({ items }: { items: FeedbackItem[] }) {
             <span className={cn("rounded-full border px-2 py-0.5 font-medium", f.kind === "bug" ? "border-destructive/50 text-destructive" : "border-border")}>{KIND_LABEL[f.kind] ?? f.kind}</span>
             <span>{f.email ?? "deleted account"}</span>
             {f.page ? <span>· {f.page}</span> : null}
-            <span>· {new Date(f.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span>
+            <span>· <LocalDate value={f.createdAt} options={{ dateStyle: "medium", timeStyle: "short" }} /></span>
             {f.status === "new" ? <span className="font-semibold text-primary">· new</span> : null}
           </div>
           <p className="whitespace-pre-wrap">{f.message}</p>

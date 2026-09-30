@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { cn } from "cn";
 import { getOpsQueue, getUsageMetrics, type OpsQueue, type UsageMetrics } from "@/lib/ops-admin-actions";
+import { LocalDate } from "@/components/local-date";
 
 const cell = "px-2 py-1.5 text-left align-top";
 const fmtSec = (s: number | null) => (s == null ? "—" : s < 90 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`);
@@ -81,7 +82,7 @@ export function AdminOps({ initialQueue, initialUsage }: { initialQueue: OpsQueu
             <tbody>
               {q.jobs.map((j) => (
                 <tr key={j.id} className="border-t border-border">
-                  <td className={cell}>{new Date(j.createdAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}</td>
+                  <td className={cell}><LocalDate value={j.createdAt} options={{ dateStyle: "short", timeStyle: "short" }} /></td>
                   <td className={cell}>{j.jobType.replace(/_/g, " ")}{j.quality ? ` · ${j.quality}` : ""}</td>
                   <td className={cn(cell, "font-medium", STATUS_CLS[j.status] ?? "text-[color:var(--cw-violet)]")}>
                     {j.status}{!["completed", "failed", "cancelled", "retried", "queued"].includes(j.status) ? ` ${j.progress}%` : ""}

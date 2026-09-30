@@ -27,6 +27,7 @@ import {
 import { createCategory } from "@/lib/category-actions";
 import { aspectLabel, isWide } from "@/lib/aspect";
 import { unwrap } from "@/lib/action-result";
+import { LocalDate } from "@/components/local-date";
 
 const STATUS: Record<ProjectStatus, { label: string; className: string }> = {
   draft: { label: "Draft", className: "text-muted-foreground border-border bg-background/80" },
@@ -38,7 +39,7 @@ const STATUS: Record<ProjectStatus, { label: string; className: string }> = {
   failed: { label: "Failed", className: "text-destructive border-destructive/40 bg-destructive/10" },
 };
 
-function relativeTime(iso: string): string {
+function relativeTime(iso: string): React.ReactNode {
   const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
@@ -46,7 +47,7 @@ function relativeTime(iso: string): string {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.round(hrs / 24);
   if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
+  return <LocalDate value={iso} kind="date" />;
 }
 
 export function ProjectCard({

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import type { CommentItem } from "@/lib/comments";
 import { addRenderComment, deleteRenderComment } from "@/lib/comments-actions";
 import { unwrap } from "@/lib/action-result";
+import { LocalDate } from "@/components/local-date";
 
 function initials(name: string) {
   return name.trim().charAt(0).toUpperCase() || "?";
@@ -16,7 +17,7 @@ function when(iso: string) {
   if (diff < 60) return "just now";
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return d.toLocaleDateString();
+  return <LocalDate value={d} kind="date" />;
 }
 
 export function RenderComments({
