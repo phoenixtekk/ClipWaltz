@@ -28,8 +28,12 @@ music on/off, dB levels, tone presets, duck Steady (default) / Gentle / Strong);
   fallback; the owner got one "video ready" email); that project's brief restored (camera unset).
 - **Deployed:** linuxg1 (backup `/tmp/cw-pre-mixcam-src.tgz`), migration 0043, build, app restart; AI box render worker +
   `deck/camera.mjs` (backup `render-worker.mjs.bak-20260930-mixcam`). Wiki updated.
-- **Pending:** deploy the "Show server action errors in production" session's branch when it reports done (owner said:
-  "deploy the action errors fix when it's ready").
+- **Action-errors fix deployed (2026-09-30, `dcc5fd7`, owner-approved):** the other session's ActionResult sweep (58 files; every
+  user-facing server action returns `{ok,error}` via `src/lib/action-result.ts`, clients `unwrap()`; toResult calls
+  `unstable_rethrow` first) fast-forwarded onto main, tsc clean, app-only (no worker/migration/deps), linuxg1 rebuilt +
+  restarted (backup `/tmp/cw-pre-actionerrors-src.tgz`). Verified by that session with a local production build (real toast,
+  not #441); not re-checked through the prod UI (no prod login). **Rule:** a new client-called action goes in its file's
+  wrapper block and must be unwrapped — a void action called without unwrap fails silently (ADMIN_DOCS section mirrored).
 
 ## AI credits + WaltzDeck Phase 5 (2026-09-29, v10) — LIVE on prod (`79ee0c0` + voice previews)
 Owner decisions: **credits = monthly allowance, no purchases; all Waltz AI; Free 30 / Plus 300 / Pro 1,000** (recorded in
