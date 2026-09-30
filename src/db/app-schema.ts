@@ -389,6 +389,24 @@ export const invites = pgTable("invites", {
   redeemedUserId: text(),
 });
 
+// Admin-issued AI credit grants (2026-09-30): extra credits on top of the plan's monthly allowance, for the UTC month
+// the grant was made in — they expire at the monthly reset like the allowance (src/lib/credits-server.ts). Revoking
+// deletes the row.
+export const creditGrants = pgTable(
+  "credit_grants",
+  {
+    id: text().primaryKey(),
+    userId: text()
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    amount: integer().notNull(), // > 0
+    note: text(), // reason, shown to the admin and to the user on Billing
+    grantedBy: text().notNull(), // admin user id
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("credit_grants_user_idx").on(t.userId, t.createdAt)],
+);
+
 // Stripe-backed subscription state (direct Stripe — see billing module).
 export const subscriptions = pgTable("subscriptions", {
   id: text().primaryKey(),

@@ -233,6 +233,8 @@ them there, then come back. (These are in addition to the "video ready" email, w
   **Free 30, Plus 300, Pro 1,000** — that resets on the 1st.
 - Every AI button shows what it costs and what you have left. If a job fails or you cancel it, the credits come back.
 - See this month's credits on **Account → Billing**. Fast enhance and assembling a storyboard don't use credits.
+- **Bonus credits:** sometimes ClipWaltz adds bonus credits to your account (for example after a failed render). They
+  show on **Account → Billing** with the reason, count toward this month only, and expire at the monthly reset.
 
 ## WaltzDeck — AI fill, brand from your website, other languages
 - **Bring to life:** on a scene with a photo, tap **Bring to life** and AI turns it into a short video clip. **Generate

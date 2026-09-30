@@ -664,6 +664,18 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
 - **History:** migration `0043_brief_history` — `deck_brief_history` (user_id, text, used_at; unique user+text), trimmed
   to 15 per user on every save (`rememberBrief`).
 
+## AI credit grants (2026-09-30)
+- **Table:** `credit_grants` (migration `0045_credit_grants`): user_id (cascade), amount (> 0), note, granted_by (admin
+  user id), created_at; index (user_id, created_at). A grant counts for the UTC month of `created_at`.
+- **Balance:** `credits-server.ts` — `getCreditBalance` and `spendCredits` add `grantedThisMonth` to the plan allowance
+  (inside the same advisory-locked transaction for spends). `CreditBalance.allowance` is the total; `planAllowance` and
+  `bonus` are the parts. `listGrantsThisMonth(userId)` feeds Billing.
+- **Admin:** `grantCredits({ email, amount, note })` / `revokeCreditGrant(id)` / `listCreditGrantsAdmin()` in
+  `admin-actions.ts` (requireAdmin; existing accounts only; `MAX_CREDIT_GRANT` = 10,000 in `credits.ts`). UI:
+  `src/components/admin-credit-grants.tsx` on /admin.
+- **Troubleshooting:** a user says their grant vanished → grants expire at the 1st (UTC) by design; check
+  `select * from credit_grants where user_id = '…' order by created_at desc`.
+
 ## Dates in client components (2026-09-30)
 - Never call `toLocaleString` / `toLocaleDateString` on server-provided data inside a client component: the server
   renders in its own locale and time zone, the browser in the viewer's, and React throws away the page on the mismatch.

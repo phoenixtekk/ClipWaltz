@@ -5,6 +5,8 @@
 import type { Tier } from "./billing";
 
 export const CREDIT_ALLOWANCE: Record<Tier, number> = { free: 30, plus: 300, pro: 1000 };
+/** Most credits one admin grant can add (guards against a typo like 30000). */
+export const MAX_CREDIT_GRANT = 10000;
 const QUALITY_RATE: Record<string, number> = { preview: 0.5, standard: 1, high: 2 };
 /** Fast (ffmpeg) enhancement runs no AI model — free. Real-ESRGAN = half, SeedVR2 restore = double (per clip second). */
 const ENHANCE_RATE: Record<string, number> = { ffmpeg: 0, ai: 0.5, restore: 2 };
@@ -21,7 +23,11 @@ export const enhanceCost = (engine: string, clipSeconds: number) => {
   return r ? up((Number(clipSeconds) || 5) * r) : 0;
 };
 
-export type CreditBalance = { tier: Tier; allowance: number; used: number; left: number; resetsAt: string };
+/**
+ * `allowance` = this month's total (the plan's `planAllowance` + admin-granted `bonus` for this month), so every
+ * "N of M left" shows grants without knowing about them.
+ */
+export type CreditBalance = { tier: Tier; allowance: number; planAllowance: number; bonus: number; used: number; left: number; resetsAt: string };
 
 /** First instant of next month (UTC) — when the allowance resets. */
 export function nextReset(now = new Date()): Date {

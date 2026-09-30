@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { getAdminSession } from "@/lib/admin";
-import { listUsersAdmin, listInvitesAdmin } from "@/lib/admin-actions";
+import { listUsersAdmin, listInvitesAdmin, listCreditGrantsAdmin } from "@/lib/admin-actions";
+import { AdminCreditGrants } from "@/components/admin-credit-grants";
+import { nextReset } from "@/lib/credits";
 import { getContestsAdmin, getActiveContest, getContestBoard } from "@/lib/contest";
 import { listAllAnnouncements } from "@/lib/announcements";
 import { AdminGrantForm, RevokeButton } from "@/components/admin-grant-form";
@@ -23,7 +25,7 @@ export default async function AdminPage() {
   const admin = await getAdminSession();
   if (!admin) redirect("/projects");
 
-  const [users, invites, contests, active, announcements, paidWatermarked, feedbackItems] = await Promise.all([
+  const [users, invites, contests, active, announcements, paidWatermarked, feedbackItems, creditGrants] = await Promise.all([
     listUsersAdmin(),
     listInvitesAdmin(),
     getContestsAdmin(),
@@ -31,6 +33,7 @@ export default async function AdminPage() {
     listAllAnnouncements(),
     watermarkPaidPlans(),
     listFeedback(50),
+    listCreditGrantsAdmin(),
   ]);
   const pending = invites.filter((i) => !i.redeemedAt);
   const activeEntries = active ? await getContestBoard(active.id) : [];
@@ -72,6 +75,13 @@ export default async function AdminPage() {
       <section className="space-y-3">
         <h2 className="text-sm font-medium">Grant / invite access</h2>
         <AdminGrantForm />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-medium">
+          AI credit grants <span className="text-muted-foreground">· this month ({creditGrants.length})</span>
+        </h2>
+        <AdminCreditGrants grants={creditGrants} resetsOn={nextReset().toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" })} />
       </section>
 
       <section className="space-y-3">

@@ -13,6 +13,16 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## Admin AI credit grants (2026-09-30)
+- **/admin → AI credit grants:** give a user (by account email) extra AI credits for the **current month** with a note
+  (e.g. "refund for the failed render"); this month's grants are listed with who gave them, each with **Revoke**. Grants
+  add to the plan's allowance and expire at the monthly reset (owner decision — BILLING.md). Max 10,000 per grant; the
+  email must already have an account.
+- The user's balance everywhere ("N of M left", the spend check and its message) includes the bonus; **Account →
+  Billing** lists each grant with its note.
+- Verified on dev: +50 on a Free account → Billing 72 of 80 with the note; a 60-credit job passes the check (22 left
+  without the grant), 75 is refused with "30 on the Free plan + 50 bonus"; unknown email refused; revoke → 22 of 30.
+
 ## One-screen editor studio — WaltzDeck + AutoWaltz (2026-09-30)
 Owner-approved layout (invideo-style mockup): both editors fit one screen under the app header, no page scroll at
 desktop width (verified 1600×940: page height = viewport). Same functions, new placement.

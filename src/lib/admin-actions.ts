@@ -1,12 +1,14 @@
 "use server";
 import { randomUUID } from "crypto";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, gte } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireAdmin } from "./admin";
 import { applyGrant, getEffectiveTier } from "./tier";
 import { sendEmail, simpleEmail } from "./email";
 import { toResult } from "./action-result";
+import { MAX_CREDIT_GRANT } from "./credits";
 
 export type AdminUser = {
   id: string;
@@ -115,8 +117,56 @@ async function setWatermarkPaidPlansImpl(on: boolean): Promise<void> {
   revalidatePath("/");
 }
 
+export type AdminCreditGrant = {
+  id: string; email: string; name: string | null; amount: number; note: string | null; grantedBy: string | null; createdAt: Date;
+};
+
+/** This month's AI credit grants, newest first (admin only). Grants expire at the monthly reset. */
+export async function listCreditGrantsAdmin(): Promise<AdminCreditGrant[]> {
+  await requireAdmin();
+  const { monthStart } = await import("./credits-server");
+  const granter = alias(schema.user, "granter");
+  return db
+    .select({
+      id: schema.creditGrants.id, email: schema.user.email, name: schema.user.name, amount: schema.creditGrants.amount,
+      note: schema.creditGrants.note, grantedBy: granter.email, createdAt: schema.creditGrants.createdAt,
+    })
+    .from(schema.creditGrants)
+    .innerJoin(schema.user, eq(schema.creditGrants.userId, schema.user.id))
+    .leftJoin(granter, eq(schema.creditGrants.grantedBy, granter.id))
+    .where(gte(schema.creditGrants.createdAt, monthStart()))
+    .orderBy(desc(schema.creditGrants.createdAt));
+}
+
+/** Give a user extra AI credits for the current month (on top of their plan's allowance). Existing accounts only. */
+async function grantCreditsImpl(input: { email: string; amount: number; note?: string }): Promise<{ email: string; amount: number }> {
+  const admin = await requireAdmin();
+  const email = input.email.trim().toLowerCase();
+  if (!email || !email.includes("@")) throw new Error("Enter a valid email");
+  const amount = Math.round(Number(input.amount));
+  if (!Number.isFinite(amount) || amount < 1) throw new Error("Enter a number of credits (1 or more)");
+  if (amount > MAX_CREDIT_GRANT) throw new Error(`One grant can add at most ${MAX_CREDIT_GRANT.toLocaleString("en-US")} credits`);
+  const [u] = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.email, email));
+  if (!u) throw new Error("No ClipWaltz account uses that email");
+  const note = (input.note ?? "").replace(/\s+/g, " ").trim().slice(0, 200) || null;
+  await db.insert(schema.creditGrants).values({ id: randomUUID(), userId: u.id, amount, note, grantedBy: admin.user.id });
+  revalidatePath("/admin");
+  revalidatePath("/account/billing");
+  return { email, amount };
+}
+
+/** Take back a grant (its credits leave this month's balance). */
+async function revokeCreditGrantImpl(grantId: string): Promise<void> {
+  await requireAdmin();
+  await db.delete(schema.creditGrants).where(eq(schema.creditGrants.id, grantId));
+  revalidatePath("/admin");
+  revalidatePath("/account/billing");
+}
+
 // Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
 // Client: unwrap(await action(...)).
 export async function grantAccess(...args: Parameters<typeof grantAccessImpl>) { return toResult(() => grantAccessImpl(...args)); }
 export async function revokeAccess(...args: Parameters<typeof revokeAccessImpl>) { return toResult(() => revokeAccessImpl(...args)); }
 export async function setWatermarkPaidPlans(...args: Parameters<typeof setWatermarkPaidPlansImpl>) { return toResult(() => setWatermarkPaidPlansImpl(...args)); }
+export async function grantCredits(...args: Parameters<typeof grantCreditsImpl>) { return toResult(() => grantCreditsImpl(...args)); }
+export async function revokeCreditGrant(...args: Parameters<typeof revokeCreditGrantImpl>) { return toResult(() => revokeCreditGrantImpl(...args)); }

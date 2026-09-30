@@ -39,6 +39,9 @@ so no App Store / Play IAP at launch.
 - The cost + balance show before every AI button; the server enforces the same numbers in one transaction per user
   (`spendCredits`, advisory lock). Code: `src/lib/credits.ts` (rules, client-safe), `src/lib/credits-server.ts`.
 - Top-up packs were offered and **not** chosen; revisit before adding any purchase flow (it would be money movement).
+- **Admin credit grants (owner decision 2026-09-30):** an admin can give one user extra credits for the **current month
+  only** (on top of the plan allowance; they expire at the reset like it), with a note the user sees on Billing; revoking
+  deletes the grant. Free of charge — no money movement. Table `credit_grants` (migration 0045); max 10,000 per grant.
 
 ## Comp / admin grants (no Stripe)
 Admins (`ADMIN_EMAILS`) can grant Plus/Pro to any email at `/admin` — lifetime or with an expiry
