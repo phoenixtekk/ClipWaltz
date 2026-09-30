@@ -664,6 +664,13 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
 - **History:** migration `0043_brief_history` — `deck_brief_history` (user_id, text, used_at; unique user+text), trimmed
   to 15 per user on every save (`rememberBrief`).
 
+## Dates in client components (2026-09-30)
+- Never call `toLocaleString` / `toLocaleDateString` on server-provided data inside a client component: the server
+  renders in its own locale and time zone, the browser in the viewer's, and React throws away the page on the mismatch.
+  Use `<LocalDate value kind options>` (`src/components/local-date.tsx`) in JSX or `useDateFormat()`
+  (`src/lib/local-date.ts`) for strings — fixed en-US/UTC until hydrated, then the viewer's locale.
+  Server components and data that only loads after mount can format directly.
+
 ## Editor studio layout (2026-09-30)
 - `src/components/studio/studio-shell.tsx` (`StudioShell`, `StudioPanel`) — used by `deck/deck-editor.tsx` and
   `editor-workspace.tsx`. Fills `calc(100dvh - var(--cw-header-h))`; `--cw-header-h` (3.25rem, `globals.css`) is also the
