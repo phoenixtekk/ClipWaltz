@@ -1484,6 +1484,7 @@ async function deckSegments(dir, slots, W, H, style, segments, durations, waterm
   // Dynamic camera (brief.camera.mode): a move per scene, beat times relative to each scene's start.
   const camMode = style.deck.camera ?? "off";
   const cam = camMode !== "off" ? await import("./deck/camera.mjs") : null;
+  const { vfFrame } = await import("./deck/frame.mjs");
   let sceneStart = 0;
   // With crossfades each seam overlaps by T (same rule as the join below: no crossfade under a voiceover), so a scene
   // starts T earlier per seam — beat hits must use that start or they drift later scene by scene (review 2026-09-29).
@@ -1511,7 +1512,8 @@ async function deckSegments(dir, slots, W, H, style, segments, durations, waterm
         // Text card: the template painted the brand background; hold its settled last frame.
         await ffmpeg(["-framerate", "30", "-i", layer.pattern, "-vf", `tpad=stop_mode=clone:stop_duration=${(dur + 1).toFixed(2)},fps=30,format=yuv420p`, ...enc]);
       } else {
-        const rot = vfRotate(a.rotation);
+        // User rotation, then the scene's framing (crop / reposition) — everything after fills W×H from that.
+        const rot = vfRotate(a.rotation) + vfFrame(scene.frame, W, H);
         const moving = a.kind !== "video" && style.motion && scene.motion !== "none";
         const base = camera
           ? `${rot}${camera}${a.kind === "video" ? `,tpad=stop_mode=clone:stop_duration=${dur.toFixed(2)}` : ""}`

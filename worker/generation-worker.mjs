@@ -288,7 +288,7 @@ async function deckFillScene(j, sceneId, { key: versionKey, versionNumber, meta,
       await tx`insert into assets ${tx({ id: assetId, project_id: j.project_id, media_id: j.requested_by ? mediaId : null, workspace_id: p?.workspace_id ?? null,
         storage_key: key, kind: "video", original_name: name, upload_state: "uploaded", conversion_state: "ready",
         duration_sec: meta.duration ?? null, width: meta.width || null, height: meta.height || null, order_index: Number(next) })}`;
-      await tx`update deck_scenes set asset_id = ${assetId}, in_sec = null, why = ${`Made by AI (Waltz AI v${versionNumber}).`}, updated_at = now()
+      await tx`update deck_scenes set asset_id = ${assetId}, in_sec = null, frame = null, why = ${`Made by AI (Waltz AI v${versionNumber}).`}, updated_at = now()
         where id = ${sceneId}`;
     });
     if (!_deckQueue) _deckQueue = new Queue(DECK_QUEUE, { connection: new IORedis(REDIS_URL, { maxRetriesPerRequest: null }) });

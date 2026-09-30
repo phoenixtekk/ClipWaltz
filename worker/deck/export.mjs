@@ -10,6 +10,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { sceneHtml } from "./text-layer.mjs";
+import { vfFrame } from "./frame.mjs";
 
 const CHROMIUM = process.env.CHROMIUM_PATH || "/usr/bin/chromium";
 const LONG = 1280; // layout px on the long side (96 px = 1 in)
@@ -90,7 +91,7 @@ export async function buildDeckExport({ projectId, format, watermark, exportId }
       }
       const src = srcs.get(a.id);
       const out = join(dir, `still-${i}.jpg`);
-      const vf = `${vfRotate(a.rotation)}scale=${VW}:${VH}:force_original_aspect_ratio=increase,crop=${VW}:${VH},setsar=1`;
+      const vf = `${vfRotate(a.rotation)}${vfFrame(sc.frame, VW, VH)}scale=${VW}:${VH}:force_original_aspect_ratio=increase,crop=${VW}:${VH},setsar=1`;
       if (a.kind === "video") {
         const d = Math.max(0.1, Number(sc.duration_sec) || 3);
         const at = sc.in_sec != null ? Number(sc.in_sec) + d / 2 : src.dur * 0.4;

@@ -1,5 +1,6 @@
 // WaltzDeck shared types (06_ClipWaltz_WaltzDeck_Feature_Spec.md). Keep MODES / LAYOUTS / ROLES in sync
 // with worker/deck/planner.mjs and the scene templates in worker/deck/templates.
+import type { SceneFrameBox } from "./frame";
 
 export type DeckMode = "ad" | "slideshow" | "presentation";
 export type TextMode = "auto" | "manual" | "off";
@@ -137,6 +138,8 @@ export type DeckScene = {
   assetId: string | null;
   inSec: number | null;
   outSec: number | null;
+  /** Crop / reposition of the media (null = centred cover) — src/lib/deck/frame.ts. */
+  frame: SceneFrameBox | null;
   durationSec: number;
   textMode: SceneTextMode;
   text: SceneText;

@@ -27,6 +27,7 @@ async function deleteAssetImpl(projectId: string, assetId: string): Promise<void
   }
   revalidatePath(`/projects/${projectId}/import`);
   revalidatePath(`/projects/${projectId}/edit`);
+  revalidatePath(`/projects/${projectId}/deck`);
 }
 
 /**
@@ -102,7 +103,10 @@ async function setAssetRotationImpl(projectId: string, assetId: string, degrees:
   if (!row || !(await userCanAccessProject(userId, projectId, "editor"))) throw new Error("Asset not found");
   const rotation = ((Math.round(Number(degrees) / 90) * 90) % 360 + 360) % 360;
   if (!Number.isFinite(rotation)) throw new Error("Invalid rotation");
+  const [prev] = await db.select({ rotation: schema.assets.rotation }).from(schema.assets).where(eq(schema.assets.id, assetId));
   await db.update(schema.assets).set({ rotation }).where(eq(schema.assets.id, assetId));
+  // WaltzDeck framings are relative to the upright picture — a turn makes them meaningless, so they reset.
+  if (prev && prev.rotation !== rotation) await db.update(schema.deckScenes).set({ frame: null }).where(eq(schema.deckScenes.assetId, assetId));
   revalidatePath(`/projects/${projectId}/edit`);
 }
 

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Sparkles, Upload, Loader2, Lock, Unlock, Trash2, Plus, ArrowUp, ArrowDown, Wand2, Play, Pause, RotateCcw, Info, ImageIcon, Mic, Captions,
-  FileUp, Globe, Presentation, FileText, FileDown, Download,
+  FileUp, Globe, Presentation, FileText, FileDown, Download, Crop,
 } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,8 @@ import { useCredits } from "@/components/credits-line";
 import type { CreditBalance } from "@/lib/credits";
 import { uploadProjectFile, isSupported } from "@/lib/upload-client";
 import { SceneFrame, type FrameBrand } from "./scene-frame";
+import { SceneMediaDialog } from "./scene-media-dialog";
+import { deleteAsset } from "@/lib/asset-actions";
 import { BRAND_FONTS, BRAND_FONTS_CSS, type BrandKit } from "@/lib/brand";
 import { saveBrandKit, uploadBrandLogo, suggestBrandFromSite, applyBrandSuggestion, dismissBrandSuggestion } from "@/lib/brand-actions";
 
@@ -274,7 +276,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
             <AudioMix value={brief.audio} hasVoice={(brief.voice?.mode ?? "off") !== "off"} canEdit={canEdit} onChange={(audio) => saveBriefNow({ audio })} />
           </section>
 
-          <MediaSection projectId={projectId} assets={data.assets} canEdit={canEdit} onChange={refresh} />
+          <MediaSection projectId={projectId} assets={data.assets} scenes={data.scenes} canEdit={canEdit} onChange={refresh} />
         </div>
 
         {/* ── right: storyboard + preview + render ── */}
@@ -325,6 +327,8 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
                     act(async () => unwrap(await reorderScenes(projectId, ids)));
                   }}
                   onDelete={() => act(async () => unwrap(await deleteScene(projectId, s.id)))}
+                  usedBy={s.assetId ? data.scenes.filter((x) => x.assetId === s.assetId).length : 0}
+                  onMediaChanged={refresh}
                   onAddAfter={() => act(async () => unwrap(await addScene(projectId, i, null)))}
                 />
               ))}
@@ -754,7 +758,7 @@ const Status = ({ children, spin }: { children: ReactNode; spin?: boolean }) => 
   <p className="inline-flex items-center gap-2 text-xs text-muted-foreground">{spin ? <Loader2 className="size-3.5 animate-spin text-[color:var(--cw-violet)]" /> : null}{children}</p>
 );
 
-function MediaSection({ projectId, assets, canEdit, onChange }: { projectId: string; assets: DeckAsset[]; canEdit: boolean; onChange: () => void }) {
+function MediaSection({ projectId, assets, scenes, canEdit, onChange }: { projectId: string; assets: DeckAsset[]; scenes: DeckScene[]; canEdit: boolean; onChange: () => void }) {
   const [uploading, setUploading] = useState<string | null>(null);
   const [pct, setPct] = useState(0);
   const input = useRef<HTMLInputElement | null>(null);
@@ -788,16 +792,32 @@ function MediaSection({ projectId, assets, canEdit, onChange }: { projectId: str
       </div>
       <p className="text-xs text-muted-foreground">Add a note to any item and the AI follows it — &ldquo;hero shot, say it&apos;s organic&rdquo;, &ldquo;show this first&rdquo;, &ldquo;end on this&rdquo;. Put exact wording in quotes.</p>
       <ul className="space-y-2">
-        {assets.map((a) => <MediaRow key={a.id} projectId={projectId} asset={a} canEdit={canEdit} />)}
+        {assets.map((a) => (
+          <MediaRow key={a.id} projectId={projectId} asset={a} canEdit={canEdit} usedBy={scenes.filter((s) => s.assetId === a.id).length} onRemoved={onChange} />
+        ))}
       </ul>
       {!assets.length ? <p className="text-xs text-muted-foreground">No media yet.</p> : null}
     </section>
   );
 }
 
-function MediaRow({ projectId, asset, canEdit }: { projectId: string; asset: DeckAsset; canEdit: boolean }) {
+function MediaRow({ projectId, asset, canEdit, usedBy, onRemoved }: { projectId: string; asset: DeckAsset; canEdit: boolean; usedBy: number; onRemoved: () => void }) {
   const [note, setNote] = useState(asset.note ?? "");
+  const [removing, setRemoving] = useState(false);
   const src = `/api/projects/${projectId}/assets/${asset.id}`;
+  const remove = async () => {
+    const scenes = !usedBy ? "No scene uses it" : usedBy === 1 ? "1 scene uses it and becomes a text card" : `${usedBy} scenes use it and become text cards`;
+    if (!window.confirm(`Delete "${asset.name}" from this project? ${scenes}. The file stays in your media library.`)) return;
+    setRemoving(true);
+    try {
+      unwrap(await deleteAsset(projectId, asset.id));
+      toast.success("Removed from the project.");
+      onRemoved();
+    } catch (e) {
+      toast.error((e as Error).message || "Couldn't delete it.");
+      setRemoving(false);
+    }
+  };
   return (
     <li className="flex gap-3 rounded-lg border border-border bg-background/40 p-2">
       <div className="relative size-14 shrink-0 overflow-hidden rounded-md bg-muted [container-type:size]">
@@ -812,6 +832,13 @@ function MediaRow({ projectId, asset, canEdit }: { projectId: string; asset: Dec
           {asset.described
             ? <span title={asset.summary ?? ""} className="inline-flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground"><Info className="size-3" /> seen</span>
             : <span className="inline-flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground"><Loader2 className="size-3 animate-spin" /> looking…</span>}
+          {canEdit ? (
+            <span className="ml-auto">
+              <IconBtn label="Delete from project" disabled={removing} onClick={remove}>
+                {removing ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+              </IconBtn>
+            </span>
+          ) : null}
         </div>
         <input
           value={note}
@@ -829,13 +856,16 @@ function MediaRow({ projectId, asset, canEdit }: { projectId: string; asset: Dec
 
 function SceneCard({
   projectId, scene, index, count, asset, assets, aspectCss, wide, canEdit, brand, voiceMode, presentation, fill, credits, onFill, onPatch, onRewrite, onMove, onDelete, onAddAfter,
+  usedBy, onMediaChanged,
 }: {
   projectId: string; scene: DeckScene; index: number; count: number; asset: DeckAsset | null; assets: DeckAsset[];
   aspectCss: string; wide: boolean; canEdit: boolean; brand: FrameBrand; voiceMode: VoiceMode; presentation: boolean;
   fill?: { status: string; progress: number; error: string | null }; credits: CreditBalance | null;
   onFill: (mode: "animate" | "generate", prompt?: string) => Promise<void>;
   onPatch: (p: ScenePatch) => void; onRewrite: (instruction: string) => void; onMove: (dir: -1 | 1) => void; onDelete: () => void; onAddAfter: () => void;
+  usedBy: number; onMediaChanged: () => void;
 }) {
+  const [editing, setEditing] = useState(false);
   const [headline, setHeadline] = useState(scene.text.headline ?? "");
   const [sub, setSub] = useState(scene.text.sub ?? "");
   const [bullets, setBullets] = useState((scene.text.bullets ?? []).join("\n"));
@@ -865,7 +895,25 @@ function SceneCard({
   return (
     <article className={cn("rounded-xl border bg-card p-3", scene.locked ? "border-[color:var(--cw-violet)]/60" : "border-border")}>
       <div className={cn("grid gap-3", wide ? "sm:grid-cols-[180px_minmax(0,1fr)]" : "sm:grid-cols-[110px_minmax(0,1fr)]")}>
-        <SceneFrame projectId={projectId} scene={{ ...scene, text: { headline, sub, bullets: bullets.split("\n").filter(Boolean) } }} asset={asset} aspectCss={aspectCss} startAt={scene.inSec} brand={brand} />
+        <div className="space-y-1.5">
+          {asset && canEdit ? (
+            <button type="button" onClick={() => setEditing(true)} aria-label="Edit this scene's media" title="Edit media — crop, reposition, rotate, choose the part"
+              className="block w-full rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary">
+              <SceneFrame projectId={projectId} scene={{ ...scene, text: { headline, sub, bullets: bullets.split("\n").filter(Boolean) } }} asset={asset} aspectCss={aspectCss} startAt={scene.inSec} brand={brand} />
+            </button>
+          ) : (
+            <SceneFrame projectId={projectId} scene={{ ...scene, text: { headline, sub, bullets: bullets.split("\n").filter(Boolean) } }} asset={asset} aspectCss={aspectCss} startAt={scene.inSec} brand={brand} />
+          )}
+          {asset && canEdit ? (
+            <Button type="button" variant="secondary" size="sm" className="w-full" onClick={() => setEditing(true)}>
+              <Crop className="size-3.5" /> Edit media
+            </Button>
+          ) : null}
+        </div>
+        {editing && asset ? (
+          <SceneMediaDialog projectId={projectId} scene={scene} asset={asset} aspectCss={aspectCss} wide={wide} brand={brand} usedBy={usedBy}
+            onClose={() => setEditing(false)} onSaved={onMediaChanged} />
+        ) : null}
         <div className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="font-semibold">#{index + 1}</span>

@@ -43,6 +43,7 @@ export function buildVariant(base, { hook, cta, lengthSec, mediaDur = new Map(),
     if (hook.assetId !== undefined && hook.assetId !== h.asset_id) {
       h.asset_id = hook.assetId;
       h.in_sec = hook.inSec ?? null;
+      h.frame = null; // the framing was for the old clip
       // The new hook's clip is no longer repeated later in the ad.
       for (let i = scenes.length - 1; i >= 0; i--) {
         if (i !== hookAt && i !== ctaAt && hook.assetId && scenes[i].asset_id === hook.assetId && scenes.length > 2) {

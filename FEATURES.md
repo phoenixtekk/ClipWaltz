@@ -13,6 +13,20 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## WaltzDeck — edit a scene's media, delete media from the project (2026-09-30)
+- **Edit media** on every storyboard scene with a photo or video (button under the thumbnail, or tap the thumbnail):
+  - **Crop / reposition** — drag the picture to choose what shows, zoom 1–3× to crop tighter, **Reset** to centre. Per
+    scene (`deck_scenes.frame` = `{ x, y, zoom }`), kept when the deck's shape changes; used by the preview, the video
+    render and the PDF / PowerPoint export.
+  - **Rotate 90°** — the file's rotation (every scene and the timeline editor use it); resets that file's framings.
+  - **Which part plays** (videos) — *Auto* (the render picks the most active part) or a start point; the scene's length
+    sets the end. **Play** previews the scene's seconds.
+  - Saving locks the scene, so a re-plan keeps your framing (like your own text).
+- **Delete from project** — in the Edit media dialog and on each row of *Your media*: confirms first (says how many scenes
+  use it), then removes it from this project only; those scenes become text cards; the file stays in your media library.
+- Verified on dev: a framed scene rendered with the crop (PSNR 37.8 dB vs the expected crop, 9.4 dB unframed) and the
+  chosen start; the PDF export's still framed the same way (42.0 dB vs 12.5 dB).
+
 ## WaltzDeck — music & voice mix, dynamic camera, brief history, tone presets (2026-09-29)
 - **Music & voice** section in the deck editor: pick any library track (For You / Browse / My Music) or **upload your
   own**, or turn **music off**. **Mix:** music level (−24…+6 dB) and tone (Neutral / Warm / Bright / Bass boost / Lo-fi);

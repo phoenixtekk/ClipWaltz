@@ -664,6 +664,22 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
 - **History:** migration `0043_brief_history` — `deck_brief_history` (user_id, text, used_at; unique user+text), trimmed
   to 15 per user on every save (`rememberBrief`).
 
+## WaltzDeck scene media editing (2026-09-30)
+- **Schema:** migration `0044_scene_frame` — `deck_scenes.frame jsonb` `{ x, y, zoom }` (centre as a fraction of the
+  upright source, zoom 1–3); null = centred cover. Validated by `normFrame` (`src/lib/deck/frame.ts`) in `updateScene`.
+  Cleared when the scene's media changes (`updateScene` assetId, AI fill in `generation-worker.mjs`, campaign hook swap
+  in `deck/variants.mjs`) and for every scene of a file whose rotation changes (`setAssetRotation`).
+- **Render / export:** `worker/deck/frame.mjs` `vfFrame(frame, W, H)` → an ffmpeg `crop` in the output's shape, placed
+  after `vfRotate` and before the cover / camera / Ken Burns chain (`deckSegments` in `render-worker.mjs`) and the still
+  filter in `deck/export.mjs`. Default framing adds no filter. Keep the maths in sync with `frameRect` in
+  `src/lib/deck/frame.ts` (preview: `scene-frame.tsx` sizes a container to the whole source and offsets it).
+- **Video start:** the dialog writes the existing `deck_scenes.in_sec` (null = auto window); clamped to clip − scene length.
+- **Delete:** the deck page calls `deleteAsset` (`asset-actions.ts`, placement only — now also revalidates `/deck`); the
+  FK `on delete set null` turns scenes into text cards.
+- **Deploy:** app (migration + build) on linuxg1 **and** the render worker files on the AI box (`render-worker.mjs`,
+  `deck/frame.mjs` new, `deck/export.mjs`, `deck/variants.mjs`) **and** `worker/generation-worker.mjs` on linuxg1
+  (`pm2 restart clipwaltz-gen-worker`).
+
 ## AI credits + WaltzDeck Phase 5 (2026-09-29)
 - **Credits:** migration `0042_ai_credits` (`generation_jobs.credits`, default 0 — older jobs cost nothing). Rules in
   `src/lib/credits.ts`; balance + atomic spend in `src/lib/credits-server.ts` (`spendCredits`: `pg_advisory_xact_lock

@@ -702,6 +702,9 @@ export const deckScenes = pgTable("deck_scenes", {
   assetId: text().references(() => assets.id, { onDelete: "set null" }), // null = text-only card (e.g. CTA end card)
   inSec: real(), // window of a video asset (null = auto / photo)
   outSec: real(),
+  // Framing of the media in this scene: { x, y } = centre (0–1 of the upright source), zoom ≥ 1. null = centred
+  // cover (src/lib/deck/frame.ts, worker/deck/frame.mjs).
+  frame: jsonb(),
   durationSec: real().notNull().default(3),
   textMode: text().notNull().default("auto"), // auto (AI writes) | manual (user's words, never rewritten) | none
   text: jsonb(), // { headline?: string, sub?: string, bullets?: string[] }

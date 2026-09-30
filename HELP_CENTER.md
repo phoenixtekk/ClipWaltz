@@ -204,6 +204,17 @@ them there, then come back. (These are in addition to the "video ready" email, w
 - **Recent briefs:** press **Recent** next to "What is this video for?" to reuse one of your last 15.
 - **Tone:** pick a preset (or *Custom…* to write your own).
 
+## WaltzDeck — crop, rotate, choose the moment, or delete a file
+- On any scene with a photo or video, press **Edit media** (under the picture) or tap the picture.
+  - **Drag** the picture to choose what shows, and use **Zoom** to crop in closer. **Reset** puts it back in the middle.
+    This framing is just for this scene.
+  - **Rotate 90°** turns a sideways photo or clip upright — for every scene that uses that file.
+  - For a video, **Which part plays**: leave **Auto** on and ClipWaltz picks the liveliest part, or untick it and slide
+    **Start** to the moment you want. **Play** shows you the scene's seconds.
+  - Press **Save**. The scene is locked, so **Re-plan** won't undo your changes.
+- **Delete from project** (in the same window, or the bin icon on a file in **Your media**) removes the file from this
+  project. Scenes that used it become text cards. The file itself stays in your media library.
+
 ## AI credits
 - AI video (Waltz AI clips, Remix, AI enhance and WaltzDeck's AI fill) uses **AI credits**: **1 credit = 1 second** of AI
   video at standard quality (preview costs half, high quality double). Your plan gives you a monthly allowance —

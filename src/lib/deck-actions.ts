@@ -15,6 +15,7 @@ import {
   DECK_MODES, LANGUAGES, LAYOUTS, MAX_BRIEF_HISTORY, MAX_BULLETS, MAX_BULLET_CHARS, MOTIONS, ROLES, VOICES, defaultBrief, defaultVoiceFor,
   type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type DeckState, type SceneText, type SceneTextMode,
 } from "./deck/types";
+import { normFrame, type SceneFrameBox } from "./deck/frame";
 
 /** The asset exists and belongs to this project (never trust a client-sent asset id). */
 async function assertProjectAsset(projectId: string, assetId: string) {
@@ -65,7 +66,7 @@ export type DeckData = {
 };
 
 const toScene = (r: typeof schema.deckScenes.$inferSelect): DeckScene => ({
-  id: r.id, orderIndex: r.orderIndex, role: r.role, assetId: r.assetId, inSec: r.inSec, outSec: r.outSec,
+  id: r.id, orderIndex: r.orderIndex, role: r.role, assetId: r.assetId, inSec: r.inSec, outSec: r.outSec, frame: normFrame(r.frame),
   durationSec: r.durationSec, textMode: r.textMode as SceneTextMode, text: (r.text ?? {}) as SceneText,
   layout: r.layout, motion: r.motion, transition: r.transition, locked: r.locked, voice: r.voice, prompt: r.prompt, why: r.why,
 });
@@ -212,6 +213,7 @@ async function requestPlanImpl(projectId: string): Promise<void> {
 export type ScenePatch = Partial<{
   text: SceneText; textMode: SceneTextMode; layout: string; durationSec: number; assetId: string | null; voice: string;
   inSec: number | null; outSec: number | null; locked: boolean; motion: string; transition: string; role: string;
+  frame: SceneFrameBox | null;
 }>;
 
 /** Edit one scene. Typing your own words makes the text Manual and locks the scene (re-plans keep it). */
@@ -241,11 +243,13 @@ async function updateSceneImpl(projectId: string, sceneId: string, patch: SceneP
   if (patch.locked !== undefined) set.locked = !!patch.locked;
   if (patch.inSec !== undefined) set.inSec = patch.inSec == null ? null : Math.max(0, Number(patch.inSec) || 0);
   if (patch.outSec !== undefined) set.outSec = patch.outSec == null ? null : Math.max(0, Number(patch.outSec) || 0);
+  if (patch.frame !== undefined) set.frame = normFrame(patch.frame);
   if (patch.assetId !== undefined) {
     if (patch.assetId) await assertProjectAsset(projectId, patch.assetId);
     set.assetId = patch.assetId;
     set.inSec = null;
     set.outSec = null;
+    set.frame = null;
   }
   await db.update(schema.deckScenes).set(set)
     .where(and(eq(schema.deckScenes.id, sceneId), eq(schema.deckScenes.projectId, projectId)));

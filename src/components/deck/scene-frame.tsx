@@ -2,8 +2,10 @@
 // One WaltzDeck scene drawn in the browser: the media (video/photo) with the scene's text layout on top.
 // A close approximation of worker/deck/templates (same layout names, fonts and proportions) for the
 // storyboard cards and the instant preview; the render uses the real templates.
+import { useState } from "react";
 import { cn } from "cn";
 import { rotatedFill, rotationParent } from "@/lib/rotation";
+import { aspectNumber, frameRect, type SceneFrameBox } from "@/lib/deck/frame";
 import type { CameraMode, SceneText } from "@/lib/deck/types";
 import { CAMERA_SIZE, type CameraMove } from "@/lib/deck/camera";
 
@@ -40,7 +42,23 @@ export type FrameScene = {
   textMode: string;
   text: SceneText;
   assetId: string | null;
+  frame?: SceneFrameBox | null;
 };
+
+/**
+ * Where the media sits inside the frame for a scene's framing (crop / reposition): a size container the size of
+ * the whole upright source, offset so the framed rectangle fills the frame. undefined = plain cover (no framing,
+ * or the media's size isn't known yet).
+ */
+function framedBox(frame: SceneFrameBox | null | undefined, natural: { w: number; h: number } | null, rotation: number, aspect: number): React.CSSProperties | undefined {
+  if (!frame || !natural) return undefined;
+  const turned = rotation % 180 !== 0;
+  const r = frameRect(frame, turned ? natural.h : natural.w, turned ? natural.w : natural.h, aspect);
+  return {
+    position: "absolute", containerType: "size",
+    left: `${(-r.l / r.w) * 100}%`, top: `${(-r.t / r.h) * 100}%`, width: `${100 / r.w}%`, height: `${100 / r.h}%`,
+  };
+}
 
 export function SceneFrame({
   projectId,
@@ -54,6 +72,7 @@ export function SceneFrame({
   move = null,
   cameraMode,
   durationSec = 3,
+  onMediaSize,
 }: {
   projectId: string;
   scene: FrameScene;
@@ -67,8 +86,15 @@ export function SceneFrame({
   move?: CameraMove | null;
   cameraMode?: CameraMode;
   durationSec?: number;
+  /** The media's displayed size (file rotation applied, user rotation not) once it loads. */
+  onMediaSize?: (w: number, h: number) => void;
 }) {
   const cam = cameraStyle(move, cameraMode, durationSec, playing);
+  // The media's own size (as the browser shows it — file rotation flag applied), for the scene's framing.
+  const [natural, setNaturalState] = useState<{ w: number; h: number } | null>(null);
+  const setNatural = (n: { w: number; h: number }) => { setNaturalState(n); onMediaSize?.(n.w, n.h); };
+  const box = asset ? framedBox(scene.frame, natural, asset.rotation, aspectNumber(aspectCss)) : undefined;
+  const mediaCls = box ? "absolute inset-0 size-full object-fill" : "absolute inset-0 size-full object-cover";
   const t = scene.textMode === "none" ? {} : scene.text ?? {};
   // Same rule as the template (W >= H): 16:9 and 1:1 put a slide's panel on the left, tall frames at the bottom.
   const wide = !/9\/16|4\/5/.test(aspectCss);
@@ -86,21 +112,30 @@ export function SceneFrame({
       {asset && (!card || !cardOnly) ? (
         // The camera preview moves a wrapper, never the media itself (its transform carries the clip's rotation).
         <div className="absolute inset-0" style={cam}>
+        {/* Unframed, the media sizes itself from the root (already a size container). */}
+        <div className="absolute inset-0" style={box}>
         {asset.kind === "video" ? (
           <video
-            key={`${asset.id}-${playing}`}
+            key={`${asset.id}-${playing}-${startAt ?? ""}`}
             src={`${src}#t=${Math.max(0.1, startAt ?? 0.1)}`}
             muted
             playsInline
             autoPlay={playing}
             preload="metadata"
-            className="absolute inset-0 size-full object-cover"
+            onLoadedMetadata={(e) => { const v = e.currentTarget; if (v.videoWidth) setNatural({ w: v.videoWidth, h: v.videoHeight }); }}
+            className={mediaCls}
             style={rotatedFill(asset.rotation)}
           />
         ) : (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={src!} alt="" className="absolute inset-0 size-full object-cover" style={rotatedFill(asset.rotation)} />
+          <img
+            key={asset.id}
+            ref={(el) => { if (el?.complete && el.naturalWidth && !natural) setNatural({ w: el.naturalWidth, h: el.naturalHeight }); }}
+            onLoad={(e) => { const i = e.currentTarget; if (i.naturalWidth) setNatural({ w: i.naturalWidth, h: i.naturalHeight }); }}
+            src={src!} alt="" className={mediaCls} style={rotatedFill(asset.rotation)}
+          />
         )}
+        </div>
         </div>
       ) : (
         <div

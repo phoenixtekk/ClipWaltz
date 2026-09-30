@@ -27,6 +27,7 @@ f48b8d6 feat(deck): music & voice mix, dynamic camera, brief history, tone prese
   Free-plan "leaving ClipWaltz" interstitial), **Phase 5** (AI credits Free 30/Plus 300/Pro 1,000, AI fill, brand from
   website, translations + 7 voices), music & voice mix (Steady duck default), dynamic camera, brief history, tone presets,
   and the app-wide action-errors fix (ActionResult). Migrations 0040–0043 applied on prod.
+- **Scene media editing (v11, 2026-09-30):** Edit media dialog on deck scenes (crop/reposition = `deck_scenes.frame`, migration 0044; rotate; video start = `in_sec`) + Delete from project (dialog + media rows). Dev-verified incl. real render + PDF export (PSNR). See FEATURES/ADMIN_DOCS.
 - **Next focus:** nothing queued — all 5 WaltzDeck phases are live. Ideas noted: per-user credit grants (admin),
   Hindi/Japanese/Chinese (fonts + misaki extras). Ask the owner. Rule: new client-called actions must return ActionResult
   and be unwrapped (ADMIN_DOCS "Server action errors").
