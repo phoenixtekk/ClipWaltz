@@ -14,6 +14,34 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
+## AI credits + WaltzDeck Phase 5 (2026-09-29, v10) — LIVE on prod (`79ee0c0` + voice previews)
+Owner decisions: **credits = monthly allowance, no purchases; all Waltz AI; Free 30 / Plus 300 / Pro 1,000** (recorded in
+BILLING.md + spec). Shipped: per-job `generation_jobs.credits` (migration **0042**; older jobs 0), balance = month's
+non-failed/cancelled/retried jobs (auto refund), atomic `spendCredits`, cost + balance on every AI button (Waltz AI generate,
+enhance, remix, deck fill) + Billing card; **AI fill** (Bring to life / Generate a shot → clip copied to its own file, swapped
+into the scene); **brand kit from website** (suggest → Use these); **languages** EN/ES/FR/IT/PT-BR + **Translate to…** (copy);
+7 new Kokoro voices (espeak, estimated word timings) + previews; queue names env-overridable (dev uses `*-dev`).
+- **Found + fixed:** production React replaces thrown server-action errors with "Minified React error #441" (verified with a
+  local `next build`). Credit-spending actions now RETURN errors (`src/lib/action-result.ts` toResult/unwrap) — verified the
+  real message shows in a production build. **App-wide this is still broken for every other action** → spawned task
+  "Show server action errors in production" (another session, worktree `claude/jovial-wescoff-66e528`, converting the rest;
+  told it 79ee0c0 is on main; it won't deploy without the owner).
+- Code Reviewer: 6 findings, all fixed + verified (pre-credit jobs regenerated free → copies priced via `costOfJob`; fill clip
+  shared the version's file → own copy; SVG-as-PNG rasterised → real-format check; translation reset retention clock →
+  keeps createdAt; regenerate re-filled a scene → deckFill stripped; enqueue failure kept credits → fails + refunds).
+- **Deployed:** linuxg1 full tree (backup `/tmp/cw-pre-phase5-src.tgz`), migration 0042, build, pm2 restart app + gen
+  worker; AI box `clipwaltz-tts` server.py (backup `server.py.bak-20260929-phase5`) → 15 voices; voice previews
+  `public/voices/*.mp3` (app restarted to serve them). Render worker unchanged. Wiki (features, admin-docs, help-center,
+  spec, billing) + inventory updated.
+- **Verified:** dev — real GPU AI fill (8 s clip → scene swapped, described), credits line + server refusal with no job
+  created, refund math, brand from python.org applied, Spanish translation (0 lines kept back), regenerate of a 0-cost job
+  charged 8 + deckFill stripped (then cancelled — GPU job stopped), storage copy call on a real clip. Prod — migration,
+  15 voices synthesise with timings, previews 200. **Not exercised on prod:** credits/AI fill/translate through the UI (no
+  prod login) — owner can try.
+- Dev leftovers: throwaway project "Credits regen test (dev)", the Spanish copy "Phase 3 test — Q3 review (Español)".
+- **Next:** all 5 WaltzDeck phases shipped. Open: merge/deploy the action-errors task when the owner approves it; optional
+  per-user credit grants (admin) and Hindi/Japanese/Chinese (need CJK/Devanagari fonts + misaki extras).
+
 ## WaltzDeck Phase 4 (2026-09-29, v10) — LIVE on prod (`69fcc57`)
 Campaign packs: editor section "4 · Campaign pack" → AI hooks (`writeHooks`) + CTA wordings → owner-reviewed draft →
 every hook × CTA × length (6/15/30) × shape (≤ 12) rendered as its own render with a storyboard snapshot
