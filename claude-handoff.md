@@ -15,7 +15,7 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 ---
 
 ## Working state (2026-09-30, rotation to v11)
-Tree **clean**, in sync with origin/main (`709fe78`). tsc clean; lint clean (v11: fixed generation-panel + announcements-view set-state-in-effect; eslint now ignores `.claude/**` worktree copies). All deployed.
+Tree **clean**, in sync with origin/main (`709fe78`). tsc clean; lint clean (v11: fixed generation-panel + announcements-view set-state-in-effect; eslint now ignores `.claude/**` worktree copies) — `b20d585` deployed to linuxg1 2026-09-30 (2 components + eslint config, build, pm2 restart clipwaltz; backup `/tmp/cw-pre-lintfix-src.tgz`). All deployed.
 ```
 709fe78 docs(handoff): action-errors fix deployed
 dcc5fd7 Merge remote-tracking branch 'origin/main' into claude/jovial-wescoff-66e528
