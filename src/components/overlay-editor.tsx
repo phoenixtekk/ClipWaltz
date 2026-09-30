@@ -123,7 +123,7 @@ export function OverlayEditor({
         <Layers className="size-4 text-[color:var(--cw-violet)]" /> Overlays
       </h2>
 
-      <div className="grid gap-4 lg:grid-cols-[auto_1fr] lg:items-start">
+      <div className="grid gap-4 @2xl:grid-cols-[auto_1fr] @2xl:items-start">
         {/* drag stage */}
         <div
           ref={stageRef}

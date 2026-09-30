@@ -47,11 +47,8 @@ export function CampaignPanel({ projectId, initial, canEdit, scenes, assets, bra
   const assetById = new Map(assets.map((a) => [a.id, a]));
 
   return (
-    <section className="cw-glass space-y-4 rounded-xl p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-sm font-semibold"><Megaphone className="size-4 text-[color:var(--cw-violet)]" /> 4 · Campaign pack</h2>
-        {canEdit && packs?.length && !showNew ? <Button size="sm" variant="secondary" onClick={() => setShowNew(true)}><Plus className="size-4" /> New pack</Button> : null}
-      </div>
+    <section className="space-y-4">
+      {canEdit && packs?.length && !showNew ? <Button size="sm" variant="secondary" onClick={() => setShowNew(true)}><Plus className="size-4" /> New pack</Button> : null}
       <p className="text-xs text-muted-foreground">
         Test which opening, call to action, length and shape works best: the AI writes alternative hooks, ClipWaltz renders every
         combination (up to {MAX_VARIANTS}), and each video gets its own link that counts views, completions and clicks.

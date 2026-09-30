@@ -203,6 +203,31 @@
     inset 0 -1px 0 0 rgba(0,0,0,0.15),
     var(--cw-glass-shadow);
 }
+/* One-screen editor studio (src/components/studio/studio-shell.tsx): the app header has this fixed height so the
+   studio can fill exactly the rest of the viewport. */
+:root { --cw-header-h: 3.25rem; }
+.cw-studio-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 0.875rem;
+  border: 1px solid var(--cw-glass-border);
+  background: var(--cw-glass-bg);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+}
+
+/* The studio's one primary action (Render HD): the brand spectrum. */
+.cw-spectrum-btn {
+  background: var(--cw-spectrum);
+  color: #fff;
+  border: 0;
+  box-shadow: 0 4px 18px rgba(139, 92, 246, 0.35);
+}
+.cw-spectrum-btn:hover { filter: brightness(1.08); }
+
 /* always-dark glass (sits on the phone's dark gradient screen) */
 .cw-glass-dark {
   position: relative;

@@ -47,7 +47,10 @@ export default async function EditPage({
       ? { theme: activeContest.theme, entered: await isRenderEntered(activeContest.id, latestRender.id) }
       : null;
 
-  const editor = (
+  // Viewers (ADR-0004) get the same screen read-only: the studio disables every edit control natively
+  // (fieldsets) and shows a "View only" badge; players and download links still work. The server
+  // rejects any edit regardless.
+  return (
     <EditorWorkspace
       projectId={id}
       project={project}
@@ -62,20 +65,7 @@ export default async function EditPage({
       backdropAssetId={assets.find((a) => a.uploadState === "uploaded")?.id ?? null}
       initialTab={tab === "generate" ? "generate" : undefined}
       templateSettings={templateSettings}
+      readOnly={project.role === "viewer"}
     />
-  );
-  if (project.role !== "viewer") return editor;
-
-  // Viewers (ADR-0004) get the same screen read-only: every control is disabled natively by the
-  // fieldset; players and download links still work. The server rejects any edit regardless.
-  return (
-    <div className="space-y-4">
-      <p role="status" className="rounded-lg border border-border bg-muted/40 px-4 py-2 text-sm text-muted-foreground">
-        View only — you&apos;re a viewer in this workspace. Ask an admin for editor access to make changes.
-      </p>
-      <fieldset disabled className="contents">
-        {editor}
-      </fieldset>
-    </div>
   );
 }

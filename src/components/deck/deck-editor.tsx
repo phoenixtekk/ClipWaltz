@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Sparkles, Upload, Loader2, Lock, Unlock, Trash2, Plus, ArrowUp, ArrowDown, Wand2, Play, Pause, RotateCcw, Info, ImageIcon, Mic, Captions,
-  FileUp, Globe, Presentation, FileText, FileDown, Download, Crop,
+  FileUp, Globe, Presentation, FileText, FileDown, Download, Crop, Music, Palette, Megaphone, Clapperboard, ChevronRight, SkipBack, SkipForward,
 } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
@@ -31,12 +31,16 @@ import type { CreditBalance } from "@/lib/credits";
 import { uploadProjectFile, isSupported } from "@/lib/upload-client";
 import { SceneFrame, type FrameBrand } from "./scene-frame";
 import { SceneMediaDialog } from "./scene-media-dialog";
+import { StudioShell, StudioPanel, type StudioTab, type StudioStep } from "@/components/studio/studio-shell";
+import { aspectNumber } from "@/lib/deck/frame";
+import { rotatedFill } from "@/lib/rotation";
 import { deleteAsset } from "@/lib/asset-actions";
 import { BRAND_FONTS, BRAND_FONTS_CSS, type BrandKit } from "@/lib/brand";
 import { saveBrandKit, uploadBrandLogo, suggestBrandFromSite, applyBrandSuggestion, dismissBrandSuggestion } from "@/lib/brand-actions";
 
 const BUSY = new Set(["queued", "describing", "planning"]);
 const IMPORT_BUSY = new Set(["queued", "reading", "summarizing"]);
+type DeckTab = "storyboard" | "audio" | "brand" | "slides" | "campaign" | "render";
 const field = "w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary";
 
 export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHistory, musicSlot, canEdit, renderSlot }: {
@@ -48,6 +52,9 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
   const [logoVersion, setLogoVersion] = useState(0);
   const [brief, setBrief] = useState<DeckBrief>(initial.deck.brief);
   const [presenting, setPresenting] = useState<number | null>(null);
+  const [tab, setTab] = useState<DeckTab>("storyboard");
+  // The scene shown on the stage and in the inspector (falls back to the first when it's gone, e.g. after a re-plan).
+  const [selId, setSelId] = useState<string | null>(initial.scenes[0]?.id ?? null);
   const [history, setHistory] = useState(initialHistory);
   const reloadHistory = () => { void getBriefHistory().then(unwrap).then(setHistory).catch(() => {}); };
   const [pending, start] = useTransition();
@@ -121,127 +128,116 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
   const aspectCss = aspectClass(data.project.aspect);
   const unused = plan.status === "ready" ? (plan.unusedAssetIds ?? []).filter((id) => !data.scenes.some((s) => s.assetId === id)) : [];
 
-  return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      {/* Same font families the render box has installed (src/lib/brand.ts) — so the preview matches. */}
-      <link rel="stylesheet" href={BRAND_FONTS_CSS} precedence="default" />
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-[color:var(--cw-violet)]">
-            <Sparkles className="size-3.5" /> WaltzDeck
-          </p>
-          <h1 className="text-2xl font-semibold tracking-tight">{data.project.title}</h1>
-          <p className="text-sm text-muted-foreground">
-            Your photos and videos, a brief, and notes per item → an on-brand {brief.mode === "ad" ? "ad" : brief.mode === "presentation" ? "presentation" : "slideshow"}, scene by scene.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {canEdit && data.scenes.length ? (
-            <select value="" disabled={pending || translating} aria-label="Translate this deck"
-              onChange={(e) => {
-                const lang = e.target.value;
-                if (!lang) return;
-                act(async () => { const id = unwrap(await translateDeck(projectId, lang)); router.push(`/projects/${id}/deck`); },
-                  "Translated copy created — the words are being translated now.");
-              }}
-              className="h-8 rounded-full border border-border bg-background px-3 text-xs text-muted-foreground">
-              <option value="">Translate to…</option>
-              {LANGUAGES.filter((l) => l.code !== (brief.language ?? "en")).map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
-            </select>
-          ) : null}
-          <span className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground">{data.project.aspect}</span>
-        </div>
-      </header>
-      {brief.translatedFrom || tr.status !== "idle" ? (
-        <div className="cw-glass flex flex-wrap items-center gap-2 rounded-xl px-4 py-2 text-xs">
-          {translating ? <Loader2 className="size-3.5 animate-spin text-[color:var(--cw-violet)]" /> : <Globe className="size-3.5 text-[color:var(--cw-violet)]" />}
-          <span>
-            {LANGUAGES.find((l) => l.code === (brief.language ?? "en"))?.label} version
-            {brief.translatedFrom ? <> of <Link className="underline" href={`/projects/${brief.translatedFrom.projectId}/deck`}>{brief.translatedFrom.title}</Link></> : null}
-            {translating ? " — translating the words…" : null}
-            {tr.status === "ready" ? ` — translated. Check the scenes, then render.${tr.kept ? ` ${tr.kept} line${tr.kept === 1 ? "" : "s"} kept in the original language (a number or web address didn't survive) — edit them by hand.` : ""}` : null}
-            {tr.status === "failed" ? <span className="text-destructive"> — translation failed: {tr.error}</span> : null}
-          </span>
-        </div>
-      ) : null}
+  const selIndex = Math.max(0, data.scenes.findIndex((s) => s.id === selId));
+  const selScene = data.scenes[selIndex] ?? null;
+  const modeLabel = brief.mode === "ad" ? "Ad" : brief.mode === "presentation" ? "Presentation" : "Slideshow";
+  const tabs: StudioTab<DeckTab>[] = [
+    { key: "storyboard", label: "Storyboard", icon: <Wand2 className="size-4" /> },
+    { key: "audio", label: "Audio", icon: <Music className="size-4" /> },
+    { key: "brand", label: "Brand", icon: <Palette className="size-4" /> },
+    { key: "slides", label: "Slides", icon: <Presentation className="size-4" /> },
+    { key: "campaign", label: "Campaign", icon: <Megaphone className="size-4" /> },
+    { key: "render", label: "Render", icon: <Clapperboard className="size-4" /> },
+  ];
+  const planButton = (
+    <Button className="w-full" disabled={!canEdit || pending || planBusy || !data.assets.length}
+      onClick={() => act(async () => { unwrap(await saveBrief(projectId, brief)); unwrap(await requestPlan(projectId)); })}>
+      {planBusy ? <Loader2 className="size-4 animate-spin" /> : <Wand2 className="size-4" />}
+      {data.scenes.length ? "Re-plan (keeps locked scenes)" : "Plan my video"}
+    </Button>
+  );
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
-        {/* ── left: brief + media ── */}
-        <div className="space-y-6">
-          <section className="cw-glass space-y-4 rounded-xl p-4">
-            <h2 className="text-sm font-semibold">1 · Brief</h2>
-            <div className="inline-flex rounded-lg border border-border bg-muted/50 p-0.5 text-sm">
-              {DECK_MODES.map((m) => (
-                <button
-                  key={m.key}
-                  type="button"
-                  disabled={!canEdit}
-                  aria-pressed={brief.mode === m.key}
-                  onClick={() => saveBriefNow({ mode: m.key, lengthSec: m.defaultLength })}
-                  className={cn("rounded-md px-3 py-1.5", brief.mode === m.key ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground")}
-                  title={m.desc}
-                >
-                  {m.label}
+  const left = (() => {
+    if (tab === "audio") return (
+      <StudioPanel title="Music & voice">
+        <div className="space-y-4">
+          {(brief.audio?.music ?? true) ? musicSlot : <p className="text-xs text-muted-foreground">No music — turn it back on below.</p>}
+          <AudioMix value={brief.audio} hasVoice={(brief.voice?.mode ?? "off") !== "off"} canEdit={canEdit} onChange={(audio) => saveBriefNow({ audio })} />
+        </div>
+      </StudioPanel>
+    );
+    if (tab === "brand") return (
+      <StudioPanel title="Brand">
+        <BrandSection projectId={projectId} kit={brandKit} canEdit={canEdit} suggestion={brandSug} onChanged={refresh}
+          onSaved={(k, logo) => { setBrandKit(k); if (logo) setLogoVersion((v) => v + 1); }} />
+      </StudioPanel>
+    );
+    if (tab === "slides") return (
+      <StudioPanel title={brief.mode === "presentation" ? "Present & export" : "Slides"}>
+        {data.scenes.length ? (
+          <SlidesSection projectId={projectId} exports={data.exports} canEdit={canEdit} presentation={brief.mode === "presentation"}
+            onPresent={() => setPresenting(selIndex)}
+            onExport={(f) => act(async () => unwrap(await requestDeckExport(projectId, f)), f === "pdf" ? "Making your PDF…" : "Making your PowerPoint…")} />
+        ) : <p className="text-xs text-muted-foreground">Plan the storyboard first — each scene becomes a slide.</p>}
+      </StudioPanel>
+    );
+    if (tab === "campaign") return (
+      <StudioPanel title="Campaign pack">
+        {data.scenes.length ? (
+          <CampaignPanel projectId={projectId} initial={initialCampaigns} canEdit={canEdit} scenes={data.scenes} assets={data.assets} brand={frameBrand}
+            aspect={data.project.aspect} voiceOn={(brief.voice?.mode ?? "off") !== "off"} ctaText={brief.cta?.text ?? ""} />
+        ) : <p className="text-xs text-muted-foreground">Plan the storyboard first — a pack tests alternatives of it.</p>}
+      </StudioPanel>
+    );
+    if (tab === "render") return null; // kept mounted below
+    return (
+      <StudioPanel title="Brief" actions={<span className="rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">AI planner</span>}
+        footer={<div className="space-y-1.5">{planButton}<PlanStatus plan={plan} /></div>}>
+        <div className="space-y-4">
+          <div className="flex rounded-lg border border-border bg-muted/50 p-0.5 text-sm">
+            {DECK_MODES.map((m) => (
+              <button key={m.key} type="button" disabled={!canEdit} aria-pressed={brief.mode === m.key} title={m.desc}
+                onClick={() => saveBriefNow({ mode: m.key, lengthSec: m.defaultLength })}
+                className={cn("flex-1 rounded-md px-2 py-1.5", brief.mode === m.key ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground")}>
+                {m.label}
+              </button>
+            ))}
+          </div>
+          {canEdit ? <ImportBar projectId={projectId} status={imp} busy={importBusy} onStarted={refresh} /> : null}
+          <label className="block space-y-1">
+            <span className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium">{brief.mode === "presentation" ? "What is this presentation about?" : "What is this video for?"}</span>
+              {canEdit ? (
+                <BriefHistory items={history} onUse={(text) => saveBriefNow({ prompt: text })}
+                  onRemove={(id) => { setHistory(history.filter((h) => h.id !== id)); void removeBriefHistory(id).then(unwrap).catch(() => {}); }} />
+              ) : null}
+            </span>
+            <textarea value={brief.prompt} disabled={!canEdit} onChange={(e) => setBrief({ ...brief, prompt: e.target.value })} onBlur={() => saveBriefNow()}
+              rows={4} maxLength={2000}
+              placeholder={brief.mode === "ad"
+                ? "e.g. 15-second Instagram ad for our cold brew — summer vibe, easy to order, for busy commuters."
+                : brief.mode === "presentation"
+                  ? "e.g. Q3 review for the team — what went well, what we learned, next steps. Friendly, clear."
+                  : "e.g. Our family trip to Lake Powell — warm, fun, in the order it happened."}
+              className={cn(field, "resize-y py-2")} />
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="col-span-2 block space-y-1">
+              <span className="text-xs font-medium text-muted-foreground">Tone</span>
+              <ToneField value={brief.tone ?? ""} disabled={!canEdit} onChange={(tone) => setBrief({ ...brief, tone })} onCommit={(tone) => saveBriefNow({ tone })} />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-muted-foreground">Offer</span>
+              <input value={brief.offer ?? ""} disabled={!canEdit} onChange={(e) => setBrief({ ...brief, offer: e.target.value })} onBlur={() => saveBriefNow()} placeholder="20% off weekdays" className={cn(field, "h-8")} />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-muted-foreground">Call to action</span>
+              <input value={brief.cta?.text ?? ""} disabled={!canEdit} onChange={(e) => setBrief({ ...brief, cta: { text: e.target.value, url: brief.cta?.url } })} onBlur={() => saveBriefNow()} placeholder="Book at example.com" className={cn(field, "h-8")} />
+            </label>
+            <label className="col-span-2 block space-y-1">
+              <span className="text-xs font-medium text-muted-foreground">Length · {brief.lengthSec}s</span>
+              <input type="range" min={6} max={brief.mode === "ad" ? 60 : 180} step={1} value={brief.lengthSec} disabled={!canEdit}
+                onChange={(e) => setBrief({ ...brief, lengthSec: Number(e.target.value) })} onPointerUp={() => saveBriefNow()} onKeyUp={() => saveBriefNow()} className="w-full" />
+            </label>
+          </div>
+          <Fold title="Text on video" value={`${brief.textMode === "auto" ? "Auto" : brief.textMode === "manual" ? "Manual" : "Off"} · ${LANGUAGES.find((l) => l.code === (brief.language ?? "en"))?.label ?? ""}`}>
+            <div className="flex flex-wrap gap-1.5">
+              {([["auto", "Auto — AI writes it"], ["manual", "Manual — I'll write it"], ["off", "Off — no text"]] as [TextMode, string][]).map(([k, label]) => (
+                <button key={k} type="button" disabled={!canEdit} aria-pressed={brief.textMode === k} onClick={() => saveBriefNow({ textMode: k })}
+                  className={cn("rounded-full border px-2.5 py-1 text-xs font-medium", brief.textMode === k ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10" : "border-border text-muted-foreground hover:text-foreground")}>
+                  {label}
                 </button>
               ))}
-            </div>
-            {canEdit ? <ImportBar projectId={projectId} status={imp} busy={importBusy} onStarted={refresh} /> : null}
-            <label className="block space-y-1">
-              <span className="flex items-center justify-between gap-2">
-                <span className="text-sm font-medium">{brief.mode === "presentation" ? "What is this presentation about?" : "What is this video for?"}</span>
-                {canEdit ? (
-                  <BriefHistory items={history} onUse={(text) => saveBriefNow({ prompt: text })}
-                    onRemove={(id) => { setHistory(history.filter((h) => h.id !== id)); void removeBriefHistory(id).then(unwrap).catch(() => {}); }} />
-                ) : null}
-              </span>
-              <textarea
-                value={brief.prompt}
-                disabled={!canEdit}
-                onChange={(e) => setBrief({ ...brief, prompt: e.target.value })}
-                onBlur={() => saveBriefNow()}
-                rows={4}
-                maxLength={2000}
-                placeholder={brief.mode === "ad"
-                  ? "e.g. 15-second Instagram ad for our cold brew — summer vibe, easy to order, for busy commuters."
-                  : brief.mode === "presentation"
-                    ? "e.g. Q3 review for the team — what went well, what we learned, next steps. Friendly, clear."
-                    : "e.g. Our family trip to Lake Powell — warm, fun, in the order it happened."}
-                className={cn(field, "resize-y py-2")}
-              />
-            </label>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block space-y-1">
-                <span className="text-xs font-medium text-muted-foreground">Tone</span>
-                <ToneField value={brief.tone ?? ""} disabled={!canEdit} onChange={(tone) => setBrief({ ...brief, tone })} onCommit={(tone) => saveBriefNow({ tone })} />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-xs font-medium text-muted-foreground">Offer (optional)</span>
-                <input value={brief.offer ?? ""} disabled={!canEdit} onChange={(e) => setBrief({ ...brief, offer: e.target.value })} onBlur={() => saveBriefNow()} placeholder="20% off weekdays" className={cn(field, "h-9")} />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-xs font-medium text-muted-foreground">Call to action {brief.mode === "ad" ? "" : "(optional)"}</span>
-                <input value={brief.cta?.text ?? ""} disabled={!canEdit} onChange={(e) => setBrief({ ...brief, cta: { text: e.target.value, url: brief.cta?.url } })} onBlur={() => saveBriefNow()} placeholder="Book at example.com" className={cn(field, "h-9")} />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-xs font-medium text-muted-foreground">Length · {brief.lengthSec}s</span>
-                <input type="range" min={6} max={brief.mode === "ad" ? 60 : 180} step={1} value={brief.lengthSec} disabled={!canEdit}
-                  onChange={(e) => setBrief({ ...brief, lengthSec: Number(e.target.value) })} onPointerUp={() => saveBriefNow()} onKeyUp={() => saveBriefNow()} className="h-9 w-full" />
-              </label>
-            </div>
-            <div className="space-y-1">
-              <span className="text-xs font-medium text-muted-foreground">Text on video</span>
-              <div className="flex flex-wrap gap-2">
-                {([
-                  ["auto", "Auto — AI writes it"],
-                  ["manual", "Manual — I'll write it"],
-                  ["off", "Off — no text"],
-                ] as [TextMode, string][]).map(([k, label]) => (
-                  <button key={k} type="button" disabled={!canEdit} aria-pressed={brief.textMode === k} onClick={() => saveBriefNow({ textMode: k })}
-                    className={cn("rounded-full border px-3 py-1 text-xs font-medium", brief.textMode === k ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10" : "border-border text-muted-foreground hover:text-foreground")}>
-                    {label}
-                  </button>
-                ))}
-              </div>
             </div>
             <label className="flex items-center gap-2 text-xs">
               <span className="font-medium text-muted-foreground">Language</span>
@@ -249,139 +245,165 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
                 className={cn(field, "h-8 w-auto text-xs")} aria-label="Language of the text and voice">
                 {LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
               </select>
-              <span className="text-[11px] text-muted-foreground">for the AI&apos;s text, the voice and captions</span>
             </label>
-            <div className="space-y-1">
-              <span className="text-xs font-medium text-muted-foreground">Camera</span>
-              <div className="flex flex-wrap gap-2">
-                {CAMERA_MODES.map((m) => (
-                  <button key={m.key} type="button" disabled={!canEdit} aria-pressed={(brief.camera?.mode ?? "off") === m.key} title={m.desc}
-                    onClick={() => saveBriefNow({ camera: { mode: m.key as CameraMode } })}
-                    className={cn("rounded-full border px-3 py-1 text-xs font-medium", (brief.camera?.mode ?? "off") === m.key ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10" : "border-border text-muted-foreground hover:text-foreground")}>
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-              <p className="text-[11px] text-muted-foreground">{CAMERA_MODES.find((m) => m.key === (brief.camera?.mode ?? "off"))?.desc} Text always stays steady.</p>
-            </div>
-            <VoiceControls brief={brief} canEdit={canEdit} onChange={(patch) => saveBriefNow(patch)} />
-          </section>
-
-          <BrandSection projectId={projectId} kit={brandKit} canEdit={canEdit} suggestion={brandSug} onChanged={refresh}
-            onSaved={(k, logo) => { setBrandKit(k); if (logo) setLogoVersion((v) => v + 1); }} />
-
-          <section className="cw-glass space-y-3 rounded-xl p-4">
-            <h2 className="text-sm font-semibold">Music &amp; voice</h2>
-            {(brief.audio?.music ?? true) ? musicSlot : <p className="text-xs text-muted-foreground">No music — turn it back on below.</p>}
-            <AudioMix value={brief.audio} hasVoice={(brief.voice?.mode ?? "off") !== "off"} canEdit={canEdit} onChange={(audio) => saveBriefNow({ audio })} />
-          </section>
-
-          <MediaSection projectId={projectId} assets={data.assets} scenes={data.scenes} canEdit={canEdit} onChange={refresh} />
-        </div>
-
-        {/* ── right: storyboard + preview + render ── */}
-        <div className="space-y-6">
-          <section className="cw-glass space-y-4 rounded-xl p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold">2 · Storyboard</h2>
-              <Button disabled={!canEdit || pending || planBusy || !data.assets.length}
-                onClick={() => act(async () => { unwrap(await saveBrief(projectId, brief)); unwrap(await requestPlan(projectId)); })}>
-                {planBusy ? <Loader2 className="size-4 animate-spin" /> : <Wand2 className="size-4" />}
-                {data.scenes.length ? "Re-plan (keeps locked scenes)" : "Plan my video"}
-              </Button>
-            </div>
-            <PlanStatus plan={plan} />
-            {data.scenes.length ? (
-              <p className="text-xs text-muted-foreground">
-                {data.scenes.length} scenes · {total.toFixed(1)}s of {brief.lengthSec}s
-                {unused.length ? ` · ${unused.length} of your files not used yet (add them from the media list)` : ""}
-              </p>
-            ) : null}
-            <div className="space-y-3">
-              {data.scenes.map((s, i) => (
-                <SceneCard
-                  key={s.id}
-                  projectId={projectId}
-                  scene={s}
-                  index={i}
-                  count={data.scenes.length}
-                  asset={s.assetId ? assetById.get(s.assetId) ?? null : null}
-                  assets={data.assets}
-                  aspectCss={aspectCss}
-                  wide={isWide(data.project.aspect)}
-                  canEdit={canEdit}
-                  brand={frameBrand}
-                  voiceMode={brief.voice?.mode ?? "off"}
-                  presentation={brief.mode === "presentation"}
-                  fill={data.fills[s.id]}
-                  credits={credits}
-                  onFill={(mode, prompt) => new Promise<void>((resolve) => act(async () => { try { unwrap(await fillScene(projectId, s.id, { mode, prompt })); } finally { resolve(); } },
-                    mode === "animate" ? "Bringing it to life — the clip replaces this scene's photo when it's ready." : "Making the shot — it goes into this scene when it's ready."))}
-                  onPatch={(patch) => act(async () => unwrap(await updateScene(projectId, s.id, patch)))}
-                  onRewrite={(ins) => act(async () => unwrap(await rewriteSceneText(projectId, s.id, ins)))}
-                  onMove={(dir) => {
-                    const ids = data.scenes.map((x) => x.id);
-                    const j = i + dir;
-                    if (j < 0 || j >= ids.length) return;
-                    [ids[i], ids[j]] = [ids[j], ids[i]];
-                    act(async () => unwrap(await reorderScenes(projectId, ids)));
-                  }}
-                  onDelete={() => act(async () => unwrap(await deleteScene(projectId, s.id)))}
-                  usedBy={s.assetId ? data.scenes.filter((x) => x.assetId === s.assetId).length : 0}
-                  onMediaChanged={refresh}
-                  onAddAfter={() => act(async () => unwrap(await addScene(projectId, i, null)))}
-                />
+            <p className="text-[11px] text-muted-foreground">The language of the AI&apos;s text, the voice and captions.</p>
+          </Fold>
+          <Fold title="Camera" value={CAMERA_MODES.find((m) => m.key === (brief.camera?.mode ?? "off"))?.label ?? ""}>
+            <div className="flex flex-wrap gap-1.5">
+              {CAMERA_MODES.map((m) => (
+                <button key={m.key} type="button" disabled={!canEdit} aria-pressed={(brief.camera?.mode ?? "off") === m.key} title={m.desc}
+                  onClick={() => saveBriefNow({ camera: { mode: m.key as CameraMode } })}
+                  className={cn("rounded-full border px-2.5 py-1 text-xs font-medium", (brief.camera?.mode ?? "off") === m.key ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10" : "border-border text-muted-foreground hover:text-foreground")}>
+                  {m.label}
+                </button>
               ))}
             </div>
-            {unused.length && canEdit ? (
-              <div className="rounded-lg border border-dashed border-border p-3">
-                <p className="mb-2 text-xs font-medium text-muted-foreground">Not in the storyboard yet — tap to add at the end:</p>
-                <div className="flex flex-wrap gap-2">
-                  {unused.map((id) => {
-                    const a = assetById.get(id);
-                    return a ? (
-                      <button key={id} type="button" onClick={() => act(async () => unwrap(await addScene(projectId, data.scenes.length - 1, id)))}
-                        className="rounded-md border border-border px-2 py-1 text-xs hover:border-primary">+ {a.name}</button>
-                    ) : null;
-                  })}
-                </div>
-              </div>
-            ) : null}
-          </section>
-
-          {data.scenes.length ? <DeckPreview projectId={projectId} scenes={data.scenes} assets={assetById} aspectCss={aspectCss} wide={isWide(data.project.aspect)} brand={frameBrand} cameraMode={brief.camera?.mode} /> : null}
-
-          {data.scenes.length ? (
-            <SlidesSection
-              projectId={projectId}
-              exports={data.exports}
-              canEdit={canEdit}
-              presentation={brief.mode === "presentation"}
-              onPresent={() => setPresenting(0)}
-              onExport={(f) => act(async () => unwrap(await requestDeckExport(projectId, f)), f === "pdf" ? "Making your PDF…" : "Making your PowerPoint…")}
-            />
-          ) : null}
-
-          <section className="space-y-2">
-            <h2 className="text-sm font-semibold">3 · Render{brief.mode === "presentation" ? " as a video" : ""}</h2>
-            {renderSlot}
-          </section>
-
-          {data.scenes.length ? (
-            <CampaignPanel
-              projectId={projectId}
-              initial={initialCampaigns}
-              canEdit={canEdit}
-              scenes={data.scenes}
-              assets={data.assets}
-              brand={frameBrand}
-              aspect={data.project.aspect}
-              voiceOn={(brief.voice?.mode ?? "off") !== "off"}
-              ctaText={brief.cta?.text ?? ""}
-            />
-          ) : null}
+            <p className="text-[11px] text-muted-foreground">{CAMERA_MODES.find((m) => m.key === (brief.camera?.mode ?? "off"))?.desc} Text always stays steady.</p>
+          </Fold>
+          <Fold title="Voiceover" value={(brief.voice?.mode ?? "off") === "off" ? "Off" : `${VOICES.find((v) => v.id === brief.voice?.voiceId)?.label.split(" — ")[0] ?? "On"} · ${(brief.voice?.speed ?? 1).toFixed(2)}×`}>
+            <VoiceControls brief={brief} canEdit={canEdit} onChange={(patch) => saveBriefNow(patch)} />
+          </Fold>
         </div>
+      </StudioPanel>
+    );
+  })();
+
+  const stage = (
+    <>
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2 text-xs text-muted-foreground">
+        {selScene ? (
+          <span><b className="font-semibold text-foreground">Scene {selIndex + 1} of {data.scenes.length}</b> · <span className="capitalize">{selScene.role}</span> · {LAYOUTS.find((l) => l.key === selScene.layout)?.label ?? selScene.layout}</span>
+        ) : <b className="font-semibold text-foreground">Preview</b>}
+        {brief.translatedFrom || tr.status !== "idle" ? (
+          <span className="inline-flex min-w-0 items-center gap-1.5">
+            {translating ? <Loader2 className="size-3.5 animate-spin text-[color:var(--cw-violet)]" /> : <Globe className="size-3.5 text-[color:var(--cw-violet)]" />}
+            <span className="truncate">
+              {LANGUAGES.find((l) => l.code === (brief.language ?? "en"))?.label} version
+              {brief.translatedFrom ? <> of <Link className="underline" href={`/projects/${brief.translatedFrom.projectId}/deck`}>{brief.translatedFrom.title}</Link></> : null}
+              {translating ? " — translating the words…" : null}
+              {tr.status === "ready" ? ` — translated.${tr.kept ? ` ${tr.kept} line${tr.kept === 1 ? "" : "s"} kept in the original language — edit them by hand.` : ""}` : null}
+              {tr.status === "failed" ? <span className="text-destructive"> — translation failed: {tr.error}</span> : null}
+            </span>
+          </span>
+        ) : null}
+        <span className="ml-auto rounded-full border border-border px-2 py-0.5">{data.project.aspect}</span>
+        {brief.camera?.mode && brief.camera.mode !== "off" ? <span className="rounded-full border border-border px-2 py-0.5">Camera: {CAMERA_MODES.find((m) => m.key === brief.camera?.mode)?.label}</span> : null}
       </div>
+      {data.scenes.length ? (
+        <DeckStage projectId={projectId} scenes={data.scenes} assets={assetById} aspect={data.project.aspect} aspectCss={aspectCss} brand={frameBrand}
+          cameraMode={brief.camera?.mode} index={selIndex} onIndex={(i) => setSelId(data.scenes[i]?.id ?? null)} onPresent={() => setPresenting(selIndex)} />
+      ) : (
+        <div className="grid flex-1 place-items-center p-6 text-center">
+          <div className="max-w-sm space-y-2">
+            <Sparkles className="mx-auto size-6 text-[color:var(--cw-violet)]" />
+            <p className="text-sm font-medium">No storyboard yet</p>
+            <p className="text-xs text-muted-foreground">Add your photos and videos (bottom left), write the brief, then press <b>Plan my video</b>. Nothing is rendered until you say so.</p>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  const inspector = selScene ? (
+    <StudioPanel title={`Scene ${selIndex + 1}`} bodyClassName="p-2">
+      <SceneCard
+        key={selScene.id}
+        stacked
+        projectId={projectId}
+        scene={selScene}
+        index={selIndex}
+        count={data.scenes.length}
+        asset={selScene.assetId ? assetById.get(selScene.assetId) ?? null : null}
+        assets={data.assets}
+        aspectCss={aspectCss}
+        wide={isWide(data.project.aspect)}
+        canEdit={canEdit}
+        brand={frameBrand}
+        voiceMode={brief.voice?.mode ?? "off"}
+        presentation={brief.mode === "presentation"}
+        fill={data.fills[selScene.id]}
+        credits={credits}
+        onFill={(mode, prompt) => new Promise<void>((resolve) => act(async () => { try { unwrap(await fillScene(projectId, selScene.id, { mode, prompt })); } finally { resolve(); } },
+          mode === "animate" ? "Bringing it to life — the clip replaces this scene's photo when it's ready." : "Making the shot — it goes into this scene when it's ready."))}
+        onPatch={(patch) => act(async () => unwrap(await updateScene(projectId, selScene.id, patch)))}
+        onRewrite={(ins) => act(async () => unwrap(await rewriteSceneText(projectId, selScene.id, ins)))}
+        onMove={(dir) => {
+          const ids = data.scenes.map((x) => x.id);
+          const j = selIndex + dir;
+          if (j < 0 || j >= ids.length) return;
+          [ids[selIndex], ids[j]] = [ids[j], ids[selIndex]];
+          act(async () => unwrap(await reorderScenes(projectId, ids)));
+        }}
+        onDelete={() => { setSelId(data.scenes[selIndex + 1]?.id ?? data.scenes[selIndex - 1]?.id ?? null); act(async () => unwrap(await deleteScene(projectId, selScene.id))); }}
+        usedBy={selScene.assetId ? data.scenes.filter((x) => x.assetId === selScene.assetId).length : 0}
+        onMediaChanged={refresh}
+        onAddAfter={() => act(async () => unwrap(await addScene(projectId, selIndex, null)))}
+      />
+    </StudioPanel>
+  ) : null;
+
+  const steps: StudioStep[] = [
+    { label: "Add media", hint: data.assets.length ? `${data.assets.length} file${data.assets.length === 1 ? "" : "s"}${describing ? " · looking…" : " · all seen"}` : "photos & videos", state: data.assets.length ? "done" : "current" },
+    { label: "Brief & plan", hint: data.scenes.length ? `${data.scenes.length} scenes planned` : "write the brief, then plan", state: data.scenes.length ? "done" : data.assets.length ? "current" : "todo", onClick: () => setTab("storyboard") },
+    { label: "Review scenes", hint: "text, media, voice", state: data.scenes.length ? "current" : "todo" },
+    { label: "Render & share", hint: "video, slides, campaign", state: "todo", onClick: () => setTab("render") },
+  ];
+
+  return (
+    <>
+      {/* Same font families the render box has installed (src/lib/brand.ts) — so the preview matches. */}
+      <link rel="stylesheet" href={BRAND_FONTS_CSS} precedence="default" />
+      <StudioShell
+        kind="WaltzDeck"
+        title={data.project.title}
+        subtitle={`${modeLabel} · ${data.scenes.length ? `${data.scenes.length} scenes · ${total.toFixed(1)}s of ${brief.lengthSec}s` : "not planned yet"}`}
+        tabs={tabs}
+        tab={tab}
+        onTab={setTab}
+        tools={
+          <>
+            {canEdit && data.scenes.length ? (
+              <select value="" disabled={pending || translating} aria-label="Translate this deck"
+                onChange={(e) => {
+                  const lang = e.target.value;
+                  if (!lang) return;
+                  act(async () => { const id = unwrap(await translateDeck(projectId, lang)); router.push(`/projects/${id}/deck`); },
+                    "Translated copy created — the words are being translated now.");
+                }}
+                className="h-8 rounded-lg border border-border bg-background px-2 text-xs text-muted-foreground">
+                <option value="">Translate to…</option>
+                {LANGUAGES.filter((l) => l.code !== (brief.language ?? "en")).map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
+              </select>
+            ) : null}
+            {data.scenes.length ? <Button size="sm" variant="secondary" onClick={() => setPresenting(selIndex)}><Presentation className="size-4" /> Present</Button> : null}
+            <Button size="sm" className="cw-spectrum-btn" onClick={() => setTab("render")}><Clapperboard className="size-4" /> Render HD</Button>
+          </>
+        }
+        left={
+          <>
+            {left}
+            {/* The render panel stays mounted (hidden on other tabs) so a running render keeps polling and its status survives. */}
+            <div className={tab === "render" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
+              <StudioPanel title={brief.mode === "presentation" ? "Render as a video" : "Render"}>{renderSlot}</StudioPanel>
+            </div>
+          </>
+        }
+        stage={stage}
+        inspector={inspector}
+        bottomLeft={
+          <StudioPanel title={<>Your media <span className="font-normal normal-case tracking-normal">· {data.assets.length}</span></>}>
+            <MediaSection projectId={projectId} assets={data.assets} scenes={data.scenes} canEdit={canEdit} onChange={refresh}
+              unused={canEdit ? unused.map((id) => assetById.get(id)).filter((a): a is DeckAsset => !!a) : []}
+              onAddScene={(id) => act(async () => unwrap(await addScene(projectId, data.scenes.length - 1, id)))} />
+          </StudioPanel>
+        }
+        bottom={
+          <SceneStrip projectId={projectId} scenes={data.scenes} assets={assetById} brand={frameBrand} sel={selScene?.id ?? null} onSelect={setSelId}
+            canEdit={canEdit} voiceOn={(brief.voice?.mode ?? "off") !== "off" || brief.mode === "presentation"} total={total} targetSec={brief.lengthSec}
+            onAddCard={() => act(async () => unwrap(await addScene(projectId, data.scenes.length - 1, null)))} />
+        }
+        steps={steps}
+      />
       {presenting !== null && data.scenes.length ? (
         <PresentView
           projectId={projectId}
@@ -393,7 +415,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
           onClose={() => setPresenting(null)}
         />
       ) : null}
-    </div>
+    </>
   );
 }
 
@@ -488,11 +510,8 @@ function SlidesSection({ projectId, exports, canEdit, presentation, onPresent, o
     );
   };
   return (
-    <section className="cw-glass space-y-3 rounded-xl p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold">{presentation ? "Present & export" : "Slides"}</h2>
-        <Button size="sm" onClick={onPresent}><Presentation className="size-4" /> Present</Button>
-      </div>
+    <section className="space-y-3">
+      <Button size="sm" onClick={onPresent}><Presentation className="size-4" /> Present</Button>
       <div className="space-y-2">
         {row("pdf", "PDF", FileText)}
         {row("pptx", "PowerPoint", FileDown)}
@@ -644,9 +663,8 @@ function BrandSection({ projectId, kit, canEdit, suggestion, onChanged, onSaved 
     setBusy(false);
   };
   return (
-    <section className="cw-glass space-y-3 rounded-xl p-4">
+    <section className="space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold">Brand</h2>
         <label className="inline-flex items-center gap-2 text-xs">
           <input type="checkbox" checked={v.applied} disabled={!canEdit || busy} onChange={(e) => save({ ...v, applied: e.target.checked })} />
           Use my brand on this video
@@ -758,7 +776,11 @@ const Status = ({ children, spin }: { children: ReactNode; spin?: boolean }) => 
   <p className="inline-flex items-center gap-2 text-xs text-muted-foreground">{spin ? <Loader2 className="size-3.5 animate-spin text-[color:var(--cw-violet)]" /> : null}{children}</p>
 );
 
-function MediaSection({ projectId, assets, scenes, canEdit, onChange }: { projectId: string; assets: DeckAsset[]; scenes: DeckScene[]; canEdit: boolean; onChange: () => void }) {
+function MediaSection({ projectId, assets, scenes, canEdit, onChange, unused, onAddScene }: {
+  projectId: string; assets: DeckAsset[]; scenes: DeckScene[]; canEdit: boolean; onChange: () => void;
+  /** Files the plan left out — offered as "add to the storyboard". */
+  unused: DeckAsset[]; onAddScene: (assetId: string) => void;
+}) {
   const [uploading, setUploading] = useState<string | null>(null);
   const [pct, setPct] = useState(0);
   const input = useRef<HTMLInputElement | null>(null);
@@ -778,13 +800,12 @@ function MediaSection({ projectId, assets, scenes, canEdit, onChange }: { projec
     onChange();
   };
   return (
-    <section className="cw-glass space-y-3 rounded-xl p-4">
+    <section className="space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold">Your media <span className="font-normal text-muted-foreground">· {assets.length}</span></h2>
         {canEdit ? (
           <>
             <input ref={input} type="file" multiple accept="image/*,video/*,.insv,.insp,.lrv,.heic" className="hidden" onChange={(e) => upload(e.target.files)} />
-            <Button variant="secondary" size="sm" disabled={!!uploading} onClick={() => input.current?.click()}>
+            <Button variant="secondary" size="sm" className="w-full" disabled={!!uploading} onClick={() => input.current?.click()}>
               {uploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />} {uploading ? `${pct}%` : "Add photos & videos"}
             </Button>
           </>
@@ -797,6 +818,16 @@ function MediaSection({ projectId, assets, scenes, canEdit, onChange }: { projec
         ))}
       </ul>
       {!assets.length ? <p className="text-xs text-muted-foreground">No media yet.</p> : null}
+      {unused.length ? (
+        <div className="space-y-1.5 rounded-lg border border-dashed border-border p-2">
+          <p className="text-[11px] font-medium text-muted-foreground">Not in the storyboard yet — tap to add at the end:</p>
+          <div className="flex flex-wrap gap-1.5">
+            {unused.map((a) => (
+              <button key={a.id} type="button" onClick={() => onAddScene(a.id)} className="max-w-full truncate rounded-md border border-border px-2 py-0.5 text-[11px] hover:border-primary">+ {a.name}</button>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -856,7 +887,7 @@ function MediaRow({ projectId, asset, canEdit, usedBy, onRemoved }: { projectId:
 
 function SceneCard({
   projectId, scene, index, count, asset, assets, aspectCss, wide, canEdit, brand, voiceMode, presentation, fill, credits, onFill, onPatch, onRewrite, onMove, onDelete, onAddAfter,
-  usedBy, onMediaChanged,
+  usedBy, onMediaChanged, stacked = false,
 }: {
   projectId: string; scene: DeckScene; index: number; count: number; asset: DeckAsset | null; assets: DeckAsset[];
   aspectCss: string; wide: boolean; canEdit: boolean; brand: FrameBrand; voiceMode: VoiceMode; presentation: boolean;
@@ -864,6 +895,8 @@ function SceneCard({
   onFill: (mode: "animate" | "generate", prompt?: string) => Promise<void>;
   onPatch: (p: ScenePatch) => void; onRewrite: (instruction: string) => void; onMove: (dir: -1 | 1) => void; onDelete: () => void; onAddAfter: () => void;
   usedBy: number; onMediaChanged: () => void;
+  /** One column (the studio inspector) instead of thumbnail beside the fields. */
+  stacked?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [headline, setHeadline] = useState(scene.text.headline ?? "");
@@ -894,8 +927,8 @@ function SceneCard({
   const textOff = scene.textMode === "none";
   return (
     <article className={cn("rounded-xl border bg-card p-3", scene.locked ? "border-[color:var(--cw-violet)]/60" : "border-border")}>
-      <div className={cn("grid gap-3", wide ? "sm:grid-cols-[180px_minmax(0,1fr)]" : "sm:grid-cols-[110px_minmax(0,1fr)]")}>
-        <div className="space-y-1.5">
+      <div className={cn("grid gap-3", stacked ? "" : wide ? "sm:grid-cols-[180px_minmax(0,1fr)]" : "sm:grid-cols-[110px_minmax(0,1fr)]")}>
+        <div className={cn("space-y-1.5", stacked && !wide && "mx-auto w-full max-w-[200px]")}>
           {asset && canEdit ? (
             <button type="button" onClick={() => setEditing(true)} aria-label="Edit this scene's media" title="Edit media — crop, reposition, rotate, choose the part"
               className="block w-full rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary">
@@ -1008,46 +1041,169 @@ const IconBtn = ({ label, disabled, onClick, children }: { label: string; disabl
     className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30">{children}</button>
 );
 
-/** Plays the storyboard scene by scene with its text (instant, low-res, no render). */
-function DeckPreview({ projectId, scenes, assets, aspectCss, wide, brand, cameraMode }: {
-  projectId: string; scenes: DeckScene[]; assets: Map<string, DeckAsset>; aspectCss: string; wide: boolean; brand: FrameBrand; cameraMode?: CameraMode;
+/** A collapsible group in the brief (keeps the panel short; the summary shows the current choice). */
+function Fold({ title, value, children }: { title: string; value: string; children: ReactNode }) {
+  return (
+    <details className="group rounded-lg border border-border bg-muted/30">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-2 text-xs font-medium [&::-webkit-details-marker]:hidden">
+        {title}
+        <span className="ml-auto truncate font-normal text-muted-foreground">{value}</span>
+        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
+      </summary>
+      <div className="space-y-2 px-2.5 pb-2.5">{children}</div>
+    </details>
+  );
+}
+
+const fmtSec = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, "0")}`;
+
+/** The studio stage: the selected scene with its text, played scene by scene (instant, low-res, no music). */
+function DeckStage({ projectId, scenes, assets, aspect, aspectCss, brand, cameraMode, index, onIndex, onPresent }: {
+  projectId: string; scenes: DeckScene[]; assets: Map<string, DeckAsset>; aspect: string; aspectCss: string; brand: FrameBrand;
+  cameraMode?: CameraMode; index: number; onIndex: (i: number) => void; onPresent: () => void;
 }) {
-  const [i, setI] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const cur = scenes[Math.min(i, scenes.length - 1)];
+  const cur = scenes[Math.min(index, scenes.length - 1)];
+  // The timer depends only on which scene plays and for how long, so a parent re-render (polling, typing) never
+  // restarts it; the latest onIndex is read through a ref.
+  const onIndexRef = useRef(onIndex);
+  useEffect(() => { onIndexRef.current = onIndex; });
+  const curId = cur?.id, curDur = cur?.durationSec ?? 0;
   useEffect(() => {
-    if (!playing || !cur) return;
+    if (!playing || !curId) return;
     const t = setTimeout(() => {
-      if (i + 1 < scenes.length) setI(i + 1);
+      if (index + 1 < scenes.length) onIndexRef.current(index + 1);
       else setPlaying(false);
-    }, cur.durationSec * 1000);
+    }, curDur * 1000);
     return () => clearTimeout(t);
-  }, [playing, i, cur, scenes.length]);
+  }, [playing, index, curId, curDur, scenes.length]);
   if (!cur) return null;
   const asset = cur.assetId ? assets.get(cur.assetId) ?? null : null;
+  const start = scenes.slice(0, index).reduce((n, s) => n + s.durationSec, 0);
+  const total = scenes.reduce((n, s) => n + s.durationSec, 0);
+  const ar = aspectNumber(aspect);
   return (
-    <section className="cw-glass space-y-3 rounded-xl p-4">
-      <h2 className="flex items-center gap-2 text-sm font-semibold">
-        Preview <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">instant · low-res · no music</span>
-      </h2>
-      <div className={cn("mx-auto", wide ? "max-w-[520px]" : "max-w-[300px]")}>
-        <SceneFrame key={`${cur.id}-${i}`} projectId={projectId} scene={cur} asset={asset} aspectCss={aspectCss} playing={playing} startAt={cur.inSec} brand={brand}
-          cameraMode={cameraMode} durationSec={cur.durationSec} move={pickMove(cur, asset?.seen ?? "", cameraMode, i, !!asset)} />
+    <>
+      {/* The frame fits the pane both ways: its width is the smaller of the pane width and pane height × aspect. */}
+      <div className="grid min-h-0 flex-1 place-items-center p-3 [container-type:size] max-lg:min-h-[18rem]">
+        <div style={{ width: `min(100cqw, calc(100cqh * ${ar}))` }}>
+          <SceneFrame key={`${cur.id}-${index}`} projectId={projectId} scene={cur} asset={asset} aspectCss={aspectCss} playing={playing} startAt={cur.inSec} brand={brand}
+            cameraMode={cameraMode} durationSec={cur.durationSec} move={pickMove(cur, asset?.seen ?? "", cameraMode, index, !!asset)} className="shadow-2xl" />
+        </div>
       </div>
-      <div className="flex items-center justify-center gap-2">
-        <Button size="sm" variant="secondary" onClick={() => setPlaying(!playing)}>
-          {playing ? <Pause className="size-4" /> : <Play className="size-4" />} {playing ? "Pause" : "Play"}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => { setI(0); setPlaying(true); }}><RotateCcw className="size-4" /> Restart</Button>
-        <span className="text-xs text-muted-foreground">Scene {i + 1}/{scenes.length}</span>
+      {!asset && cur.assetId ? <p className="flex items-center justify-center gap-1 pb-1 text-xs text-muted-foreground"><ImageIcon className="size-3" /> This scene&apos;s file was removed.</p> : null}
+      <div className="flex shrink-0 items-center gap-1.5 border-t border-border px-3 py-2">
+        <IconBtn label="Previous scene" disabled={index === 0} onClick={() => { setPlaying(false); onIndex(index - 1); }}><SkipBack className="size-4" /></IconBtn>
+        <button type="button" aria-label={playing ? "Pause" : "Play"} onClick={() => setPlaying(!playing)}
+          className="grid size-8 place-items-center rounded-full bg-foreground text-background hover:opacity-90">
+          {playing ? <Pause className="size-4" /> : <Play className="size-4 translate-x-px" />}
+        </button>
+        <IconBtn label="Next scene" disabled={index >= scenes.length - 1} onClick={() => { setPlaying(false); onIndex(index + 1); }}><SkipForward className="size-4" /></IconBtn>
+        <IconBtn label="Play from the start" onClick={() => { onIndex(0); setPlaying(true); }}><RotateCcw className="size-4" /></IconBtn>
+        <span className="font-mono text-xs tabular-nums text-muted-foreground"><span className="text-foreground">{fmtSec(start)}</span> / {fmtSec(total)}</span>
+        <div className="mx-2 flex h-1.5 min-w-0 flex-1 gap-0.5">
+          {scenes.map((s, k) => (
+            <button key={s.id} type="button" aria-label={`Go to scene ${k + 1}`} onClick={() => { setPlaying(false); onIndex(k); }}
+              style={{ flexGrow: s.durationSec }} className={cn("h-full rounded-full", k === index ? "bg-[color:var(--cw-blue)]" : k < index ? "bg-foreground/40" : "bg-muted")} />
+          ))}
+        </div>
+        <span className="hidden rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground xl:inline">instant · low-res · no music</span>
+        <IconBtn label="Present full screen" onClick={onPresent}><Presentation className="size-4" /></IconBtn>
       </div>
-      <div className="flex gap-1">
-        {scenes.map((s, k) => (
-          <button key={s.id} type="button" aria-label={`Go to scene ${k + 1}`} onClick={() => { setI(k); setPlaying(false); }}
-            style={{ flexGrow: s.durationSec }} className={cn("h-1.5 rounded-full", k === i ? "bg-[color:var(--cw-violet)]" : k < i ? "bg-foreground/40" : "bg-muted")} />
-        ))}
-      </div>
-      {!asset && cur.assetId ? <p className="flex items-center gap-1 text-xs text-muted-foreground"><ImageIcon className="size-3" /> This scene&apos;s file was removed.</p> : null}
-    </section>
+    </>
   );
+}
+
+/** The studio timeline: scenes as blocks sized by their length, with the narration lane under them. */
+function SceneStrip({ projectId, scenes, assets, brand, sel, onSelect, canEdit, voiceOn, total, targetSec, onAddCard }: {
+  projectId: string; scenes: DeckScene[]; assets: Map<string, DeckAsset>; brand: FrameBrand; sel: string | null; onSelect: (id: string) => void;
+  canEdit: boolean; voiceOn: boolean; total: number; targetSec: number; onAddCard: () => void;
+}) {
+  const [pps, setPps] = useState(22); // pixels per second
+  const width = (d: number) => Math.max(88, d * pps);
+  // Ticks only over the planned seconds (past the last scene there is no block to place them on).
+  const ticks: number[] = [];
+  for (let s = 0; s <= total; s += 5) ticks.push(s);
+  const rulerW = scenes.reduce((n, s) => n + width(s.durationSec) + 3, 0);
+  return (
+    <>
+      <div className="flex shrink-0 items-center gap-3 border-b border-border px-3 py-2">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Timeline</h2>
+        <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+          {scenes.length} scene{scenes.length === 1 ? "" : "s"} · {total.toFixed(1)}s of {targetSec}s
+        </span>
+        <div className="ml-auto flex items-center gap-2">
+          {canEdit && scenes.length ? <Button size="sm" variant="ghost" onClick={onAddCard}><Plus className="size-3.5" /> Text card</Button> : null}
+          <label htmlFor="deck-zoom" className="text-[11px] text-muted-foreground">Zoom</label>
+          <input id="deck-zoom" type="range" min={10} max={48} value={pps} onChange={(e) => setPps(Number(e.target.value))} className="w-20" />
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto">
+        {scenes.length ? (
+          <div className="grid w-max grid-cols-[4.5rem_auto] text-[11px]">
+            <div className="h-5 border-b border-border" />
+            <div className="relative h-5 border-b border-border font-mono text-[10px] text-muted-foreground" style={{ width: rulerW }}>
+              {/* Seconds are spread over the real scene widths, so the ticks line up with the blocks. */}
+              {ticks.map((s) => <span key={s} className="absolute top-0.5 -translate-x-0" style={{ left: xAt(scenes, s, width) }}>{fmtSec(s).replace(/\.0$/, "")}</span>)}
+            </div>
+            <div className="flex items-center gap-1.5 border-b border-border px-2 text-muted-foreground"><b className="rounded border border-border px-1 font-mono text-[10px] text-foreground">V1</b>Scenes</div>
+            <div className="flex border-b border-border py-1.5">
+              {scenes.map((s, i) => {
+                const a = s.assetId ? assets.get(s.assetId) ?? null : null;
+                return (
+                  <button key={s.id} type="button" onClick={() => onSelect(s.id)} aria-pressed={sel === s.id} title={s.text.headline || `Scene ${i + 1}`}
+                    style={{ width: width(s.durationSec) }}
+                    className={cn("relative mr-[3px] h-16 shrink-0 overflow-hidden rounded-md border text-left [container-type:size]",
+                      sel === s.id ? "border-[color:var(--cw-violet)] ring-2 ring-[color:var(--cw-violet)]/60" : "border-white/10 hover:border-white/30")}>
+                    <SceneThumb projectId={projectId} asset={a} scene={s} brand={brand} />
+                    <span className="absolute left-1 top-1 rounded bg-black/60 px-1 font-mono text-[9.5px] text-white">{i + 1} · {s.durationSec}s</span>
+                    {s.locked ? <Lock className="absolute right-1 top-1 size-3 text-white drop-shadow" /> : null}
+                    <span className="absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/80 to-transparent px-1.5 pb-1 pt-3 text-[10.5px] font-semibold text-white">
+                      {s.text.headline || (a ? a.name : "Text card")}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {voiceOn ? (
+              <>
+                <div className="flex items-center gap-1.5 border-b border-border px-2 text-muted-foreground"><b className="rounded border border-border px-1 font-mono text-[10px] text-foreground">A1</b>Voice</div>
+                <div className="flex border-b border-border py-1">
+                  {scenes.map((s) => (
+                    <button key={s.id} type="button" onClick={() => onSelect(s.id)} style={{ width: width(s.durationSec) }}
+                      className="mr-[3px] h-7 shrink-0 overflow-hidden rounded px-1.5 text-left">
+                      {s.voice ? (
+                        <span className="block h-full truncate rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 text-[10.5px] leading-7 text-emerald-200">{s.voice}</span>
+                      ) : <span className="block h-full rounded border border-dashed border-border px-1.5 text-[10.5px] leading-7 text-muted-foreground">silent</span>}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : null}
+          </div>
+        ) : <p className="p-4 text-xs text-muted-foreground">The storyboard appears here once it&apos;s planned — one block per scene, sized by its length.</p>}
+      </div>
+    </>
+  );
+}
+
+/** Pixel position of second `t` along the strip (each scene's block covers its own seconds). */
+function xAt(scenes: DeckScene[], t: number, width: (d: number) => number) {
+  let x = 0, acc = 0;
+  for (const s of scenes) {
+    if (t <= acc + s.durationSec) return x + ((t - acc) / s.durationSec) * width(s.durationSec);
+    x += width(s.durationSec) + 3;
+    acc += s.durationSec;
+  }
+  return x;
+}
+
+/** Small picture for a timeline block: the scene's photo / video frame, or its brand colours for a text card. */
+function SceneThumb({ projectId, asset, scene, brand }: { projectId: string; asset: DeckAsset | null; scene: DeckScene; brand: FrameBrand }) {
+  if (!asset) return <div className="absolute inset-0" style={{ background: `radial-gradient(120% 90% at 20% 10%, ${brand?.primary ?? "#8b5cf6"} 0%, ${brand?.secondary ?? "#120a24"} 100%)` }} />;
+  const src = `/api/projects/${projectId}/assets/${asset.id}`;
+  return asset.kind === "video"
+    ? <video src={`${src}#t=${Math.max(0.1, scene.inSec ?? 0.5)}`} muted preload="metadata" className="absolute inset-0 size-full object-cover" style={rotatedFill(asset.rotation)} />
+    // eslint-disable-next-line @next/next/no-img-element
+    : <img src={src} alt="" className="absolute inset-0 size-full object-cover" style={rotatedFill(asset.rotation)} />;
 }

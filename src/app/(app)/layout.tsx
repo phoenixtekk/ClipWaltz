@@ -13,8 +13,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="cw-app flex min-h-full flex-col">
-      <header className="sticky top-0 z-40 border-b border-border/60 bg-background/70 backdrop-blur-xl">
-        <div className="flex w-full items-center justify-between px-6 py-3">
+      <header className="sticky top-0 z-40 h-[var(--cw-header-h)] border-b border-border/60 bg-background/70 backdrop-blur-xl">
+        <div className="flex h-full w-full items-center justify-between px-6">
           <Link href="/dashboard" className="flex items-center gap-2" aria-label="ClipWaltz home">
             <Image src="/logo-2.png" alt="" width={273} height={263} className="size-7" priority />
             <span className="cw-gradient-text text-lg font-bold tracking-tight">ClipWaltz</span>

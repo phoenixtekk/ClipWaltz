@@ -645,7 +645,7 @@ export function GenerationPanel({
               onClick={() => { modeTouched.current = true; setMode(m); }}
               aria-pressed={mode === m}
               className={cn(
-                "rounded-md px-3 py-1.5 transition-colors",
+                "rounded-md px-2.5 py-1.5 transition-colors @sm:px-3",
                 mode === m ? "bg-[color:var(--cw-violet)] text-white shadow" : "text-muted-foreground hover:text-foreground",
               )}
             >
@@ -674,7 +674,7 @@ export function GenerationPanel({
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
+            <div className="grid grid-cols-3 gap-2 @md:grid-cols-4 @2xl:grid-cols-6">
               {photos.map((p) => {
                 const active = p.id === sourceAssetId;
                 return (
@@ -796,7 +796,7 @@ export function GenerationPanel({
         </Field>
 
         {/* Duration + Aspect */}
-        <div className="grid gap-5 sm:grid-cols-2">
+        <div className="grid gap-5 @lg:grid-cols-2">
           <Field label="Duration">
             <div className="flex gap-2">
               {DURATIONS.map((d) => (
@@ -986,7 +986,7 @@ export function GenerationPanel({
           {/* Inline enhance chooser — smoother motion / upscale, then confirm. */}
           {enhanceOpen ? (
             <div className="space-y-3 rounded-xl border border-[color:var(--cw-violet)]/40 bg-[color:var(--cw-violet)]/5 p-3">
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              <div className="grid grid-cols-2 gap-2 @2xl:grid-cols-5">
                 {ENHANCE_PRESETS.map((p) => {
                   const ok = presetAvailable(p);
                   return (
@@ -1076,7 +1076,7 @@ export function GenerationPanel({
           {/* Inline export chooser — format + resolution, then confirm. */}
           {exportOpen ? (
             <div className="space-y-3 rounded-xl border border-[color:var(--cw-violet)]/40 bg-[color:var(--cw-violet)]/5 p-3">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 @lg:grid-cols-2">
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Format</label>
                   <div className="inline-flex rounded-lg border border-border bg-muted/50 p-0.5 text-sm font-medium">
@@ -1329,7 +1329,7 @@ function VersionBrowser({
           <p className="text-xs text-muted-foreground">Your generated clips will appear here.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 @lg:grid-cols-3 @3xl:grid-cols-4">
           {versions.map((v) => {
             const active = v.id === selectedId;
             const comparing = v.id === compareId;

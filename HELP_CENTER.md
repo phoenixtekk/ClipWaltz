@@ -31,19 +31,31 @@ ships. It will also surface in-app at `/help`.
   3. Select those files in ClipWaltz.
 - Uploads are resumable — if your connection drops, they pick up where they left off.
 
+## The editor screen
+Both editors (AutoWaltz music videos and WaltzDeck) fit on one screen — nothing to scroll on a computer:
+- **Top bar:** the project name, the **sections** (tabs), and on the right **Presets** or **Translate to…**, **Present**
+  and **Render HD**.
+- **Left panel:** whatever the selected section is about — the brief, music, style, brand, Waltz AI, render…
+- **Middle:** the preview. Press **Play**; in WaltzDeck the arrows step scene by scene.
+- **Right panel:** the clip or scene you selected — trim, rotate, text, voice, **Edit media**…
+- **Bottom:** your files (bottom left) and the **timeline**. Click a clip or scene on the timeline to select it. In
+  WaltzDeck the blocks are sized by length and the voice line sits under each scene; drag **Zoom** to widen them.
+- **Steps** along the bottom show where you are (add media → edit / plan → review → render). Tap one to jump there.
+- On a phone or small tablet the panels stack under each other and the page scrolls.
+
 ## Editing & music
-- **Sideways clip?** Open the clip in the timeline and tap **Rotate 90°** until it's upright (each tap turns it a
+- **Sideways clip?** Select the clip on the timeline (its settings open in the right panel) and tap **Rotate 90°** until it's upright (each tap turns it a
   quarter turn clockwise), then **Save**. The preview and your rendered video both use the new rotation. This happens
   when a phone starts recording while pointed at the ground — the video then plays sideways everywhere, not just here.
-- **Tags:** open a clip and add tags (e.g. "sunset, cesar"). The **Tags** row above the timeline highlights the
+- **Tags:** select a clip and add tags in the right panel (e.g. "sunset, cesar"). The **Tags** row above the timeline highlights the
   clips with a tag.
-- **Google Drive backup:** in the timeline, **Connect Google Drive** once, then **Back up … to Drive** copies your
+- **Google Drive backup:** in the **Footage** box (bottom left), **Connect Google Drive** once, then **Back up … to Drive** copies your
   original uploads to a "ClipWaltz" folder in your Drive (big videos take a few minutes; the button shows progress).
 - **Insta360 two-file clips:** some cameras save each lens separately (`…_00_…` and `…_10_…`). Upload **both** and
   ClipWaltz stitches them into one full 360° clip (marked **360° ⧉**); the second file is tucked away.
 - **Level horizon on 360 clips:** ClipWaltz reads your Insta360's built-in motion sensor, so the horizon stays
   level even when the camera tilts, bumps or leans through a turn. Nothing to switch on.
-- **360 clips (Insta360 .insv):** open the clip in the timeline and pick a **360 view** — *Follow action*
+- **360 clips (Insta360 .insv):** select the clip on the timeline and pick a **360 view** in the right panel — *Follow action*
   (the default: the view turns toward the movement), *Front* (a steady view out of the lens) or *Tiny planet*.
   Changing it re-makes the clip, which takes a few minutes for long videos. If your camera saved each lens as a
   separate file, upload both (see above) to get the full 360°.
@@ -194,7 +206,7 @@ them there, then come back. (These are in addition to the "video ready" email, w
 - Turn **Share links** off to close all the pages again.
 
 ## WaltzDeck — music, voice mix and camera moves
-- **Music & voice** (left column): choose a track, upload your own (My Music / Upload), or untick **Music in this video**.
+- **Music & voice** (**Audio** tab): choose a track, upload your own (My Music / Upload), or untick **Music in this video**.
   Set the **music level** and **tone**, and — with a voiceover — the **voice level** and **tone**.
 - **Music while the voice talks:** *Steady* keeps the music evenly lower under the voice (recommended); *Gentle duck*
   dips it softly; *Strong duck* drops it under every line (punchy ad style).
@@ -230,7 +242,7 @@ them there, then come back. (These are in addition to the "video ready" email, w
   fonts and logo; press **Use these** to apply them, or **Dismiss**.
 - **Language:** pick the language of your deck in the brief (English, Spanish, French, Italian or Brazilian Portuguese) —
   the AI writes in it and the voices speak it.
-- **Translate to…** (top of the page) makes a copy of your deck in another language: text, voiceover and captions
+- **Translate to…** (top bar) makes a copy of your deck in another language: text, voiceover and captions
   translated, same clips and look. Prices, codes and web addresses stay exactly as you wrote them. Your original deck
   isn't changed. (In other languages the word-by-word caption highlight is timed approximately.)
 

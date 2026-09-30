@@ -261,7 +261,7 @@ export function ProjectEditor({
       ) : null}
 
       {show("format") ? (
-      <div className="grid gap-6 sm:grid-cols-2">
+      <div className="grid gap-6 @lg:grid-cols-2">
       {/* aspect */}
       <section className="cw-glass space-y-2 rounded-xl p-4">
         <h2 className="text-sm font-medium">Aspect</h2>

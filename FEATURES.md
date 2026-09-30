@@ -13,6 +13,22 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## One-screen editor studio — WaltzDeck + AutoWaltz (2026-09-30)
+Owner-approved layout (invideo-style mockup): both editors fit one screen under the app header, no page scroll at
+desktop width (verified 1600×940: page height = viewport). Same functions, new placement.
+- **Shell** (`src/components/studio/studio-shell.tsx`): top bar (project, section tabs, tools, spectrum **Render HD**) ·
+  left context panel (follows the tab) · preview stage · right inspector (selected scene / clip) · bottom media bin +
+  timeline · step bar. Below `lg` the areas stack (preview, tab panel, inspector, bottom) and the page scrolls.
+- **WaltzDeck:** tabs Storyboard (brief; text/camera/voiceover fold away; Plan / Re-plan pinned) · Audio · Brand · Slides
+  · Campaign · Render. Stage plays the selected scene (prev / play / next / restart, scene progress, Present). The
+  inspector is the selected scene's card. Bottom: *Your media* (upload, notes, delete, "not in the storyboard yet") and a
+  timeline of scene blocks sized by length with a voice lane and zoom. Top bar: Translate to…, Present, Render HD.
+- **AutoWaltz:** tabs Clips · Format · Style · Overlays · Waltz AI · Music · Render; **Presets** popover in the top bar.
+  Stage = draft preview. The old clip dialog is now the right-hand **clip inspector** (`clip-inspector.tsx`: rotate, 360
+  view, trim, screen time, tags) for the clip selected on the timeline. Bottom: Footage summary (counts, music, Drive
+  backup, add footage) + the clip timeline. Render tab holds render, history, back to import, save & exit, new project.
+- Waltz AI and Render panels stay mounted while hidden, so a running job / render keeps polling across tab switches.
+
 ## WaltzDeck — edit a scene's media, delete media from the project (2026-09-30)
 - **Edit media** on every storyboard scene with a photo or video (button under the thumbnail, or tap the thumbnail):
   - **Crop / reposition** — drag the picture to choose what shows, zoom 1–3× to crop tighter, **Reset** to centre. Per

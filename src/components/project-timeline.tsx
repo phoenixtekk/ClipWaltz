@@ -1,23 +1,19 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, X, Film, Image as ImageIcon, GripVertical, ListVideo, Loader2, CheckCircle2, AlertCircle, UploadCloud, Clock, Play, ChevronLeft, ChevronRight, RotateCw } from "lucide-react";
+import { Plus, X, Film, Image as ImageIcon, GripVertical, ListVideo, Loader2, CheckCircle2, AlertCircle, UploadCloud, Play, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
-import { Button } from "@/components/ui/button";
 import type { AssetSummary } from "@/lib/assets";
-import { DriveBackupButton } from "@/components/drive-backup-button";
-import { reorderAssets, deleteAsset, setAssetDuration, setAssetTrim, setClipReframe, setAssetTags, setAssetRotation } from "@/lib/asset-actions";
+import { autoSec } from "@/components/clip-inspector";
+import { reorderAssets, deleteAsset, setAssetTrim } from "@/lib/asset-actions";
 import { uploadProjectFile, isSupported } from "@/lib/upload-client";
-import { nextRotation, rotatedFill, rotationParent } from "@/lib/rotation";
+import { rotatedFill, rotationParent } from "@/lib/rotation";
 import { unwrap } from "@/lib/action-result";
 
 type InsertStatus = "uploading" | "done" | "error";
 
 const PX_PER_SEC = 34;
-const PHOTO_SEC = 2;
-const VIDEO_SEC = 4;
-const autoSec = (a: AssetSummary) => (a.kind === "video" ? VIDEO_SEC : PHOTO_SEC);
 const isTrimmed = (a: AssetSummary) => a.kind === "video" && a.trimStart != null && a.trimEnd != null;
 const isManualTimed = (a: AssetSummary) => a.durationOverride != null || isTrimmed(a);
 // Effective screen time: video trim length, else manual override, else the default cadence.
@@ -27,14 +23,19 @@ const clipSec = (a: AssetSummary) =>
 /**
  * Full-video timeline (#4): clips laid out left→right, widths scaled by their draft duration.
  * Drag a clip to reorder; use the + between clips to insert/upload an image or video at that
- * exact spot. Complements the detailed clip list.
+ * exact spot. Click a clip to select it — the studio shows its settings in the inspector.
+ * Fills the studio's bottom pane (header + scrolling body; the strip scrolls sideways).
  */
 export function ProjectTimeline({
   projectId,
   assets,
+  selectedId,
+  onSelect,
 }: {
   projectId: string;
   assets: AssetSummary[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
 }) {
   const router = useRouter();
   const [order, setOrder] = useState<AssetSummary[]>(assets);
@@ -46,7 +47,6 @@ export function ProjectTimeline({
   const [statusName, setStatusName] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [clip, setClip] = useState<AssetSummary | null>(null); // clip open in the preview/duration modal
   const [trim, setTrim] = useState<{ id: string; side: "start" | "end" } | null>(null);
   // CW-MVP-024: highlight clips with a tag (others dim); null = no filter.
   const [tagFilter, setTagFilter] = useState<string | null>(null);
@@ -99,7 +99,7 @@ export function ProjectTimeline({
     a.kind === "video" && a.uploadState === "uploaded" && !!a.durationSec && (!a.sourceFormat || a.conversionState === "ready");
 
   // keep local order in sync if the server list changes (add/remove elsewhere, or a clip's settings
-  // saved from the clip dialog: rotation, trim, screen time)
+  // saved from the inspector: rotation, trim, screen time)
   const sigOf = (list: AssetSummary[]) => list.map((a) => `${a.id}:${a.rotation}:${a.trimStart}:${a.trimEnd}:${a.durationOverride}`).join(",");
   const [sig, setSig] = useState(sigOf(assets));
   const nextSig = sigOf(assets);
@@ -225,15 +225,16 @@ export function ProjectTimeline({
   }
 
   return (
-    <section className="cw-glass space-y-2 rounded-xl p-4">
-      <div className="flex items-center justify-between">
-        <h2 className="flex items-center gap-1.5 text-sm font-medium">
-          <ListVideo className="size-4 text-[color:var(--cw-violet)]" /> Timeline
+    <>
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
+        <h2 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <ListVideo className="size-3.5 text-[color:var(--cw-violet)]" /> Timeline
         </h2>
-        <span className="text-xs text-muted-foreground">
+        <span className="ml-auto text-xs text-muted-foreground">
           {order.length} clip{order.length === 1 ? "" : "s"} · ~{totalSec}s
         </span>
       </div>
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
 
       <input
         ref={fileRef}
@@ -299,14 +300,6 @@ export function ProjectTimeline({
         </div>
       )}
 
-      <div className="flex justify-end">
-        <DriveBackupButton
-          projectId={projectId}
-          total={order.filter((a) => a.uploadState === "uploaded").length}
-          backedUp={order.filter((a) => a.uploadState === "uploaded" && a.driveBackedUp).length}
-        />
-      </div>
-
       {(() => {
         const allTags = [...new Set(order.flatMap((a) => a.tags ?? []))].sort();
         return allTags.length ? (
@@ -344,10 +337,12 @@ export function ProjectTimeline({
                   setOverIdx(e.clientX > r.left + r.width / 2 ? i + 1 : i);
                 }}
                 onDrop={(e) => { if (dragId == null) return; e.preventDefault(); onDrop(overIdx ?? i); }}
+                onClick={() => onSelect(a.id)}
                 style={{ width: blockWidth(a), ...rotationParent(a.rotation) }}
                 title={a.tags?.length ? `Tags: ${a.tags.join(", ")}` : undefined}
                 className={cn(
-                  "group relative h-20 shrink-0 cursor-grab overflow-hidden rounded-md border border-border bg-muted active:cursor-grabbing",
+                  "group relative h-24 shrink-0 cursor-grab overflow-hidden rounded-md border border-border bg-muted active:cursor-grabbing",
+                  selectedId === a.id && "border-[color:var(--cw-violet)] ring-2 ring-[color:var(--cw-violet)]",
                   tagFilter && !(a.tags ?? []).includes(tagFilter) && "opacity-30",
                   dragId === a.id && "opacity-40 ring-2 ring-[color:var(--cw-violet)]",
                 )}
@@ -405,14 +400,16 @@ export function ProjectTimeline({
                 >
                   {clipSec(a).toFixed(clipSec(a) % 1 ? 1 : 0)}s{isTrimmed(a) ? " ✂" : ""}
                 </span>
-                {/* Preview this specific clip + set its duration. A centered control (NOT a full-cover
-                    overlay) so the rest of the clip surface stays grabbable for drag-to-reorder. */}
+                {/* Select this clip (inspector: preview, trim, time, rotate, tag). Clicking anywhere on the
+                    clip selects it too; this centered control (NOT a full-cover overlay, so the rest of the
+                    surface stays grabbable for drag-to-reorder) is the keyboard-reachable way. */}
                 <button
                   type="button"
-                  onClick={() => setClip(a)}
+                  onClick={(e) => { e.stopPropagation(); onSelect(a.id); }}
                   onPointerDown={(e) => e.stopPropagation()}
-                  aria-label={`Preview and time ${a.name}`}
-                  className="absolute left-1/2 top-1/2 z-10 grid size-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-background/80 opacity-0 backdrop-blur-sm transition-opacity hover:bg-background group-hover:opacity-100"
+                  aria-label={`Select ${a.name} to preview and edit`}
+                  aria-pressed={selectedId === a.id}
+                  className="absolute left-1/2 top-1/2 z-10 grid size-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-background/80 opacity-0 backdrop-blur-sm transition-opacity hover:bg-background focus-visible:opacity-100 group-hover:opacity-100"
                 >
                   <Play className="size-3.5 translate-x-0.5 fill-foreground text-foreground" />
                 </button>
@@ -460,7 +457,7 @@ export function ProjectTimeline({
                 </span>
                 <button
                   type="button"
-                  onClick={() => remove(a)}
+                  onClick={(e) => { e.stopPropagation(); remove(a); }}
                   aria-label={`Remove ${a.name}`}
                   className="absolute bottom-0.5 right-0.5 z-20 rounded-full bg-black/60 p-0.5 text-white opacity-0 transition-opacity hover:bg-destructive group-hover:opacity-100"
                 >
@@ -472,217 +469,9 @@ export function ProjectTimeline({
           ))}
         </div>
       )}
-      <p className="text-xs text-muted-foreground">Drag a clip to reorder · drag a video&apos;s violet in/out handles to set its start &amp; end · tap a clip to preview/trim it precisely · tap + to insert.</p>
-      {clip ? (
-        <ClipModal
-          key={clip.id}
-          projectId={projectId}
-          asset={clip}
-          onClose={() => setClip(null)}
-          onSaved={() => router.refresh()}
-        />
-      ) : null}
-    </section>
-  );
-}
-
-/** Preview one specific clip (play/scrub) and either TRIM a video (choose the part to render) or
- *  set an image's manual screen time. */
-const REFRAME_VIEWS = [
-  { key: "follow", label: "Follow action", hint: "The camera turns to wherever the most movement is — best for action." },
-  { key: "flat", label: "Front", hint: "A steady view straight out of the lens." },
-  { key: "tiny", label: "Tiny planet", hint: "The whole scene wrapped into a little planet (needs a two-lens 360 file)." },
-];
-
-function ClipModal({
-  projectId,
-  asset,
-  onClose,
-  onSaved,
-}: {
-  projectId: string;
-  asset: AssetSummary;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const isVideo = asset.kind === "video";
-  const [dur, setDur] = useState(asset.durationSec ?? 0); // filled from the <video> metadata if unknown
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [saving, setSaving] = useState(false);
-  const src = `/api/projects/${projectId}/assets/${asset.id}`;
-
-  // Image: manual screen time.
-  const [manual, setManual] = useState(asset.durationOverride != null);
-  const [secs, setSecs] = useState(asset.durationOverride ?? autoSec(asset));
-
-  // Video: trim in/out.
-  const [trimmed, setTrimmed] = useState(asset.trimStart != null && asset.trimEnd != null);
-  const [start, setStart] = useState(asset.trimStart ?? 0);
-  const [end, setEnd] = useState(asset.trimEnd ?? (dur || 0));
-  const clampStart = (v: number) => Math.max(0, Math.min(v, (end || dur) - 0.4));
-  const clampEnd = (v: number) => Math.min(dur || v, Math.max(v, start + 0.4));
-  const seek = (t: number) => { if (videoRef.current) { videoRef.current.currentTime = t; videoRef.current.pause(); } };
-
-  // 360 clips (Insta360 .insv/.lrv): which way the flat video looks.
-  const is360 = asset.sourceFormat === "insv" || asset.sourceFormat === "lrv";
-  const initialView = asset.reframeMode ?? "follow";
-  const [view, setView] = useState(initialView);
-  const initialTags = (asset.tags ?? []).join(", ");
-  const [tagText, setTagText] = useState(initialTags);
-  // Rotation on top of the file's own flag (phone clips that come out sideways).
-  const [rotation, setRotation] = useState(asset.rotation ?? 0);
-
-  async function save() {
-    setSaving(true);
-    try {
-      if (tagText !== initialTags) {
-        unwrap(await setAssetTags(projectId, asset.id, tagText.split(",")));
-      }
-      if (rotation !== (asset.rotation ?? 0)) {
-        unwrap(await setAssetRotation(projectId, asset.id, rotation));
-      }
-      if (is360 && view !== initialView) {
-        unwrap(await setClipReframe(projectId, asset.id, view));
-        toast.message("Re-making this 360 clip with the new view — it's ready in a few minutes.");
-      }
-      if (isVideo) {
-        unwrap(await setAssetTrim(projectId, asset.id, trimmed ? start : null, trimmed ? end : null));
-      } else {
-        unwrap(await setAssetDuration(projectId, asset.id, manual ? secs : null));
-      }
-      onSaved();
-      onClose();
-    } catch (e) {
-      toast.error((e as Error).message || "Could not save the clip.");
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div role="dialog" aria-modal="true" aria-label={`Clip ${asset.name}`} onClick={onClose} className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-      <div onClick={(e) => e.stopPropagation()} className="w-full max-w-lg space-y-4 rounded-2xl border border-border bg-card p-4">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="truncate text-sm font-semibold">{asset.name}</h3>
-          <button type="button" onClick={onClose} aria-label="Close" className="rounded-full p-1 text-muted-foreground hover:text-foreground"><X className="size-5" /></button>
-        </div>
-        {/* Rotated clips get a fixed-height stage (the rotated element is sized from it); the video's
-            own controls would turn with it, so tap the picture to play/pause instead. */}
-        <div className={cn("overflow-hidden rounded-lg bg-black", rotation && "h-[50vh]")} style={rotationParent(rotation)}>
-          {isVideo ? (
-            <video
-              ref={videoRef}
-              src={src}
-              controls={!rotation}
-              autoPlay
-              playsInline
-              onClick={rotation ? (e) => { const v = e.currentTarget; if (v.paused) void v.play(); else v.pause(); } : undefined}
-              onLoadedMetadata={(e) => { const d = e.currentTarget.duration; if (d && Number.isFinite(d)) { setDur(d); if (end <= 0) setEnd(d); } }}
-              className={cn("max-h-[50vh] w-full", rotation && "cursor-pointer object-contain")}
-              style={rotatedFill(rotation)}
-            />
-          ) : (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={src} alt={asset.name} className="max-h-[50vh] w-full object-contain" style={rotatedFill(rotation)} />
-          )}
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-xs text-muted-foreground">
-            {rotation ? `Turned ${rotation}° — applies to the preview and the render.${isVideo ? " Tap the picture to play or pause." : ""}` : "Sideways? Turn it upright."}
-          </p>
-          <Button type="button" variant="secondary" size="sm" onClick={() => setRotation(nextRotation(rotation))} aria-label="Rotate 90 degrees clockwise">
-            <RotateCw className="size-4" /> Rotate 90°
-          </Button>
-        </div>
-
-        {is360 ? (
-          <div className="space-y-2 rounded-lg border border-border bg-background/50 p-3">
-            <div className="text-sm font-medium">360 view</div>
-            <div className="flex flex-wrap gap-2">
-              {REFRAME_VIEWS.map((v) => (
-                <button
-                  key={v.key}
-                  type="button"
-                  onClick={() => setView(v.key)}
-                  aria-pressed={view === v.key}
-                  className={cn(
-                    "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
-                    view === v.key ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10 text-foreground" : "border-border text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {v.label}
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground">{REFRAME_VIEWS.find((v) => v.key === view)?.hint}</p>
-          </div>
-        ) : null}
-
-        {isVideo ? (
-          <div className="space-y-3 rounded-lg border border-border bg-background/50 p-3">
-            <label className="flex items-center gap-2 text-sm font-medium">
-              <input type="checkbox" checked={trimmed} onChange={(e) => setTrimmed(e.target.checked)} />
-              <Clock className="size-4 text-[color:var(--cw-violet)]" /> Trim — render only part of this video
-            </label>
-            {trimmed && dur > 0 ? (
-              <>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span className="w-10">Start</span>
-                    <input type="range" min={0} max={dur} step={0.1} value={start} onChange={(e) => { const v = clampStart(Number(e.target.value)); setStart(v); seek(v); }} className="flex-1" />
-                    <span className="w-12 text-right tabular-nums">{start.toFixed(1)}s</span>
-                    <button type="button" onClick={() => setStart(clampStart(videoRef.current?.currentTime ?? start))} className="rounded border border-border px-1.5 py-0.5 text-[11px] hover:border-primary hover:text-primary">Set ⏱</button>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span className="w-10">End</span>
-                    <input type="range" min={0} max={dur} step={0.1} value={end} onChange={(e) => { const v = clampEnd(Number(e.target.value)); setEnd(v); seek(v); }} className="flex-1" />
-                    <span className="w-12 text-right tabular-nums">{end.toFixed(1)}s</span>
-                    <button type="button" onClick={() => setEnd(clampEnd(videoRef.current?.currentTime ?? end))} className="rounded border border-border px-1.5 py-0.5 text-[11px] hover:border-primary hover:text-primary">Set ⏱</button>
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Rendering <span className="font-medium text-foreground">{start.toFixed(1)}s–{end.toFixed(1)}s</span> ({(end - start).toFixed(1)}s of the {dur.toFixed(1)}s clip). Play the video, pause at a spot, then <span className="font-medium">Set ⏱</span>.
-                </p>
-              </>
-            ) : (
-              <p className="text-xs text-muted-foreground">Off — ClipWaltz auto-picks the liveliest part{dur > 0 ? ` of this ${dur.toFixed(1)}s clip` : ""}.</p>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-2 rounded-lg border border-border bg-background/50 p-3">
-            <label className="flex items-center gap-2 text-sm font-medium">
-              <input type="checkbox" checked={manual} onChange={(e) => setManual(e.target.checked)} />
-              <Clock className="size-4 text-[color:var(--cw-violet)]" /> Set screen time manually
-            </label>
-            {manual ? (
-              <div className="flex items-center gap-3">
-                <input type="range" min={0.4} max={60} step={0.1} value={secs} onChange={(e) => setSecs(Number(e.target.value))} className="flex-1" />
-                <input type="number" min={0.4} max={60} step={0.1} value={secs} onChange={(e) => setSecs(Number(e.target.value))} className="h-8 w-20 rounded-md border border-border bg-background px-2 text-center text-sm" />
-                <span className="text-xs text-muted-foreground">sec</span>
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">Auto — ClipWaltz picks the time from the beat/length ({autoSec(asset)}s baseline).</p>
-            )}
-          </div>
-        )}
-
-        <label className="block space-y-1 rounded-lg border border-border bg-background/50 p-3">
-          <span className="text-sm font-medium">Tags</span>
-          <input
-            value={tagText}
-            onChange={(e) => setTagText(e.target.value)}
-            placeholder="e.g. jet ski, sunset, cesar"
-            maxLength={300}
-            className="h-8 w-full rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-[color:var(--cw-violet)]"
-          />
-          <span className="block text-xs text-muted-foreground">Separate with commas. Use tags to find clips fast in the timeline.</span>
-        </label>
-
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
-        </div>
+      <p className="text-xs text-muted-foreground">Drag a clip to reorder · drag a video&apos;s violet in/out handles to set its start &amp; end · click a clip to preview/trim it precisely in the inspector · tap + to insert.</p>
       </div>
-    </div>
+    </>
   );
 }
 

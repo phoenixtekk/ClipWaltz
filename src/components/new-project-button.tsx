@@ -13,7 +13,7 @@ export function NewProjectButton({
 }) {
   const href = workspaceId ? `/projects/new?ws=${encodeURIComponent(workspaceId)}` : "/projects/new";
   return (
-    <Button render={<Link href={href} />} size={size}>
+    <Button nativeButton={false} render={<Link href={href} />} size={size}>
       {label}
     </Button>
   );

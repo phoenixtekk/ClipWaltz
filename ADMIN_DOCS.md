@@ -664,6 +664,17 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
 - **History:** migration `0043_brief_history` — `deck_brief_history` (user_id, text, used_at; unique user+text), trimmed
   to 15 per user on every save (`rememberBrief`).
 
+## Editor studio layout (2026-09-30)
+- `src/components/studio/studio-shell.tsx` (`StudioShell`, `StudioPanel`) — used by `deck/deck-editor.tsx` and
+  `editor-workspace.tsx`. Fills `calc(100dvh - var(--cw-header-h))`; `--cw-header-h` (3.25rem, `globals.css`) is also the
+  app header's fixed height in `src/app/(app)/layout.tsx` — change both together. `.cw-studio-pane` / `.cw-spectrum-btn`
+  in `globals.css`.
+- Panels that poll (RenderPanel, GenerationPanel) are rendered always and hidden with `hidden` when their tab isn't
+  shown — un-mounting them drops a running render's status (RenderPanel seeds from `initial` once).
+- Left-panel components that had page-width breakpoints (`project-editor`, `overlay-editor`, `generation-panel`) use
+  container queries (`@container`) so they stay one column in the narrow panel.
+- AutoWaltz clip settings: `src/components/clip-inspector.tsx` (was `ClipModal` in `project-timeline.tsx`), keyed per clip.
+
 ## WaltzDeck scene media editing (2026-09-30)
 - **Schema:** migration `0044_scene_frame` — `deck_scenes.frame jsonb` `{ x, y, zoom }` (centre as a fraction of the
   upright source, zoom 1–3); null = centred cover. Validated by `normFrame` (`src/lib/deck/frame.ts`) in `updateScene`.

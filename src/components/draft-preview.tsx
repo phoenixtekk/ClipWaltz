@@ -7,7 +7,7 @@ import type { AssetSummary } from "@/lib/assets";
 import { buildDraftTimeline } from "@/lib/draft";
 import { trackClientEvent } from "@/lib/analytics-actions";
 import { rotatedFill, rotationParent } from "@/lib/rotation";
-import { aspectClass, isWide } from "@/lib/aspect";
+import { aspectClass, aspectDims, isWide } from "@/lib/aspect";
 
 function fmt(sec: number) {
   const s = Math.max(0, Math.round(sec));
@@ -19,6 +19,7 @@ function fmt(sec: number) {
  * story-style slideshow with the chosen soundtrack — using the source media proxied
  * through the app — so users see "the magic" instantly, before committing to the async
  * HD render. Timing mirrors the worker (see @/lib/draft).
+ * `fill`: grow to the parent's height (studio stage) — the frame fits the space both ways.
  */
 export function DraftPreview({
   projectId,
@@ -28,6 +29,7 @@ export function DraftPreview({
   lengthSec,
   aspect = "9:16",
   loopToFill = false,
+  fill = false,
 }: {
   projectId: string;
   assets: AssetSummary[];
@@ -36,8 +38,10 @@ export function DraftPreview({
   lengthSec: number;
   aspect?: string;
   loopToFill?: boolean;
+  fill?: boolean;
 }) {
   const wide = isWide(aspect);
+  const { w: arW, h: arH } = aspectDims(aspect);
   const uploaded = useMemo(
     () =>
       assets.filter(
@@ -141,22 +145,23 @@ export function DraftPreview({
   }
 
   return (
-    <section className="space-y-3">
-      <h2 className="flex items-center gap-1.5 text-sm font-medium">
+    <section className={fill ? "flex min-h-0 flex-1 flex-col gap-3" : "space-y-3"}>
+      <h2 className="flex shrink-0 items-center gap-1.5 text-sm font-medium">
         <Film className="size-4" /> Draft preview
         <span className="ml-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">
           low-res · {aspect}
         </span>
       </h2>
 
-      <div className={cn("mx-auto flex w-full flex-col gap-3", wide ? "max-w-[420px]" : aspect === "9:16" ? "max-w-[240px]" : "max-w-[320px]")}>
-        {/* preview stage */}
+      <div className={cn("mx-auto flex w-full flex-col gap-3", fill ? "min-h-0 flex-1" : wide ? "max-w-[420px]" : aspect === "9:16" ? "max-w-[240px]" : "max-w-[320px]")}>
+        {/* preview stage — in `fill` mode its width is the smaller of the space's width and height × aspect */}
+        <div className={fill ? "grid min-h-0 flex-1 place-items-center [container-type:size]" : "contents"}>
         <div
           className={cn(
             "relative w-full overflow-hidden rounded-xl border border-border bg-black",
             aspectClass(aspect),
           )}
-          style={rotationParent(current?.rotation)}
+          style={{ ...(fill ? { width: `min(100cqw, calc(100cqh * ${arW / arH}))` } : null), ...rotationParent(current?.rotation) }}
         >
           {clips.length === 0 ? (
             <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-xs text-white/70">
@@ -211,9 +216,10 @@ export function DraftPreview({
             </div>
           )}
         </div>
+        </div>
 
         {/* controls */}
-        <div className="flex items-center justify-between gap-2">
+        <div className={cn("flex items-center justify-between gap-2", fill && "mx-auto w-full max-w-[420px] shrink-0")}>
           <div className="flex items-center gap-1.5">
             <Button
               size="icon-sm"
@@ -238,7 +244,7 @@ export function DraftPreview({
           </span>
         </div>
 
-        <p className="flex items-center gap-1.5 text-center text-xs text-muted-foreground">
+        <p className={cn("flex items-center gap-1.5 text-center text-xs text-muted-foreground", fill && "mx-auto w-full max-w-[420px] shrink-0")}>
           <Music className="size-3.5 shrink-0" />
           <span className="truncate">{musicTrackTitle ?? "No music"}</span>
         </p>
