@@ -27,17 +27,36 @@ export type SceneRole = (typeof ROLES)[number];
 
 export const MOTIONS = ["auto", "none", "push-in", "pull-out", "pan-left", "pan-right"] as const;
 
+/** Languages a deck can be written, voiced and captioned in (phase 5). `en` = the default. */
+export const LANGUAGES = [
+  { code: "en", label: "English", name: "English" },
+  { code: "es", label: "Español", name: "Spanish" },
+  { code: "fr", label: "Français", name: "French" },
+  { code: "it", label: "Italiano", name: "Italian" },
+  { code: "pt", label: "Português (BR)", name: "Brazilian Portuguese" },
+] as const;
+export type LanguageCode = (typeof LANGUAGES)[number]["code"];
+
 /** Kokoro voices served by worker/tts/server.py (keep in sync); previews in public/voices/<id>.mp3. */
 export const VOICES = [
-  { id: "af_heart", label: "Heart — warm, female (US)" },
-  { id: "af_bella", label: "Bella — bright, female (US)" },
-  { id: "af_nicole", label: "Nicole — soft, female (US)" },
-  { id: "am_michael", label: "Michael — friendly, male (US)" },
-  { id: "am_fenrir", label: "Fenrir — deep, male (US)" },
-  { id: "am_puck", label: "Puck — upbeat, male (US)" },
-  { id: "bf_emma", label: "Emma — clear, female (UK)" },
-  { id: "bm_george", label: "George — calm, male (UK)" },
+  { id: "af_heart", label: "Heart — warm, female (US)", lang: "en" },
+  { id: "af_bella", label: "Bella — bright, female (US)", lang: "en" },
+  { id: "af_nicole", label: "Nicole — soft, female (US)", lang: "en" },
+  { id: "am_michael", label: "Michael — friendly, male (US)", lang: "en" },
+  { id: "am_fenrir", label: "Fenrir — deep, male (US)", lang: "en" },
+  { id: "am_puck", label: "Puck — upbeat, male (US)", lang: "en" },
+  { id: "bf_emma", label: "Emma — clear, female (UK)", lang: "en" },
+  { id: "bm_george", label: "George — calm, male (UK)", lang: "en" },
+  { id: "ef_dora", label: "Dora — warm, female", lang: "es" },
+  { id: "em_alex", label: "Alex — friendly, male", lang: "es" },
+  { id: "ff_siwis", label: "Siwis — clear, female", lang: "fr" },
+  { id: "if_sara", label: "Sara — bright, female", lang: "it" },
+  { id: "im_nicola", label: "Nicola — calm, male", lang: "it" },
+  { id: "pf_dora", label: "Dora — warm, female", lang: "pt" },
+  { id: "pm_alex", label: "Alex — friendly, male", lang: "pt" },
 ] as const;
+/** The first voice of a language (the default when a deck is translated). */
+export const defaultVoiceFor = (lang: string) => VOICES.find((v) => v.lang === lang)?.id ?? "af_heart";
 export type VoiceMode = "off" | "auto" | "manual";
 
 export type DeckBrief = {
@@ -54,6 +73,10 @@ export type DeckBrief = {
   voice?: { mode: VoiceMode; voiceId: string; speed: number };
   /** Burned-in captions of the narration, each word highlighted as it's spoken. */
   captions?: { enabled: boolean };
+  /** Language of the on-screen text, narration and captions (phase 5); absent = English. */
+  language?: LanguageCode;
+  /** Set on a translated copy: the deck it was translated from. */
+  translatedFrom?: { projectId: string; title: string } | null;
 };
 
 export type DeckPlanStatus =
@@ -69,7 +92,21 @@ export type DeckImportStatus =
   | { status: "ready"; source: "pptx" | "pdf" | "url"; name: string; scenes: number; images: number; finishedAt?: string; note?: string }
   | { status: "failed"; source?: "pptx" | "pdf" | "url"; name?: string; error: string };
 
-export type DeckState = { brief: DeckBrief; plan?: DeckPlanStatus; import?: DeckImportStatus };
+/** "Build my brand kit from my website" (phase 5): suggested by the deck worker, applied only when the owner says so. */
+export type BrandSuggestion =
+  | { status: "idle" }
+  | { status: "queued" | "reading"; url: string }
+  | { status: "ready"; url: string; primary: string; secondary: string; headingFont: string; bodyFont: string; logoKey: string | null; found?: { color: string | null; fonts: boolean; logo: boolean } }
+  | { status: "failed"; url?: string; error: string };
+
+/** A translated copy being written (phase 5). */
+export type DeckTranslation =
+  | { status: "idle" }
+  | { status: "queued" | "translating"; lang: string; startedAt?: string }
+  | { status: "ready"; lang: string; kept: number; finishedAt?: string }
+  | { status: "failed"; lang: string; error: string };
+
+export type DeckState = { brief: DeckBrief; plan?: DeckPlanStatus; import?: DeckImportStatus; brandSuggestion?: BrandSuggestion; translation?: DeckTranslation };
 
 export type DeckExportFormat = "pdf" | "pptx";
 export type DeckExport = {

@@ -1,6 +1,8 @@
 "use client";
 // WaltzDeck editor: brief → media (+ per-item notes) → AI storyboard (scene cards) → preview → render.
 import { useCallback, useEffect, useRef, useState, useTransition, type ReactNode } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Sparkles, Upload, Loader2, Lock, Unlock, Trash2, Plus, ArrowUp, ArrowDown, Wand2, Play, Pause, RotateCcw, Info, ImageIcon, Mic, Captions,
@@ -10,20 +12,24 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { aspectClass, isWide } from "@/lib/aspect";
 import {
-  DECK_MODES, LAYOUTS, MAX_BULLETS, VOICES,
-  type Campaign, type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type SceneTextMode, type TextMode, type VoiceMode,
+  DECK_MODES, LANGUAGES, LAYOUTS, MAX_BULLETS, VOICES,
+  type BrandSuggestion, type Campaign, type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type SceneTextMode, type TextMode, type VoiceMode,
 } from "@/lib/deck/types";
 import {
   getDeck, saveBrief, setAssetNote, describeAsset, requestPlan, updateScene, rewriteSceneText, reorderScenes, addScene, deleteScene,
-  requestDeckExport, importFromUrl,
+  requestDeckExport, importFromUrl, fillScene, translateDeck,
   type DeckData, type DeckAsset, type ScenePatch,
 } from "@/lib/deck-actions";
 import { PresentView } from "./present-view";
+import { unwrap } from "@/lib/action-result";
 import { CampaignPanel } from "./campaign-panel";
+import { AiFill } from "./ai-fill";
+import { useCredits } from "@/components/credits-line";
+import type { CreditBalance } from "@/lib/credits";
 import { uploadProjectFile, isSupported } from "@/lib/upload-client";
 import { SceneFrame, type FrameBrand } from "./scene-frame";
 import { BRAND_FONTS, BRAND_FONTS_CSS, type BrandKit } from "@/lib/brand";
-import { saveBrandKit, uploadBrandLogo } from "@/lib/brand-actions";
+import { saveBrandKit, uploadBrandLogo, suggestBrandFromSite, applyBrandSuggestion, dismissBrandSuggestion } from "@/lib/brand-actions";
 
 const BUSY = new Set(["queued", "describing", "planning"]);
 const IMPORT_BUSY = new Set(["queued", "reading", "summarizing"]);
@@ -46,6 +52,14 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, canEdit, r
   const imp = data.deck.import ?? { status: "idle" as const };
   const importBusy = IMPORT_BUSY.has(imp.status);
   const exporting = data.exports.some((e) => e.status === "queued" || e.status === "running");
+  const filling = Object.values(data.fills).some((f) => !["failed", "cancelled"].includes(f.status));
+  const brandSug = data.deck.brandSuggestion ?? { status: "idle" as const };
+  const brandReading = brandSug.status === "queued" || brandSug.status === "reading";
+  const tr = data.deck.translation ?? { status: "idle" as const };
+  const translating = tr.status === "queued" || tr.status === "translating";
+  const router = useRouter();
+  // AI credits: re-read whenever a fill job starts or ends (a failed one refunds).
+  const credits = useCredits(JSON.stringify(data.fills));
 
   const refresh = useCallback(async () => {
     try {
@@ -55,10 +69,17 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, canEdit, r
 
   // Poll while the worker is busy (planning, rewriting, describing fresh uploads, importing, exporting).
   useEffect(() => {
-    if (!planBusy && !rewriting && !describing && !importBusy && !exporting) return;
+    if (!planBusy && !rewriting && !describing && !importBusy && !exporting && !filling && !brandReading && !translating) return;
     const t = setInterval(refresh, 2500);
     return () => clearInterval(t);
-  }, [planBusy, rewriting, describing, importBusy, exporting, refresh]);
+  }, [planBusy, rewriting, describing, importBusy, exporting, filling, brandReading, translating, refresh]);
+
+  // A translation fills the brief on the server: adopt it once, when it finishes.
+  const [trSeen, setTrSeen] = useState(tr.status);
+  if (tr.status !== trSeen) {
+    setTrSeen(tr.status);
+    if (tr.status === "ready") setBrief(data.deck.brief);
+  }
 
   // An import fills the brief (and may switch the mode) on the server: adopt it once, when the import finishes.
   const [importSeen, setImportSeen] = useState(imp.status);
@@ -107,8 +128,35 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, canEdit, r
             Your photos and videos, a brief, and notes per item → an on-brand {brief.mode === "ad" ? "ad" : brief.mode === "presentation" ? "presentation" : "slideshow"}, scene by scene.
           </p>
         </div>
-        <span className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground">{data.project.aspect}</span>
+        <div className="flex flex-wrap items-center gap-2">
+          {canEdit && data.scenes.length ? (
+            <select value="" disabled={pending || translating} aria-label="Translate this deck"
+              onChange={(e) => {
+                const lang = e.target.value;
+                if (!lang) return;
+                act(async () => { const id = await translateDeck(projectId, lang); router.push(`/projects/${id}/deck`); },
+                  "Translated copy created — the words are being translated now.");
+              }}
+              className="h-8 rounded-full border border-border bg-background px-3 text-xs text-muted-foreground">
+              <option value="">Translate to…</option>
+              {LANGUAGES.filter((l) => l.code !== (brief.language ?? "en")).map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
+            </select>
+          ) : null}
+          <span className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground">{data.project.aspect}</span>
+        </div>
       </header>
+      {brief.translatedFrom || tr.status !== "idle" ? (
+        <div className="cw-glass flex flex-wrap items-center gap-2 rounded-xl px-4 py-2 text-xs">
+          {translating ? <Loader2 className="size-3.5 animate-spin text-[color:var(--cw-violet)]" /> : <Globe className="size-3.5 text-[color:var(--cw-violet)]" />}
+          <span>
+            {LANGUAGES.find((l) => l.code === (brief.language ?? "en"))?.label} version
+            {brief.translatedFrom ? <> of <Link className="underline" href={`/projects/${brief.translatedFrom.projectId}/deck`}>{brief.translatedFrom.title}</Link></> : null}
+            {translating ? " — translating the words…" : null}
+            {tr.status === "ready" ? ` — translated. Check the scenes, then render.${tr.kept ? ` ${tr.kept} line${tr.kept === 1 ? "" : "s"} kept in the original language (a number or web address didn't survive) — edit them by hand.` : ""}` : null}
+            {tr.status === "failed" ? <span className="text-destructive"> — translation failed: {tr.error}</span> : null}
+          </span>
+        </div>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
         {/* ── left: brief + media ── */}
@@ -182,10 +230,19 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, canEdit, r
                 ))}
               </div>
             </div>
+            <label className="flex items-center gap-2 text-xs">
+              <span className="font-medium text-muted-foreground">Language</span>
+              <select value={brief.language ?? "en"} disabled={!canEdit} onChange={(e) => saveBriefNow({ language: e.target.value as DeckBrief["language"] })}
+                className={cn(field, "h-8 w-auto text-xs")} aria-label="Language of the text and voice">
+                {LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
+              </select>
+              <span className="text-[11px] text-muted-foreground">for the AI&apos;s text, the voice and captions</span>
+            </label>
             <VoiceControls brief={brief} canEdit={canEdit} onChange={(patch) => saveBriefNow(patch)} />
           </section>
 
-          <BrandSection projectId={projectId} kit={brandKit} canEdit={canEdit} onSaved={(k, logo) => { setBrandKit(k); if (logo) setLogoVersion((v) => v + 1); }} />
+          <BrandSection projectId={projectId} kit={brandKit} canEdit={canEdit} suggestion={brandSug} onChanged={refresh}
+            onSaved={(k, logo) => { setBrandKit(k); if (logo) setLogoVersion((v) => v + 1); }} />
 
           <MediaSection projectId={projectId} assets={data.assets} canEdit={canEdit} onChange={refresh} />
         </div>
@@ -224,6 +281,10 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, canEdit, r
                   brand={frameBrand}
                   voiceMode={brief.voice?.mode ?? "off"}
                   presentation={brief.mode === "presentation"}
+                  fill={data.fills[s.id]}
+                  credits={credits}
+                  onFill={(mode, prompt) => new Promise<void>((resolve) => act(async () => { try { unwrap(await fillScene(projectId, s.id, { mode, prompt })); } finally { resolve(); } },
+                    mode === "animate" ? "Bringing it to life — the clip replaces this scene's photo when it's ready." : "Making the shot — it goes into this scene when it's ready."))}
                   onPatch={(patch) => act(() => updateScene(projectId, s.id, patch))}
                   onRewrite={(ins) => act(() => rewriteSceneText(projectId, s.id, ins))}
                   onMove={(dir) => {
@@ -441,7 +502,7 @@ function VoiceControls({ brief, canEdit, onChange }: { brief: DeckBrief; canEdit
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <select value={v.voiceId} disabled={!canEdit} onChange={(e) => onChange({ voice: { ...v, voiceId: e.target.value } })} className={cn(field, "h-8 max-w-[240px] text-xs")} aria-label="Voice">
-              {VOICES.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              {VOICES.filter((o) => o.lang === (brief.language ?? "en")).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
             </select>
             <Button type="button" size="sm" variant="secondary" onClick={preview}><Play className="size-3.5" /> Hear it</Button>
             <audio ref={audio} preload="none" />
@@ -466,8 +527,9 @@ function VoiceControls({ brief, canEdit, onChange }: { brief: DeckBrief; canEdit
   );
 }
 
-function BrandSection({ projectId, kit, canEdit, onSaved }: {
+function BrandSection({ projectId, kit, canEdit, suggestion, onChanged, onSaved }: {
   projectId: string; kit: BrandKit | null; canEdit: boolean; onSaved: (k: BrandKit, logoChanged?: boolean) => void;
+  suggestion: BrandSuggestion; onChanged: () => Promise<void> | void;
 }) {
   const [v, setV] = useState({
     primary: kit?.primary ?? "#8b5cf6", secondary: kit?.secondary ?? "#120a24",
@@ -540,7 +602,60 @@ function BrandSection({ projectId, kit, canEdit, onSaved }: {
         ) : null}
         <span className="text-[11px] text-muted-foreground">Saved for your workspace — reuse it on every video.</span>
       </div>
+      {canEdit ? (
+        <BrandFromSite projectId={projectId} suggestion={suggestion} onChanged={onChanged}
+          onApplied={(k) => { setV({ primary: k.primary, secondary: k.secondary, headingFont: k.headingFont, bodyFont: k.bodyFont, applied: true }); onSaved(k, true); }} />
+      ) : null}
     </section>
+  );
+}
+
+/** "Build my kit from my website": the worker reads the page and suggests colours, fonts and a logo to review. */
+function BrandFromSite({ projectId, suggestion, onChanged, onApplied }: {
+  projectId: string; suggestion: BrandSuggestion; onChanged: () => Promise<void> | void; onApplied: (k: BrandKit) => void;
+}) {
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const run = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    try { await fn(); } catch (e) { toast.error((e as Error).message || "Something went wrong."); }
+    setBusy(false);
+    await onChanged();
+  };
+  const reading = suggestion.status === "queued" || suggestion.status === "reading";
+  return (
+    <div className="space-y-2 border-t border-border pt-3">
+      <form onSubmit={(e) => { e.preventDefault(); if (url.trim()) void run(() => suggestBrandFromSite(projectId, url)); }} className="flex gap-2">
+        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="your-site.com — build my kit from my website" maxLength={500}
+          className={cn(field, "h-8 text-xs")} aria-label="Your website" />
+        <Button size="sm" variant="secondary" type="submit" disabled={busy || reading || !url.trim()}>
+          {reading ? <Loader2 className="size-3.5 animate-spin" /> : <Globe className="size-3.5" />} Read it
+        </Button>
+      </form>
+      {reading ? <Status spin>Looking at {suggestion.url}…</Status> : null}
+      {suggestion.status === "failed" ? <p className="text-xs text-destructive">{suggestion.error}</p> : null}
+      {suggestion.status === "ready" ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-[color:var(--cw-violet)]/50 p-2">
+          <span className="flex gap-1" aria-label="Suggested colours">
+            <span className="size-7 rounded-md border border-border" style={{ background: suggestion.primary }} title={`Main ${suggestion.primary}`} />
+            <span className="size-7 rounded-md border border-border" style={{ background: suggestion.secondary }} title={`Background ${suggestion.secondary}`} />
+          </span>
+          {suggestion.logoKey ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={`/api/projects/${projectId}/brand-logo?suggestion=1&k=${encodeURIComponent(suggestion.logoKey)}`} alt="Suggested logo" className="h-8 max-w-[96px] rounded bg-muted object-contain p-0.5" />
+          ) : null}
+          <span className="text-xs">
+            <span style={{ fontFamily: `'${suggestion.headingFont}'` }} className="font-bold">{suggestion.headingFont}</span>
+            {" / "}<span style={{ fontFamily: `'${suggestion.bodyFont}'` }}>{suggestion.bodyFont}</span>
+            <span className="block text-[11px] text-muted-foreground">From {new URL(suggestion.url).hostname}{suggestion.found && !suggestion.found.fonts ? " · fonts: our closest defaults" : ""}</span>
+          </span>
+          <span className="ml-auto flex gap-1">
+            <Button size="sm" disabled={busy} onClick={() => void run(async () => { onApplied(await applyBrandSuggestion(projectId)); toast.success("Brand kit updated from your website."); })}>Use these</Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => dismissBrandSuggestion(projectId))}>Dismiss</Button>
+          </span>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -630,10 +745,12 @@ function MediaRow({ projectId, asset, canEdit }: { projectId: string; asset: Dec
 }
 
 function SceneCard({
-  projectId, scene, index, count, asset, assets, aspectCss, wide, canEdit, brand, voiceMode, presentation, onPatch, onRewrite, onMove, onDelete, onAddAfter,
+  projectId, scene, index, count, asset, assets, aspectCss, wide, canEdit, brand, voiceMode, presentation, fill, credits, onFill, onPatch, onRewrite, onMove, onDelete, onAddAfter,
 }: {
   projectId: string; scene: DeckScene; index: number; count: number; asset: DeckAsset | null; assets: DeckAsset[];
   aspectCss: string; wide: boolean; canEdit: boolean; brand: FrameBrand; voiceMode: VoiceMode; presentation: boolean;
+  fill?: { status: string; progress: number; error: string | null }; credits: CreditBalance | null;
+  onFill: (mode: "animate" | "generate", prompt?: string) => Promise<void>;
   onPatch: (p: ScenePatch) => void; onRewrite: (instruction: string) => void; onMove: (dir: -1 | 1) => void; onDelete: () => void; onAddAfter: () => void;
 }) {
   const [headline, setHeadline] = useState(scene.text.headline ?? "");
@@ -739,6 +856,8 @@ function SceneCard({
               {assets.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
           </div>
+          <AiFill sceneSec={scene.durationSec} hasPhoto={asset?.kind === "photo"} fill={fill} credits={credits} canEdit={canEdit} onFill={onFill}
+            defaultPrompt={[scene.text.headline, scene.text.sub].filter(Boolean).join(" — ")} />
           {scene.why ? (
             <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
               {busy ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />} {scene.why}

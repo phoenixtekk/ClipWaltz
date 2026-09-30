@@ -193,6 +193,25 @@ them there, then come back. (These are in addition to the "video ready" email, w
   link goes, and choose to continue. On Plus and Pro the button goes straight to your site.
 - Turn **Share links** off to close all the pages again.
 
+## AI credits
+- AI video (Waltz AI clips, Remix, AI enhance and WaltzDeck's AI fill) uses **AI credits**: **1 credit = 1 second** of AI
+  video at standard quality (preview costs half, high quality double). Your plan gives you a monthly allowance —
+  **Free 30, Plus 300, Pro 1,000** — that resets on the 1st.
+- Every AI button shows what it costs and what you have left. If a job fails or you cancel it, the credits come back.
+- See this month's credits on **Account → Billing**. Fast enhance and assembling a storyboard don't use credits.
+
+## WaltzDeck — AI fill, brand from your website, other languages
+- **Bring to life:** on a scene with a photo, tap **Bring to life** and AI turns it into a short video clip. **Generate
+  a shot** makes a new clip from a description (it starts from the scene's text). The clip drops into the scene by itself
+  when it's ready — you'll see the progress on the card. Both use AI credits (shown before you start).
+- **Brand from your website:** in **Brand**, type your website and press **Read it**. ClipWaltz suggests your colours,
+  fonts and logo; press **Use these** to apply them, or **Dismiss**.
+- **Language:** pick the language of your deck in the brief (English, Spanish, French, Italian or Brazilian Portuguese) —
+  the AI writes in it and the voices speak it.
+- **Translate to…** (top of the page) makes a copy of your deck in another language: text, voiceover and captions
+  translated, same clips and look. Prices, codes and web addresses stay exactly as you wrote them. Your original deck
+  isn't changed. (In other languages the word-by-word caption highlight is timed approximately.)
+
 ## Waltz AI Remix — make a video you've already made even better
 - Open a project → **Waltz AI** tab → **Remix a video**. You'll see every finished video you've made:
   AutoWaltz music videos and Waltz AI clips, from all your projects. Pick one.

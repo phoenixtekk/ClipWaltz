@@ -595,6 +595,9 @@ export const generationJobs = pgTable("generation_jobs", {
   prompt: text(),
   negativePrompt: text(),
   requestJson: jsonb(), // full normalized generation request (aspect, duration, quality, inputs…)
+  // AI credits this job costs (src/lib/credits.ts). Counted against the requester's monthly allowance unless the
+  // job ends failed / cancelled / retried (automatic refund). 0 for non-AI work (Fast enhance, storyboard assembly).
+  credits: integer().notNull().default(0),
   priority: integer().notNull().default(0),
   retryCount: integer().notNull().default(0),
   progress: integer().notNull().default(0), // 0–100

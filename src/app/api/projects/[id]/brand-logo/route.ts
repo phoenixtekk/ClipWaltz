@@ -17,8 +17,15 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     return new NextResponse("unauthenticated", { status: 401 });
   }
   if (!(await userCanAccessProject(userId, projectId))) return new NextResponse("not found", { status: 404 });
-  const [p] = await db.select({ ws: schema.projects.workspaceId }).from(schema.projects).where(eq(schema.projects.id, projectId));
+  const [p] = await db.select({ ws: schema.projects.workspaceId, deck: schema.projects.deck }).from(schema.projects).where(eq(schema.projects.id, projectId));
   if (!p?.ws) return new NextResponse("no logo", { status: 404 });
+  // The pending "brand kit from website" suggestion's logo (a PNG the worker stored for this workspace).
+  if (new URL(req.url).searchParams.get("suggestion")) {
+    const sug = (p.deck as { brandSuggestion?: { status?: string; logoKey?: string | null } } | null)?.brandSuggestion;
+    const key = sug?.status === "ready" ? sug.logoKey : null;
+    if (!key || !key.startsWith(`brand/${p.ws}/suggest-`) || !key.endsWith(".png")) return new NextResponse("no logo", { status: 404 });
+    return serveObject(req, key, "image/png", { cacheControl: "private, max-age=60" });
+  }
   const [k] = await db.select({ key: schema.brandKits.logoKey }).from(schema.brandKits).where(eq(schema.brandKits.workspaceId, p.ws)).limit(1);
   // Raster only (uploads reject SVG): never serve an SVG from the app origin.
   if (!k?.key || k.key.endsWith(".svg")) return new NextResponse("no logo", { status: 404 });

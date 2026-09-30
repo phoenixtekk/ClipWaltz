@@ -5,6 +5,8 @@
 //   import   {projectId, source, key|url, name, userId} — PPTX / PDF / web page → brief + scenes (phase 3)
 //   campaign_hooks  {campaignId} — AI hook + CTA options for a draft campaign pack (phase 4)
 //   campaign_render {campaignId} — every combination → a queued render with its own storyboard snapshot
+//   brand_from_site {projectId, url} — suggest a brand kit from a public web page (phase 5)
+//   translate       {projectId} — translate a (copied) deck's words into its brief.language (phase 5)
 // Progress and results live in the DB (projects.deck.plan, deck_scenes) so the editor just polls.
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
@@ -12,8 +14,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import IORedis from "ioredis";
 import { Worker } from "bullmq";
-import { describeMedia, planStoryboard, rewriteScene, writeHooks, chatJson, VISION_MODEL, TEXT_MODEL, DESCRIBE_VERSION } from "./planner.mjs";
+import { describeMedia, planStoryboard, rewriteScene, writeHooks, translateDeck, chatJson, VISION_MODEL, TEXT_MODEL, DESCRIBE_VERSION } from "./planner.mjs";
 import { buildVariant, combinations, variantCode, snapshotLength, MAX_VARIANTS } from "./variants.mjs";
+import { brandFromSite } from "./brand-site.mjs";
 import { parsePptx, parsePdf, fetchPublic, readPage, sceneFromSlide, summarizeBrief, fallbackBrief } from "./importer.mjs";
 
 // DECK_QUEUE override: local dev uses its own queue so the prod worker never sees dev-DB jobs.
@@ -293,6 +296,64 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
     }
   }
 
+  // ── brand kit from a website (phase 5) ──────────────────────────────────────────────────────────
+  const setBrandSuggestion = (projectId, st) =>
+    sql`update projects set deck = jsonb_set(coalesce(deck, '{}'::jsonb), '{brandSuggestion}', ${sql.json(st)}), updated_at = now() where id = ${projectId}`;
+
+  async function brandSuggest(projectId, url) {
+    const [p] = await sql`select id, workspace_id from projects where id = ${projectId} and kind = 'deck'`;
+    if (!p?.workspace_id) return;
+    try {
+      await setBrandSuggestion(projectId, { status: "reading", url });
+      const b = await brandFromSite(url);
+      let logoKey = null;
+      if (b.logo) {
+        logoKey = `brand/${p.workspace_id}/suggest-${randomUUID()}.png`;
+        await putBytes(logoKey, b.logo.bytes, b.logo.type);
+      }
+      await setBrandSuggestion(projectId, {
+        status: "ready", url, primary: b.primary, secondary: b.secondary, headingFont: b.headingFont, bodyFont: b.bodyFont,
+        logoKey, found: b.found, at: new Date().toISOString(),
+      });
+      console.log(`[deck] brand suggestion for ${projectId} from ${url}: ${b.primary} ${b.headingFont}/${b.bodyFont} logo:${!!logoKey}`);
+    } catch (e) {
+      await setBrandSuggestion(projectId, { status: "failed", url, error: String(e.message).slice(0, 200) });
+    }
+  }
+
+  // ── translate (phase 5) ─────────────────────────────────────────────────────────────────────────
+  const setTranslation = (projectId, st) =>
+    sql`update projects set deck = jsonb_set(coalesce(deck, '{}'::jsonb), '{translation}', ${sql.json(st)}), updated_at = now() where id = ${projectId}`;
+
+  async function translate(projectId) {
+    const [p] = await sql`select id, deck from projects where id = ${projectId} and kind = 'deck'`;
+    if (!p) return;
+    const brief = p.deck?.brief ?? {};
+    const lang = brief.language;
+    const startedAt = new Date().toISOString();
+    try {
+      await setTranslation(projectId, { status: "translating", lang, startedAt });
+      const scenes = await sql`select id, text, voice from deck_scenes where project_id = ${projectId} order by order_index`;
+      // Translate FROM the source deck's language (the copy's brief already says the target).
+      const [src] = brief.translatedFrom?.projectId ? await sql`select deck from projects where id = ${brief.translatedFrom.projectId}` : [];
+      const out = await translateDeck({ ...brief, language: src?.deck?.brief?.language ?? "en" }, scenes, lang);
+      await sql.begin(async (tx) => {
+        for (const [i, sc] of scenes.entries()) {
+          const t = out.scenes[i];
+          await tx`update deck_scenes set text = ${tx.json(t.text)}, voice = ${t.voice || null}, updated_at = now() where id = ${sc.id}`;
+        }
+        const nb = { ...brief, prompt: out.brief.prompt || brief.prompt, goal: out.brief.goal || brief.goal, audience: out.brief.audience || brief.audience,
+          tone: out.brief.tone || brief.tone, offer: out.brief.offer || brief.offer, cta: brief.cta?.text ? { ...brief.cta, text: out.brief.cta || brief.cta.text } : brief.cta };
+        await tx`update projects set deck = jsonb_set(deck, '{brief}', ${tx.json(nb)}), updated_at = now() where id = ${projectId}`;
+      });
+      await setTranslation(projectId, { status: "ready", lang, kept: out.kept, finishedAt: new Date().toISOString() });
+      console.log(`[deck] translated ${projectId} → ${lang}: ${scenes.length} scenes (${out.kept} lines kept in the source language)`);
+    } catch (e) {
+      console.error(`[deck] translate ${projectId} failed: ${e.message}`);
+      await setTranslation(projectId, { status: "failed", lang, error: String(e.message).slice(0, 200) });
+    }
+  }
+
   // ── campaign packs (phase 4) ──────────────────────────────────────────────────────────────────────
   const setCampaign = (id, fields) => sql`update deck_campaigns set ${sql(fields)}, updated_at = now() where id = ${id}`;
 
@@ -384,6 +445,8 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
       else if (job.name === "import") await importDeck(d);
       else if (job.name === "campaign_hooks") await campaignHooks(d.campaignId);
       else if (job.name === "campaign_render") await campaignRender(d.campaignId);
+      else if (job.name === "brand_from_site") await brandSuggest(d.projectId, d.url);
+      else if (job.name === "translate") await translate(d.projectId);
     },
     // One at a time: the Ollama box is shared, parallel calls only queue there and evict models.
     { connection: new IORedis(redisUrl, { maxRetriesPerRequest: null }), concurrency: 1, lockDuration: 30 * 60 * 1000 },

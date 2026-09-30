@@ -2,12 +2,14 @@
 // Brand kit (workspace-scoped): colours, heading/body fonts and a logo, applied to WaltzDeck renders
 // (scene templates + title/CTA cards). One kit per workspace for now; a project opts in via brandKitId.
 import { randomUUID } from "crypto";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
 import { userCanAccessProject } from "./workspace";
 import { putObject } from "./storage";
+import { enqueueDeck } from "./queue";
+import type { BrandSuggestion, DeckState } from "./deck/types";
 import { BRAND_FONTS, type BrandKit } from "./brand";
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -80,4 +82,50 @@ export async function uploadBrandLogo(projectId: string, form: FormData): Promis
   [k] = await db.update(schema.brandKits).set({ logoKey: key, updatedAt: new Date() }).where(eq(schema.brandKits.id, k.id)).returning();
   revalidatePath(`/projects/${projectId}/deck`);
   return toKit(k, p.brandKitId === k.id);
+}
+
+// ── Brand kit from a website (WaltzDeck phase 5) ──────────────────────────────────────────────────────
+
+const setSuggestion = (projectId: string, st: BrandSuggestion) => db.update(schema.projects).set({
+  deck: sql`jsonb_set(coalesce(${schema.projects.deck}, '{}'::jsonb), '{brandSuggestion}', ${JSON.stringify(st)}::jsonb)`,
+}).where(eq(schema.projects.id, projectId));
+
+/** Read a public web page on the deck worker and suggest colours, fonts and a logo (nothing changes until applied). */
+export async function suggestBrandFromSite(projectId: string, rawUrl: string): Promise<void> {
+  await projectWorkspace(projectId, "editor");
+  let url: URL;
+  try {
+    url = new URL(/^https?:\/\//i.test(rawUrl.trim()) ? rawUrl.trim() : `https://${rawUrl.trim()}`);
+  } catch {
+    throw new Error("That doesn't look like a web address.");
+  }
+  if (!["http:", "https:"].includes(url.protocol) || !url.hostname.includes(".")) throw new Error("That doesn't look like a web address.");
+  await setSuggestion(projectId, { status: "queued", url: url.toString() });
+  try {
+    await enqueueDeck({ name: "brand_from_site", data: { projectId, url: url.toString() } });
+  } catch {
+    await setSuggestion(projectId, { status: "failed", url: url.toString(), error: "Couldn't reach the worker — try again in a moment." });
+    throw new Error("Couldn't reach the worker — try again in a moment.");
+  }
+}
+
+/** Apply the suggestion to the workspace kit (colours, fonts, logo) and to this project. */
+export async function applyBrandSuggestion(projectId: string): Promise<BrandKit> {
+  const p = await projectWorkspace(projectId, "editor");
+  const [row] = await db.select({ deck: schema.projects.deck }).from(schema.projects).where(eq(schema.projects.id, projectId));
+  const sug = ((row?.deck ?? {}) as Partial<DeckState>).brandSuggestion;
+  if (sug?.status !== "ready") throw new Error("There's no suggestion to apply.");
+  const kit = await saveBrandKit(projectId, { primary: sug.primary, secondary: sug.secondary, headingFont: sug.headingFont, bodyFont: sug.bodyFont, applied: true });
+  // Only a logo the worker stored for THIS workspace (never a key from anywhere else).
+  if (sug.logoKey && sug.logoKey.startsWith(`brand/${p.workspaceId}/suggest-`) && sug.logoKey.endsWith(".png")) {
+    await db.update(schema.brandKits).set({ logoKey: sug.logoKey, updatedAt: new Date() }).where(eq(schema.brandKits.id, kit.id));
+  }
+  await setSuggestion(projectId, { status: "idle" });
+  revalidatePath(`/projects/${projectId}/deck`);
+  return { ...kit, hasLogo: kit.hasLogo || !!sug.logoKey };
+}
+
+export async function dismissBrandSuggestion(projectId: string): Promise<void> {
+  await projectWorkspace(projectId, "editor");
+  await setSuggestion(projectId, { status: "idle" });
 }

@@ -624,6 +624,28 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
 - **Diagnostics:** `node -e "import('./worker/deck/variants.mjs')…"` — `buildVariant` is pure (see the function's
   comment); stats query = `select type, count(*) from variant_events where campaign_id = … group by type`.
 
+## AI credits + WaltzDeck Phase 5 (2026-09-29)
+- **Credits:** migration `0042_ai_credits` (`generation_jobs.credits`, default 0 — older jobs cost nothing). Rules in
+  `src/lib/credits.ts`; balance + atomic spend in `src/lib/credits-server.ts` (`spendCredits`: `pg_advisory_xact_lock
+  (hashtext('credits:<user>'))`, sum of this UTC month's non-failed/cancelled/retried jobs, insert in the same tx). Wired
+  into `createGenerationJob`, retries (`requeueGenerationCopy`, same cost), `enhanceVersion`, `createRemix`. Montage and
+  Fast enhance = 0. UI: `src/components/credits-line.tsx` (`useCredits`, `CreditsLine`). To comp a user more credits
+  today, upgrade their plan (`/admin` grant) — there is no per-user credit override yet.
+- **AI fill:** `fillScene` (deck-actions) → `createGenerationJob({ …, deckFill: { sceneId } })` (scene ownership checked);
+  the generation worker's `deckFillScene` adds the clean master as a media + asset row, sets `deck_scenes.asset_id`, and
+  queues a `describe`. `getDeck().fills` = each scene's latest fill job of the last day.
+- **Brand from website:** deck job `brand_from_site` (`worker/deck/brand-site.mjs`, fetches via `fetchPublic` — SSRF guard)
+  → `projects.deck.brandSuggestion`; logo stored as `brand/<workspace>/suggest-<uuid>.png` (sharp → PNG ≤ 512 px);
+  `applyBrandSuggestion` only accepts that prefix. Preview: `/api/projects/[id]/brand-logo?suggestion=1`.
+- **Translation:** `translateDeck` copies project + assets (same storage keys) + scenes, then deck job `translate`
+  (`translateDeck` in planner.mjs: one model call, 12k tokens; `keepFacts` keeps numbers / web addresses). Planner prompts
+  add a LANGUAGE line for non-English decks. TTS (`worker/tts/server.py`): voices ef_dora, em_alex, ff_siwis, if_sara,
+  im_nicola, pf_dora, pm_alex (espeak-ng pipelines "e/f/i/p"); they return no word timings, so `estimate_words` spreads
+  a chunk's words over its audio. Non-English claim guard covers numbers only (the claim word lists are English).
+- **Dev queues:** `GENERATION_QUEUE` / `EXPORT_QUEUE` / `ENHANCE_QUEUE` are now env-overridable (app + worker) like
+  `DECK_QUEUE`; dev uses `*-dev` (`.env.development.local`) — before this, dev AI jobs landed on prod's queue (harmless: the
+  prod worker couldn't find them in the prod DB).
+
 ## Render-complete notifications (Web Push)
 Two per-browser toggles at `/account/notifications`:
 - **Browser notification** — the open tab fires it from the render poll (`render-panel.tsx` →

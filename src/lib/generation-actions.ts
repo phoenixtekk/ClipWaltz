@@ -12,6 +12,9 @@ import { queuePositionOf } from "./ai/queue-position";
 import { resolveGenerationRoute, resolveEnhanceWorkflow, getAiAvailability, RouteUnavailableError, QUALITIES, type Quality } from "./ai/routing";
 import { normalizeSettings, type GenerationSettings } from "./generation-settings";
 import { getEffectiveTier } from "./tier";
+import { spendCredits } from "./credits-server";
+import { toResult, type ActionResult } from "./action-result";
+import { enhanceCost, generationCost, remixCost } from "./credits";
 import { shouldWatermark } from "./watermark";
 
 const PROMPT_MAX = 2000;
@@ -71,6 +74,11 @@ export type GenerationJobType = "text_to_video" | "image_to_video" | "montage" |
 
 export type CreateGenerationInput = {
   projectId: string;
+  /**
+   * WaltzDeck AI fill (phase 5): when set, the finished clip becomes a project video and replaces that storyboard
+   * scene's media (worker/generation-worker.mjs). The scene must belong to projectId (checked below).
+   */
+  deckFill?: { sceneId: string };
   /** Ignored — the routing engine picks the workflow from jobType + quality (ADR-0009). */
   workflow?: string;
   /** Quality profile → routing rule (workflow + sampler steps). Default "standard". */
@@ -99,7 +107,7 @@ export type CreateGenerationInput = {
  * BullMQ generation queue. The generation worker (worker/generation-worker.mjs) claims it, submits
  * to the AISERVER wrapper, and writes the resulting generation_versions row. Returns the job id.
  */
-export async function createGenerationJob(input: CreateGenerationInput): Promise<string> {
+async function createGenerationJobImpl(input: CreateGenerationInput): Promise<string> {
   const userId = await requireUserId();
 
   const [proj] = await db
@@ -119,6 +127,12 @@ export async function createGenerationJob(input: CreateGenerationInput): Promise
       .where(and(eq(schema.assets.id, input.sourceAssetId), eq(schema.assets.projectId, input.projectId)));
     if (!a) throw new Error("Source image not found");
   }
+  if (input.deckFill) {
+    const [sc] = await db.select({ id: schema.deckScenes.id }).from(schema.deckScenes)
+      .where(and(eq(schema.deckScenes.id, input.deckFill.sceneId), eq(schema.deckScenes.projectId, input.projectId)));
+    if (!sc) throw new Error("Scene not found");
+    input = { ...input, deckFill: { sceneId: sc.id } };
+  }
   if (input.jobType === "text_to_video" && !input.prompt?.trim()) {
     throw new Error("Text-to-video needs a prompt");
   }
@@ -136,10 +150,14 @@ export async function createGenerationJob(input: CreateGenerationInput): Promise
     }
   }
   const priority = await priorityFor(userId);
+  // AI credits: seconds × quality (a clip with no length set gets the model's longest).
+  const credits = generationCost(input.durationSec ?? route.durationMax ?? 5, quality);
+  const watermark = await shouldWatermark(userId);
 
   const id = randomUUID();
-  await db.insert(schema.generationJobs).values({
+  await spendCredits(userId, credits, (tx) => tx.insert(schema.generationJobs).values({
     id,
+    credits,
     projectId: input.projectId,
     sceneId: input.sceneId ?? null,
     workspaceId: proj.workspaceId ?? null,
@@ -167,12 +185,13 @@ export async function createGenerationJob(input: CreateGenerationInput): Promise
       style: input.style ?? null,
       camera: input.camera ?? null,
       userPrompt: input.userPrompt?.slice(0, PROMPT_MAX) ?? null,
-      watermark: await shouldWatermark(userId),
+      watermark,
+      ...(input.deckFill ? { deckFill: input.deckFill } : {}),
     },
     priority,
-  });
+  }));
 
-  await enqueueGeneration(id, { priority: bullPriority(priority) });
+  await enqueueOrRefund(id, () => enqueueGeneration(id, { priority: bullPriority(priority) }));
   if (input.settings) await rememberRecentSettings(userId, input.settings).catch(() => {});
   revalidatePath(`/projects/${input.projectId}/edit`);
   return id;
@@ -259,7 +278,7 @@ export async function listGenerationVersions(projectId: string): Promise<Generat
  * duplicates it exactly (same seed → reproducible copy); `fresh=true` regenerates a variation with
  * a new random seed. Returns the new job id.
  */
-export async function regenerateFromVersion(versionId: string, fresh: boolean): Promise<string> {
+async function regenerateFromVersionImpl(versionId: string, fresh: boolean): Promise<string> {
   const userId = await requireUserId();
   const [ver] = await db
     .select({
@@ -278,7 +297,10 @@ export async function regenerateFromVersion(versionId: string, fresh: boolean): 
     .where(eq(schema.generationJobs.id, ver.jobId));
   if (!job) throw new Error("Source job not found");
 
-  const req = (job.requestJson ?? {}) as Record<string, unknown>;
+  // A regenerate / duplicate is a new Waltz AI version — it must never re-fill a WaltzDeck scene (only a retry of a
+  // failed fill does), so the deckFill target is dropped.
+  const { deckFill: _fill, ...req } = (job.requestJson ?? {}) as Record<string, unknown>;
+  void _fill;
   const id = await requeueGenerationCopy(job, userId, { ...req, seed: fresh ? null : (req.seed ?? null) });
   revalidatePath(`/projects/${job.projectId}/edit`);
   return id;
@@ -311,9 +333,13 @@ async function requeueGenerationCopy(
     requestJson = { ...requestJson, workflows };
   }
   requestJson = { ...requestJson, watermark: await shouldWatermark(userId) };
+  // The copy is priced from its own settings — never copied from the original (jobs made before credits existed are
+  // stored with 0, which would make every regenerate / retry of them free).
+  const credits = await costOfJob(job.jobType, requestJson);
   const id = randomUUID();
-  await db.insert(schema.generationJobs).values({
+  await spendCredits(userId, credits, (tx) => tx.insert(schema.generationJobs).values({
     id,
+    credits,
     projectId: job.projectId,
     sceneId: job.sceneId ?? null,
     workspaceId: job.workspaceId ?? null,
@@ -326,17 +352,57 @@ async function requeueGenerationCopy(
     requestJson,
     retryCount,
     priority: job.priority,
-  });
-  if (job.jobType === "enhancement" || job.jobType === "montage" || job.jobType === "remix") await enqueueEnhance(id, { priority: bullPriority(job.priority) });
-  else await enqueueGeneration(id, { priority: bullPriority(job.priority) });
+  }));
+  if (job.jobType === "enhancement" || job.jobType === "montage" || job.jobType === "remix") await enqueueOrRefund(id, () => enqueueEnhance(id, { priority: bullPriority(job.priority) }));
+  else await enqueueOrRefund(id, () => enqueueGeneration(id, { priority: bullPriority(job.priority) }));
   return id;
+}
+
+/** AI credits for a job from its stored settings (the same rules as when it was first created). */
+async function costOfJob(jobType: string, req: Record<string, unknown>): Promise<number> {
+  const quality = typeof req.quality === "string" ? req.quality : "standard";
+  if (jobType === "text_to_video" || jobType === "image_to_video") {
+    let seconds = Number(req.durationSec) || 0;
+    if (!seconds) seconds = (await routeOrUserError(jobType, (QUALITIES.includes(quality as Quality) ? quality : "standard") as Quality)).durationMax ?? 5;
+    return generationCost(seconds, quality);
+  }
+  if (jobType === "remix") {
+    const secs = (x: unknown) => Number((x as { seconds?: number } | null)?.seconds) || 0;
+    const moments = Array.isArray(req.moments) ? (req.moments as unknown[]) : [];
+    const ai = secs(req.leadIn) + secs(req.extend) + moments.reduce<number>((n, m) => n + secs(m), 0);
+    return ai ? remixCost(ai, quality) : 0;
+  }
+  if (jobType === "enhancement") {
+    const engine = String(req.engine ?? "ffmpeg");
+    if (engine === "ffmpeg") return 0;
+    const [v] = typeof req.sourceVersionId === "string"
+      ? await db.select({ d: schema.generationVersions.durationSec }).from(schema.generationVersions).where(eq(schema.generationVersions.id, req.sourceVersionId))
+      : [];
+    return enhanceCost(engine, v?.d ?? 5);
+  }
+  return 0; // montage: no AI model runs
+}
+
+/**
+ * Queue a just-charged job; if the queue can't be reached, fail the job (which refunds its credits — failed jobs don't
+ * count) and tell the user nothing was spent.
+ */
+async function enqueueOrRefund(id: string, enqueue: () => Promise<unknown>): Promise<void> {
+  try {
+    await enqueue();
+  } catch (e) {
+    console.error(`[generation] enqueue ${id} failed:`, (e as Error).message);
+    await db.update(schema.generationJobs).set({ status: "failed", errorMessage: "Couldn't reach the AI queue", failedAt: new Date(), updatedAt: new Date() })
+      .where(eq(schema.generationJobs.id, id)).catch(() => {});
+    throw new Error("Couldn't reach the AI queue — try again in a moment. No credits were used.");
+  }
 }
 
 /**
  * Retry a failed or cancelled job (CW-MVP-181, editor-checked): a new job with the same prompt,
  * source and settings (same seed if one was recorded). Returns the new job id.
  */
-export async function retryGenerationJob(jobId: string): Promise<string> {
+async function retryGenerationJobImpl(jobId: string): Promise<string> {
   const userId = await requireUserId();
   const [job] = await db.select().from(schema.generationJobs).where(eq(schema.generationJobs.id, jobId));
   if (!job || !(await userCanAccessProject(userId, job.projectId, "editor"))) throw new Error("Job not found");
@@ -378,7 +444,7 @@ async function assertEnhanceAvailable(engine: string, interpolate: boolean, upsc
  * Enhance a version (editor-checked): queue an `enhancement` job that post-processes the source
  * clip (motion interpolation and/or 2× upscale) into a NEW version. Returns the new job id.
  */
-export async function enhanceVersion(input: {
+async function enhanceVersionImpl(input: {
   versionId: string;
   interpolate: boolean;
   upscale: boolean;
@@ -410,6 +476,7 @@ export async function enhanceVersion(input: {
       cleanKey: schema.generationVersions.cleanKey,
       workspaceId: schema.projects.workspaceId,
       ownerId: schema.projects.ownerId,
+      durationSec: schema.generationVersions.durationSec,
     })
     .from(schema.generationVersions)
     .innerJoin(schema.projects, eq(schema.generationVersions.projectId, schema.projects.id))
@@ -418,10 +485,13 @@ export async function enhanceVersion(input: {
   if (!ver.outputKey) throw new Error("This version has no output to enhance yet");
   const workflows = await assertEnhanceAvailable(engine, input.interpolate, upscale);
   const priority = await priorityFor(userId);
+  const credits = enhanceCost(engine, ver.durationSec ?? 5);
+  const watermark = await shouldWatermark(userId);
 
   const id = randomUUID();
-  await db.insert(schema.generationJobs).values({
+  await spendCredits(userId, credits, (tx) => tx.insert(schema.generationJobs).values({
     id,
+    credits,
     projectId: ver.projectId,
     sceneId: ver.sceneId ?? null,
     workspaceId: ver.workspaceId ?? null,
@@ -432,7 +502,7 @@ export async function enhanceVersion(input: {
       sourceVersionId: ver.id,
       // Enhance the unwatermarked master when there is one (never upscale/smooth a logo).
       sourceKey: ver.cleanKey ?? ver.outputKey,
-      watermark: await shouldWatermark(userId),
+      watermark,
       engine,
       interpolate: input.interpolate,
       upscale,
@@ -441,8 +511,8 @@ export async function enhanceVersion(input: {
       preset: input.preset ?? null,
     },
     priority,
-  });
-  await enqueueEnhance(id, { priority: bullPriority(priority) });
+  }));
+  await enqueueOrRefund(id, () => enqueueEnhance(id, { priority: bullPriority(priority) }));
   revalidatePath(`/projects/${ver.projectId}/edit`);
   return id;
 }
@@ -667,4 +737,32 @@ export async function getAiStudioStatus(): Promise<AiStudioStatus> {
   }
   studioCache = { at: Date.now(), value };
   return value;
+}
+
+// ── Actions that spend AI credits return their errors (see src/lib/action-result.ts: thrown messages are replaced by a
+// generic error in production, and "not enough credits" must be readable). Client: unwrap(await action(...)).
+export async function createGenerationJob(input: CreateGenerationInput): Promise<ActionResult<string>> {
+  return toResult(() => createGenerationJobImpl(input));
+}
+export async function regenerateFromVersion(versionId: string, fresh: boolean): Promise<ActionResult<string>> {
+  return toResult(() => regenerateFromVersionImpl(versionId, fresh));
+}
+export async function retryGenerationJob(jobId: string): Promise<ActionResult<string>> {
+  return toResult(() => retryGenerationJobImpl(jobId));
+}
+export async function enhanceVersion(input: {
+  versionId: string;
+  interpolate: boolean;
+  upscale: boolean;
+  /**
+   * "ffmpeg" = fast interpolate/upscale; "ai" = Real-ESRGAN 2× upscale on AISERVER;
+   * "restore" = SeedVR2 diffusion restoration + 2× upscale on AISERVER (always upscales; ADR-0007).
+   */
+  engine?: "ffmpeg" | "ai" | "restore";
+  /** Fast engine only: light denoise + sharpen (the "Clean" preset, CW-MVP-132). */
+  denoise?: boolean;
+  /** Preset name for display: clean | smooth | sharp | max. */
+  preset?: string | null;
+}): Promise<ActionResult<string>> {
+  return toResult(() => enhanceVersionImpl(input));
 }

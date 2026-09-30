@@ -7,11 +7,12 @@ import IORedis from "ioredis";
 const REDIS_URL = process.env.REDIS_URL ?? "redis://127.0.0.1:6379";
 
 /** Queue name shared by the app (producer) and the generation worker (consumer). */
-export const GENERATION_QUEUE = "clipwaltz-generation";
+// Overridable for local dev (e.g. GENERATION_QUEUE=clipwaltz-generation-dev) so dev jobs never land on prod's queues.
+export const GENERATION_QUEUE = process.env.GENERATION_QUEUE || "clipwaltz-generation";
 /** Export queue: transcode a chosen generation version to a final deliverable. */
-export const EXPORT_QUEUE = "clipwaltz-export";
+export const EXPORT_QUEUE = process.env.EXPORT_QUEUE || "clipwaltz-export";
 /** Enhance queue: ffmpeg post-process (interpolate/upscale) a version → a new enhanced version. */
-export const ENHANCE_QUEUE = "clipwaltz-enhance";
+export const ENHANCE_QUEUE = process.env.ENHANCE_QUEUE || "clipwaltz-enhance";
 
 /** The payload we enqueue: just the DB job id. The worker loads the row for details. */
 export type GenerationJobData = { generationJobId: string };
@@ -110,6 +111,8 @@ export type DeckJob =
   | { name: "plan"; data: { projectId: string } }
   | { name: "scene"; data: { sceneId: string; instruction: string } }
   | { name: "campaign_hooks"; data: { campaignId: string } }
+  | { name: "brand_from_site"; data: { projectId: string; url: string } }
+  | { name: "translate"; data: { projectId: string } }
   | { name: "campaign_render"; data: { campaignId: string } }
   | { name: "import"; data: { projectId: string; source: "pptx" | "pdf" | "url"; key?: string; url?: string; name: string; userId: string } };
 

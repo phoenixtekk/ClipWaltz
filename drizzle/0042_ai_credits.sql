@@ -1,0 +1,1 @@
+ALTER TABLE "generation_jobs" ADD COLUMN "credits" integer DEFAULT 0 NOT NULL;

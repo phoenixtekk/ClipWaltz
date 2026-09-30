@@ -26,6 +26,9 @@ import {
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
+import { CreditsLine, notEnough, useCredits } from "@/components/credits-line";
+import { enhanceCost, generationCost } from "@/lib/credits";
+import { unwrap } from "@/lib/action-result";
 import type { AssetSummary } from "@/lib/assets";
 import {
   createGenerationJob,
@@ -224,6 +227,8 @@ export function GenerationPanel({
 
   // Job + versions state
   const [job, setJob] = useState<Job | null>(null);
+  // AI credits: re-read whenever a job starts or changes state (a failed/cancelled job refunds).
+  const credits = useCredits(`${job?.id ?? ""}:${job?.status ?? ""}`);
   const [pending, start] = useTransition();
   const [versions, setVersions] = useState<GenerationVersionItem[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
@@ -451,7 +456,7 @@ export function GenerationPanel({
     }
     start(async () => {
       try {
-        const jobId = await createGenerationJob({
+        const jobId = unwrap(await createGenerationJob({
           projectId,
           jobType: mode === "text" ? "text_to_video" : "image_to_video",
           quality: qualityKey,
@@ -467,7 +472,7 @@ export function GenerationPanel({
           durationSec,
           motion: MOTIONS[motionIdx] as Motion,
           seed: seedNum,
-        });
+        }));
         setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null });
       } catch (e) {
         toast.error((e as Error).message || "Could not start generation.");
@@ -481,7 +486,7 @@ export function GenerationPanel({
     const failedId = job.id;
     start(async () => {
       try {
-        const jobId = await retryGenerationJob(failedId);
+        const jobId = unwrap(await retryGenerationJob(failedId));
         setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null });
       } catch (e) {
         toast.error((e as Error).message || "Could not retry.");
@@ -524,6 +529,7 @@ export function GenerationPanel({
   // Duplicate (same seed) or regenerate (fresh seed) a new job from an existing version.
   function regenFrom(versionId: string, fresh: boolean) {
     regenerateFromVersion(versionId, fresh)
+      .then(unwrap)
       .then((jobId) => {
         setCompareId(null);
         setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null });
@@ -545,10 +551,10 @@ export function GenerationPanel({
     setEnhanceOpen(false);
     start(async () => {
       try {
-        const jobId = await enhanceVersion({
+        const jobId = unwrap(await enhanceVersion({
           versionId, engine: enhanceEngine, interpolate: enhanceInterp, upscale: enhanceUpscaleEffective,
           denoise, preset: enhancePreset,
-        });
+        }));
         setCompareId(null);
         setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null });
         toast.message("Enhancing this version…");
@@ -908,9 +914,10 @@ export function GenerationPanel({
         {isGenerating ? (
           <GenerationProgress job={job!} onCancel={cancel} />
         ) : mode === "remix" ? null : (
+          <>
           <Button
             onClick={generate}
-            disabled={pending || (mode === "image" ? !sourceAssetId : !prompt.trim())}
+            disabled={pending || (mode === "image" ? !sourceAssetId : !prompt.trim()) || notEnough(credits, generationCost(durationSec, qualityKey))}
             size="lg"
             className="h-14 w-full bg-[image:var(--cw-spectrum)] text-base font-semibold text-white shadow-lg hover:opacity-90"
           >
@@ -924,6 +931,8 @@ export function GenerationPanel({
               </>
             )}
           </Button>
+          <CreditsLine cost={generationCost(durationSec, qualityKey)} balance={credits} className="w-full justify-center" />
+          </>
         )}
       </section>
 
@@ -1054,7 +1063,8 @@ export function GenerationPanel({
                 <Button variant="ghost" size="sm" onClick={() => setEnhanceOpen(false)} disabled={pending}>
                   <X className="size-3.5" /> Cancel
                 </Button>
-                <Button size="sm" onClick={runEnhance} disabled={pending || (!enhanceInterp && !enhanceUpscaleEffective && enhancePreset !== "clean")}>
+                <CreditsLine cost={enhanceCost(enhanceEngine, selected?.durationSec ?? 5)} balance={credits} className="mr-auto" />
+                <Button size="sm" onClick={runEnhance} disabled={pending || (!enhanceInterp && !enhanceUpscaleEffective && enhancePreset !== "clean") || notEnough(credits, enhanceCost(enhanceEngine, selected?.durationSec ?? 5))}>
                   <Sparkles className="size-3.5" /> Enhance
                 </Button>
               </div>

@@ -7,6 +7,9 @@ import { requireUserId } from "./auth";
 import { getUserWorkspaceIds, userCanAccessProject, visibleProjectsFilter } from "./workspace";
 import { enqueueEnhance } from "./queue";
 import { shouldWatermark } from "./watermark";
+import { spendCredits } from "./credits-server";
+import { toResult, type ActionResult } from "./action-result";
+import { remixCost } from "./credits";
 import { burnedInLogo } from "./burned-logo";
 import { resolveGenerationRoute, RouteUnavailableError, QUALITIES, type Quality } from "./ai/routing";
 
@@ -107,6 +110,15 @@ export async function createRemix(
   projectId: string,
   source: { kind: "render" | "version"; id: string },
   recipe: RemixRecipe,
+): Promise<ActionResult<string>> {
+  // Errors are returned, not thrown (src/lib/action-result.ts) — "not enough AI credits" must reach the user.
+  return toResult(() => createRemixImpl(projectId, source, recipe));
+}
+
+async function createRemixImpl(
+  projectId: string,
+  source: { kind: "render" | "version"; id: string },
+  recipe: RemixRecipe,
 ): Promise<string> {
   const userId = await requireUserId();
   if (!(await userCanAccessProject(userId, projectId, "editor"))) throw new Error("Project not found");
@@ -165,16 +177,27 @@ export async function createRemix(
   const [proj] = await db.select({ workspaceId: schema.projects.workspaceId }).from(schema.projects).where(eq(schema.projects.id, projectId));
   const id = randomUUID();
   const parts = [leadIn && "lead-in", moments.length && `${moments.length} moment${moments.length > 1 ? "s" : ""}`, extend && "extend"].filter(Boolean).join(" + ");
-  await db.insert(schema.generationJobs).values({
-    id, projectId, workspaceId: proj?.workspaceId ?? null, requestedBy: userId, jobType: "remix", status: "queued",
+  // AI credits: only the seconds AI adds, at the remix's quality.
+  const credits = remixCost((leadIn?.seconds ?? 0) + moments.reduce((n, m) => n + m.seconds, 0) + (extend?.seconds ?? 0), quality);
+  const watermark = await shouldWatermark(userId);
+  await spendCredits(userId, credits, (tx) => tx.insert(schema.generationJobs).values({
+    id, credits, projectId, workspaceId: proj?.workspaceId ?? null, requestedBy: userId, jobType: "remix", status: "queued",
     routingProfile: route.ruleId, modelName: route.modelName, workflowName: route.workflow, workflowVersion: route.workflowVersion,
     prompt: `Remix of ${src.label}: ${parts}`,
     requestJson: {
       summary: parts, source: src, leadIn, moments, extend, style, stylePhrase: style ? STYLE_PHRASE[style] : null,
-      quality, workflow: route.workflow, steps: route.steps, watermark: await shouldWatermark(userId),
+      quality, workflow: route.workflow, steps: route.steps, watermark,
     },
-  });
-  await enqueueEnhance(id);
+  }));
+  try {
+    await enqueueEnhance(id);
+  } catch (e) {
+    // Fail the charged job (failed jobs don't count against credits) and say nothing was spent.
+    console.error(`[remix] enqueue ${id} failed:`, (e as Error).message);
+    await db.update(schema.generationJobs).set({ status: "failed", errorMessage: "Couldn't reach the AI queue", failedAt: new Date(), updatedAt: new Date() })
+      .where(eq(schema.generationJobs.id, id)).catch(() => {});
+    throw new Error("Couldn't reach the AI queue — try again in a moment. No credits were used.");
+  }
   revalidatePath(`/projects/${projectId}/edit`);
   return id;
 }

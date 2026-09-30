@@ -20,17 +20,18 @@ import { Agent as HttpAgent } from "node:http";
 import { Agent as HttpsAgent } from "node:https";
 import postgres from "postgres";
 import IORedis from "ioredis";
-import { Worker } from "bullmq";
+import { Worker, Queue } from "bullmq";
 import { WATERMARK_PATH, wmChain, wmBox } from "./watermark.mjs";
 import { composeRemix } from "./remix-compose.mjs";
-import { startDeckWorker } from "./deck/jobs.mjs";
-import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { startDeckWorker, DECK_QUEUE } from "./deck/jobs.mjs";
+import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand, CopyObjectCommand } from "@aws-sdk/client-s3";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 
 const run = promisify(execFile);
-const GENERATION_QUEUE = "clipwaltz-generation";
-const EXPORT_QUEUE = "clipwaltz-export";
-const ENHANCE_QUEUE = "clipwaltz-enhance";
+// Overridable for a dev instance (must match the app's env — src/lib/queue.ts).
+const GENERATION_QUEUE = process.env.GENERATION_QUEUE || "clipwaltz-generation";
+const EXPORT_QUEUE = process.env.EXPORT_QUEUE || "clipwaltz-export";
+const ENHANCE_QUEUE = process.env.ENHANCE_QUEUE || "clipwaltz-enhance";
 const REDIS_URL = process.env.REDIS_URL ?? "redis://127.0.0.1:6379";
 const AISERVER_URL = (process.env.AISERVER_API_URL ?? "http://192.168.166.158:8189").replace(/\/$/, "");
 const AISERVER_TOKEN = process.env.AISERVER_API_TOKEN ?? "";
@@ -256,8 +257,46 @@ async function processJob(genJobId) {
     duration_sec: meta.duration ?? null,
     settings: { ...req, width: meta.width || null, height: meta.height || null, fps: meta.fps ?? null },
   });
+  if (req.deckFill?.sceneId) await deckFillScene(j, req.deckFill.sceneId, { key: clean_key ?? outputKey, versionNumber, meta, bytes: videoBytes.length });
   await setStatus(genJobId, { status: "completed", progress: 100, completed_at: new Date() });
   console.log(`[gen] ${genJobId} done → ${outputKey} (v${versionNumber}, ${videoBytes.length} bytes)`);
+}
+
+// WaltzDeck AI fill (phase 5): the finished clip becomes a normal project video (library media row + asset, like an
+// upload — the clean master, since every render adds its own watermark) and replaces the storyboard scene's media.
+// Then its vision description is queued so the editor stops showing "looking…" and planning can use it.
+let _deckQueue = null;
+async function deckFillScene(j, sceneId, { key: versionKey, versionNumber, meta, bytes }) {
+  let key = versionKey;
+  try {
+    const [sc] = await sql`select id, order_index from deck_scenes where id = ${sceneId} and project_id = ${j.project_id}`;
+    if (!sc) return console.log(`[gen] deck fill: scene ${sceneId} is gone — clip kept as v${versionNumber} only`);
+    const [p] = await sql`select workspace_id from projects where id = ${j.project_id}`;
+    const assetId = randomUUID(), mediaId = randomUUID();
+    const name = `AI clip — scene ${sc.order_index + 1} (v${versionNumber}).mp4`;
+    // Its own file under the project's uploads, so deleting the Waltz AI version (or Free-plan retention of the
+    // upload) never removes the other's file.
+    const src = key;
+    key = `projects/${j.project_id}/${assetId}-ai-clip.mp4`;
+    await s3.send(new CopyObjectCommand({ Bucket: BUCKET, Key: key, CopySource: `${BUCKET}/${encodeURI(src)}`, ContentType: "video/mp4", MetadataDirective: "REPLACE" }));
+    await sql.begin(async (tx) => {
+      const [{ next }] = await tx`select coalesce(max(order_index), -1) + 1 as next from assets where project_id = ${j.project_id}`;
+      if (j.requested_by) {
+        await tx`insert into media ${tx({ id: mediaId, owner_id: j.requested_by, kind: "video", original_name: name, storage_key: key,
+          conversion_state: "ready", size_bytes: bytes, duration_sec: meta.duration ?? null, last_used_at: new Date() })}`;
+      }
+      await tx`insert into assets ${tx({ id: assetId, project_id: j.project_id, media_id: j.requested_by ? mediaId : null, workspace_id: p?.workspace_id ?? null,
+        storage_key: key, kind: "video", original_name: name, upload_state: "uploaded", conversion_state: "ready",
+        duration_sec: meta.duration ?? null, width: meta.width || null, height: meta.height || null, order_index: Number(next) })}`;
+      await tx`update deck_scenes set asset_id = ${assetId}, in_sec = null, why = ${`Made by AI (Waltz AI v${versionNumber}).`}, updated_at = now()
+        where id = ${sceneId}`;
+    });
+    if (!_deckQueue) _deckQueue = new Queue(DECK_QUEUE, { connection: new IORedis(REDIS_URL, { maxRetriesPerRequest: null }) });
+    await _deckQueue.add("describe", { assetId }, { jobId: `describe-${assetId}`, attempts: 1, removeOnComplete: 500, removeOnFail: 1000 }).catch(() => {});
+    console.log(`[gen] deck fill: scene ${sceneId} → asset ${assetId}`);
+  } catch (e) {
+    console.error(`[gen] deck fill for scene ${sceneId} failed (clip kept as v${versionNumber}): ${e.message}`);
+  }
 }
 
 const connection = new IORedis(REDIS_URL, { maxRetriesPerRequest: null });

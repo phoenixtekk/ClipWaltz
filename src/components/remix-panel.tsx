@@ -4,6 +4,9 @@ import { ArrowLeftRight, Clapperboard, Film, Loader2, Plus, Sparkles, Trash2, Wa
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
+import { CreditsLine, notEnough, useCredits } from "@/components/credits-line";
+import { remixCost } from "@/lib/credits";
+import { unwrap } from "@/lib/action-result";
 import { createRemix, listRemixSources, type RemixSource } from "@/lib/remix-actions";
 import type { Quality } from "@/lib/ai/routing";
 
@@ -63,6 +66,10 @@ export function RemixPanel({
   const q = QUALITIES.find((x) => x.key === quality)!;
   const estimate = parts ? Math.max(1, Math.round((Math.ceil(parts / 2) * q.min + 0.5) * 10) / 10) : 0;
   const total = (dur ?? 0) + (leadOn ? lead.seconds : 0) + (extOn ? ext.seconds : 0);
+  // AI credits: the seconds AI adds, at this quality (same rule as the server, src/lib/credits.ts).
+  const aiSeconds = (leadOn ? lead.seconds : 0) + moments.reduce((n, m) => n + m.seconds, 0) + (extOn ? ext.seconds : 0);
+  const cost = parts ? remixCost(aiSeconds, quality) : 0;
+  const credits = useCredits(busy);
 
   function pick(s: RemixSource) {
     setPicked(s);
@@ -81,9 +88,9 @@ export function RemixPanel({
     if (!picked) return;
     start(async () => {
       try {
-        const jobId = await createRemix(projectId, { kind: picked.kind, id: picked.id }, {
+        const jobId = unwrap(await createRemix(projectId, { kind: picked.kind, id: picked.id }, {
           leadIn: leadOn ? lead : null, extend: extOn ? ext : null, moments, style, quality,
-        });
+        }));
         toast.success("Remix started — it'll appear under Generated versions");
         onStarted(jobId);
       } catch (e) {
@@ -239,12 +246,15 @@ export function RemixPanel({
       </div>
 
       {!busy ? (
-        <Button onClick={submit} disabled={pending || parts === 0} size="lg"
+        <>
+        <Button onClick={submit} disabled={pending || parts === 0 || notEnough(credits, cost)} size="lg"
           className="h-14 w-full bg-[image:var(--cw-spectrum)] text-base font-semibold text-white shadow-lg hover:opacity-90">
           {pending ? <><Loader2 className="size-5 animate-spin" /> Starting…</>
             : parts === 0 ? <><X className="size-5" /> Turn on a lead-in, a moment or extend</>
             : <><Sparkles className="size-5" /> Remix · {parts} AI part{parts > 1 ? "s" : ""} · ~{estimate} min</>}
         </Button>
+        {parts ? <CreditsLine cost={cost} balance={credits} className="w-full justify-center" /> : null}
+        </>
       ) : null}
     </div>
   );

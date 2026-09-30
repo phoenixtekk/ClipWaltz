@@ -13,6 +13,31 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## AI credits + WaltzDeck Phase 5 — AI fill, brand kit from website, translations (2026-09-29)
+- **AI credits** (owner decision — BILLING.md): monthly allowance **Free 30 · Plus 300 · Pro 1,000** (1 credit = 1 s of AI
+  video at standard quality; preview ½, high ×2). Used by every Waltz AI job — clips, Remix, AI enhance, WaltzDeck AI
+  fill; Fast enhance and storyboard assembly are free. Every AI button shows the cost and what's left; not enough →
+  the button is disabled and says when it resets; the server enforces it too. **Failed, cancelled and retried jobs
+  are refunded automatically.** Billing page shows the month's credits.
+- **AI fill** on WaltzDeck scene cards: **Bring to life** turns the scene's photo into a video clip (image-to-video);
+  **Generate a shot** makes one from a description (text-to-video, prefilled from the scene text). Length = the shortest
+  Waltz AI length that covers the scene (3 / 5 / 8 s), shape = the project's. The finished clip is added to the
+  project's media (clean master; the render adds its own watermark) and replaces the scene's media automatically;
+  progress shows on the card.
+- **Brand kit from website:** Brand → *build my kit from my website* reads the page (+ its first two stylesheets) and
+  suggests the main colour (theme colour / CSS brand variable / the logo's dominant colour), a deep background, the
+  heading/body fonts mapped to the fonts the render box has (closest match), and the logo (PNG/JPEG/WebP — SVG logos are
+  skipped for safety). Preview → **Use these** (updates the workspace kit + turns it on) or Dismiss.
+- **Languages & translation:** a deck's **Language** (English, Español, Français, Italiano, Português-BR) steers the
+  AI's text, voice lines and captions; the voice list shows that language's voices (7 new Kokoro voices, Apache-2.0).
+  **Translate to…** makes a translated copy (same clips, scenes, look and brand; the original untouched): scene text,
+  points, narration and brief translated, numbers / codes / web addresses kept exactly (a line where one didn't survive
+  stays in the original language and is reported), a voice of that language, captions in it. Word highlighting in
+  non-English captions is timed by estimate (those voices give no word timings).
+- Verified 2026-09-29 on dev: credits line + server refusal ("needs 5, you have 2 left… resets October 1") with no job
+  created; failed job refunded (28 → 8 used); brand from python.org (colour, fonts, logo) applied; Spanish translation
+  of a 3-slide deck (0 lines kept back); AI fill — see ADMIN_DOCS.
+
 ## WaltzDeck Phase 4 — campaign packs + per-variant stats (2026-09-29)
 - **Campaign pack** (editor section 4, any deck with a storyboard): test **hooks × calls to action × lengths (6 / 15 / 30 s)
   × shapes (9:16 / 1:1 / 4:5 / 16:9)**, up to **12 videos** per pack. Options: your current hook + 0–3 AI hooks

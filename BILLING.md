@@ -28,6 +28,18 @@ so no App Store / Play IAP at launch.
 > benchmarked to consumer/creator video SaaS, not cost-plus. `webhook endpoint` =
 > `we_1UGra1CexeLlxm8EZjhfzk6j` → `https://www.clipwaltz.com/api/billing/webhook`.
 
+## AI credits (owner decision 2026-09-29)
+- **Monthly allowance, no purchases** (no Stripe changes, no money movement): **Free 30 · Plus 300 · Pro 1,000** credits a
+  month, resetting on the 1st (UTC). **1 credit = 1 second of AI video at standard quality.**
+- **Covers all Waltz AI:** text/image-to-video (seconds × quality: preview 0.5, standard 1, high 2), Remix (the AI seconds
+  it adds, × quality), AI enhance (Real-ESRGAN 0.5× the clip length, SeedVR2 restore 2×), WaltzDeck AI fill. Free: Fast
+  (ffmpeg) enhance and storyboard assembly — no AI model runs.
+- **Refunds are automatic:** each job stores its cost (`generation_jobs.credits`); the balance counts only this month's
+  jobs that did not end failed / cancelled / retried. A retry costs what the original did.
+- The cost + balance show before every AI button; the server enforces the same numbers in one transaction per user
+  (`spendCredits`, advisory lock). Code: `src/lib/credits.ts` (rules, client-safe), `src/lib/credits-server.ts`.
+- Top-up packs were offered and **not** chosen; revisit before adding any purchase flow (it would be money movement).
+
 ## Comp / admin grants (no Stripe)
 Admins (`ADMIN_EMAILS`) can grant Plus/Pro to any email at `/admin` — lifetime or with an expiry
 date. A grant writes a `subscriptions` row (no Stripe ids) + `user.plan`; `getEffectiveTier`

@@ -9,8 +9,9 @@ import { requireUserId } from "./auth";
 import { userCanAccessProject } from "./workspace";
 import { enqueueDeck } from "./queue";
 import { shouldWatermark } from "./watermark";
+import { toResult, unwrap, type ActionResult } from "./action-result";
 import {
-  DECK_MODES, LAYOUTS, MAX_BULLETS, MAX_BULLET_CHARS, MOTIONS, ROLES, VOICES, defaultBrief,
+  DECK_MODES, LANGUAGES, LAYOUTS, MAX_BULLETS, MAX_BULLET_CHARS, MOTIONS, ROLES, VOICES, defaultBrief, defaultVoiceFor,
   type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type DeckState, type SceneText, type SceneTextMode,
 } from "./deck/types";
 
@@ -42,6 +43,8 @@ export type DeckData = {
   assets: DeckAsset[];
   /** Latest slide export per format (PDF / PPTX). */
   exports: DeckExport[];
+  /** AI fill jobs per scene (the latest of the last day): running, or failed (credits refunded). */
+  fills: Record<string, { status: string; progress: number; error: string | null }>;
 };
 
 const toScene = (r: typeof schema.deckScenes.$inferSelect): DeckScene => ({
@@ -62,9 +65,28 @@ export async function getDeck(projectId: string): Promise<DeckData> {
   const exportRows = await db.select().from(schema.deckExports).where(eq(schema.deckExports.projectId, projectId))
     .orderBy(desc(schema.deckExports.createdAt)).limit(20);
   const latest = (["pdf", "pptx"] as const).map((f) => exportRows.find((r) => r.format === f)).filter((r) => !!r);
+  const fillRows = await db.select({
+    sceneId: sql<string>`${schema.generationJobs.requestJson}->'deckFill'->>'sceneId'`, status: schema.generationJobs.status,
+    progress: schema.generationJobs.progress, error: schema.generationJobs.errorMessage,
+  }).from(schema.generationJobs)
+    .where(and(eq(schema.generationJobs.projectId, projectId), sql`${schema.generationJobs.requestJson} ? 'deckFill'`,
+      sql`${schema.generationJobs.createdAt} > now() - interval '1 day'`))
+    .orderBy(desc(schema.generationJobs.createdAt));
+  const fills: DeckData["fills"] = {};
+  // Only each scene's LATEST fill job counts (an older failure is moot once a newer clip succeeded).
+  const seenFill = new Set<string>();
+  for (const f of fillRows) {
+    if (!f.sceneId || seenFill.has(f.sceneId)) continue;
+    seenFill.add(f.sceneId);
+    if (!["completed", "retried"].includes(f.status)) fills[f.sceneId] = { status: f.status, progress: f.progress, error: f.error };
+  }
   return {
     project: { id: p.id, title: p.title, aspect: p.aspect, musicTrackId: p.musicTrackId, status: p.status },
-    deck: { brief: { ...defaultBrief(), ...(deck.brief ?? {}) }, plan: deck.plan ?? { status: "idle" }, import: deck.import ?? { status: "idle" } },
+    deck: {
+      brief: { ...defaultBrief(), ...(deck.brief ?? {}) }, plan: deck.plan ?? { status: "idle" }, import: deck.import ?? { status: "idle" },
+      brandSuggestion: deck.brandSuggestion ?? { status: "idle" }, translation: deck.translation ?? { status: "idle" },
+    },
+    fills,
     exports: latest.map((r) => ({
       id: r.id, format: r.format as DeckExportFormat, status: r.status as DeckExport["status"], error: r.error,
       createdAt: r.createdAt.toISOString(), finishedAt: r.finishedAt?.toISOString() ?? null,
@@ -106,7 +128,13 @@ export async function saveBrief(projectId: string, input: Partial<DeckBrief>): P
         }
       : cur.voice ?? defaultBrief().voice,
     captions: input.captions !== undefined ? { enabled: !!input.captions?.enabled } : cur.captions ?? defaultBrief().captions,
+    language: input.language !== undefined ? (LANGUAGES.some((l) => l.code === input.language) ? input.language : "en") : cur.language,
+    translatedFrom: cur.translatedFrom ?? null,
   };
+  // A voice must speak the brief's language: switching language picks that language's first voice.
+  if (next.voice && next.language && VOICES.find((v) => v.id === next.voice!.voiceId)?.lang !== next.language) {
+    next.voice = { ...next.voice, voiceId: defaultVoiceFor(next.language) };
+  }
   // Presentations are slides: switching a vertical project to Presentation makes it 16:9 (the aspect can
   // still be changed back in the project settings).
   const [pa] = await db.select({ aspect: schema.projects.aspect }).from(schema.projects).where(eq(schema.projects.id, projectId));
@@ -303,4 +331,106 @@ export async function importFromUrl(projectId: string, rawUrl: string): Promise<
     await setImport({ status: "failed", source: "url", name, error: "Couldn't reach the importer — try again in a moment." });
     throw new Error("Couldn't reach the importer — try again in a moment.");
   }
+}
+
+// ── AI fill (phase 5) ──────────────────────────────────────────────────────────────────────────────
+
+/** Clip lengths Waltz AI makes (src/components/generation-panel.tsx DURATIONS); the scene gets the shortest that covers it. */
+const FILL_DURATIONS = [3, 5, 8];
+/** Waltz AI frame sizes (divisible by 16) per project shape; 4:5 is generated portrait and cropped by the render. */
+const FILL_SIZE: Record<string, { w: number; h: number }> = {
+  "16:9": { w: 1280, h: 720 }, "9:16": { w: 720, h: 1280 }, "1:1": { w: 768, h: 768 }, "4:5": { w: 720, h: 1280 },
+};
+const fillSeconds = (sceneSec: number) => FILL_DURATIONS.find((d) => d >= sceneSec) ?? FILL_DURATIONS[FILL_DURATIONS.length - 1];
+
+/**
+ * Make an AI clip for a scene and put it in the scene when it's ready (costs AI credits, refunded if it fails):
+ *   "animate"  — bring the scene's photo to life (image-to-video)
+ *   "generate" — a new shot from a description (text-to-video); `prompt` defaults to the scene's text + brief.
+ */
+export async function fillScene(projectId: string, sceneId: string, input: { mode: "animate" | "generate"; prompt?: string }): Promise<ActionResult<string>> {
+  // Errors are returned, not thrown (src/lib/action-result.ts) — "not enough AI credits" must reach the user.
+  return toResult(() => fillSceneImpl(projectId, sceneId, input));
+}
+
+async function fillSceneImpl(projectId: string, sceneId: string, input: { mode: "animate" | "generate"; prompt?: string }): Promise<string> {
+  await assertAccess(projectId, "editor");
+  const [sc] = await db.select().from(schema.deckScenes).where(and(eq(schema.deckScenes.id, sceneId), eq(schema.deckScenes.projectId, projectId)));
+  if (!sc) throw new Error("Scene not found");
+  const [p] = await db.select({ aspect: schema.projects.aspect, deck: schema.projects.deck }).from(schema.projects).where(eq(schema.projects.id, projectId));
+  const brief = { ...defaultBrief(), ...(((p.deck ?? {}) as Partial<DeckState>).brief ?? {}) };
+  const text = (sc.text ?? {}) as SceneText;
+  const size = FILL_SIZE[p.aspect] ?? FILL_SIZE["9:16"];
+  const durationSec = fillSeconds(sc.durationSec);
+  const { createGenerationJob } = await import("./generation-actions");
+  if (input.mode === "animate") {
+    const [a] = sc.assetId ? await db.select().from(schema.assets).where(and(eq(schema.assets.id, sc.assetId), eq(schema.assets.projectId, projectId))) : [];
+    if (!a || a.kind !== "photo") throw new Error("This scene needs a photo to bring to life.");
+    const seen = ((a.aiDescription ?? {}) as { summary?: string }).summary;
+    const prompt = clip([seen, text.headline, a.note, "Gentle, natural motion; the camera moves slowly; keep the subject as it is."].filter(Boolean).join(". "), 900);
+    return unwrap(await createGenerationJob({
+      projectId, jobType: "image_to_video", sourceAssetId: a.id, prompt, userPrompt: prompt, quality: "standard",
+      durationSec, width: size.w, height: size.h, motion: "balanced", deckFill: { sceneId },
+    }));
+  }
+  const prompt = clip(input.prompt, 900) || clip([text.headline, text.sub, `for ${brief.prompt}`].filter(Boolean).join(". "), 900);
+  if (!prompt) throw new Error("Describe the shot you want.");
+  return unwrap(await createGenerationJob({
+    projectId, jobType: "text_to_video", prompt, userPrompt: prompt, quality: "standard",
+    durationSec, width: size.w, height: size.h, motion: "balanced", deckFill: { sceneId },
+  }));
+}
+
+// ── Translate (phase 5) ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A translated copy of this deck: same clips (the same stored files), scenes, look and brand, with the words — scene
+ * text, points, narration and brief — translated on the deck worker, voiced by a voice of that language and captioned
+ * in it. The original is never touched. Returns the new project id (the editor opens it and shows the progress).
+ */
+export async function translateDeck(projectId: string, lang: string): Promise<string> {
+  const userId = await assertAccess(projectId, "editor");
+  const L = LANGUAGES.find((l) => l.code === lang);
+  if (!L) throw new Error("Pick a language");
+  const [p] = await db.select().from(schema.projects).where(eq(schema.projects.id, projectId));
+  const deck = (p.deck ?? {}) as Partial<DeckState>;
+  const brief = { ...defaultBrief(), ...(deck.brief ?? {}) };
+  if ((brief.language ?? "en") === lang) throw new Error(`This deck is already in ${L.name}.`);
+  const scenes = await db.select().from(schema.deckScenes).where(eq(schema.deckScenes.projectId, projectId)).orderBy(asc(schema.deckScenes.orderIndex));
+  if (!scenes.length) throw new Error("Plan the storyboard first — there's nothing to translate yet.");
+  const assets = await db.select().from(schema.assets).where(eq(schema.assets.projectId, projectId));
+  const id = randomUUID();
+  const assetMap = new Map(assets.map((a) => [a.id, randomUUID()]));
+  const nextBrief = {
+    ...brief, language: L.code, translatedFrom: { projectId, title: p.title },
+    voice: { ...(brief.voice ?? defaultBrief().voice!), voiceId: defaultVoiceFor(L.code) },
+  };
+  await db.transaction(async (tx) => {
+    const { id: _id, createdAt: _c, updatedAt: _u, deck: _d, title, ...rest } = p;
+    void _id; void _c; void _u; void _d;
+    await tx.insert(schema.projects).values({
+      ...rest, id, ownerId: userId, title: `${title} (${L.label})`.slice(0, 120), status: "draft",
+      deck: { brief: nextBrief, plan: { status: "idle" }, translation: { status: "queued", lang: L.code, startedAt: new Date().toISOString() } },
+    });
+    // Clips point at the same stored files (the storage purge keeps a file while any row still uses it).
+    // Keep createdAt: Free-plan retention ages an upload from when it was first added — a copy must not restart it.
+    for (const a of assets) {
+      const { id: aid, ...ar } = a;
+      await tx.insert(schema.assets).values({ ...ar, id: assetMap.get(aid)!, projectId: id });
+    }
+    for (const sc of scenes) {
+      const { id: _sid, createdAt: _sc, updatedAt: _su, ...sr } = sc;
+      void _sid; void _sc; void _su;
+      await tx.insert(schema.deckScenes).values({ ...sr, id: randomUUID(), projectId: id, assetId: sc.assetId ? assetMap.get(sc.assetId) ?? null : null });
+    }
+  });
+  try {
+    await enqueueDeck({ name: "translate", data: { projectId: id } });
+  } catch {
+    await db.update(schema.projects).set({
+      deck: sql`jsonb_set(coalesce(${schema.projects.deck}, '{}'::jsonb), '{translation}', ${JSON.stringify({ status: "failed", lang: L.code, error: "Couldn't reach the translator — try again." })}::jsonb)`,
+    }).where(eq(schema.projects.id, id));
+  }
+  revalidatePath("/projects");
+  return id;
 }

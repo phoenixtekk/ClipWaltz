@@ -19,6 +19,15 @@ const WORDS_PER_SEC = 3; // comfortable on-screen reading speed
 const SPEECH_WPS = 2.8; // Kokoro at speed 1.0 (measured 2.7-3.3 words/s incl. pauses)
 /** Seconds a narration line needs at `speed`, with a short breath after it. */
 export const speechSec = (line, speed = 1) => (line ? words(line) / (SPEECH_WPS * (speed || 1)) + 0.4 : 0);
+// Deck languages (phase 5; keep in sync with src/lib/deck/types.ts LANGUAGES).
+export const LANG_NAMES = { en: "English", es: "Spanish", fr: "French", it: "Italian", pt: "Brazilian Portuguese" };
+/** Prompt line making the model write in the deck's language ("" for English). */
+const langRule = (brief) => {
+  const name = LANG_NAMES[brief?.language];
+  return name && brief.language !== "en"
+    ? `LANGUAGE: write ALL on-screen text, bullets and voice lines in ${name} (natural, idiomatic — not word-for-word). Keep web addresses, codes, prices and brand names exactly as given.\n`
+    : "";
+};
 const MIN_SCENE = 1.2;
 const MAX_SCENE = 8;
 // Slides are read, not glanced at: longer scenes and more / longer points than an ad.
@@ -255,7 +264,7 @@ export async function planStoryboard(brief, media, locked = []) {
     : "";
   const prompt =
     `You are an expert video editor and copywriter. Plan a ${length}-second ${mode} video using ONLY the owner's media below.\n` +
-    `${MODE_GUIDE[mode]}\n\n` +
+    `${MODE_GUIDE[mode]}\n${langRule(brief)}\n` +
     `BRIEF: "${str(brief.prompt, 1500)}"\n` +
     (brief.goal ? `Goal: ${str(brief.goal, 200)}\n` : "") +
     (brief.audience ? `Audience: ${str(brief.audience, 200)}\n` : "") +
@@ -382,7 +391,7 @@ async function writeNarration(brief, scenes, media) {
     return `${i + 1}. ${sc.role}, ${sc.durationSec}s — shows: ${m?.desc?.summary || (m ? "the owner's media" : "a text card")}; on-screen text: "${[sc.text.headline, sc.text.sub].filter(Boolean).join(" — ")}"`;
   }).join("\n");
   const prompt =
-    `Write the VOICEOVER for a ${brief.mode === "slideshow" ? "slideshow" : "short ad"}. BRIEF: "${str(brief.prompt, 1200)}"` +
+    `Write the VOICEOVER for a ${brief.mode === "slideshow" ? "slideshow" : "short ad"}. ${langRule(brief)}BRIEF: "${str(brief.prompt, 1200)}"` +
     (brief.tone ? ` Tone: ${str(brief.tone, 100)}.` : "") + (brief.offer ? ` Offer: ${str(brief.offer, 200)}.` : "") +
     (brief.cta?.text ? ` Call to action: "${str(brief.cta.text, 120)}".` : "") + `\nSCENES:\n${list}\n` +
     `One spoken line per scene, in order. Each line: conversational, 5-14 words, fits the scene length at ~${SPEECH_WPS} words per second, ` +
@@ -562,6 +571,7 @@ export async function rewriteScene(brief, scene, mediaItem, instruction, sibling
   const d = mediaItem?.desc ?? {};
   const prompt =
     `You write on-screen text for one scene of a ${brief.mode === "slideshow" ? "slideshow" : brief.mode === "presentation" ? "presentation (one slide)" : "short ad"}.\n` +
+    langRule(brief) +
     `BRIEF: "${str(brief.prompt, 1200)}"` + (brief.tone ? ` Tone: ${str(brief.tone, 100)}.` : "") +
     (brief.offer ? ` Offer: ${str(brief.offer, 200)}.` : "") + (brief.cta?.text ? ` CTA: "${str(brief.cta.text, 120)}".` : "") + "\n" +
     `SCENE ${scene.role}, ${scene.durationSec}s, layout ${scene.layout}. ` +
@@ -602,7 +612,7 @@ export async function writeHooks(brief, media, base, { hooks: k = 2, ctas: kc = 
   const cta = str(brief.cta?.text, 120);
   const prompt =
     `You are a performance-ad copywriter. Write alternative OPENING scenes (hooks) for a short video ad and alternative ` +
-    `call-to-action wordings, to A/B test.\n` +
+    `call-to-action wordings, to A/B test.\n` + langRule(brief) +
     `BRIEF: "${str(brief.prompt, 1500)}"\n` +
     (brief.audience ? `Audience: ${str(brief.audience, 200)}\n` : "") + (brief.tone ? `Tone: ${str(brief.tone, 100)}\n` : "") +
     (brief.offer ? `Offer: ${str(brief.offer, 200)}\n` : "") + (cta ? `Current call to action: "${cta}"\n` : "") +
@@ -665,4 +675,59 @@ export async function writeHooks(brief, media, base, { hooks: k = 2, ctas: kc = 
     ctas.push(line);
   }
   return { hooks, ctas };
+}
+
+// ── 5. Translate a deck (phase 5) ────────────────────────────────────────────────────────────────
+
+const numsOf = (t) => (String(t ?? "").match(/\d+(?:[.,]\d+)?/g) ?? []).map((n) => n.replace(",", "."));
+const addrsOf = (t) => (String(t ?? "").match(/\b[\w-]+(\.[\w-]+)+\b/g) ?? []).map((a) => a.toLowerCase());
+/** A translated line keeps every number and web address of its source, else the source line is kept. */
+function keepFacts(src, out) {
+  if (!src) return "";
+  if (!out || typeof out !== "string") return src;
+  const o = out.toLowerCase();
+  const ok = numsOf(src).every((n) => numsOf(out).includes(n)) && addrsOf(src).every((a) => o.includes(a) || o.includes(a.replace(/\./g, " dot ")) || o.includes(a.split(".")[0]));
+  return ok ? out.replace(/\s+/g, " ").trim() : src;
+}
+
+/**
+ * Translate a deck's words into `lang` (a LANG_NAMES code). `brief` = { prompt, goal, audience, tone, offer, cta:{text} },
+ * `scenes` = [{ text:{headline,sub,bullets}, voice }]. Returns { brief, scenes, kept } in the same shape, with lengths
+ * trimmed to the scene limits; a line whose numbers or web addresses didn't survive stays in the source language
+ * (`kept` counts them). Voice lines are written to be spoken (web addresses as words, e.g. "punto com").
+ */
+export async function translateDeck(brief, scenes, lang) {
+  const name = LANG_NAMES[lang];
+  if (!name) throw new Error("unsupported language");
+  const src = LANG_NAMES[brief.language] ?? "English";
+  const items = scenes.map((sc, i) => ({ i, headline: sc.text?.headline ?? "", sub: sc.text?.sub ?? "", bullets: sc.text?.bullets ?? [], voice: sc.voice ?? "" }));
+  const b = { prompt: str(brief.prompt, 1500), goal: str(brief.goal, 200), audience: str(brief.audience, 200), tone: str(brief.tone, 100), offer: str(brief.offer, 200), cta: str(brief.cta?.text, 120) };
+  const prompt =
+    `Translate this short video / slide deck from ${src} into ${name}. Natural, idiomatic ${name} for the same audience — ` +
+    `not word-for-word. Keep headlines about as short as the original (they must fit on screen). Keep every number, price, ` +
+    `code, brand name and web address EXACTLY as written. In "voice" lines (spoken narration) write web addresses the way a ` +
+    `${name} speaker says them aloud. Don't add or drop claims.\n\n` +
+    `BRIEF: ${JSON.stringify(b)}\nSCENES: ${JSON.stringify(items)}\n\n` +
+    `JSON shape: {"brief":{"prompt":string,"goal":string,"audience":string,"tone":string,"offer":string,"cta":string},` +
+    `"scenes":[{"i":integer,"headline":string,"sub":string,"bullets":[string],"voice":string}]}`;
+  const { data } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.3, numPredict: 12000, numCtx: 24576, timeoutMs: 900000 });
+  const byI = new Map((Array.isArray(data.scenes) ? data.scenes : []).map((x) => [Number(x?.i), x]));
+  let kept = 0;
+  // Trimmed at a word boundary (a translation can run longer than the source's limit).
+  const cutW = (t, max) => { const v = str(t, 10000); if (v.length <= max) return v; const c = v.slice(0, max); const i = c.lastIndexOf(" "); return (i > max * 0.6 ? c.slice(0, i) : c).replace(/[,;:\-–—]+$/, "") + "…"; };
+  const keep = (a, o, max) => { const r = keepFacts(a, o); if (a && r === a && o !== a) kept++; return cutW(r, max); };
+  const outScenes = items.map((it) => {
+    const t = byI.get(it.i) ?? {};
+    const bullets = it.bullets.map((bl, k) => keep(bl, Array.isArray(t.bullets) ? t.bullets[k] : null, 90)).filter(Boolean);
+    return { text: { headline: keep(it.headline, t.headline, 90), sub: keep(it.sub, t.sub, 140), bullets }, voice: it.voice ? keep(it.voice, t.voice, 400) : "" };
+  });
+  const tb = data.brief ?? {};
+  return {
+    brief: {
+      prompt: keep(b.prompt, tb.prompt, 2000), goal: keep(b.goal, tb.goal, 200), audience: keep(b.audience, tb.audience, 200),
+      tone: keep(b.tone, tb.tone, 100), offer: keep(b.offer, tb.offer, 200), cta: keep(b.cta, tb.cta, 120),
+    },
+    scenes: outScenes,
+    kept,
+  };
 }
