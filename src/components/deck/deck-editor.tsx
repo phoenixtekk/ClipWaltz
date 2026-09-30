@@ -12,17 +12,19 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { aspectClass, isWide } from "@/lib/aspect";
 import {
-  DECK_MODES, LANGUAGES, LAYOUTS, MAX_BULLETS, VOICES,
+  CAMERA_MODES, DECK_MODES, LANGUAGES, LAYOUTS, MAX_BULLETS, MOTIONS, MOTION_LABELS, TONES, VOICES, type CameraMode,
   type BrandSuggestion, type Campaign, type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type SceneTextMode, type TextMode, type VoiceMode,
 } from "@/lib/deck/types";
 import {
   getDeck, saveBrief, setAssetNote, describeAsset, requestPlan, updateScene, rewriteSceneText, reorderScenes, addScene, deleteScene,
-  requestDeckExport, importFromUrl, fillScene, translateDeck,
+  requestDeckExport, importFromUrl, fillScene, translateDeck, getBriefHistory, removeBriefHistory,
   type DeckData, type DeckAsset, type ScenePatch,
 } from "@/lib/deck-actions";
 import { PresentView } from "./present-view";
 import { unwrap } from "@/lib/action-result";
 import { CampaignPanel } from "./campaign-panel";
+import { AudioMix } from "./audio-mix";
+import { pickMove } from "@/lib/deck/camera";
 import { AiFill } from "./ai-fill";
 import { useCredits } from "@/components/credits-line";
 import type { CreditBalance } from "@/lib/credits";
@@ -35,14 +37,17 @@ const BUSY = new Set(["queued", "describing", "planning"]);
 const IMPORT_BUSY = new Set(["queued", "reading", "summarizing"]);
 const field = "w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary";
 
-export function DeckEditor({ initial, initialBrand, initialCampaigns, canEdit, renderSlot }: {
-  initial: DeckData; initialBrand: BrandKit | null; initialCampaigns: Campaign[]; canEdit: boolean; renderSlot: ReactNode;
+export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHistory, musicSlot, canEdit, renderSlot }: {
+  initial: DeckData; initialBrand: BrandKit | null; initialCampaigns: Campaign[]; initialHistory: { id: string; text: string }[];
+  musicSlot: ReactNode; canEdit: boolean; renderSlot: ReactNode;
 }) {
   const [data, setData] = useState(initial);
   const [brandKit, setBrandKit] = useState<BrandKit | null>(initialBrand);
   const [logoVersion, setLogoVersion] = useState(0);
   const [brief, setBrief] = useState<DeckBrief>(initial.deck.brief);
   const [presenting, setPresenting] = useState<number | null>(null);
+  const [history, setHistory] = useState(initialHistory);
+  const reloadHistory = () => { void getBriefHistory().then(setHistory).catch(() => {}); };
   const [pending, start] = useTransition();
   const projectId = data.project.id;
   const plan = data.deck.plan ?? { status: "idle" as const };
@@ -102,7 +107,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, canEdit, r
   const saveBriefNow = (patch: Partial<DeckBrief> = {}) => {
     const next = { ...brief, ...patch };
     setBrief(next);
-    act(() => saveBrief(projectId, next));
+    act(async () => { await saveBrief(projectId, next); reloadHistory(); });
   };
 
   const assetById = new Map(data.assets.map((a) => [a.id, a]));
@@ -180,7 +185,13 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, canEdit, r
             </div>
             {canEdit ? <ImportBar projectId={projectId} status={imp} busy={importBusy} onStarted={refresh} /> : null}
             <label className="block space-y-1">
-              <span className="text-sm font-medium">{brief.mode === "presentation" ? "What is this presentation about?" : "What is this video for?"}</span>
+              <span className="flex items-center justify-between gap-2">
+                <span className="text-sm font-medium">{brief.mode === "presentation" ? "What is this presentation about?" : "What is this video for?"}</span>
+                {canEdit ? (
+                  <BriefHistory items={history} onUse={(text) => saveBriefNow({ prompt: text })}
+                    onRemove={(id) => { setHistory(history.filter((h) => h.id !== id)); void removeBriefHistory(id).catch(() => {}); }} />
+                ) : null}
+              </span>
               <textarea
                 value={brief.prompt}
                 disabled={!canEdit}
@@ -199,7 +210,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, canEdit, r
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block space-y-1">
                 <span className="text-xs font-medium text-muted-foreground">Tone</span>
-                <input value={brief.tone ?? ""} disabled={!canEdit} onChange={(e) => setBrief({ ...brief, tone: e.target.value })} onBlur={() => saveBriefNow()} placeholder="energetic, friendly" className={cn(field, "h-9")} />
+                <ToneField value={brief.tone ?? ""} disabled={!canEdit} onChange={(tone) => setBrief({ ...brief, tone })} onCommit={(tone) => saveBriefNow({ tone })} />
               </label>
               <label className="block space-y-1">
                 <span className="text-xs font-medium text-muted-foreground">Offer (optional)</span>
@@ -238,11 +249,30 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, canEdit, r
               </select>
               <span className="text-[11px] text-muted-foreground">for the AI&apos;s text, the voice and captions</span>
             </label>
+            <div className="space-y-1">
+              <span className="text-xs font-medium text-muted-foreground">Camera</span>
+              <div className="flex flex-wrap gap-2">
+                {CAMERA_MODES.map((m) => (
+                  <button key={m.key} type="button" disabled={!canEdit} aria-pressed={(brief.camera?.mode ?? "off") === m.key} title={m.desc}
+                    onClick={() => saveBriefNow({ camera: { mode: m.key as CameraMode } })}
+                    className={cn("rounded-full border px-3 py-1 text-xs font-medium", (brief.camera?.mode ?? "off") === m.key ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10" : "border-border text-muted-foreground hover:text-foreground")}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground">{CAMERA_MODES.find((m) => m.key === (brief.camera?.mode ?? "off"))?.desc} Text always stays steady.</p>
+            </div>
             <VoiceControls brief={brief} canEdit={canEdit} onChange={(patch) => saveBriefNow(patch)} />
           </section>
 
           <BrandSection projectId={projectId} kit={brandKit} canEdit={canEdit} suggestion={brandSug} onChanged={refresh}
             onSaved={(k, logo) => { setBrandKit(k); if (logo) setLogoVersion((v) => v + 1); }} />
+
+          <section className="cw-glass space-y-3 rounded-xl p-4">
+            <h2 className="text-sm font-semibold">Music &amp; voice</h2>
+            {(brief.audio?.music ?? true) ? musicSlot : <p className="text-xs text-muted-foreground">No music — turn it back on below.</p>}
+            <AudioMix value={brief.audio} hasVoice={(brief.voice?.mode ?? "off") !== "off"} canEdit={canEdit} onChange={(audio) => saveBriefNow({ audio })} />
+          </section>
 
           <MediaSection projectId={projectId} assets={data.assets} canEdit={canEdit} onChange={refresh} />
         </div>
@@ -315,7 +345,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, canEdit, r
             ) : null}
           </section>
 
-          {data.scenes.length ? <DeckPreview projectId={projectId} scenes={data.scenes} assets={assetById} aspectCss={aspectCss} wide={isWide(data.project.aspect)} brand={frameBrand} /> : null}
+          {data.scenes.length ? <DeckPreview projectId={projectId} scenes={data.scenes} assets={assetById} aspectCss={aspectCss} wide={isWide(data.project.aspect)} brand={frameBrand} cameraMode={brief.camera?.mode} /> : null}
 
           {data.scenes.length ? (
             <SlidesSection
@@ -468,6 +498,59 @@ function SlidesSection({ projectId, exports, canEdit, presentation, onPresent, o
         {" "}the speaker notes; video scenes show a still frame. Present: arrow keys or click to move, N for notes, Esc to leave.
       </p>
     </section>
+  );
+}
+
+/** Recent "What is this video for?" briefs (the user's last 15, across projects): click to reuse, × to forget. */
+function BriefHistory({ items, onUse, onRemove }: { items: { id: string; text: string }[]; onUse: (text: string) => void; onRemove: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  if (!items.length) return null;
+  return (
+    <span className="relative">
+      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="text-xs font-medium text-[color:var(--cw-violet)] hover:underline">
+        Recent ({items.length}) ▾
+      </button>
+      {open ? (
+        <span className="absolute right-0 top-6 z-20 block w-[min(26rem,85vw)] space-y-0.5 rounded-lg border border-border bg-popover p-1 shadow-lg">
+          {items.map((h) => (
+            <span key={h.id} className="flex items-start gap-1 rounded-md hover:bg-muted">
+              <button type="button" onClick={() => { onUse(h.text); setOpen(false); }} className="min-w-0 flex-1 px-2 py-1.5 text-left text-xs" title={h.text}>
+                <span className="line-clamp-2">{h.text}</span>
+              </button>
+              <button type="button" aria-label="Remove from history" onClick={() => onRemove(h.id)} className="grid size-7 shrink-0 place-items-center text-muted-foreground hover:text-foreground">×</button>
+            </span>
+          ))}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/** Tone: presets the model understands, or your own words ("Custom…"). */
+function ToneField({ value, disabled, onChange, onCommit }: { value: string; disabled: boolean; onChange: (v: string) => void; onCommit: (v: string) => void }) {
+  const preset = (TONES as readonly string[]).includes(value);
+  // Derived each render: a free-text tone set elsewhere (an import, a translation) must show as Custom.
+  const [customOpen, setCustom] = useState(false);
+  const custom = customOpen || (!!value && !preset);
+  return (
+    <span className="flex gap-2">
+      <select value={custom ? "__custom" : value} disabled={disabled} aria-label="Tone"
+        onChange={(e) => {
+          if (e.target.value === "__custom") { setCustom(true); return; }
+          setCustom(false);
+          onChange(e.target.value);
+          onCommit(e.target.value);
+        }}
+        className={cn(field, "h-9", custom ? "w-32 shrink-0" : "")}>
+        <option value="">No particular tone</option>
+        {TONES.map((t) => <option key={t} value={t}>{t}</option>)}
+        <option value="__custom">Custom…</option>
+      </select>
+      {custom ? (
+        <input value={value} disabled={disabled} maxLength={100} autoFocus placeholder="e.g. cosy and nostalgic" aria-label="Custom tone"
+          onChange={(e) => onChange(e.target.value)} onBlur={() => onCommit(value)} className={cn(field, "h-9")} />
+      ) : null}
+    </span>
   );
 }
 
@@ -800,6 +883,9 @@ function SceneCard({
               <option value="manual">Text: Manual</option>
               <option value="none">Text: None</option>
             </select>
+            <select value={scene.motion} disabled={!canEdit} onChange={(e) => onPatch({ motion: e.target.value })} className="h-7 rounded-md border border-border bg-background px-1.5" title="Camera move for this scene (dynamic camera)">
+              {MOTIONS.map((m) => <option key={m} value={m}>{MOTION_LABELS[m]}</option>)}
+            </select>
             <div className="ml-auto flex items-center gap-0.5">
               <IconBtn label={scene.locked ? "Unlock (re-plans may change it)" : "Lock (re-plans keep it)"} disabled={!canEdit} onClick={() => onPatch({ locked: !scene.locked })}>
                 {scene.locked ? <Lock className="size-3.5 text-[color:var(--cw-violet)]" /> : <Unlock className="size-3.5" />}
@@ -875,8 +961,8 @@ const IconBtn = ({ label, disabled, onClick, children }: { label: string; disabl
 );
 
 /** Plays the storyboard scene by scene with its text (instant, low-res, no render). */
-function DeckPreview({ projectId, scenes, assets, aspectCss, wide, brand }: {
-  projectId: string; scenes: DeckScene[]; assets: Map<string, DeckAsset>; aspectCss: string; wide: boolean; brand: FrameBrand;
+function DeckPreview({ projectId, scenes, assets, aspectCss, wide, brand, cameraMode }: {
+  projectId: string; scenes: DeckScene[]; assets: Map<string, DeckAsset>; aspectCss: string; wide: boolean; brand: FrameBrand; cameraMode?: CameraMode;
 }) {
   const [i, setI] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -897,7 +983,8 @@ function DeckPreview({ projectId, scenes, assets, aspectCss, wide, brand }: {
         Preview <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">instant · low-res · no music</span>
       </h2>
       <div className={cn("mx-auto", wide ? "max-w-[520px]" : "max-w-[300px]")}>
-        <SceneFrame key={`${cur.id}-${i}`} projectId={projectId} scene={cur} asset={asset} aspectCss={aspectCss} playing={playing} startAt={cur.inSec} brand={brand} />
+        <SceneFrame key={`${cur.id}-${i}`} projectId={projectId} scene={cur} asset={asset} aspectCss={aspectCss} playing={playing} startAt={cur.inSec} brand={brand}
+          cameraMode={cameraMode} durationSec={cur.durationSec} move={pickMove(cur, asset?.seen ?? "", cameraMode, i, !!asset)} />
       </div>
       <div className="flex items-center justify-center gap-2">
         <Button size="sm" variant="secondary" onClick={() => setPlaying(!playing)}>

@@ -11,7 +11,8 @@ import { enqueueDeck } from "./queue";
 import { shouldWatermark } from "./watermark";
 import { toResult, unwrap, type ActionResult } from "./action-result";
 import {
-  DECK_MODES, LANGUAGES, LAYOUTS, MAX_BULLETS, MAX_BULLET_CHARS, MOTIONS, ROLES, VOICES, defaultBrief, defaultVoiceFor,
+  CAMERA_MODES, DEFAULT_AUDIO, DUCK_MODES, MUSIC_TONES, VOICE_TONES, type DeckAudio,
+  DECK_MODES, LANGUAGES, LAYOUTS, MAX_BRIEF_HISTORY, MAX_BULLETS, MAX_BULLET_CHARS, MOTIONS, ROLES, VOICES, defaultBrief, defaultVoiceFor,
   type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type DeckState, type SceneText, type SceneTextMode,
 } from "./deck/types";
 
@@ -20,6 +21,20 @@ async function assertProjectAsset(projectId: string, assetId: string) {
   const [a] = await db.select({ id: schema.assets.id }).from(schema.assets)
     .where(and(eq(schema.assets.id, assetId), eq(schema.assets.projectId, projectId)));
   if (!a) throw new Error("That file isn't in this project");
+}
+
+/** A valid mix from whatever the client sent (levels clamped, unknown presets → defaults). */
+function normAudio(a: Partial<DeckAudio> | null | undefined): DeckAudio {
+  const n = (v: unknown, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round((Number(v) || 0) * 2) / 2));
+  const pick = <T extends string>(v: unknown, keys: readonly { key: T }[], d: T): T => (keys.some((k) => k.key === v) ? (v as T) : d);
+  return {
+    music: a?.music !== false,
+    musicGainDb: n(a?.musicGainDb, -24, 6),
+    voiceGainDb: n(a?.voiceGainDb, -12, 6),
+    musicTone: pick(a?.musicTone, MUSIC_TONES, DEFAULT_AUDIO.musicTone),
+    voiceTone: pick(a?.voiceTone, VOICE_TONES, DEFAULT_AUDIO.voiceTone),
+    duck: pick(a?.duck, DUCK_MODES, DEFAULT_AUDIO.duck),
+  };
 }
 
 const clip = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "");
@@ -34,6 +49,8 @@ async function assertAccess(projectId: string, role: "viewer" | "editor") {
 export type DeckAsset = {
   id: string; name: string; kind: string; durationSec: number | null; note: string | null;
   rotation: number; described: boolean; summary: string | null;
+  /** What the vision model saw (mood, summary, good-for, subject) — the text the camera's auto rules read. */
+  seen: string;
 };
 
 export type DeckData = {
@@ -93,10 +110,11 @@ export async function getDeck(projectId: string): Promise<DeckData> {
     })),
     scenes: scenes.map(toScene),
     assets: assets.map((a) => {
-      const d = (a.aiDescription ?? null) as { summary?: string } | null;
+      const d = (a.aiDescription ?? null) as { summary?: string; mood?: string; goodFor?: string[]; subject?: string } | null;
       return {
         id: a.id, name: a.originalName ?? "file", kind: a.kind, durationSec: a.durationSec, note: a.note,
         rotation: a.rotation, described: !!d?.summary, summary: d?.summary ?? null,
+        seen: [d?.mood, d?.summary, ...(d?.goodFor ?? []), d?.subject].filter(Boolean).join(" "),
       };
     }),
   };
@@ -104,7 +122,7 @@ export async function getDeck(projectId: string): Promise<DeckData> {
 
 /** Save the overall brief (mode, prompt, offer, CTA, length, text default). */
 export async function saveBrief(projectId: string, input: Partial<DeckBrief>): Promise<void> {
-  await assertAccess(projectId, "editor");
+  const userId = await assertAccess(projectId, "editor");
   const [p] = await db.select({ deck: schema.projects.deck }).from(schema.projects).where(eq(schema.projects.id, projectId));
   const cur = { ...defaultBrief(), ...(((p.deck ?? {}) as Partial<DeckState>).brief ?? {}) };
   const mode = DECK_MODES.some((m) => m.key === input.mode) ? input.mode! : cur.mode;
@@ -130,6 +148,10 @@ export async function saveBrief(projectId: string, input: Partial<DeckBrief>): P
     captions: input.captions !== undefined ? { enabled: !!input.captions?.enabled } : cur.captions ?? defaultBrief().captions,
     language: input.language !== undefined ? (LANGUAGES.some((l) => l.code === input.language) ? input.language : "en") : cur.language,
     translatedFrom: cur.translatedFrom ?? null,
+    audio: input.audio !== undefined ? normAudio(input.audio) : cur.audio,
+    camera: input.camera !== undefined
+      ? { mode: CAMERA_MODES.some((m) => m.key === input.camera?.mode) ? input.camera!.mode : "off" }
+      : cur.camera,
   };
   // A voice must speak the brief's language: switching language picks that language's first voice.
   if (next.voice && next.language && VOICES.find((v) => v.id === next.voice!.voiceId)?.lang !== next.language) {
@@ -145,6 +167,7 @@ export async function saveBrief(projectId: string, input: Partial<DeckBrief>): P
     ...(toWide ? { aspect: "16:9" } : {}),
     updatedAt: new Date(),
   }).where(eq(schema.projects.id, projectId));
+  if (input.prompt !== undefined && next.prompt !== cur.prompt) await rememberBrief(userId, next.prompt).catch(() => {});
   revalidatePath(`/projects/${projectId}/deck`);
 }
 
@@ -433,4 +456,29 @@ export async function translateDeck(projectId: string, lang: string): Promise<st
   }
   revalidatePath("/projects");
   return id;
+}
+
+// ── Brief history ("What is this video for?") ──────────────────────────────────────────────────────
+
+/** Remember a brief in the user's history (re-using one moves it to the top); keeps the newest MAX_BRIEF_HISTORY. */
+async function rememberBrief(userId: string, text: string) {
+  const t = clip(text, 2000);
+  if (t.length < 10) return;
+  await db.insert(schema.deckBriefHistory).values({ id: randomUUID(), userId, text: t, usedAt: new Date() })
+    .onConflictDoUpdate({ target: [schema.deckBriefHistory.userId, schema.deckBriefHistory.text], set: { usedAt: new Date() } });
+  const old = await db.select({ id: schema.deckBriefHistory.id }).from(schema.deckBriefHistory)
+    .where(eq(schema.deckBriefHistory.userId, userId)).orderBy(desc(schema.deckBriefHistory.usedAt)).offset(MAX_BRIEF_HISTORY);
+  if (old.length) await db.delete(schema.deckBriefHistory).where(inArray(schema.deckBriefHistory.id, old.map((o) => o.id)));
+}
+
+/** The signed-in user's recent briefs, newest first. */
+export async function getBriefHistory(): Promise<{ id: string; text: string }[]> {
+  const userId = await requireUserId();
+  return db.select({ id: schema.deckBriefHistory.id, text: schema.deckBriefHistory.text }).from(schema.deckBriefHistory)
+    .where(eq(schema.deckBriefHistory.userId, userId)).orderBy(desc(schema.deckBriefHistory.usedAt)).limit(MAX_BRIEF_HISTORY);
+}
+
+export async function removeBriefHistory(id: string): Promise<void> {
+  const userId = await requireUserId();
+  await db.delete(schema.deckBriefHistory).where(and(eq(schema.deckBriefHistory.id, id), eq(schema.deckBriefHistory.userId, userId)));
 }
