@@ -22,8 +22,9 @@ export function pickMove(scene, asset, mode, index) {
   if (scene.role === "hook") return mode === "energetic" ? "punch" : "push-in";
   if (scene.role === "cta") return "push-in";
   if (ACTION.test(seen)) return mode === "energetic" ? "shake" : mode === "cinematic" ? "punch" : "push-in";
-  if (CALM.test(seen)) return "drift";
-  const cycle = mode === "subtle" ? ["push-in", "drift", "pull-out", "drift"] : ["push-in", "pan-left", "pull-out", "pan-right"];
+  // Calm footage alternates a drift with a slow pull back (owner 2026-10-03: more zoom-outs).
+  if (CALM.test(seen)) return index % 2 ? "pull-out" : "drift";
+  const cycle = mode === "subtle" ? ["push-in", "pull-out", "drift", "pull-out"] : ["push-in", "pull-out", "pan-left", "pull-out", "pan-right"];
   return cycle[index % cycle.length];
 }
 

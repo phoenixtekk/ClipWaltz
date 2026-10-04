@@ -14,7 +14,7 @@ import { normalizeSettings, type GenerationSettings } from "./generation-setting
 import { getEffectiveTier } from "./tier";
 import { spendCredits } from "./credits-server";
 import { toResult, type ActionResult } from "./action-result";
-import { enhanceCost, generationCost, remixCost } from "./credits";
+import { BACKDROP_COST, enhanceCost, generationCost, remixCost } from "./credits";
 import { shouldWatermark } from "./watermark";
 
 const PROMPT_MAX = 2000;
@@ -79,6 +79,11 @@ export type CreateGenerationInput = {
    * scene's media (worker/generation-worker.mjs). The scene must belong to projectId (checked below).
    */
   deckFill?: { sceneId: string };
+  /**
+   * WaltzDeck AI backdrop: a single still (one frame of the text-to-video model) stored in the deck's backdrop library
+   * and applied to that scene, or to the deck default when sceneId is null. Costs BACKDROP_COST, never watermarked.
+   */
+  deckBackdrop?: { sceneId: string | null; preset: string; intensity?: string };
   /** Ignored — the routing engine picks the workflow from jobType + quality (ADR-0009). */
   workflow?: string;
   /** Quality profile → routing rule (workflow + sampler steps). Default "standard". */
@@ -133,6 +138,11 @@ async function createGenerationJobImpl(input: CreateGenerationInput): Promise<st
     if (!sc) throw new Error("Scene not found");
     input = { ...input, deckFill: { sceneId: sc.id } };
   }
+  if (input.deckBackdrop?.sceneId) {
+    const [sc] = await db.select({ id: schema.deckScenes.id }).from(schema.deckScenes)
+      .where(and(eq(schema.deckScenes.id, input.deckBackdrop.sceneId), eq(schema.deckScenes.projectId, input.projectId)));
+    if (!sc) throw new Error("Scene not found");
+  }
   if (input.jobType === "text_to_video" && !input.prompt?.trim()) {
     throw new Error("Text-to-video needs a prompt");
   }
@@ -144,15 +154,15 @@ async function createGenerationJobImpl(input: CreateGenerationInput): Promise<st
   const motion = MOTION_PHRASE[input.motion ?? ""] !== undefined ? input.motion! : "balanced";
   const route = await routeOrUserError(input.jobType, quality);
   // CW-MVP-051: only lengths the routed workflow is validated for.
-  if (input.durationSec != null) {
+  if (input.durationSec != null && !input.deckBackdrop) {
     if ((route.durationMax != null && input.durationSec > route.durationMax) || (route.durationMin != null && input.durationSec < route.durationMin)) {
       throw new Error(`This model makes clips of ${route.durationMin ?? 1}–${route.durationMax ?? "any"} seconds. Pick a length in that range.`);
     }
   }
   const priority = await priorityFor(userId);
   // AI credits: seconds × quality (a clip with no length set gets the model's longest).
-  const credits = generationCost(input.durationSec ?? route.durationMax ?? 5, quality);
-  const watermark = await shouldWatermark(userId);
+  const credits = input.deckBackdrop ? BACKDROP_COST : generationCost(input.durationSec ?? route.durationMax ?? 5, quality);
+  const watermark = input.deckBackdrop ? false : await shouldWatermark(userId);
 
   const id = randomUUID();
   await spendCredits(userId, credits, (tx) => tx.insert(schema.generationJobs).values({
@@ -187,6 +197,7 @@ async function createGenerationJobImpl(input: CreateGenerationInput): Promise<st
       userPrompt: input.userPrompt?.slice(0, PROMPT_MAX) ?? null,
       watermark,
       ...(input.deckFill ? { deckFill: input.deckFill } : {}),
+      ...(input.deckBackdrop ? { deckBackdrop: { sceneId: input.deckBackdrop.sceneId, preset: input.deckBackdrop.preset.slice(0, 40), intensity: input.deckBackdrop.intensity ?? "balanced" } } : {}),
     },
     priority,
   }));
@@ -361,6 +372,7 @@ async function requeueGenerationCopy(
 /** AI credits for a job from its stored settings (the same rules as when it was first created). */
 async function costOfJob(jobType: string, req: Record<string, unknown>): Promise<number> {
   const quality = typeof req.quality === "string" ? req.quality : "standard";
+  if (req.deckBackdrop) return BACKDROP_COST;
   if (jobType === "text_to_video" || jobType === "image_to_video") {
     let seconds = Number(req.durationSec) || 0;
     if (!seconds) seconds = (await routeOrUserError(jobType, (QUALITIES.includes(quality as Quality) ? quality : "standard") as Quality)).durationMax ?? 5;

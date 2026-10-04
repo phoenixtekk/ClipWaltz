@@ -15,6 +15,8 @@ const up = (n: number) => Math.max(1, Math.ceil(n - 1e-9));
 
 /** A text/image-to-video clip. */
 export const generationCost = (seconds: number, quality = "standard") => up((Number(seconds) || 5) * (QUALITY_RATE[quality] ?? 1));
+/** A WaltzDeck AI backdrop: one still image (a single Wan frame, ~20 s of GPU). */
+export const BACKDROP_COST = 2;
 /** A Remix: only the AI seconds it adds (lead-in + moments + extend), at its quality. */
 export const remixCost = (aiSeconds: number, quality = "standard") => up(aiSeconds * (QUALITY_RATE[quality] ?? 1));
 /** An enhancement of a clip of `clipSeconds`. 0 for the Fast engine. */

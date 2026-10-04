@@ -11,6 +11,8 @@ export function vfFrame(frame, W, H) {
   if (!frame || typeof frame !== "object") return "";
   const n = (v, lo, hi, d) => (Number.isFinite(Number(v)) ? Math.max(lo, Math.min(hi, Number(v))) : d);
   const x = n(frame.x, 0, 1, 0.5), y = n(frame.y, 0, 1, 0.5), z = n(frame.zoom, 1, 3, 1);
+  // zoom < 1 is a media card on the backdrop (render-worker deckSegments / export.mjs): no crop here.
+  if (Number(frame.zoom) < 1) return "";
   if (z === 1 && x === 0.5 && y === 0.5) return "";
   const A = (W / H).toFixed(6);
   const f = (v) => Number(v.toFixed(4));

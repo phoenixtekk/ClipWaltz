@@ -44,7 +44,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
           <>
             <h1 className="text-xl font-semibold">Invite unavailable</h1>
             <p className="text-sm text-muted-foreground">{STATUS_TEXT[preview.status]}</p>
-            <Button render={<Link href="/projects" />} variant="outline">
+            <Button nativeButton={false} render={<Link href="/projects" />} variant="outline">
               Go to your projects
             </Button>
           </>

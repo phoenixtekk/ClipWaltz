@@ -5,8 +5,9 @@
 import { useState } from "react";
 import { cn } from "cn";
 import { rotatedFill, rotationParent } from "@/lib/rotation";
-import { aspectNumber, frameRect, type SceneFrameBox } from "@/lib/deck/frame";
-import type { CameraMode, SceneText } from "@/lib/deck/types";
+import { aspectNumber, cardRect, frameRect, type SceneFrameBox } from "@/lib/deck/frame";
+import type { CameraMode, ResolvedBackdrop, SceneText } from "@/lib/deck/types";
+import { BACKDROP_CSS, backdropMarkup, backdropTone, mediaArea, textZone, type TextZone } from "../../../worker/deck/backdrop.mjs";
 import { CAMERA_SIZE, type CameraMove } from "@/lib/deck/camera";
 
 // Preview versions of the render's camera moves (worker/deck/camera.mjs) as CSS animations on the media only.
@@ -43,7 +44,23 @@ export type FrameScene = {
   text: SceneText;
   assetId: string | null;
   frame?: SceneFrameBox | null;
+  /** The scene's effective backdrop (text cards, and media zoomed out below fill). Absent = brand gradient. */
+  backdrop?: ResolvedBackdrop | null;
 };
+
+/** The shared backdrop styles (worker/deck/backdrop.mjs), hoisted and de-duplicated by React. */
+export const BackdropStyles = () => <style href="cw-backdrop" precedence="medium">{BACKDROP_CSS}</style>;
+
+/** One backdrop filling its (positioned) parent — the same markup the render and the slide exports draw. */
+export function Backdrop({ backdrop, brand, aspect, zone }: { backdrop: ResolvedBackdrop | null | undefined; brand: FrameBrand; aspect: number; zone: TextZone }) {
+  const html = backdropMarkup(backdrop, { primary: brand?.primary, secondary: brand?.secondary, aspect, zone });
+  return (
+    <>
+      <BackdropStyles />
+      <div aria-hidden className="absolute inset-0" dangerouslySetInnerHTML={{ __html: html }} />
+    </>
+  );
+}
 
 /**
  * Where the media sits inside the frame for a scene's framing (crop / reposition): a size container the size of
@@ -93,7 +110,9 @@ export function SceneFrame({
   // The media's own size (as the browser shows it — file rotation flag applied), for the scene's framing.
   const [natural, setNaturalState] = useState<{ w: number; h: number } | null>(null);
   const setNatural = (n: { w: number; h: number }) => { setNaturalState(n); onMediaSize?.(n.w, n.h); };
-  const box = asset ? framedBox(scene.frame, natural, asset.rotation, aspectNumber(aspectCss)) : undefined;
+  const aspect = aspectNumber(aspectCss);
+  const zoomedOut = !!asset && (scene.frame?.zoom ?? 1) < 1;
+  const box = asset && !zoomedOut ? framedBox(scene.frame, natural, asset.rotation, aspect) : undefined;
   const mediaCls = box ? "absolute inset-0 size-full object-fill" : "absolute inset-0 size-full object-cover";
   const t = scene.textMode === "none" ? {} : scene.text ?? {};
   // Same rule as the template (W >= H): 16:9 and 1:1 put a slide's panel on the left, tall frames at the bottom.
@@ -102,52 +121,67 @@ export function SceneFrame({
   // Text-only scenes are brand cards; a card layout WITH media keeps the media under a dark scrim (as rendered).
   const card = !asset || scene.layout === "title-card" || scene.layout === "cta-card";
   const cardOnly = !asset;
+  const textLayout = card ? (scene.layout === "cta-card" ? "cta-card" : scene.layout === "slide" && cardOnly ? "slide" : "title-card") : scene.layout;
   const src = asset ? `/api/projects/${projectId}/assets/${asset.id}` : null;
+  // Zoomed out below fill: the whole media as a card (its own shape) centred on the backdrop — worker/deck/backdrop.mjs cardRect.
+  const turned = !!asset && asset.rotation % 180 !== 0;
+  const mediaAspect = natural ? (turned ? natural.h / natural.w : natural.w / natural.h) : aspect;
+  const rect = zoomedOut ? cardRect(aspect, mediaAspect, scene.frame!.zoom, mediaArea(scene.layout, wide)) : null;
+  const cardBox: React.CSSProperties | undefined = rect
+    ? { position: "absolute", containerType: "size", left: `${rect.x * 100}%`, top: `${rect.y * 100}%`, width: `${rect.w * 100}%`, height: `${rect.h * 100}%`,
+        borderRadius: "1.6cqmin", overflow: "hidden", boxShadow: "0 2.5cqmin 6cqmin rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.12)" }
+    : undefined;
+  const media = asset ? (
+    asset.kind === "video" ? (
+      <video
+        key={`${asset.id}-${playing}-${startAt ?? ""}`}
+        src={`${src}#t=${Math.max(0.1, startAt ?? 0.1)}`}
+        muted
+        playsInline
+        autoPlay={playing}
+        preload="metadata"
+        onLoadedMetadata={(e) => { const v = e.currentTarget; if (v.videoWidth) setNatural({ w: v.videoWidth, h: v.videoHeight }); }}
+        className={mediaCls}
+        style={rotatedFill(asset.rotation)}
+      />
+    ) : (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        key={asset.id}
+        ref={(el) => { if (el?.complete && el.naturalWidth && !natural) setNatural({ w: el.naturalWidth, h: el.naturalHeight }); }}
+        onLoad={(e) => { const i = e.currentTarget; if (i.naturalWidth) setNatural({ w: i.naturalWidth, h: i.naturalHeight }); }}
+        src={src!} alt="" className={mediaCls} style={rotatedFill(asset.rotation)}
+      />
+    )
+  ) : null;
   return (
     <div
       className={cn("relative w-full overflow-hidden rounded-lg bg-black [container-type:size]", aspectCss, className)}
-      style={asset ? rotationParent(asset.rotation) : undefined}
+      style={asset && !zoomedOut ? rotationParent(asset.rotation) : undefined}
     >
       {cam ? <style>{CAMERA_CSS}</style> : null}
       {asset && (!card || !cardOnly) ? (
         // The camera preview moves a wrapper, never the media itself (its transform carries the clip's rotation).
         <div className="absolute inset-0" style={cam}>
-        {/* Unframed, the media sizes itself from the root (already a size container). */}
-        <div className="absolute inset-0" style={box}>
-        {asset.kind === "video" ? (
-          <video
-            key={`${asset.id}-${playing}-${startAt ?? ""}`}
-            src={`${src}#t=${Math.max(0.1, startAt ?? 0.1)}`}
-            muted
-            playsInline
-            autoPlay={playing}
-            preload="metadata"
-            onLoadedMetadata={(e) => { const v = e.currentTarget; if (v.videoWidth) setNatural({ w: v.videoWidth, h: v.videoHeight }); }}
-            className={mediaCls}
-            style={rotatedFill(asset.rotation)}
-          />
-        ) : (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            key={asset.id}
-            ref={(el) => { if (el?.complete && el.naturalWidth && !natural) setNatural({ w: el.naturalWidth, h: el.naturalHeight }); }}
-            onLoad={(e) => { const i = e.currentTarget; if (i.naturalWidth) setNatural({ w: i.naturalWidth, h: i.naturalHeight }); }}
-            src={src!} alt="" className={mediaCls} style={rotatedFill(asset.rotation)}
-          />
-        )}
-        </div>
+          {zoomedOut ? (
+            <>
+              <Backdrop backdrop={scene.backdrop} brand={brand} aspect={aspect} zone="none" />
+              <div style={cardBox}>{media}</div>
+            </>
+          ) : (
+            // Unframed, the media sizes itself from the root (already a size container).
+            <div className="absolute inset-0" style={box}>{media}</div>
+          )}
         </div>
       ) : (
-        <div
-          className="absolute inset-0"
-          style={{ background: `radial-gradient(120% 90% at 20% 10%, ${brand?.primary ?? "#8b5cf6"} 0%, ${brand?.secondary ?? "#120a24"} 100%)` }}
-        />
+        <Backdrop backdrop={scene.backdrop} brand={brand} aspect={aspect} zone={textZone(textLayout, { card: true, wide })} />
       )}
 
       {hasText || (card && brand?.logoUrl) ? (
         <TextLayer
-          layout={card ? (scene.layout === "cta-card" ? "cta-card" : scene.layout === "slide" && cardOnly ? "slide" : "title-card") : scene.layout}
+          layout={textLayout}
           text={t} brand={brand} scrim={card && !!asset} wide={wide} cardOnly={cardOnly}
+          ink={cardOnly && backdropTone(scene.backdrop, textZone(textLayout, { card: true, wide })) === "light" ? "dark" : "light"}
         />
       ) : null}
     </div>
@@ -155,17 +189,20 @@ export function SceneFrame({
 }
 
 // Sizes in container-query units (cqw/cqh) so text scales with the frame at any size.
-function TextLayer({ layout, text, brand, scrim, wide, cardOnly }: {
+function TextLayer({ layout, text, brand, scrim, wide, cardOnly, ink = "light" }: {
   layout: string; text: SceneText; brand: FrameBrand; scrim: boolean; wide: boolean; cardOnly: boolean;
+  /** "dark" on light backdrops (Paper, a light AI image): dark words instead of white. */
+  ink?: "light" | "dark";
 }) {
+  const dark = ink === "dark";
   const { headline, sub, bullets = [] } = text;
   const primary = brand?.primary ?? "#8b5cf6";
   const hf = { fontFamily: `'${brand?.headingFont ?? "Montserrat"}', sans-serif` };
   const bf = { fontFamily: `'${brand?.bodyFont ?? "Inter"}', sans-serif` };
   const H = (className?: string) =>
-    headline ? <p style={hf} className={cn("font-extrabold leading-[1.05] text-white", className)}>{headline}</p> : null;
+    headline ? <p style={hf} className={cn("font-extrabold leading-[1.05]", dark ? "text-[#17121f]" : "text-white", className)}>{headline}</p> : null;
   const S = (className?: string) =>
-    sub ? <p style={bf} className={cn("font-medium leading-snug text-violet-50", className)}>{sub}</p> : null;
+    sub ? <p style={bf} className={cn("font-medium leading-snug", dark ? "text-[#2a2238]" : "text-violet-50", className)}>{sub}</p> : null;
 
   if (layout === "slide") {
     // worker/deck/text-layer.mjs .slide: brand panel beside the media (left when wide, bottom when tall), or full-frame as a card.
@@ -177,15 +214,15 @@ function TextLayer({ layout, text, brand, scrim, wide, cardOnly }: {
         <div className={cn("absolute flex flex-col justify-center gap-[1.6cqw] overflow-hidden", panel)}
           style={cardOnly ? undefined : { background: `color-mix(in srgb, ${brand?.secondary ?? "#120a24"} 90%, transparent)` }}>
           {headline ? (
-            <p style={hf} className={cn("font-extrabold leading-[1.05] text-white", cardOnly
+            <p style={hf} className={cn("font-extrabold leading-[1.05]", dark ? "text-[#17121f]" : "text-white", cardOnly
               ? (wide ? "pr-[14cqw] text-[5.6cqw]" : "text-[9cqw]") : (wide ? "text-[5cqw]" : "text-[8.5cqw]"))}>{headline}</p>
           ) : null}
           {headline ? <b className={cn("block h-[max(2px,0.45cqw)] shrink-0 rounded-full", wide ? "w-[6cqw]" : "w-[12cqw]")} style={{ background: primary }} /> : null}
-          {sub ? <p style={bf} className={cn("font-medium leading-snug text-violet-50", wide ? "text-[2.4cqw]" : "text-[4.4cqw]")}>{sub}</p> : null}
+          {sub ? <p style={bf} className={cn("font-medium leading-snug", dark ? "text-[#2a2238]" : "text-violet-50", wide ? "text-[2.4cqw]" : "text-[4.4cqw]")}>{sub}</p> : null}
           {bullets.length ? (
             <ul className="mt-[0.6cqw] space-y-[0.6em]">
               {bullets.map((b, i) => (
-                <li key={i} style={bf} className={cn("flex items-start gap-[0.55em] font-medium leading-[1.3] text-white", wide ? "text-[2.5cqw]" : "text-[4.6cqw]")}>
+                <li key={i} style={bf} className={cn("flex items-start gap-[0.55em] font-medium leading-[1.3]", dark ? "text-[#17121f]" : "text-white", wide ? "text-[2.5cqw]" : "text-[4.6cqw]")}>
                   <span className="mt-[0.45em] size-[0.42em] shrink-0 rounded-full" style={{ background: primary }} />
                   <span>{b}</span>
                 </li>
@@ -232,8 +269,8 @@ function TextLayer({ layout, text, brand, scrim, wide, cardOnly }: {
         {/* eslint-disable-next-line @next/next/no-img-element */}
         {brand?.logoUrl ? <img src={brand.logoUrl} alt="" className="max-h-[14cqh] max-w-[40cqw] object-contain" /> : null}
         {H("text-[8.5cqw]")}
-        {sub ? <p style={{ ...bf, ...(layout === "cta-card" ? { background: primary } : {}) }} className={cn("text-[4.4cqw] font-medium leading-snug text-violet-50", layout === "cta-card" && "rounded-full px-[5cqw] py-[2cqw] font-bold text-white")}>{sub}</p> : null}
-        {bullets.length ? <p className="font-['Inter',sans-serif] text-[3.6cqw] text-violet-100">{bullets.join(" · ")}</p> : null}
+        {sub ? <p style={{ ...bf, ...(layout === "cta-card" ? { background: primary } : {}) }} className={cn("text-[4.4cqw] font-medium leading-snug", dark ? "text-[#2a2238]" : "text-violet-50", layout === "cta-card" && "rounded-full px-[5cqw] py-[2cqw] font-bold !text-white")}>{sub}</p> : null}
+        {bullets.length ? <p className={cn("font-['Inter',sans-serif] text-[3.6cqw]", dark ? "text-[#3a3050]" : "text-violet-100")}>{bullets.join(" · ")}</p> : null}
       </div>
     );
   // headline-bottom (default)

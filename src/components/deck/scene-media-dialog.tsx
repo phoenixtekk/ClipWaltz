@@ -1,5 +1,6 @@
 "use client";
-// Edit a WaltzDeck scene's media: framing (drag to reposition, zoom to crop), rotation, which part of a video
+// Edit a WaltzDeck scene's media: framing (drag to reposition, zoom in to crop — or zoom out below fill to show the
+// whole picture as a card on the scene's backdrop), rotation, which part of a video
 // plays — or delete the file from the project. Framing and the video start are per scene; rotation is the
 // file's (every scene and the timeline editor use it).
 import { useEffect, useRef, useState } from "react";
@@ -9,7 +10,7 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { unwrap } from "@/lib/action-result";
 import { nextRotation } from "@/lib/rotation";
-import { aspectNumber, frameRect, MAX_FRAME_ZOOM, normFrame, type SceneFrameBox } from "@/lib/deck/frame";
+import { aspectNumber, frameRect, MAX_FRAME_ZOOM, MIN_FRAME_ZOOM, normFrame, type SceneFrameBox } from "@/lib/deck/frame";
 import { updateScene, type DeckAsset } from "@/lib/deck-actions";
 import { deleteAsset, setAssetRotation } from "@/lib/asset-actions";
 import type { DeckScene } from "@/lib/deck/types";
@@ -41,7 +42,9 @@ export function SceneMediaDialog({ projectId, scene, asset, aspectCss, wide, bra
   const startAt = isVideo && !auto ? Math.min(start, maxStart) : null;
   const aspect = aspectNumber(aspectCss);
   const turned = rotation % 180 !== 0;
-  const rect = natural ? frameRect(frame, turned ? natural.h : natural.w, turned ? natural.w : natural.h, aspect) : null;
+  const zoomedOut = frame.zoom < 1;
+  // Below fill the card is always the whole picture, centred — nothing to drag.
+  const rect = natural && !zoomedOut ? frameRect(frame, turned ? natural.h : natural.w, turned ? natural.w : natural.h, aspect) : null;
 
   // Close on Escape.
   useEffect(() => {
@@ -123,17 +126,26 @@ export function SceneMediaDialog({ projectId, scene, asset, aspectCss, wide, bra
           </div>
           {/* Drag layer over the text, so the whole frame moves the picture. */}
           <div onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endDrag} onPointerCancel={endDrag}
-            className={cn("absolute inset-0 touch-none rounded-lg", rect ? "cursor-grab active:cursor-grabbing" : "cursor-wait")}
+            className={cn("absolute inset-0 touch-none rounded-lg", zoomedOut ? "cursor-default" : rect ? "cursor-grab active:cursor-grabbing" : "cursor-wait")}
             aria-label="Drag to reposition" />
         </div>
-        <p className="text-center text-xs text-muted-foreground">Drag the picture to choose what shows. Zoom in to crop tighter.</p>
+        <p className="text-center text-xs text-muted-foreground">
+          {zoomedOut
+            ? "Zoomed out: the whole picture sits on the scene's backdrop. Pick the backdrop under Backdrop in the scene panel."
+            : "Drag the picture to choose what shows. Zoom in to crop tighter, or below Fill to show all of it."}
+        </p>
 
         <div className="space-y-3 rounded-lg border border-border bg-background/50 p-3">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <ZoomIn className="size-4 shrink-0 text-[color:var(--cw-violet)]" />
             <span className="w-10">Zoom</span>
-            <input type="range" min={1} max={MAX_FRAME_ZOOM} step={0.05} value={frame.zoom} aria-label="Zoom"
-              onChange={(e) => setFrame((f) => ({ ...f, zoom: Number(e.target.value) }))} className="flex-1" />
+            <div className="relative flex-1">
+              <input type="range" min={MIN_FRAME_ZOOM} max={MAX_FRAME_ZOOM} step={0.05} value={frame.zoom} aria-label="Zoom" list="cw-zoom-fill"
+                onChange={(e) => { const z = Number(e.target.value); setFrame((f) => (z < 1 ? { x: 0.5, y: 0.5, zoom: z } : { ...f, zoom: z })); }} className="w-full" />
+              <datalist id="cw-zoom-fill"><option value="1" label="Fill" /></datalist>
+              <span className="pointer-events-none absolute -bottom-3.5 text-[10px] text-muted-foreground"
+                style={{ left: `${((1 - MIN_FRAME_ZOOM) / (MAX_FRAME_ZOOM - MIN_FRAME_ZOOM)) * 100}%`, transform: "translateX(-50%)" }}>Fill</span>
+            </div>
             <span className="w-10 text-right tabular-nums">{frame.zoom.toFixed(2)}×</span>
             <button type="button" disabled={!framed} onClick={() => setFrame(CENTRED)}
               className="rounded border border-border px-1.5 py-0.5 text-[11px] hover:border-primary hover:text-primary disabled:opacity-40">Reset</button>

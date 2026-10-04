@@ -236,7 +236,7 @@ export function NewProjectWizard({ workspaceId, aiTemplates = [] }: { workspaceI
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" render={<Link href="/projects" />}>
+          <Button variant="ghost" nativeButton={false} render={<Link href="/projects" />}>
             Cancel
           </Button>
           <Button onClick={onContinue} disabled={pending || !name.trim() || (kind === "ai" && !aiTemplateId)}>

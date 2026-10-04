@@ -5,6 +5,7 @@
 // Same layout names and proportions as src/components/deck/scene-frame.tsx (the in-browser preview).
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { BACKDROP_CSS, backdropMarkup, backdropTone, textZone } from "./backdrop.mjs";
 
 const CHROMIUM = process.env.CHROMIUM_PATH || "/usr/bin/chromium";
 export const FPS = 30;
@@ -15,12 +16,14 @@ const cssFont = (f, fallback) => `'${String(f || fallback).replace(/[^A-Za-z0-9 
 const hex = (c, d) => (/^#[0-9a-f]{6}$/i.test(c ?? "") ? c : d);
 
 /**
- * HTML for one scene's text at W×H. `card` = the template paints its own brand background (text-only
- * scenes: title / CTA cards); otherwise the page is transparent and sits over the media.
+ * HTML for one scene's text at W×H. `card` = a text-only scene: the template paints the scene's backdrop
+ * (worker/deck/backdrop.mjs; `backdrop` = the resolved one, an AI image as a data URL) unless `bare` (the video render
+ * draws the backdrop separately so it can drift); otherwise the page is transparent and sits over the media.
  * Slide exports (worker/deck/export.mjs) add `still` (no entrance animation), `bgDataUrl` (the scene's
- * media still under the text) and `wmDataUrl` (the free-tier logo, bottom-left).
+ * media still under the text), `mediaCard` ({ dataUrl, rect } — media zoomed out below fill: the whole still as a card
+ * on the backdrop) and `wmDataUrl` (the free-tier logo, bottom-left).
  */
-export function sceneHtml({ layout, text, W, H, brand = {}, card = false, safeBottom = 0, still = false, bgDataUrl = null, wmDataUrl = null }) {
+export function sceneHtml({ layout, text, W, H, brand = {}, card = false, safeBottom = 0, still = false, bgDataUrl = null, wmDataUrl = null, backdrop = null, bare = false, mediaCard = null }) {
   const u = W / 100; // 1 "cqw"
   const primary = hex(brand.primary, "#8b5cf6");
   const dark = hex(brand.secondary, "#120a24");
@@ -35,6 +38,12 @@ export function sceneHtml({ layout, text, W, H, brand = {}, card = false, safeBo
   // Keep text clear of the watermark logo (bottom-left) when there is one.
   const sb = Math.max(7 * u, safeBottom);
   const cardOverMedia = !card && (layout === "title-card" || layout === "cta-card");
+  // Light backdrops (Paper, a light AI image) get dark words on text-only scenes.
+  const inkDark = card && backdropTone(backdrop, textZone(lay, { card: true, wide: W >= H })) === "light";
+  const bd = (card || mediaCard) && !bare
+    ? backdropMarkup(backdrop, { primary, secondary: dark, aspect: W / H, zone: card ? textZone(lay, { card: true, wide: W >= H }) : "none" }) : "";
+  const mc = mediaCard && /^data:image\/(png|jpeg);base64,/.test(mediaCard.dataUrl ?? "")
+    ? `<img class="cwmc" src="${mediaCard.dataUrl}" alt="" style="left:${(mediaCard.rect.x * 100).toFixed(3)}%;top:${(mediaCard.rect.y * 100).toFixed(3)}%;width:${(mediaCard.rect.w * 100).toFixed(3)}%;height:${(mediaCard.rect.h * 100).toFixed(3)}%;object-fit:cover">` : "";
   let body;
   if (lay === "headline-center") body = `<div class="center">${headline}${sub}</div>`;
   else if (lay === "lower-third") body = `<div class="bar a1">${headline}${sub}</div>`;
@@ -50,7 +59,9 @@ export function sceneHtml({ layout, text, W, H, brand = {}, card = false, safeBo
     body = `<div class="card">${/^data:image\/(png|jpeg|webp|svg\+xml);base64,/.test(brand.logoDataUrl ?? "") ? `<img class="logo a1" src="${brand.logoDataUrl}" alt="">` : ""}${headline}${t.sub ? `<p class="s a2 ${lay === "cta-card" ? "pill" : ""}">${esc(t.sub)}</p>` : ""}${bullets.length ? `<p class="s a3 meta">${bullets.map(esc).join(" · ")}</p>` : ""}</div>`;
   else body = `<div class="bottom grad">${headline}${sub}</div>`; // headline-bottom
   return `<!doctype html><html><head><meta charset="utf-8"><style>
-html,body{margin:0;width:${W}px;height:${H}px;overflow:hidden;background:${card ? `radial-gradient(120% 90% at 20% 10%, ${primary} 0%, ${mix(primary, dark)} 45%, ${dark} 100%)` : "transparent"}}
+html,body{margin:0;width:${W}px;height:${H}px;overflow:hidden;background:transparent;position:relative}
+${bd ? BACKDROP_CSS : ""}
+${inkDark ? `.h,li{color:#17121f !important}.s{color:#2a2238 !important}.meta{color:#3a3050 !important}.pill{color:#fff !important}` : ""}
 *{box-sizing:border-box}
 .h{margin:0;font-family:${hFont};font-weight:800;line-height:1.05;color:#fff;letter-spacing:-.01em;overflow-wrap:normal;max-width:100%}
 .s{margin:0;font-family:${bFont};font-weight:500;line-height:1.3;color:#f3eeff;overflow-wrap:normal;max-width:100%}
@@ -89,7 +100,7 @@ ${still ? "*{animation:none !important}" : ""}
 .pill.a2{animation:pop .5s .15s cubic-bezier(.3,1.6,.5,1) both}
 @keyframes up{from{opacity:0;transform:translateY(${4 * u}px)}to{opacity:1;transform:none}}
 @keyframes pop{from{opacity:0;transform:scale(.7)}to{opacity:1;transform:none}}
-</style></head><body>${bgDataUrl && !card ? `<img class="bgimg" src="${bgDataUrl}" alt="">` : ""}${body}${wmDataUrl ? `<img class="wm" src="${wmDataUrl}" alt="">` : ""}<script>
+</style></head><body>${bd}${mc}${bgDataUrl && !card && !mediaCard ? `<img class="bgimg" src="${bgDataUrl}" alt="">` : ""}${body}${wmDataUrl ? `<img class="wm" src="${wmDataUrl}" alt="">` : ""}<script>
 // Auto-fit: shrink each text block until the whole layout fits inside the frame (never overflows).
 // Full-frame layouts (.center, .card) must not overflow their box; blocks that grow upward from the bottom
 // (.bottom, .bar) only need to stay inside the frame — their scrollHeight includes glyph ink past the line
@@ -155,17 +166,11 @@ window.__measure = () => [...document.querySelectorAll('.h,.s,li>span')].filter(
 
 const rgba = (h, a) => `rgba(${[0, 1, 2].map((i) => parseInt(h.slice(1 + i * 2, 3 + i * 2), 16)).join(",")},${a})`;
 
-// Blend two #rrggbb colours 50/50 (for the card gradient's middle stop).
-function mix(a, b) {
-  const p = (h, i) => parseInt(h.slice(1 + i * 2, 3 + i * 2), 16);
-  return `#${[0, 1, 2].map((i) => Math.round((p(a, i) + p(b, i)) / 2).toString(16).padStart(2, "0")).join("")}`;
-}
-
 /** One headless browser for a whole render; renderScene() writes PNG frames into `outDir`. */
 export async function createTextRenderer() {
   const { chromium } = await import("playwright-core");
   const browser = await chromium.launch({ executablePath: CHROMIUM, args: ["--no-sandbox", "--disable-gpu", "--font-render-hinting=none"] });
-  let page;
+  let page, bgPage = null;
   try {
     page = await browser.newPage();
   } catch (e) {
@@ -177,18 +182,37 @@ export async function createTextRenderer() {
      * Render one scene's text. Returns { pattern, frames, fit } — `pattern` is an ffmpeg image2 pattern
      * (f%03d.png) of `frames` PNGs at FPS: the entrance animation, whose last frame is the settled layout.
      */
-    async renderScene({ layout, text, W, H, brand, card, safeBottom }, outDir) {
+    async renderScene({ layout, text, W, H, brand, card, safeBottom, backdrop = null, bare = false }, outDir) {
       await page.setViewportSize({ width: W, height: H });
-      await page.setContent(sceneHtml({ layout, text, W, H, brand, card, safeBottom }), { waitUntil: "load" });
+      await page.setContent(sceneHtml({ layout, text, W, H, brand, card, safeBottom, backdrop, bare }), { waitUntil: "load" });
       await page.evaluate(async () => { await document.fonts.ready; window.__doFit(); });
       const frames = Math.max(1, Math.round(ENTER_SEC * FPS));
       for (let f = 0; f < frames; f++) {
         const ms = f === frames - 1 ? 5000 : (f * 1000) / FPS; // the last frame is fully settled
         await page.evaluate((t) => document.getAnimations().forEach((a) => { a.pause(); a.currentTime = t; }), ms);
-        await page.screenshot({ path: join(outDir, `f${String(f).padStart(3, "0")}.png`), omitBackground: !card });
+        await page.screenshot({ path: join(outDir, `f${String(f).padStart(3, "0")}.png`), omitBackground: !card || bare });
       }
       const fit = await page.evaluate(() => window.__fit);
       return { pattern: join(outDir, "f%03d.png"), frames, fit };
+    },
+    /**
+     * A scene's backdrop alone as a PNG at 1.5× (headroom for the slow drift), with the drop shadow of a zoomed-out
+     * media card baked in when `cardRect` ({ x, y, w, h } fractions) is given. `zone` = textZone().
+     */
+    async renderBackdrop({ backdrop, brand = {}, W, H, zone, cardRect = null }, file) {
+      if (!bgPage) bgPage = await (await browser.newContext({ deviceScaleFactor: 1.5 })).newPage();
+      await bgPage.setViewportSize({ width: W, height: H });
+      const shadow = cardRect
+        ? `<div class="cwmc" style="left:${cardRect.x * 100}%;top:${cardRect.y * 100}%;width:${cardRect.w * 100}%;height:${cardRect.h * 100}%;background:#000"></div>` : "";
+      await bgPage.setContent(`<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;width:${W}px;height:${H}px;overflow:hidden;position:relative}${BACKDROP_CSS}</style></head><body>${
+        backdropMarkup(backdrop, { primary: brand.primary, secondary: brand.secondary, aspect: W / H, zone })}<div style="position:absolute;inset:0;container-type:size">${shadow}</div></body></html>`, { waitUntil: "load" });
+      await bgPage.screenshot({ path: file });
+    },
+    /** White rounded rectangle on black, w×h px — the alpha mask that rounds a media card's corners. */
+    async renderMask(w, h, radius, file) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.setContent(`<!doctype html><html><body style="margin:0;background:#000;width:${w}px;height:${h}px;overflow:hidden"><div style="position:absolute;inset:0;background:#fff;border-radius:${radius}px"></div></body></html>`);
+      await page.screenshot({ path: file });
     },
     async close() {
       await browser.close().catch(() => {});

@@ -1,6 +1,8 @@
 // WaltzDeck shared types (06_ClipWaltz_WaltzDeck_Feature_Spec.md). Keep MODES / LAYOUTS / ROLES in sync
 // with worker/deck/planner.mjs and the scene templates in worker/deck/templates.
 import type { SceneFrameBox } from "./frame";
+import type { ResolvedBackdrop, SceneBackdrop } from "../../../worker/deck/backdrop.mjs";
+export type { ResolvedBackdrop, SceneBackdrop };
 
 export type DeckMode = "ad" | "slideshow" | "presentation";
 export type TextMode = "auto" | "manual" | "off";
@@ -86,6 +88,8 @@ export type DeckBrief = {
   camera?: { mode: CameraMode };
   /** Language of the on-screen text, narration and captions (phase 5); absent = English. */
   language?: LanguageCode;
+  /** What's behind text-only scenes unless a scene picks its own (worker/deck/backdrop.mjs). Absent = brand gradient. */
+  backdrop?: SceneBackdrop;
   /** Set on a translated copy: the deck it was translated from. */
   translatedFrom?: { projectId: string; title: string } | null;
 };
@@ -117,7 +121,31 @@ export type DeckTranslation =
   | { status: "ready"; lang: string; kept: number; finishedAt?: string }
   | { status: "failed"; lang: string; error: string };
 
-export type DeckState = { brief: DeckBrief; plan?: DeckPlanStatus; import?: DeckImportStatus; brandSuggestion?: BrandSuggestion; translation?: DeckTranslation };
+/**
+ * AI backdrop presets: a text-free still made by Waltz AI (one frame of the text-to-video model). `{color}` = the
+ * brand's main colour as a word. Every prompt keeps the centre open so words read over it (all seven checked on Wan 2.2
+ * 2026-10-03: vivid, text-free; the light ones measure light and get dark words).
+ */
+export const BACKDROP_PRESETS = [
+  { key: "keynote", label: "Keynote glow", prompt: "Abstract keynote stage background, two bright glowing {color} and amber neon light arcs framing the left and right sides, reflective floor with light reflections, soft volumetric glow, open space in the middle, cinematic, premium" },
+  { key: "aurora", label: "Soft aurora", prompt: "Abstract background, flowing aurora of bright {color} and soft pink light waves, luminous glow, smooth gradients, open space in the middle, premium wallpaper" },
+  { key: "rays", label: "Light rays", prompt: "Abstract background, bright {color} god rays and glowing haze streaming down from the top, luminous, airy, calm, open space in the middle" },
+  { key: "workspace", label: "Calm workspace", prompt: "Bright modern office desk out of focus, warm bokeh lights, shallow depth of field, soft {color} accents, open space in the middle, high quality photo" },
+  { key: "nature", label: "Nature calm", prompt: "Soft misty mountain landscape at sunrise, glowing {color} sky, calm lake, minimal, lots of open sky, high quality photo" },
+  { key: "city", label: "City at dusk", prompt: "Blurred city lights at dusk, bright bokeh circles, {color} and amber glow, shallow depth of field, open space in the middle, high quality photo" },
+  { key: "paper", label: "Light paper", prompt: "Minimal bright background of soft white paper layers with subtle {color} shadows and gentle curves, airy and clean, empty center" },
+] as const;
+export type BackdropPresetKey = (typeof BACKDROP_PRESETS)[number]["key"] | "custom";
+
+/** An AI backdrop image made for this deck (projects.deck.backdrops; the MinIO key never leaves the server). */
+export type BackdropImage = {
+  id: string; key: string; prompt: string; preset: string; tone: "light" | "dark";
+  /** Brightness 0–255 of a 3×3 grid (row-major) — the text colour follows the cells under the words. */
+  grid?: number[];
+  aspect: string; createdAt: string;
+};
+
+export type DeckState = { brief: DeckBrief; backdrops?: BackdropImage[]; plan?: DeckPlanStatus; import?: DeckImportStatus; brandSuggestion?: BrandSuggestion; translation?: DeckTranslation };
 
 export type DeckExportFormat = "pdf" | "pptx";
 export type DeckExport = {
@@ -140,6 +168,10 @@ export type DeckScene = {
   outSec: number | null;
   /** Crop / reposition of the media (null = centred cover) — src/lib/deck/frame.ts. */
   frame: SceneFrameBox | null;
+  /** This scene's own backdrop (null = the deck default). */
+  background: SceneBackdrop | null;
+  /** The backdrop it actually gets (own, else the deck default, else the brand gradient), ready to draw. */
+  backdrop: ResolvedBackdrop;
   durationSec: number;
   textMode: SceneTextMode;
   text: SceneText;

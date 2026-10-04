@@ -723,6 +723,9 @@ export const deckScenes = pgTable("deck_scenes", {
   // Framing of the media in this scene: { x, y } = centre (0–1 of the upright source), zoom ≥ 1. null = centred
   // cover (src/lib/deck/frame.ts, worker/deck/frame.mjs).
   frame: jsonb(),
+  // What's behind a text-only scene (or media zoomed out below fill): { style, intensity, seed, imageId? }.
+  // null = the deck default (DeckBrief.backdrop). worker/deck/backdrop.mjs.
+  background: jsonb(),
   durationSec: real().notNull().default(3),
   textMode: text().notNull().default("auto"), // auto (AI writes) | manual (user's words, never rewritten) | none
   text: jsonb(), // { headline?: string, sub?: string, bullets?: string[] }

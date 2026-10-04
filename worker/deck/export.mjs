@@ -11,6 +11,7 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { sceneHtml } from "./text-layer.mjs";
 import { vfFrame } from "./frame.mjs";
+import { cardRect, mediaArea, normBackdrop } from "./backdrop.mjs";
 
 const CHROMIUM = process.env.CHROMIUM_PATH || "/usr/bin/chromium";
 const LONG = 1280; // layout px on the long side (96 px = 1 in)
@@ -66,6 +67,28 @@ export async function buildDeckExport({ projectId, format, watermark, exportId }
       console.warn(`[deck-export] brand logo unavailable: ${e.message}`);
     }
   }
+  // Backdrops (worker/deck/backdrop.mjs): the scene's own, else the deck default, else the brand gradient. AI images
+  // as data URLs, downloaded once.
+  const deckState = project.deck ?? {};
+  const aiImages = new Map();
+  const backdropOf = async (sc) => {
+    const b = normBackdrop(sc.background) ?? normBackdrop(deckState.brief?.backdrop) ?? { style: "brand", intensity: "balanced", seed: 0 };
+    if (b.style !== "ai") return b;
+    const img = (deckState.backdrops ?? []).find((x) => x.id === b.imageId);
+    if (!img) return { style: "brand", intensity: b.intensity, seed: b.seed };
+    if (!aiImages.has(img.id)) {
+      try {
+        const f = join(dir, `backdrop-${img.id}.jpg`);
+        await io.download(img.key, f);
+        aiImages.set(img.id, `data:image/jpeg;base64,${readFileSync(f).toString("base64")}`);
+      } catch (e) {
+        console.warn(`[deck-export] AI backdrop ${img.id} unavailable: ${e.message}`);
+        aiImages.set(img.id, null);
+      }
+    }
+    const url = aiImages.get(img.id);
+    return url ? { ...b, imageUrl: url, tone: img.tone, grid: img.grid } : { style: "brand", intensity: b.intensity, seed: b.seed };
+  };
   const wmDataUrl = watermark && existsSync(io.watermarkPath)
     ? `data:image/png;base64,${readFileSync(io.watermarkPath).toString("base64")}` : null;
 
@@ -90,8 +113,12 @@ export async function buildDeckExport({ projectId, format, watermark, exportId }
         srcs.set(a.id, { file: f, dur: a.kind === "video" ? (await io.probe(f)) || Number(a.duration_sec) || 0 : 0 });
       }
       const src = srcs.get(a.id);
-      const out = join(dir, `still-${i}.jpg`);
-      const vf = `${vfRotate(a.rotation)}${vfFrame(sc.frame, VW, VH)}scale=${VW}:${VH}:force_original_aspect_ratio=increase,crop=${VW}:${VH},setsar=1`;
+      // Zoomed out below fill: the whole picture (fit, uncropped) becomes a card on the backdrop.
+      const card = Number(sc.frame?.zoom) < 1;
+      const out = join(dir, `still-${i}.${card ? "png" : "jpg"}`);
+      const vf = card
+        ? `${vfRotate(a.rotation)}scale=${VW}:${VH}:force_original_aspect_ratio=decrease,setsar=1`
+        : `${vfRotate(a.rotation)}${vfFrame(sc.frame, VW, VH)}scale=${VW}:${VH}:force_original_aspect_ratio=increase,crop=${VW}:${VH},setsar=1`;
       if (a.kind === "video") {
         const d = Math.max(0.1, Number(sc.duration_sec) || 3);
         const at = sc.in_sec != null ? Number(sc.in_sec) + d / 2 : src.dur * 0.4;
@@ -100,7 +127,10 @@ export async function buildDeckExport({ projectId, format, watermark, exportId }
       } else {
         await io.ffmpeg(["-i", src.file, "-frames:v", "1", "-vf", vf, "-q:v", "3", out]);
       }
-      stills.push(`data:image/jpeg;base64,${readFileSync(out).toString("base64")}`);
+      const buf = readFileSync(out);
+      stills.push(card
+        ? { dataUrl: `data:image/png;base64,${buf.toString("base64")}`, rect: cardRect(VW / VH, buf.readUInt32BE(16) / buf.readUInt32BE(20), Number(sc.frame.zoom), mediaArea(sc.layout, VW >= VH)) }
+        : `data:image/jpeg;base64,${buf.toString("base64")}`);
     } catch (e) {
       console.warn(`[deck-export] scene ${i + 1}: no still (${e.message}) — slide uses the brand background`);
       stills.push(null);
@@ -117,8 +147,10 @@ export async function buildDeckExport({ projectId, format, watermark, exportId }
     for (const [i, sc] of scenes.entries()) {
       const still = stills[i];
       const card = !still;
+      const mediaCard = still && typeof still === "object" ? still : null;
       await page.setContent(sceneHtml({
-        layout: sc.layout, text: hasText(sc) ? sc.text : {}, W, H, brand, card, safeBottom, still: true, bgDataUrl: still, wmDataUrl,
+        layout: sc.layout, text: hasText(sc) ? sc.text : {}, W, H, brand, card, safeBottom, still: true, bgDataUrl: mediaCard ? null : still, wmDataUrl,
+        backdrop: card || mediaCard ? await backdropOf(sc) : null, mediaCard,
       }), { waitUntil: "load" });
       await page.evaluate(async () => { await document.fonts.ready; window.__doFit(); });
       if (format === "pdf") {

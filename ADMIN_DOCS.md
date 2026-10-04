@@ -694,6 +694,39 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
   container queries (`@container`) so they stay one column in the narrow panel.
 - AutoWaltz clip settings: `src/components/clip-inspector.tsx` (was `ClipModal` in `project-timeline.tsx`), keyed per clip.
 
+## WaltzDeck backdrops, AI backdrops, zoom-out media (2026-10-03)
+- **One drawing module:** `worker/deck/backdrop.mjs` (+ `backdrop.d.mts` types) — `BACKDROP_CSS` + `backdropMarkup()`
+  (container-query units, brand vars `--p`/`--s`), `textZone()` (where the words are → decoration mirrored away + the
+  veil), `cardRect()` / `mediaArea()` (zoomed-out media card), `normBackdrop()` (validation). Imported by the app
+  (`scene-frame.tsx` preview, `backdrop-picker.tsx`, `deck-actions.ts`), `deck/text-layer.mjs` (render + exports) and
+  `deck/export.mjs`. Change a style in ONE place.
+- **Schema:** migration `0046_scene_background` — `deck_scenes.background jsonb` `{ style, intensity, seed, imageId? }`,
+  null = deck default. Deck default = `projects.deck.brief.backdrop`, written only by `setDeckBackdrop` (saveBrief keeps
+  the stored one — the editor's brief copy can be older than a backdrop the worker just made). AI images:
+  `projects.deck.backdrops[] { id (= generation job id), key, prompt, preset, tone, aspect, createdAt }`; the key never
+  reaches the browser — `GET /api/projects/[id]/backdrops/[bid]` serves it. Translations copy the list (shared files;
+  `deleteBackdropImage` only deletes the object when no deck lists it).
+- **AI backdrop job:** `generateBackdrop` → `createGenerationJob({ deckBackdrop })` — a normal `text_to_video` job on the
+  generation queue, `BACKDROP_COST` = 2 credits, never watermarked, `durationSec` 1 (route length check skipped). The
+  generation worker sends `length: 1` (one Wan frame), extracts a JPEG, measures the centre brightness (> 150 = `light`
+  → dark words), stores `projects/<id>/backdrops/<jobId>.jpg`, appends to the library and applies it (scene or deck
+  default) — no Waltz AI version is created. Sizes: 16:9 1280×704, 9:16 704×1280, 1:1 960×960, 4:5 832×1024.
+- **Render (`deckSegments`):** text cards = words rendered transparent (`bare`) over a separate 1.5× backdrop PNG
+  (`renderBackdrop`) that drifts with `cameraChain("drift","subtle")` when the deck camera is on. Zoomed-out media
+  (`frame.zoom < 1`): `uprightSize()` decodes one frame for the exact size → `cardRect` → backdrop PNG with the card's
+  shadow baked in + a rounded-corner mask (`renderMask`) → `alphamerge` + `overlay`, then the scene's camera move on
+  that composite, then the words. `vfFrame` ignores zoom < 1. Exports: the still is fitted (PNG) and drawn as a
+  `.cwmc` card over the backdrop in `sceneHtml({ mediaCard })`.
+- **Camera / Ken Burns:** more pull-outs (`pickMove` in `deck/camera.mjs` + `src/lib/deck/camera.ts`, keep in sync);
+  `vfKenBurns(W,H,frames,out)` alternates by scene / clip index.
+- **AutoWaltz blurred fill:** `vfStatic` = split → 1/8-size blurred, darkened cover copy + the fitted clip on top
+  (~0.3 s per 3 s of 1080p on the AI box).
+- **`render-worker.mjs --once`** now also drains queued slide exports (handy for one-shot tests against the dev DB).
+- **Deploy:** migration 0046 + app build on linuxg1; `worker/generation-worker.mjs` on linuxg1 (`pm2 restart
+  clipwaltz-gen-worker`); on the AI box `render-worker.mjs` + `deck/{backdrop,text-layer,export,camera,frame}.mjs`
+  (`sudo -n systemctl restart clipwaltz-worker`). The app also builds `worker/deck/backdrop.mjs` (imported by `src/`),
+  so the app tarball must include it.
+
 ## WaltzDeck scene media editing (2026-09-30)
 - **Schema:** migration `0044_scene_frame` — `deck_scenes.frame jsonb` `{ x, y, zoom }` (centre as a fraction of the
   upright source, zoom 1–3); null = centred cover. Validated by `normFrame` (`src/lib/deck/frame.ts`) in `updateScene`.

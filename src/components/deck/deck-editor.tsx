@@ -13,11 +13,11 @@ import { Button } from "@/components/ui/button";
 import { aspectClass, isWide } from "@/lib/aspect";
 import {
   CAMERA_MODES, DECK_MODES, LANGUAGES, LAYOUTS, MAX_BULLETS, MOTIONS, MOTION_LABELS, TONES, VOICES, type CameraMode,
-  type BrandSuggestion, type Campaign, type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type SceneTextMode, type TextMode, type VoiceMode,
+  type BrandSuggestion, type Campaign, type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type SceneTextMode, type TextMode, type VoiceMode, type ResolvedBackdrop,
 } from "@/lib/deck/types";
 import {
   getDeck, saveBrief, setAssetNote, describeAsset, requestPlan, updateScene, rewriteSceneText, reorderScenes, addScene, deleteScene,
-  requestDeckExport, importFromUrl, fillScene, translateDeck, getBriefHistory, removeBriefHistory,
+  requestDeckExport, importFromUrl, fillScene, translateDeck, getBriefHistory, removeBriefHistory, setDeckBackdrop,
   type DeckData, type DeckAsset, type ScenePatch,
 } from "@/lib/deck-actions";
 import { PresentView } from "./present-view";
@@ -29,7 +29,11 @@ import { AiFill } from "./ai-fill";
 import { useCredits } from "@/components/credits-line";
 import type { CreditBalance } from "@/lib/credits";
 import { uploadProjectFile, isSupported } from "@/lib/upload-client";
-import { SceneFrame, type FrameBrand } from "./scene-frame";
+import { Backdrop, SceneFrame, type FrameBrand } from "./scene-frame";
+import { BackdropPicker } from "./backdrop-picker";
+import { BACKDROP_STYLES } from "../../../worker/deck/backdrop.mjs";
+
+const BACKDROP_LABEL: Record<string, string> = Object.fromEntries(BACKDROP_STYLES.map((s) => [s.key, s.label]));
 import { SceneMediaDialog } from "./scene-media-dialog";
 import { StudioShell, StudioPanel, type StudioTab, type StudioStep } from "@/components/studio/studio-shell";
 import { aspectNumber } from "@/lib/deck/frame";
@@ -74,7 +78,8 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
   const translating = tr.status === "queued" || tr.status === "translating";
   const router = useRouter();
   // AI credits: re-read whenever a fill job starts or ends (a failed one refunds).
-  const credits = useCredits(JSON.stringify(data.fills));
+  const backdropBusy = data.backdropJobs.some((j) => !["failed", "cancelled", "completed", "retried"].includes(j.status));
+  const credits = useCredits(JSON.stringify([data.fills, data.backdropJobs]));
 
   const refresh = useCallback(async () => {
     try {
@@ -84,10 +89,10 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
 
   // Poll while the worker is busy (planning, rewriting, describing fresh uploads, importing, exporting).
   useEffect(() => {
-    if (!planBusy && !rewriting && !describing && !importBusy && !exporting && !filling && !brandReading && !translating) return;
+    if (!planBusy && !rewriting && !describing && !importBusy && !exporting && !filling && !brandReading && !translating && !backdropBusy) return;
     const t = setInterval(refresh, 2500);
     return () => clearInterval(t);
-  }, [planBusy, rewriting, describing, importBusy, exporting, filling, brandReading, translating, refresh]);
+  }, [planBusy, rewriting, describing, importBusy, exporting, filling, brandReading, translating, backdropBusy, refresh]);
 
   // A translation fills the brief on the server: adopt it once, when it finishes.
   const [trSeen, setTrSeen] = useState(tr.status);
@@ -125,6 +130,17 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
     ? { primary: brandKit.primary, secondary: brandKit.secondary, headingFont: brandKit.headingFont, bodyFont: brandKit.bodyFont,
         logoUrl: brandKit.hasLogo ? `/api/projects/${projectId}/brand-logo?v=${logoVersion}` : null }
     : null;
+  // The deck default backdrop, ready to draw (the server's copy — the worker sets it when an AI backdrop finishes).
+  const deckBackdrop: ResolvedBackdrop = (() => {
+    const b = data.deck.brief.backdrop;
+    if (!b) return { style: "brand", intensity: "balanced", seed: 0 };
+    if (b.style !== "ai") return b;
+    const img = data.backdropImages.find((i) => i.id === b.imageId);
+    return img ? { ...b, imageUrl: img.url, tone: img.tone, grid: img.grid } : { style: "brand", intensity: b.intensity, seed: b.seed };
+  })();
+  const pickerProps = {
+    projectId, brand: frameBrand, images: data.backdropImages, jobs: data.backdropJobs, credits, canEdit, onChanged: refresh,
+  };
   const total = data.scenes.reduce((n, s) => n + s.durationSec, 0);
   const aspectCss = aspectClass(data.project.aspect);
   const unused = plan.status === "ready" ? (plan.unusedAssetIds ?? []).filter((id) => !data.scenes.some((s) => s.assetId === id)) : [];
@@ -159,8 +175,18 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
     );
     if (tab === "brand") return (
       <StudioPanel title="Brand">
-        <BrandSection projectId={projectId} kit={brandKit} canEdit={canEdit} suggestion={brandSug} onChanged={refresh}
-          onSaved={(k, logo) => { setBrandKit(k); if (logo) setLogoVersion((v) => v + 1); }} />
+        <div className="space-y-5">
+          <BrandSection projectId={projectId} kit={brandKit} canEdit={canEdit} suggestion={brandSug} onChanged={refresh}
+            onSaved={(k, logo) => { setBrandKit(k); if (logo) setLogoVersion((v) => v + 1); }} />
+          <section className="space-y-2 border-t border-border pt-4">
+            <div>
+              <h3 className="text-sm font-semibold">Text slide backdrop</h3>
+              <p className="text-[11px] text-muted-foreground">Behind every text-only scene, in your brand colours. A scene can pick its own in the scene panel.</p>
+            </div>
+            <BackdropPicker {...pickerProps} scope="deck" value={data.deck.brief.backdrop ?? null} fallback={{ style: "brand", intensity: "balanced", seed: 0 }}
+              onChange={(v) => act(async () => unwrap(await setDeckBackdrop(projectId, v)))} />
+          </section>
+        </div>
       </StudioPanel>
     );
     if (tab === "slides") return (
@@ -339,6 +365,10 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
         usedBy={selScene.assetId ? data.scenes.filter((x) => x.assetId === selScene.assetId).length : 0}
         onMediaChanged={refresh}
         onAddAfter={() => act(async () => unwrap(await addScene(projectId, selIndex, null)))}
+        backdropSlot={!selScene.assetId || (selScene.frame?.zoom ?? 1) < 1 ? (
+          <BackdropPicker {...pickerProps} scope="scene" sceneId={selScene.id} value={selScene.background} fallback={deckBackdrop}
+            onChange={(v) => act(async () => unwrap(await updateScene(projectId, selScene.id, { background: v })))} />
+        ) : null}
       />
     </StudioPanel>
   ) : null;
@@ -889,7 +919,7 @@ function MediaRow({ projectId, asset, canEdit, usedBy, onRemoved }: { projectId:
 
 function SceneCard({
   projectId, scene, index, count, asset, assets, aspectCss, wide, canEdit, brand, voiceMode, presentation, fill, credits, onFill, onPatch, onRewrite, onMove, onDelete, onAddAfter,
-  usedBy, onMediaChanged, stacked = false,
+  usedBy, onMediaChanged, stacked = false, backdropSlot = null,
 }: {
   projectId: string; scene: DeckScene; index: number; count: number; asset: DeckAsset | null; assets: DeckAsset[];
   aspectCss: string; wide: boolean; canEdit: boolean; brand: FrameBrand; voiceMode: VoiceMode; presentation: boolean;
@@ -899,6 +929,8 @@ function SceneCard({
   usedBy: number; onMediaChanged: () => void;
   /** One column (the studio inspector) instead of thumbnail beside the fields. */
   stacked?: boolean;
+  /** Backdrop picker (text-only scenes and media zoomed out below fill). */
+  backdropSlot?: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
   const [headline, setHeadline] = useState(scene.text.headline ?? "");
@@ -1025,6 +1057,11 @@ function SceneCard({
               {assets.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
           </div>
+          {backdropSlot ? (
+            <Fold title="Backdrop" value={scene.background ? (scene.background.style === "ai" ? "AI image" : BACKDROP_LABEL[scene.background.style] ?? "") : "Deck default"}>
+              {backdropSlot}
+            </Fold>
+          ) : null}
           <AiFill sceneSec={scene.durationSec} hasPhoto={asset?.kind === "photo"} fill={fill} credits={credits} canEdit={canEdit} onFill={onFill}
             defaultPrompt={[scene.text.headline, scene.text.sub].filter(Boolean).join(" — ")} />
           {scene.why ? (
@@ -1202,7 +1239,7 @@ function xAt(scenes: DeckScene[], t: number, width: (d: number) => number) {
 
 /** Small picture for a timeline block: the scene's photo / video frame, or its brand colours for a text card. */
 function SceneThumb({ projectId, asset, scene, brand }: { projectId: string; asset: DeckAsset | null; scene: DeckScene; brand: FrameBrand }) {
-  if (!asset) return <div className="absolute inset-0" style={{ background: `radial-gradient(120% 90% at 20% 10%, ${brand?.primary ?? "#8b5cf6"} 0%, ${brand?.secondary ?? "#120a24"} 100%)` }} />;
+  if (!asset) return <Backdrop backdrop={scene.backdrop} brand={brand} aspect={2.5} zone="center" />;
   const src = `/api/projects/${projectId}/assets/${asset.id}`;
   return asset.kind === "video"
     ? <video src={`${src}#t=${Math.max(0.1, scene.inSec ?? 0.5)}`} muted preload="metadata" className="absolute inset-0 size-full object-cover" style={rotatedFill(asset.rotation)} />

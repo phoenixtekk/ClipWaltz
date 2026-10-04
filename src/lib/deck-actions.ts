@@ -9,13 +9,17 @@ import { requireUserId } from "./auth";
 import { userCanAccessProject } from "./workspace";
 import { enqueueDeck } from "./queue";
 import { shouldWatermark } from "./watermark";
+import { deleteObject } from "./storage";
 import { toResult, unwrap, type ActionResult } from "./action-result";
 import {
   CAMERA_MODES, DEFAULT_AUDIO, DUCK_MODES, MUSIC_TONES, VOICE_TONES, type DeckAudio,
   DECK_MODES, LANGUAGES, LAYOUTS, MAX_BRIEF_HISTORY, MAX_BULLETS, MAX_BULLET_CHARS, MOTIONS, ROLES, VOICES, defaultBrief, defaultVoiceFor,
   type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type DeckState, type SceneText, type SceneTextMode,
+  type ResolvedBackdrop, type SceneBackdrop, BACKDROP_PRESETS, type BackdropPresetKey,
 } from "./deck/types";
 import { normFrame, type SceneFrameBox } from "./deck/frame";
+import { INTENSITIES, normBackdrop } from "../../worker/deck/backdrop.mjs";
+const INTENSITY_KEYS: string[] = INTENSITIES;
 
 /** The asset exists and belongs to this project (never trust a client-sent asset id). */
 async function assertProjectAsset(projectId: string, assetId: string) {
@@ -63,10 +67,27 @@ export type DeckData = {
   exports: DeckExport[];
   /** AI fill jobs per scene (the latest of the last day): running, or failed (credits refunded). */
   fills: Record<string, { status: string; progress: number; error: string | null }>;
+  /** The deck's AI backdrop library, newest first. */
+  backdropImages: { id: string; url: string; prompt: string; preset: string; tone: "light" | "dark"; grid?: number[]; createdAt: string }[];
+  /** AI backdrops being made (or that failed in the last day — credits refunded). sceneId null = for the deck default. */
+  backdropJobs: { id: string; sceneId: string | null; status: string; error: string | null }[];
 };
 
-const toScene = (r: typeof schema.deckScenes.$inferSelect): DeckScene => ({
+/**
+ * The backdrop a scene actually gets: its own, else the deck default, else the brand gradient — with an AI image
+ * resolved to its URL and tone (an image that was deleted falls back to the brand gradient).
+ */
+function resolveBackdrop(projectId: string, own: unknown, deck: Partial<DeckState>): ResolvedBackdrop {
+  const b = normBackdrop(own) ?? normBackdrop(deck.brief?.backdrop) ?? { style: "brand" as const, intensity: "balanced" as const, seed: 0 };
+  if (b.style !== "ai") return b;
+  const img = (deck.backdrops ?? []).find((x) => x.id === b.imageId);
+  if (!img) return { style: "brand", intensity: b.intensity, seed: b.seed };
+  return { ...b, imageUrl: `/api/projects/${projectId}/backdrops/${img.id}`, tone: img.tone, grid: img.grid };
+}
+
+const toScene = (r: typeof schema.deckScenes.$inferSelect, deck: Partial<DeckState>): DeckScene => ({
   id: r.id, orderIndex: r.orderIndex, role: r.role, assetId: r.assetId, inSec: r.inSec, outSec: r.outSec, frame: normFrame(r.frame),
+  background: normBackdrop(r.background), backdrop: resolveBackdrop(r.projectId, r.background, deck),
   durationSec: r.durationSec, textMode: r.textMode as SceneTextMode, text: (r.text ?? {}) as SceneText,
   layout: r.layout, motion: r.motion, transition: r.transition, locked: r.locked, voice: r.voice, prompt: r.prompt, why: r.why,
 });
@@ -98,8 +119,19 @@ async function getDeckImpl(projectId: string): Promise<DeckData> {
     seenFill.add(f.sceneId);
     if (!["completed", "retried"].includes(f.status)) fills[f.sceneId] = { status: f.status, progress: f.progress, error: f.error };
   }
+  const bdRows = await db.select({
+    id: schema.generationJobs.id, status: schema.generationJobs.status, error: schema.generationJobs.errorMessage,
+    sceneId: sql<string | null>`${schema.generationJobs.requestJson}->'deckBackdrop'->>'sceneId'`,
+  }).from(schema.generationJobs)
+    .where(and(eq(schema.generationJobs.projectId, projectId), sql`${schema.generationJobs.requestJson} ? 'deckBackdrop'`,
+      sql`${schema.generationJobs.createdAt} > now() - interval '1 day'`, sql`${schema.generationJobs.status} not in ('completed', 'retried')`))
+    .orderBy(desc(schema.generationJobs.createdAt)).limit(10);
   return {
     project: { id: p.id, title: p.title, aspect: p.aspect, musicTrackId: p.musicTrackId, status: p.status },
+    backdropImages: [...(deck.backdrops ?? [])].reverse().map((b) => ({
+      id: b.id, url: `/api/projects/${projectId}/backdrops/${b.id}`, prompt: b.prompt, preset: b.preset, tone: b.tone, grid: b.grid, createdAt: b.createdAt,
+    })),
+    backdropJobs: bdRows.map((r) => ({ id: r.id, sceneId: r.sceneId, status: r.status, error: r.error })),
     deck: {
       brief: { ...defaultBrief(), ...(deck.brief ?? {}) }, plan: deck.plan ?? { status: "idle" }, import: deck.import ?? { status: "idle" },
       brandSuggestion: deck.brandSuggestion ?? { status: "idle" }, translation: deck.translation ?? { status: "idle" },
@@ -109,7 +141,7 @@ async function getDeckImpl(projectId: string): Promise<DeckData> {
       id: r.id, format: r.format as DeckExportFormat, status: r.status as DeckExport["status"], error: r.error,
       createdAt: r.createdAt.toISOString(), finishedAt: r.finishedAt?.toISOString() ?? null,
     })),
-    scenes: scenes.map(toScene),
+    scenes: scenes.map((r) => toScene(r, deck)),
     assets: assets.map((a) => {
       const d = (a.aiDescription ?? null) as { summary?: string; mood?: string; goodFor?: string[]; subject?: string } | null;
       return {
@@ -153,6 +185,8 @@ async function saveBriefImpl(projectId: string, input: Partial<DeckBrief>): Prom
     camera: input.camera !== undefined
       ? { mode: CAMERA_MODES.some((m) => m.key === input.camera?.mode) ? input.camera!.mode : "off" }
       : cur.camera,
+    // Only setDeckBackdrop changes it (the editor's brief copy can be older than a backdrop the worker just made).
+    backdrop: cur.backdrop,
   };
   // A voice must speak the brief's language: switching language picks that language's first voice.
   if (next.voice && next.language && VOICES.find((v) => v.id === next.voice!.voiceId)?.lang !== next.language) {
@@ -214,6 +248,7 @@ export type ScenePatch = Partial<{
   text: SceneText; textMode: SceneTextMode; layout: string; durationSec: number; assetId: string | null; voice: string;
   inSec: number | null; outSec: number | null; locked: boolean; motion: string; transition: string; role: string;
   frame: SceneFrameBox | null;
+  background: SceneBackdrop | null;
 }>;
 
 /** Edit one scene. Typing your own words makes the text Manual and locks the scene (re-plans keep it). */
@@ -244,6 +279,7 @@ async function updateSceneImpl(projectId: string, sceneId: string, patch: SceneP
   if (patch.inSec !== undefined) set.inSec = patch.inSec == null ? null : Math.max(0, Number(patch.inSec) || 0);
   if (patch.outSec !== undefined) set.outSec = patch.outSec == null ? null : Math.max(0, Number(patch.outSec) || 0);
   if (patch.frame !== undefined) set.frame = normFrame(patch.frame);
+  if (patch.background !== undefined) set.background = normBackdrop(patch.background);
   if (patch.assetId !== undefined) {
     if (patch.assetId) await assertProjectAsset(projectId, patch.assetId);
     set.assetId = patch.assetId;
@@ -408,6 +444,96 @@ async function fillSceneImpl(projectId: string, sceneId: string, input: { mode: 
   }));
 }
 
+// ── AI backdrops ───────────────────────────────────────────────────────────────────────────────────
+
+/** A still per deck aspect (multiples of 32 for Wan 2.2; 1280×704 verified 2026-10-03, ~20 s on one RTX 3080). */
+const BACKDROP_SIZE: Record<string, { w: number; h: number }> = {
+  "16:9": { w: 1280, h: 704 }, "9:16": { w: 704, h: 1280 }, "1:1": { w: 960, h: 960 }, "4:5": { w: 832, h: 1024 },
+};
+const BACKDROP_NEGATIVE = "text, letters, words, watermark, logo, signature, people, faces, hands, clutter, busy, noisy, low quality, blurry, distorted, dark, underexposed";
+
+/** The brand's main colour as a word the image model understands. */
+function colorWord(hex: string | undefined): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex ?? "");
+  if (!m) return "violet";
+  const n = parseInt(m[1], 16), r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  if (d < 0.08) return max > 0.7 ? "soft white" : max < 0.25 ? "deep charcoal" : "silver grey";
+  const h = (max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4) * 60;
+  const hue = (h + 360) % 360;
+  return hue < 15 ? "red" : hue < 40 ? "orange" : hue < 65 ? "golden yellow" : hue < 160 ? "green" : hue < 195 ? "teal"
+    : hue < 250 ? "blue" : hue < 290 ? "violet" : hue < 330 ? "magenta" : "red";
+}
+
+/**
+ * Make an AI backdrop (costs BACKDROP_COST credits, refunded if it fails). It joins the deck's backdrop library and is
+ * applied to `sceneId`, or to the deck default (every text scene without its own backdrop) when sceneId is null.
+ */
+export async function generateBackdrop(projectId: string, input: { preset: BackdropPresetKey; prompt?: string; sceneId?: string | null; intensity?: string }): Promise<ActionResult<string>> {
+  return toResult(async () => {
+    await assertAccess(projectId, "editor");
+    const [p] = await db.select({ aspect: schema.projects.aspect, brandKitId: schema.projects.brandKitId }).from(schema.projects).where(eq(schema.projects.id, projectId));
+    let primary: string | undefined;
+    if (p.brandKitId) {
+      const [bk] = await db.select({ colors: schema.brandKits.colorsJson }).from(schema.brandKits).where(eq(schema.brandKits.id, p.brandKitId));
+      primary = Array.isArray(bk?.colors) ? (bk.colors as string[])[0] : undefined;
+    }
+    const preset = BACKDROP_PRESETS.find((x) => x.key === input.preset);
+    const own = clip(input.prompt, 400);
+    const base = preset ? preset.prompt.replace("{color}", colorWord(primary)) : own;
+    if (!base) throw new Error("Describe the backdrop you want, or pick a style.");
+    const prompt = clip(`${base}${preset && own ? `. ${own}` : ""}. No text, no letters, no logos, no people, high quality, sharp`, 900);
+    const size = BACKDROP_SIZE[p.aspect] ?? BACKDROP_SIZE["9:16"];
+    const { createGenerationJob } = await import("./generation-actions");
+    return unwrap(await createGenerationJob({
+      projectId, jobType: "text_to_video", prompt, userPrompt: own || preset?.label || "", negativePrompt: BACKDROP_NEGATIVE,
+      quality: "standard", width: size.w, height: size.h, durationSec: 1, motion: "balanced",
+      deckBackdrop: { sceneId: input.sceneId ?? null, preset: preset?.key ?? "custom", intensity: INTENSITY_KEYS.includes(input.intensity ?? "") ? input.intensity : "balanced" },
+    }));
+  });
+}
+
+/** The deck default backdrop (every text scene without its own); null = the brand gradient. */
+export async function setDeckBackdrop(projectId: string, backdrop: SceneBackdrop | null): Promise<ActionResult<void>> {
+  return toResult(async () => {
+    await assertAccess(projectId, "editor");
+    const b = normBackdrop(backdrop);
+    await db.update(schema.projects).set({
+      deck: b
+        ? sql`jsonb_set(coalesce(${schema.projects.deck}, '{}'::jsonb), '{brief}',
+            coalesce(${schema.projects.deck}->'brief', '{}'::jsonb) || jsonb_build_object('backdrop', ${JSON.stringify(b)}::jsonb))`
+        : sql`coalesce(${schema.projects.deck}, '{}'::jsonb) #- '{brief,backdrop}'`,
+      updatedAt: new Date(),
+    }).where(eq(schema.projects.id, projectId));
+  });
+}
+
+/** Remove an AI backdrop from the library; scenes (and the deck default) that used it go back to the deck default. */
+export async function deleteBackdropImage(projectId: string, imageId: string): Promise<ActionResult<void>> {
+  return toResult(async () => {
+    await assertAccess(projectId, "editor");
+    const key = await db.transaction(async (tx) => {
+      const [p] = await tx.select({ deck: schema.projects.deck }).from(schema.projects).where(eq(schema.projects.id, projectId)).for("update");
+      const deck = (p.deck ?? {}) as Partial<DeckState>;
+      const img = (deck.backdrops ?? []).find((x) => x.id === imageId);
+      if (!img) return null;
+      const brief = deck.brief ? { ...deck.brief } : undefined;
+      if (brief?.backdrop?.imageId === imageId) delete brief.backdrop;
+      await tx.update(schema.projects).set({ deck: { ...deck, ...(brief ? { brief } : {}), backdrops: (deck.backdrops ?? []).filter((x) => x.id !== imageId) } })
+        .where(eq(schema.projects.id, projectId));
+      await tx.update(schema.deckScenes).set({ background: null, updatedAt: new Date() })
+        .where(and(eq(schema.deckScenes.projectId, projectId), sql`${schema.deckScenes.background}->>'imageId' = ${imageId}`));
+      return img.key;
+    });
+    // Translated copies share the file: only delete it when no other deck still lists it.
+    if (key) {
+      const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.projects)
+        .where(sql`${schema.projects.deck}->'backdrops' @> ${JSON.stringify([{ key }])}::jsonb`);
+      if (!n) await deleteObject(key).catch(() => {});
+    }
+  });
+}
+
 // ── Translate (phase 5) ────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -437,7 +563,7 @@ async function translateDeckImpl(projectId: string, lang: string): Promise<strin
     void _id; void _c; void _u; void _d;
     await tx.insert(schema.projects).values({
       ...rest, id, ownerId: userId, title: `${title} (${L.label})`.slice(0, 120), status: "draft",
-      deck: { brief: nextBrief, plan: { status: "idle" }, translation: { status: "queued", lang: L.code, startedAt: new Date().toISOString() } },
+      deck: { brief: nextBrief, backdrops: deck.backdrops ?? [], plan: { status: "idle" }, translation: { status: "queued", lang: L.code, startedAt: new Date().toISOString() } },
     });
     // Clips point at the same stored files (the storage purge keeps a file while any row still uses it).
     // Keep createdAt: Free-plan retention ages an upload from when it was first added — a copy must not restart it.

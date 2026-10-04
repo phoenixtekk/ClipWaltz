@@ -102,8 +102,13 @@ async function notifyReady(renderId) {
 function dims(aspect) {
   return aspect === "16:9" ? [1920, 1080] : aspect === "1:1" ? [1080, 1080] : aspect === "4:5" ? [1080, 1350] : [1080, 1920];
 }
+// Fit the whole clip in the frame; the space around it (a tall phone shot in 16:9, a wide one in 9:16) is a blurred,
+// slightly darkened copy of the clip instead of black bars (owner request 2026-10-03). The blur runs at 1/8 size.
 function vfStatic(W, H) {
-  return `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30`;
+  const sw = Math.max(2, Math.round(W / 16) * 2), sh = Math.max(2, Math.round(H / 16) * 2);
+  return `split=2[cwbg][cwfg];[cwbg]scale=${sw}:${sh}:force_original_aspect_ratio=increase,crop=${sw}:${sh},boxblur=6:2,` +
+    `scale=${W}:${H},eq=brightness=-0.06:saturation=1.1[cwb];[cwfg]scale=${W}:${H}:force_original_aspect_ratio=decrease[cwf];` +
+    `[cwb][cwf]overlay=(W-w)/2:(H-h)/2,setsar=1,fps=30`;
 }
 // User rotation (assets.rotation, degrees clockwise), prepended to a clip's chain. ffmpeg has already
 // applied the file's own rotation flag (autorotate) by then — same as the browser in the editor — so
@@ -111,10 +116,12 @@ function vfStatic(W, H) {
 function vfRotate(deg) {
   return deg === 90 ? "transpose=clock," : deg === 180 ? "hflip,vflip," : deg === 270 ? "transpose=cclock," : "";
 }
-function vfKenBurns(W, H, frames) {
+// Ken Burns on a photo: a slow push in, or (`out`, every other photo) a slow pull back from 1.22x to the full frame.
+function vfKenBurns(W, H, frames, out = false) {
+  const z = out ? "max(1.22-0.0009*on,1)" : "min(zoom+0.0009,1.22)";
   return (
     `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},scale=${W * 2}:${H * 2},` +
-    `zoompan=z='min(zoom+0.0009,1.22)':d=${frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${W}x${H}:fps=30,setsar=1`
+    `zoompan=z='${z}':d=${frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${W}x${H}:fps=30,setsar=1`
   );
 }
 function colorFilter(style) {
@@ -1462,7 +1469,8 @@ async function deckTimeline(scenes, assets, beats, beatSync, srcDurs, voiceCfg, 
 // bleed) or the brand card, with the scene's text layer (worker/deck/text-layer.mjs) composited on top.
 async function deckSegments(dir, slots, W, H, style, segments, durations, watermark) {
   const cover = `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,fps=30`;
-  const needsText = slots.some((s) => hasDeckText(s.scene) || !s.asset);
+  const zoomedOut = (sl) => !!sl.asset && Number(sl.scene.frame?.zoom) < 1;
+  const needsText = slots.some((s) => hasDeckText(s.scene) || !s.asset || zoomedOut(s));
   const tr = needsText ? await (await import("./deck/text-layer.mjs")).createTextRenderer() : null;
   // Watermark logo box (same geometry as the logo overlay: 15.4 % of the short side, 3 % padding, 438×278
   // PNG) — text layouts stay above it so the logo never covers a word.
@@ -1485,6 +1493,30 @@ async function deckSegments(dir, slots, W, H, style, segments, durations, waterm
   const camMode = style.deck.camera ?? "off";
   const cam = camMode !== "off" ? await import("./deck/camera.mjs") : null;
   const { vfFrame } = await import("./deck/frame.mjs");
+  const bdm = await import("./deck/backdrop.mjs");
+  // Backdrops (text cards, media zoomed out below fill): the scene's own, else the deck default, else the brand
+  // gradient. AI images are downloaded once and handed to Chromium as data URLs.
+  const aiImages = new Map();
+  const backdropOf = async (scene) => {
+    const b = bdm.normBackdrop(scene.background) ?? bdm.normBackdrop(style.deck.backdrop) ?? { style: "brand", intensity: "balanced", seed: 0 };
+    if (b.style !== "ai") return b;
+    const img = (style.deck.backdrops ?? []).find((x) => x.id === b.imageId);
+    if (!img) return { style: "brand", intensity: b.intensity, seed: b.seed };
+    if (!aiImages.has(img.id)) {
+      const f = join(dir, `backdrop-${img.id}.jpg`);
+      try {
+        await download(img.key, f);
+        aiImages.set(img.id, `data:image/jpeg;base64,${readFileSync(f).toString("base64")}`);
+      } catch (e) {
+        console.warn(`[worker] AI backdrop ${img.id} unavailable: ${e.message}`);
+        aiImages.set(img.id, null);
+      }
+    }
+    const url = aiImages.get(img.id);
+    return url ? { ...b, imageUrl: url, tone: img.tone, grid: img.grid } : { style: "brand", intensity: b.intensity, seed: b.seed };
+  };
+  // The backdrop's slow drift follows the deck camera (off → still).
+  const drift = (dur) => (camMode !== "off" && cam ? cam.cameraChain("drift", "subtle", { W, H, dur }) : `scale=${W}:${H},setsar=1,fps=30`);
   let sceneStart = 0;
   // With crossfades each seam overlaps by T (same rule as the join below: no crossfade under a voiceover), so a scene
   // starts T earlier per seam — beat hits must use that start or they drift later scene by scene (review 2026-09-29).
@@ -1502,15 +1534,43 @@ async function deckSegments(dir, slots, W, H, style, segments, durations, waterm
       const seg = join(dir, `seg${i}.mp4`);
       const enc = ["-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-t", dur.toFixed(3), seg];
       const text = hasDeckText(scene) ? scene.text : null;
+      const backdrop = !a || zoomedOut(slots[i]) ? await backdropOf(scene) : null;
       let layer = null;
       if (text || !a) {
         const ld = join(dir, `txt${i}`);
         mkdirSync(ld, { recursive: true });
-        layer = await tr.renderScene({ layout: scene.layout, text: text ?? {}, W, H, brand, card: !a, safeBottom }, ld);
+        // Text cards: words only (transparent) — the backdrop is drawn below so it can drift.
+        layer = await tr.renderScene({ layout: scene.layout, text: text ?? {}, W, H, brand, card: !a, safeBottom, backdrop, bare: !a }, ld);
       }
+      const textOver = (inp) => (layer ? `;[${inp}][${layer.input}:v]overlay=0:0:eof_action=repeat:format=auto` : "");
       if (!a) {
-        // Text card: the template painted the brand background; hold its settled last frame.
-        await ffmpeg(["-framerate", "30", "-i", layer.pattern, "-vf", `tpad=stop_mode=clone:stop_duration=${(dur + 1).toFixed(2)},fps=30,format=yuv420p`, ...enc]);
+        // Text card: the scene's backdrop (drifting slowly with the camera on), the words on top.
+        const bg = join(dir, `bg${i}.png`);
+        const lay = scene.layout === "cta-card" ? "cta-card" : scene.layout === "slide" ? "slide" : "title-card";
+        await tr.renderBackdrop({ backdrop, brand, W, H, zone: bdm.textZone(lay, { card: true, wide: W >= H }) }, bg);
+        layer.input = 1;
+        await ffmpeg(["-loop", "1", "-t", dur.toFixed(3), "-i", bg, "-framerate", "30", "-i", layer.pattern,
+          "-filter_complex", `[0:v]${drift(dur)}[b]${textOver("b")},format=yuv420p[v]`, "-map", "[v]", ...enc]);
+      } else if (zoomedOut(slots[i])) {
+        // Zoomed out below fill: the whole media as a rounded card (with a soft shadow) on the scene's backdrop; the
+        // camera moves that composite, then the words go on top.
+        const [mw, mh] = await uprightSize(a, offset);
+        const rect = bdm.cardRect(W / H, mw / mh, Number(scene.frame.zoom), bdm.mediaArea(scene.layout, W >= H));
+        const rw = Math.max(2, Math.round((rect.w * W) / 2) * 2), rh = Math.max(2, Math.round((rect.h * H) / 2) * 2);
+        const rx = Math.round(rect.x * W + (rect.w * W - rw) / 2), ry = Math.round(rect.y * H + (rect.h * H - rh) / 2);
+        const bg = join(dir, `bg${i}.png`), mask = join(dir, `mask${i}.png`);
+        await tr.renderBackdrop({ backdrop, brand, W, H, zone: "none", cardRect: rect }, bg);
+        await tr.renderMask(rw, rh, Math.round(Math.min(W, H) * 0.016), mask);
+        const input = a.kind === "video" ? ["-ss", offset.toFixed(3), "-t", dur.toFixed(3), "-i", a._src] : ["-loop", "1", "-t", dur.toFixed(3), "-i", a._src];
+        const hold = a.kind === "video" ? `,tpad=stop_mode=clone:stop_duration=${dur.toFixed(2)}` : "";
+        if (layer) layer.input = 3;
+        await ffmpeg([...input, "-loop", "1", "-t", dur.toFixed(3), "-i", bg, "-loop", "1", "-t", dur.toFixed(3), "-i", mask,
+          ...(layer ? ["-framerate", "30", "-i", layer.pattern] : []),
+          "-filter_complex",
+          `[0:v]${vfRotate(a.rotation)}scale=${rw}:${rh},setsar=1,fps=30${hold},format=rgba[m];[2:v]scale=${rw}:${rh},format=gray[k];[m][k]alphamerge[mc];` +
+          `[1:v]scale=${W}:${H},setsar=1,fps=30[bg];[bg][mc]overlay=${rx}:${ry}:format=auto,format=yuv420p[c0];` +
+          `[c0]${camera ?? "null"}[c]${textOver("c")},format=yuv420p[v]`,
+          "-map", "[v]", ...enc]);
       } else {
         // User rotation, then the scene's framing (crop / reposition) — everything after fills W×H from that.
         const rot = vfRotate(a.rotation) + vfFrame(scene.frame, W, H);
@@ -1519,7 +1579,7 @@ async function deckSegments(dir, slots, W, H, style, segments, durations, waterm
           ? `${rot}${camera}${a.kind === "video" ? `,tpad=stop_mode=clone:stop_duration=${dur.toFixed(2)}` : ""}`
           : a.kind === "video"
             ? `${rot}${cover},tpad=stop_mode=clone:stop_duration=${dur.toFixed(2)}` // narration may outlast the clip
-            : moving ? rot + vfKenBurns(W, H, Math.max(1, Math.round(dur * 30))) : rot + cover;
+            : moving ? rot + vfKenBurns(W, H, Math.max(1, Math.round(dur * 30)), i % 2 === 1) : rot + cover;
         const input = a.kind === "video" ? ["-ss", offset.toFixed(3), "-t", dur.toFixed(3), "-i", a._src] : ["-loop", "1", "-t", dur.toFixed(3), "-i", a._src];
         if (layer) {
           await ffmpeg([...input, "-framerate", "30", "-i", layer.pattern, "-filter_complex", `[0:v]${base}[b];[b][1:v]overlay=0:0:eof_action=repeat:format=auto,format=yuv420p[v]`, "-map", "[v]", ...enc]);
@@ -1535,6 +1595,16 @@ async function deckSegments(dir, slots, W, H, style, segments, durations, waterm
   }
 }
 const hasDeckText = (sc) => sc.text_mode !== "none" && !!(sc.text?.headline || sc.text?.sub || sc.text?.bullets?.length);
+
+// Size of a clip as the render sees it (file rotation flag applied by ffmpeg, then the user rotation): decode one frame
+// and read the PNG header — exact whatever the container metadata says.
+async function uprightSize(a, at = 0) {
+  const { stdout } = await run("ffmpeg", ["-v", "error", ...(a.kind === "video" ? ["-ss", Math.max(0, at).toFixed(3)] : []), "-i", a._src,
+    "-frames:v", "1", "-vf", `${vfRotate(a.rotation)}null`, "-f", "image2pipe", "-vcodec", "png", "-"], { encoding: "buffer", maxBuffer: 256 * 1024 * 1024 });
+  const w = stdout.readUInt32BE(16), h = stdout.readUInt32BE(20);
+  if (!w || !h) throw new Error("couldn't read the clip size");
+  return [w, h];
+}
 
 async function assemble(dir, assets, music, watermark, lengthSec, aspect, style) {
   const [W, H] = dims(aspect);
@@ -1617,7 +1687,7 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     if (a.kind === "video") {
       cmd = ["-ss", offset.toFixed(3), "-t", dur.toFixed(3), "-i", a._src, "-vf", vfRotate(a.rotation) + V, ...enc];
     } else if (style.motion) {
-      cmd = ["-i", a._src, "-vf", vfRotate(a.rotation) + vfKenBurns(W, H, Math.max(1, Math.round(dur * 30))), "-frames:v", String(Math.max(1, Math.round(dur * 30))), ...enc];
+      cmd = ["-i", a._src, "-vf", vfRotate(a.rotation) + vfKenBurns(W, H, Math.max(1, Math.round(dur * 30)), i % 2 === 1), "-frames:v", String(Math.max(1, Math.round(dur * 30))), ...enc];
     } else {
       cmd = ["-loop", "1", "-t", dur.toFixed(3), "-i", a._src, "-vf", vfRotate(a.rotation) + V, ...enc];
     }
@@ -1874,6 +1944,7 @@ async function loadRenderInputs(projectId, aspectOverride, deckVariant = null) {
     style.deck = {
       scenes, brand, voice: brief.voice ?? { mode: "off" }, captions: brief.captions ?? { enabled: true }, audio,
       camera: brief.camera?.mode ?? "off",
+      backdrop: brief.backdrop ?? null, backdrops: project.deck?.backdrops ?? [],
     };
     style.titleText = null; // scenes carry their own text
     style.originalAudio = false;
@@ -2463,6 +2534,8 @@ async function main() {
     // Don't reap in --once (a manual one-shot could nuke a render the loop service is running).
     const did = await tick();
     if (!did) console.log("[worker] no queued renders");
+    // Also drain queued slide exports (PDF / PPTX), so a one-shot can test them too.
+    while (await deckExportTick()) { /* next */ }
     await sql.end();
     return;
   }

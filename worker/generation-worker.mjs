@@ -197,7 +197,8 @@ async function processJob(genJobId) {
       width: req.width ?? 704,
       height: req.height ?? 480,
       duration: req.durationSec ?? 5,
-      length: framesForSeconds(req.durationSec ?? 5),
+      // A WaltzDeck AI backdrop is one still frame.
+      length: req.deckBackdrop ? 1 : framesForSeconds(req.durationSec ?? 5),
       motion: req.motion ?? "balanced",
       seed,
       negative_prompt: j.negative_prompt ?? null,
@@ -240,6 +241,12 @@ async function processJob(genJobId) {
   const dl = await fetch(`${AISERVER_URL}/outputs/${rel}`, { headers: aiHeaders });
   if (!dl.ok) throw new Error(`/outputs ${dl.status}`);
   const videoBytes = Buffer.from(await dl.arrayBuffer());
+  if (req.deckBackdrop) {
+    await storeDeckBackdrop(j, req, videoBytes);
+    await setStatus(genJobId, { status: "completed", progress: 100, completed_at: new Date() });
+    console.log(`[gen] ${genJobId} done → deck backdrop`);
+    return;
+  }
   const [{ maxv }] = await sql`select coalesce(max(version_number),0)::int maxv from generation_versions where project_id = ${j.project_id}`;
   const versionNumber = (maxv ?? 0) + 1;
   const { output_key: outputKey, clean_key } = await storeVersionVideo(j.project_id, genJobId, versionNumber, videoBytes, !!req.watermark);
@@ -260,6 +267,40 @@ async function processJob(genJobId) {
   if (req.deckFill?.sceneId) await deckFillScene(j, req.deckFill.sceneId, { key: clean_key ?? outputKey, versionNumber, meta, bytes: videoBytes.length });
   await setStatus(genJobId, { status: "completed", progress: 100, completed_at: new Date() });
   console.log(`[gen] ${genJobId} done → ${outputKey} (v${versionNumber}, ${videoBytes.length} bytes)`);
+}
+
+// WaltzDeck AI backdrop: the single frame → a JPEG in the deck's backdrop library (projects.deck.backdrops), then
+// applied to its scene (deck_scenes.background) or as the deck default (deck.brief.backdrop). The tone (light / dark
+// centre, where the words go) decides the text colour over it (worker/deck/backdrop.mjs).
+async function storeDeckBackdrop(j, req, videoBytes) {
+  const dir = mkdtempSync(join(tmpdir(), "cw-backdrop-"));
+  try {
+    const v = join(dir, "v.mp4"), out = join(dir, "b.jpg");
+    writeFileSync(v, videoBytes);
+    await run("ffmpeg", ["-v", "error", "-y", "-i", v, "-frames:v", "1", "-q:v", "2", out]);
+    // Brightness (0–255) of a 3×3 grid over the picture: the text colour follows the cells under the words
+    // (worker/deck/backdrop.mjs backdropTone). `tone` = the centre cell.
+    const { stdout } = await run("ffmpeg", ["-v", "error", "-i", out, "-vf", "scale=3:3:flags=area,format=gray", "-f", "rawvideo", "-"], { encoding: "buffer" });
+    const grid = [...(stdout ?? [])].slice(0, 9);
+    const tone = (grid[4] ?? 0) > 150 ? "light" : "dark";
+    const key = `projects/${j.project_id}/backdrops/${j.id}.jpg`;
+    await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: readFileSync(out), ContentType: "image/jpeg" }));
+    const b = req.deckBackdrop;
+    const bg = { style: "ai", intensity: ["calm", "balanced", "vivid"].includes(b.intensity) ? b.intensity : "balanced", seed: 0, imageId: j.id };
+    await sql.begin(async (tx) => {
+      const [p] = await tx`select deck, aspect from projects where id = ${j.project_id} for update`;
+      if (!p) return;
+      const deck = p.deck ?? {};
+      const entry = { id: j.id, key, prompt: String(req.userPrompt ?? "").slice(0, 200), preset: String(b.preset ?? "custom"), tone, grid, aspect: p.aspect, createdAt: new Date().toISOString() };
+      const next = { ...deck, backdrops: [...(deck.backdrops ?? []), entry] };
+      if (!b.sceneId) next.brief = { ...(deck.brief ?? {}), backdrop: bg };
+      await tx`update projects set deck = ${tx.json(next)}, updated_at = now() where id = ${j.project_id}`;
+      if (b.sceneId) await tx`update deck_scenes set background = ${tx.json(bg)}, updated_at = now() where id = ${b.sceneId} and project_id = ${j.project_id}`;
+    });
+    console.log(`[gen] deck backdrop ${j.id} (${tone}) → ${b.sceneId ? `scene ${b.sceneId}` : "deck default"}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 // WaltzDeck AI fill (phase 5): the finished clip becomes a normal project video (library media row + asset, like an

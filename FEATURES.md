@@ -13,6 +13,31 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## WaltzDeck backdrops, AI backdrops, zoom-out media; AutoWaltz blurred fill (2026-10-03)
+- **Backdrops for text-only scenes** (owner request; mockup https://claude.ai/artifact/AN5HL8c7RjHjxG914oVq6V): Brand
+  gradient (the classic look, still the default) plus **Aurora, Orbits, Stage, Mesh, Horizon grid, Glass panels, Paper,
+  Bokeh** — all tinted from the brand kit, with **Calm / Balanced / Vivid** strength and **Shuffle** (re-arranges the
+  shapes). Decoration keeps clear of the words for each layout (centred title, slide text on the left or top), and a
+  soft veil sits behind the text. **Paper** (and light AI images) switch the words to dark.
+- **Deck default + per-scene choice:** Brand tab → **Text slide backdrop** sets it for every text scene; a scene can pick
+  its own under **Backdrop** in the scene panel ("Deck default" follows the deck).
+- **AI backdrops** (Waltz AI, **2 AI credits**, refunded if it fails): presets Keynote glow, Soft aurora, Light rays,
+  Calm workspace, Nature calm, City at dusk, Light paper, or your own words — made in the brand's main colour with room
+  for the words, ~25 s. Each joins the deck's library (pick it for any scene, delete it with ×). Its brightness decides
+  white or dark words. One frame of the Wan 2.2 text-to-video model (verified 2026-10-03: 1280×704 in ~20–25 s).
+- **Zoom out below Fill:** Edit media's Zoom now goes down to 0.6×. Below Fill the **whole** photo / clip becomes a
+  rounded card with a soft shadow on the scene's backdrop (beside the text panel on a Slide layout).
+- **Video:** text-scene backdrops drift slowly when the deck camera is on; the camera moves a zoomed-out card with its
+  backdrop. The camera now mixes in **more pull-outs** (calm shots alternate drift / pull-out; the cycles are
+  push-in → pull-out → pan → pull-out …), and Ken Burns photos alternate **push in / pull back**.
+- **Same look everywhere:** one module (`worker/deck/backdrop.mjs`) draws the editor preview, the MP4 and the PDF /
+  PowerPoint slides.
+- **AutoWaltz:** clips and photos that don't fill the frame (a tall phone clip in 16:9) now sit on a **blurred copy of
+  themselves** instead of black bars; Ken Burns photos alternate in / out.
+- Verified on dev: all 9 styles rendered by the box's Chromium at 16:9 and 9:16 (title + slide layouts); a real render
+  (orbit default with drift, a 0.8× video card beside a slide panel with the camera pulling back, an aurora vivid card),
+  PDF + PPTX exports, an AI backdrop generated end to end (deck default and one scene), blurred fill + Ken Burns out.
+
 ## Gentle music for ads & presentations; wider music panel (2026-09-30)
 - **7 gentle beds** (mood `gentle`) added to the music library: Presentation Clean Slide Deck, Presentation Music, Music
   Promotion, Gentle Morning Keys, Gentle Study Flow, Peaceful Gentle, Inspiring — Pixabay, each checked **not** Content ID

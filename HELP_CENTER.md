@@ -90,6 +90,10 @@ Both editors (AutoWaltz music videos and WaltzDeck) fit on one screen — nothin
   have it; whether Plus and Pro videos do is shown on **Account → Billing**. Enhancing,
   assembling or exporting a clip never adds a second logo.
 
+### Photos and clips that don't fill the frame
+A tall phone clip in a wide video (or a wide one in a tall video) sits on a soft, blurred copy of itself instead of black
+bars. Photos with **Motion** on now take turns zooming in and slowly pulling back.
+
 ## Notifications
 Renders run in the background, so ClipWaltz can pop a notification the moment yours is done. Open
 the avatar menu → **Notifications** (`/account/notifications`) and flip on either or both:
@@ -223,12 +227,30 @@ them there, then come back. (These are in addition to the "video ready" email, w
 - On any scene with a photo or video, press **Edit media** (under the picture) or tap the picture.
   - **Drag** the picture to choose what shows, and use **Zoom** to crop in closer. **Reset** puts it back in the middle.
     This framing is just for this scene.
+  - **Zoom out** below **Fill** to show the whole picture as a card on the scene's backdrop — nothing gets cut off.
+    Choose that backdrop under **Backdrop** in the scene panel.
   - **Rotate 90°** turns a sideways photo or clip upright — for every scene that uses that file.
   - For a video, **Which part plays**: leave **Auto** on and ClipWaltz picks the liveliest part, or untick it and slide
     **Start** to the moment you want. **Play** shows you the scene's seconds.
   - Press **Save**. The scene is locked, so **Re-plan** won't undo your changes.
 - **Delete from project** (in the same window, or the bin icon on a file in **Your media**) removes the file from this
   project. Scenes that used it become text cards. The file itself stays in your media library.
+
+## WaltzDeck — backdrops for text slides
+- Text-only scenes (titles, end cards, slides without a photo) sit on a **backdrop** in your brand colours.
+- **For the whole deck:** open the **Brand** tab → **Text slide backdrop** and pick a style: Brand gradient, Aurora,
+  Orbits, Stage, Mesh, Horizon grid, Glass panels, Paper or Bokeh.
+  - **Calm / Balanced / Vivid** sets how strong the shapes are. Pick **Calm** for slides with a lot of text.
+  - **Shuffle** re-arranges the shapes.
+- **For one scene:** select it, open **Backdrop** in the scene panel and pick another style. **Deck default** puts it
+  back to the deck's choice.
+- **AI backdrop:** pick a look (Keynote glow, Soft aurora, Light rays, Calm workspace, Nature calm, City at dusk, Light
+  paper) or **My own** and describe it, then press **Make it**. It costs 2 AI credits (given back if it fails) and is ready
+  in about half a minute. It's made in your brand colour with room in the middle for your words. Every AI backdrop you
+  make stays in **Your AI backdrops** so you can use it on other scenes. Press × on one to delete it.
+- The words always stay readable: the shapes keep away from them and a soft shade sits behind the text. Light
+  backdrops (Paper, bright AI images) use dark words.
+- With the **Camera** on, backdrops drift slowly in the video.
 
 ## AI credits
 - AI video (Waltz AI clips, Remix, AI enhance and WaltzDeck's AI fill) uses **AI credits**: **1 credit = 1 second** of AI
