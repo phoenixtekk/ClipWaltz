@@ -15,31 +15,18 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
-## Working state (2026-10-03, rotation to v12)
-**Tree DIRTY on purpose (owner chose to rotate without committing):** the Audio work below is uncommitted on top of
-`eb427bc` (origin/main in sync). tsc + lint clean. Uncommitted files: FEATURES.md, HELP_CENTER.md, MUSIC_CATALOG.md,
-src/components/{deck/deck-editor,editor-workspace,music-panel,studio/studio-shell}.tsx, src/lib/{music,project-actions,waltzmatch}.ts.
-```
-eb427bc docs(handoff): Hindi/Japanese/Chinese not wanted
-3358ecc docs(handoff): credit grants deployed
-7b118c7 feat(admin): per-user AI credit grants for the current month
-da82e2f fix: hydration-safe dates in client components
-d8a2862 feat(editor): one-screen studio layout for WaltzDeck and AutoWaltz
-```
+## Working state (2026-10-03, v12)
+Tree clean, in sync with origin/main. tsc + lint clean.
 - **Shipped + deployed in v11** (details in FEATURES/ADMIN_DOCS; backups `/tmp/cw-pre-*-src.tgz` on linuxg1):
   lint fix `b20d585` · scene media edit/crop/delete `8e0cf9e` (migration 0044, AI box worker) · one-screen studio
   `d8a2862` (`studio-shell.tsx`, mockup https://claude.ai/artifact/D9JiqUUbzQdAexcnjrCKxg) · hydration-safe dates
   `da82e2f` (`<LocalDate>`) · admin AI credit grants `7b118c7` (migration 0045). None exercised via the prod UI (no prod login).
-- **Uncommitted, dev-verified, NOT deployed — Audio:** (1) `StudioShell leftWide` widens the left panel on the music
-  tabs (deck Audio / AutoWaltz Music) + music tab labels `whitespace-nowrap`; (2) 7 gentle Pixabay beds (mood `gentle`,
-  ids `t-presentation-clean` … `t-inspiring`) seeded in **dev only**; new Ad decks default to `t-music-promotion`,
-  Presentation to `t-presentation-clean` (`defaultDeckTrackId`, `music.ts`); WaltzMatch calm/warm include gentle.
-  MP3s + manifest: `C:\Users\LACY~1.PHO\AppData\Local\Temp\claude\G--VisualStudioCode-ClipWaltz\203bac8c-abcb-459e-b747-1477798cd3ce\scratchpad\gentle-music\`
-  (temp — if gone, re-download per MUSIC_CATALOG.md; local `scripts/music-manifest.json` has all 13 entries).
-- **Next focus:** ask the owner to commit + deploy the Audio work. Deploy = seed the 7 tracks into **prod**
-  (`node --env-file=<prod env> scripts/seed-music.mjs <manifest-gentle.json> <dir>`, or run on linuxg1) → app build +
-  `pm2 restart clipwaltz` → wiki mirror (features, help-center, MUSIC_CATALOG if mirrored). Rule: only add Pixabay tracks
-  NOT "Content ID Registered" (MUSIC_CATALOG.md).
+- **Audio (v12) — LIVE `79c28bb`:** wider left panel on music tabs (`StudioShell leftWide`); 7 gentle Pixabay beds
+  (mood `gentle`) seeded into **prod** (music_tracks active 176); Ad decks default `t-music-promotion`, Presentation
+  `t-presentation-clean` (`defaultDeckTrackId`). Deployed 2026-10-03: src tarball → build → `pm2 restart clipwaltz`
+  (backup `/tmp/cw-pre-audio-src.tgz`); on-box + www 200; wiki features/help-center/music-catalog updated. Not
+  exercised via the prod UI.
+- **Next focus:** nothing queued — ask the owner.
 - **Known, unfixed:** intermittent dev-only "unique key … passed a child from DeckPage" warning (seen after the New
   Project page soft-navigates to a new deck; not reproducible on demand); Base UI nativeButton warning from the
   New Project wizard's Cancel link (`new-project-wizard.tsx:239`, add `nativeButton={false}`).
