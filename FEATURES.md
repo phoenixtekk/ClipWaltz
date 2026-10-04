@@ -13,6 +13,19 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## WaltzDeck timeline — add a scene anywhere, drag to move (2026-10-03)
+- **A + in every gap of the timeline** (before the first scene, between any two, and an **Add** tile at the end; also
+  **Add scene** in the timeline header) opens a menu: **Title card**, **Slide — title + points**, **Call to action**
+  (starts from the brief's CTA), **Photo or video ▸** (any file of the project), **Copy scene N here** (the neighbours).
+- **AI writes the words** (on by default unless the deck's text is Off): the new scene's text is written to fit between
+  the scenes before and after it (deck worker scene rewrite with a "between X and Y" instruction); the block shows a
+  spinner until it's done. The new scene is selected so its panel opens.
+- **Drag and drop:** drag a scene block onto a gap to move it there; drag a file from **Your media** onto a gap to add it
+  as a scene at that spot. The gap widens and says "Move here" / "Add here".
+- Server: `insertScene(projectId, at, spec)` (`src/lib/deck-actions.ts`); `addScene` now goes through it. Verified on
+  dev: slide inserted between 1 and 2 and AI-written ("Q3 Highlights"), scene dragged to the start, a photo dropped on
+  the end tile (AI-written), a scene copied at the start.
+
 ## WaltzDeck backdrops, AI backdrops, zoom-out media; AutoWaltz blurred fill (2026-10-03)
 - **Backdrops for text-only scenes** (owner request; mockup https://claude.ai/artifact/AN5HL8c7RjHjxG914oVq6V): Brand
   gradient (the classic look, still the default) plus **Aurora, Orbits, Stage, Mesh, Horizon grid, Glass panels, Paper,

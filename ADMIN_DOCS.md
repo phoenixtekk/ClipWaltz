@@ -694,6 +694,15 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
   container queries (`@container`) so they stay one column in the narrow panel.
 - AutoWaltz clip settings: `src/components/clip-inspector.tsx` (was `ClipModal` in `project-timeline.tsx`), keyed per clip.
 
+## WaltzDeck timeline inserts (2026-10-03)
+- `insertScene(projectId, at, { kind: title|slide|cta|media|duplicate, … , write })` in `deck-actions.ts` shifts
+  `order_index` from `at` and inserts; `duplicate` copies the row (text, media, frame, backdrop, voice, lock). `write`
+  enqueues the existing deck `scene` job (worker/deck/jobs.mjs → `rewriteScene`) with an instruction naming the
+  neighbours' headlines; if the queue is down the scene stays with "Added by you.".
+- UI: `SceneStrip` / `InsertGap` / `InsertMenu` in `deck-editor.tsx` (Base UI menu — a `DropdownMenuLabel` must sit in
+  a `DropdownMenuGroup`). Drag types `application/x-cw-scene` (move → `reorderScenes`) and `application/x-cw-asset`
+  (Your media rows are draggable). App-only change: no migration, no worker deploy.
+
 ## WaltzDeck backdrops, AI backdrops, zoom-out media (2026-10-03)
 - **One drawing module:** `worker/deck/backdrop.mjs` (+ `backdrop.d.mts` types) — `BACKDROP_CSS` + `backdropMarkup()`
   (container-query units, brand vars `--p`/`--s`), `textZone()` (where the words are → decoration mirrored away + the

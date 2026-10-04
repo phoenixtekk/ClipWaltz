@@ -1,13 +1,18 @@
 "use client";
 // WaltzDeck editor: brief → media (+ per-item notes) → AI storyboard (scene cards) → preview → render.
-import { useCallback, useEffect, useRef, useState, useTransition, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Sparkles, Upload, Loader2, Lock, Unlock, Trash2, Plus, ArrowUp, ArrowDown, Wand2, Play, Pause, RotateCcw, Info, ImageIcon, Mic, Captions,
   FileUp, Globe, Presentation, FileText, FileDown, Download, Crop, Music, Palette, Megaphone, Clapperboard, ChevronRight, SkipBack, SkipForward,
+  Copy, Film, Type, ListChecks,
 } from "lucide-react";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub,
+  DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuGroup,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { aspectClass, isWide } from "@/lib/aspect";
@@ -16,9 +21,9 @@ import {
   type BrandSuggestion, type Campaign, type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type SceneTextMode, type TextMode, type VoiceMode, type ResolvedBackdrop,
 } from "@/lib/deck/types";
 import {
-  getDeck, saveBrief, setAssetNote, describeAsset, requestPlan, updateScene, rewriteSceneText, reorderScenes, addScene, deleteScene,
-  requestDeckExport, importFromUrl, fillScene, translateDeck, getBriefHistory, removeBriefHistory, setDeckBackdrop,
-  type DeckData, type DeckAsset, type ScenePatch,
+  getDeck, saveBrief, setAssetNote, describeAsset, requestPlan, updateScene, rewriteSceneText, reorderScenes, deleteScene,
+  requestDeckExport, importFromUrl, fillScene, translateDeck, getBriefHistory, removeBriefHistory, setDeckBackdrop, insertScene,
+  type DeckData, type DeckAsset, type ScenePatch, type NewScene,
 } from "@/lib/deck-actions";
 import { PresentView } from "./present-view";
 import { unwrap } from "@/lib/action-result";
@@ -118,6 +123,31 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
         toast.error((e as Error).message || "Something went wrong.");
       }
     });
+
+  // Timeline: insert a scene at a gap (0 = start … scenes.length = end) and select it; move a scene to a gap.
+  const insertAt = (at: number, spec: NewScene) =>
+    start(async () => {
+      try {
+        const id = unwrap(await insertScene(projectId, at, spec));
+        await refresh();
+        setSelId(id);
+        toast.success(spec.kind === "duplicate" ? "Scene copied." : "write" in spec && spec.write ? "Scene added — the AI is writing its words." : "Scene added.");
+      } catch (e) {
+        toast.error((e as Error).message || "Couldn't add the scene.");
+      }
+    });
+  const moveTo = (sceneId: string, gap: number) => {
+    const ids = data.scenes.map((x) => x.id);
+    const from = ids.indexOf(sceneId);
+    if (from < 0) return;
+    const to = gap > from ? gap - 1 : gap;
+    if (to === from) return;
+    ids.splice(from, 1);
+    ids.splice(to, 0, sceneId);
+    act(async () => unwrap(await reorderScenes(projectId, ids)));
+  };
+  // New text scenes get AI-written words unless the deck's text is Off (the menu has a switch).
+  const [aiWrites, setAiWrites] = useState(initial.deck.brief.textMode !== "off");
 
   const saveBriefNow = (patch: Partial<DeckBrief> = {}) => {
     const next = { ...brief, ...patch };
@@ -364,7 +394,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
         onDelete={() => { setSelId(data.scenes[selIndex + 1]?.id ?? data.scenes[selIndex - 1]?.id ?? null); act(async () => unwrap(await deleteScene(projectId, selScene.id))); }}
         usedBy={selScene.assetId ? data.scenes.filter((x) => x.assetId === selScene.assetId).length : 0}
         onMediaChanged={refresh}
-        onAddAfter={() => act(async () => unwrap(await addScene(projectId, selIndex, null)))}
+        onAddAfter={() => insertAt(selIndex + 1, { kind: "title", write: aiWrites })}
         backdropSlot={!selScene.assetId || (selScene.frame?.zoom ?? 1) < 1 ? (
           <BackdropPicker {...pickerProps} scope="scene" sceneId={selScene.id} value={selScene.background} fallback={deckBackdrop}
             onChange={(v) => act(async () => unwrap(await updateScene(projectId, selScene.id, { background: v })))} />
@@ -426,13 +456,14 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
           <StudioPanel title={<>Your media <span className="font-normal normal-case tracking-normal">· {data.assets.length}</span></>}>
             <MediaSection projectId={projectId} assets={data.assets} scenes={data.scenes} canEdit={canEdit} onChange={refresh}
               unused={canEdit ? unused.map((id) => assetById.get(id)).filter((a): a is DeckAsset => !!a) : []}
-              onAddScene={(id) => act(async () => unwrap(await addScene(projectId, data.scenes.length - 1, id)))} />
+              onAddScene={(id) => insertAt(data.scenes.length, { kind: "media", assetId: id, write: aiWrites })} />
           </StudioPanel>
         }
         bottom={
           <SceneStrip projectId={projectId} scenes={data.scenes} assets={assetById} brand={frameBrand} sel={selScene?.id ?? null} onSelect={setSelId}
             canEdit={canEdit} voiceOn={(brief.voice?.mode ?? "off") !== "off" || brief.mode === "presentation"} total={total} targetSec={brief.lengthSec}
-            onAddCard={() => act(async () => unwrap(await addScene(projectId, data.scenes.length - 1, null)))} />
+            assetList={data.assets} aiWrites={aiWrites} onAiWrites={setAiWrites} hasCta={!!brief.cta?.text}
+            onInsert={insertAt} onMove={moveTo} />
         }
         steps={steps}
       />
@@ -882,7 +913,9 @@ function MediaRow({ projectId, asset, canEdit, usedBy, onRemoved }: { projectId:
     }
   };
   return (
-    <li className="flex gap-3 rounded-lg border border-border bg-background/40 p-2">
+    <li className="flex gap-3 rounded-lg border border-border bg-background/40 p-2" draggable={canEdit}
+      onDragStart={(e) => { e.dataTransfer.setData(DRAG_ASSET, asset.id); e.dataTransfer.effectAllowed = "copy"; }}
+      title={canEdit ? "Drag onto the timeline to add it as a scene there" : undefined}>
       <div className="relative size-14 shrink-0 overflow-hidden rounded-md bg-muted [container-type:size]">
         {asset.kind === "video"
           ? <video src={`${src}#t=0.5`} muted preload="metadata" className="size-full object-cover" />
@@ -1154,16 +1187,35 @@ function DeckStage({ projectId, scenes, assets, aspect, aspectCss, brand, camera
 }
 
 /** The studio timeline: scenes as blocks sized by their length, with the narration lane under them. */
-function SceneStrip({ projectId, scenes, assets, brand, sel, onSelect, canEdit, voiceOn, total, targetSec, onAddCard }: {
+const DRAG_SCENE = "application/x-cw-scene";
+const DRAG_ASSET = "application/x-cw-asset";
+const GAP = 14; // px between timeline blocks (each gap is an insert point)
+
+function SceneStrip({ projectId, scenes, assets, brand, sel, onSelect, canEdit, voiceOn, total, targetSec, assetList, aiWrites, onAiWrites, hasCta, onInsert, onMove }: {
   projectId: string; scenes: DeckScene[]; assets: Map<string, DeckAsset>; brand: FrameBrand; sel: string | null; onSelect: (id: string) => void;
-  canEdit: boolean; voiceOn: boolean; total: number; targetSec: number; onAddCard: () => void;
+  canEdit: boolean; voiceOn: boolean; total: number; targetSec: number;
+  assetList: DeckAsset[]; aiWrites: boolean; onAiWrites: (v: boolean) => void; hasCta: boolean;
+  onInsert: (at: number, spec: NewScene) => void; onMove: (sceneId: string, gap: number) => void;
 }) {
   const [pps, setPps] = useState(22); // pixels per second
+  const [dragging, setDragging] = useState<string | null>(null); // scene being dragged
   const width = (d: number) => Math.max(88, d * pps);
   // Ticks only over the planned seconds (past the last scene there is no block to place them on).
   const ticks: number[] = [];
   for (let s = 0; s <= total; s += 5) ticks.push(s);
-  const rulerW = scenes.reduce((n, s) => n + width(s.durationSec) + 3, 0);
+  const rulerW = GAP + scenes.reduce((n, s) => n + width(s.durationSec) + GAP, 0) + 96;
+  const menu = (at: number) => (
+    <InsertMenu at={at} count={scenes.length} assets={assetList} aiWrites={aiWrites} onAiWrites={onAiWrites} hasCta={hasCta}
+      prev={scenes[at - 1] ?? null} next={scenes[at] ?? null} onInsert={onInsert} />
+  );
+  const drop = (at: number) => (e: React.DragEvent) => {
+    e.preventDefault();
+    const sceneId = e.dataTransfer.getData(DRAG_SCENE);
+    const assetId = e.dataTransfer.getData(DRAG_ASSET);
+    setDragging(null);
+    if (sceneId) onMove(sceneId, at);
+    else if (assetId) onInsert(at, { kind: "media", assetId, write: aiWrites });
+  };
   return (
     <>
       <div className="flex shrink-0 items-center gap-3 border-b border-border px-3 py-2">
@@ -1171,8 +1223,15 @@ function SceneStrip({ projectId, scenes, assets, brand, sel, onSelect, canEdit, 
         <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
           {scenes.length} scene{scenes.length === 1 ? "" : "s"} · {total.toFixed(1)}s of {targetSec}s
         </span>
+        {canEdit && scenes.length ? (
+          <span className="hidden text-[11px] text-muted-foreground lg:inline">Press + between scenes to add one there · drag a scene or a file onto a gap</span>
+        ) : null}
         <div className="ml-auto flex items-center gap-2">
-          {canEdit && scenes.length ? <Button size="sm" variant="ghost" onClick={onAddCard}><Plus className="size-3.5" /> Text card</Button> : null}
+          {canEdit && scenes.length ? (
+            <InsertMenu at={scenes.length} count={scenes.length} assets={assetList} aiWrites={aiWrites} onAiWrites={onAiWrites} hasCta={hasCta}
+              prev={scenes[scenes.length - 1] ?? null} next={null} onInsert={onInsert}
+              trigger={<Button size="sm" variant="ghost" />} label={<><Plus className="size-3.5" /> Add scene</>} />
+          ) : null}
           <label htmlFor="deck-zoom" className="text-[11px] text-muted-foreground">Zoom</label>
           <input id="deck-zoom" type="range" min={10} max={48} value={pps} onChange={(e) => setPps(Number(e.target.value))} className="w-20" />
         </div>
@@ -1190,27 +1249,38 @@ function SceneStrip({ projectId, scenes, assets, brand, sel, onSelect, canEdit, 
               {scenes.map((s, i) => {
                 const a = s.assetId ? assets.get(s.assetId) ?? null : null;
                 return (
-                  <button key={s.id} type="button" onClick={() => onSelect(s.id)} aria-pressed={sel === s.id} title={s.text.headline || `Scene ${i + 1}`}
-                    style={{ width: width(s.durationSec) }}
-                    className={cn("relative mr-[3px] h-16 shrink-0 overflow-hidden rounded-md border text-left [container-type:size]",
-                      sel === s.id ? "border-[color:var(--cw-violet)] ring-2 ring-[color:var(--cw-violet)]/60" : "border-white/10 hover:border-white/30")}>
-                    <SceneThumb projectId={projectId} asset={a} scene={s} brand={brand} />
-                    <span className="absolute left-1 top-1 rounded bg-black/60 px-1 font-mono text-[9.5px] text-white">{i + 1} · {s.durationSec}s</span>
-                    {s.locked ? <Lock className="absolute right-1 top-1 size-3 text-white drop-shadow" /> : null}
-                    <span className="absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/80 to-transparent px-1.5 pb-1 pt-3 text-[10.5px] font-semibold text-white">
-                      {s.text.headline || (a ? a.name : "Text card")}
-                    </span>
-                  </button>
+                  <Fragment key={s.id}>
+                    {canEdit ? <InsertGap at={i} menu={menu(i)} onDrop={drop(i)} dragging={dragging} blocked={dragging === s.id || dragging === scenes[i - 1]?.id} /> : <span style={{ width: GAP }} className="shrink-0" />}
+                    <button type="button" onClick={() => onSelect(s.id)} aria-pressed={sel === s.id} title={s.text.headline || `Scene ${i + 1}`}
+                      draggable={canEdit}
+                      onDragStart={(e) => { e.dataTransfer.setData(DRAG_SCENE, s.id); e.dataTransfer.effectAllowed = "move"; setDragging(s.id); }}
+                      onDragEnd={() => setDragging(null)}
+                      style={{ width: width(s.durationSec) }}
+                      className={cn("relative h-16 shrink-0 overflow-hidden rounded-md border text-left [container-type:size]",
+                        dragging === s.id && "opacity-40",
+                        sel === s.id ? "border-[color:var(--cw-violet)] ring-2 ring-[color:var(--cw-violet)]/60" : "border-white/10 hover:border-white/30")}>
+                      <SceneThumb projectId={projectId} asset={a} scene={s} brand={brand} />
+                      <span className="absolute left-1 top-1 rounded bg-black/60 px-1 font-mono text-[9.5px] text-white">{i + 1} · {s.durationSec}s</span>
+                      {s.locked ? <Lock className="absolute right-1 top-1 size-3 text-white drop-shadow" /> : null}
+                      {s.why === "Rewriting…" ? <Loader2 className="absolute right-1 bottom-6 size-3 animate-spin text-white drop-shadow" /> : null}
+                      <span className="absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/80 to-transparent px-1.5 pb-1 pt-3 text-[10.5px] font-semibold text-white">
+                        {s.text.headline || (a ? a.name : "Text card")}
+                      </span>
+                    </button>
+                  </Fragment>
                 );
               })}
+              {canEdit ? (
+                <InsertGap at={scenes.length} menu={menu(scenes.length)} onDrop={drop(scenes.length)} dragging={dragging} blocked={dragging === scenes[scenes.length - 1]?.id} end />
+              ) : null}
             </div>
             {voiceOn ? (
               <>
                 <div className="flex items-center gap-1.5 border-b border-border px-2 text-muted-foreground"><b className="rounded border border-border px-1 font-mono text-[10px] text-foreground">A1</b>Voice</div>
-                <div className="flex border-b border-border py-1">
+                <div className="flex border-b border-border py-1" style={{ paddingLeft: GAP }}>
                   {scenes.map((s) => (
-                    <button key={s.id} type="button" onClick={() => onSelect(s.id)} style={{ width: width(s.durationSec) }}
-                      className="mr-[3px] h-7 shrink-0 overflow-hidden rounded px-1.5 text-left">
+                    <button key={s.id} type="button" onClick={() => onSelect(s.id)} style={{ width: width(s.durationSec), marginRight: GAP }}
+                      className="h-7 shrink-0 overflow-hidden rounded px-1.5 text-left">
                       {s.voice ? (
                         <span className="block h-full truncate rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 text-[10.5px] leading-7 text-emerald-200">{s.voice}</span>
                       ) : <span className="block h-full rounded border border-dashed border-border px-1.5 text-[10.5px] leading-7 text-muted-foreground">silent</span>}
@@ -1226,12 +1296,88 @@ function SceneStrip({ projectId, scenes, assets, brand, sel, onSelect, canEdit, 
   );
 }
 
-/** Pixel position of second `t` along the strip (each scene's block covers its own seconds). */
+/**
+ * An insert point on the timeline: a slim gap that shows a + on hover (opens the add menu), widens into a drop zone
+ * while a scene or a media file is dragged over it. The `end` one is a visible "Add" tile.
+ */
+function InsertGap({ at, menu, onDrop, dragging, blocked, end = false }: {
+  at: number; menu: ReactNode; onDrop: (e: React.DragEvent) => void; dragging: string | null; blocked: boolean; end?: boolean;
+}) {
+  const [over, setOver] = useState(false);
+  const accepts = (e: React.DragEvent) => !blocked && (e.dataTransfer.types.includes(DRAG_SCENE) || e.dataTransfer.types.includes(DRAG_ASSET));
+  return (
+    <div data-gap={at}
+      onDragOver={(e) => { if (!accepts(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = e.dataTransfer.types.includes(DRAG_SCENE) ? "move" : "copy"; setOver(true); }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => { setOver(false); onDrop(e); }}
+      style={{ width: over ? 64 : end ? 84 : GAP }}
+      className={cn("group/gap relative flex h-16 shrink-0 items-center justify-center transition-[width] duration-150",
+        over && "rounded-md border-2 border-dashed border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10",
+        end && !over && "ml-[2px] rounded-md border border-dashed border-border hover:border-[color:var(--cw-violet)]",
+        dragging && !blocked && !over && !end && "bg-[color:var(--cw-violet)]/10")}>
+      {!end && !over ? <span className="pointer-events-none absolute inset-y-1 left-1/2 w-px -translate-x-1/2 bg-[color:var(--cw-violet)] opacity-0 group-hover/gap:opacity-60" /> : null}
+      {over ? <span className="text-[10px] font-medium text-[color:var(--cw-violet)]">{dragging ? "Move here" : "Add here"}</span> : menu}
+    </div>
+  );
+}
+
+/** The "add a scene here" menu. `at` = where it goes (0 = start, count = end). */
+function InsertMenu({ at, count, assets, aiWrites, onAiWrites, hasCta, prev, next, onInsert, trigger, label }: {
+  at: number; count: number; assets: DeckAsset[]; aiWrites: boolean; onAiWrites: (v: boolean) => void; hasCta: boolean;
+  prev: DeckScene | null; next: DeckScene | null; onInsert: (at: number, spec: NewScene) => void;
+  /** Custom trigger element (default: the round + of a gap / the end tile). */
+  trigger?: React.ReactElement; label?: ReactNode;
+}) {
+  const where = at === 0 ? "at the start" : at >= count ? "at the end" : `between scene ${at} and ${at + 1}`;
+  const add = (spec: NewScene) => onInsert(at, spec);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger aria-label={`Add a scene ${where}`} title={`Add a scene ${where}`}
+        render={trigger ?? (
+          <button type="button" className={cn("flex items-center justify-center rounded-full text-white outline-none focus-visible:ring-2 focus-visible:ring-primary",
+            at >= count ? "h-full w-full gap-1 rounded-md bg-transparent text-[11px] font-medium text-muted-foreground hover:text-foreground"
+              : "z-10 size-5 bg-[color:var(--cw-violet)] opacity-0 shadow group-hover/gap:opacity-100 focus-visible:opacity-100 data-[popup-open]:opacity-100")} />
+        )}>
+        {label ?? (at >= count ? <><Plus className="size-3.5" /> Add</> : <Plus className="size-3" />)}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="w-60" align="start">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="text-[11px] text-muted-foreground">Add a scene {where}</DropdownMenuLabel>
+        </DropdownMenuGroup>
+        <DropdownMenuItem onClick={() => add({ kind: "title", write: aiWrites })}><Type className="size-4" /> Title card</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => add({ kind: "slide", write: aiWrites })}><ListChecks className="size-4" /> Slide — title + points</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => add({ kind: "cta", write: aiWrites && !hasCta })}><Megaphone className="size-4" /> Call to action</DropdownMenuItem>
+        {assets.length ? (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger><Film className="size-4" /> Photo or video</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="max-h-72 w-60">
+              {assets.map((a) => (
+                <DropdownMenuItem key={a.id} onClick={() => add({ kind: "media", assetId: a.id, write: aiWrites })}>
+                  {a.kind === "video" ? <Film className="size-4" /> : <ImageIcon className="size-4" />}
+                  <span className="truncate">{a.name}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        ) : null}
+        {prev || next ? <DropdownMenuSeparator /> : null}
+        {prev ? <DropdownMenuItem onClick={() => add({ kind: "duplicate", sceneId: prev.id })}><Copy className="size-4" /> Copy scene {at} here</DropdownMenuItem> : null}
+        {next ? <DropdownMenuItem onClick={() => add({ kind: "duplicate", sceneId: next.id })}><Copy className="size-4" /> Copy scene {at + 1} here</DropdownMenuItem> : null}
+        <DropdownMenuSeparator />
+        <DropdownMenuCheckboxItem checked={aiWrites} onCheckedChange={(v) => onAiWrites(!!v)}>
+          <Sparkles className="size-4" /> AI writes the words
+        </DropdownMenuCheckboxItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Pixel position of second `t` along the strip (each scene's block covers its own seconds, after its gap). */
 function xAt(scenes: DeckScene[], t: number, width: (d: number) => number) {
-  let x = 0, acc = 0;
+  let x = GAP, acc = 0;
   for (const s of scenes) {
     if (t <= acc + s.durationSec) return x + ((t - acc) / s.durationSec) * width(s.durationSec);
-    x += width(s.durationSec) + 3;
+    x += width(s.durationSec) + GAP;
     acc += s.durationSec;
   }
   return x;

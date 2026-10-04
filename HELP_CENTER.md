@@ -236,6 +236,17 @@ them there, then come back. (These are in addition to the "video ready" email, w
 - **Delete from project** (in the same window, or the bin icon on a file in **Your media**) removes the file from this
   project. Scenes that used it become text cards. The file itself stays in your media library.
 
+## WaltzDeck — add, copy and move scenes on the timeline
+- Hover between two scenes on the **Timeline** and press the **+** (there's one before the first scene too, and an
+  **Add** tile at the end). Pick what to add:
+  - **Title card**, **Slide — title + points** or **Call to action**
+  - **Photo or video**: any file in this project
+  - **Copy scene N here**: a copy of the scene next to it
+- Leave **AI writes the words** ticked and the AI writes the new scene so it fits with the scenes around it. Untick it to
+  write the words yourself.
+- **Move a scene:** drag its block onto a gap between two other scenes.
+- **Add a file at a spot:** drag it from **Your media** onto a gap.
+
 ## WaltzDeck — backdrops for text slides
 - Text-only scenes (titles, end cards, slides without a photo) sit on a **backdrop** in your brand colours.
 - **For the whole deck:** open the **Brand** tab → **Text slide backdrop** and pick a style: Brand gradient, Aurora,

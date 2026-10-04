@@ -317,23 +317,74 @@ async function reorderScenesImpl(projectId: string, ids: string[]): Promise<void
   });
 }
 
-/** Add a scene after `afterIndex` (-1 = at the start) showing `assetId`, or a text card when null. */
-async function addSceneImpl(projectId: string, afterIndex: number, assetId: string | null): Promise<string> {
+/** What a new scene is: a title card, a slide, a call-to-action card, a scene showing a file, or a copy of a scene. */
+export type NewScene =
+  | { kind: "title" | "slide" | "cta"; write?: boolean }
+  | { kind: "media"; assetId: string; write?: boolean }
+  | { kind: "duplicate"; sceneId: string };
+
+/**
+ * Insert a scene at position `at` (0 = the very start, scenes.length = the end). With `write`, the AI writes its words
+ * to fit between the scenes before and after it (the deck worker's scene rewrite). Returns the new scene id.
+ */
+async function insertSceneImpl(projectId: string, at: number, spec: NewScene): Promise<string> {
   await assertAccess(projectId, "editor");
-  if (assetId) await assertProjectAsset(projectId, assetId);
-  const rows = await db.select({ id: schema.deckScenes.id, orderIndex: schema.deckScenes.orderIndex })
-    .from(schema.deckScenes).where(eq(schema.deckScenes.projectId, projectId)).orderBy(asc(schema.deckScenes.orderIndex));
-  const at = Math.max(0, Math.min(rows.length, afterIndex + 1));
+  const rows = await db.select().from(schema.deckScenes)
+    .where(eq(schema.deckScenes.projectId, projectId)).orderBy(asc(schema.deckScenes.orderIndex));
+  const pos = Math.max(0, Math.min(rows.length, Math.trunc(Number(at)) || 0));
+  const [p] = await db.select({ deck: schema.projects.deck }).from(schema.projects).where(eq(schema.projects.id, projectId));
+  const brief = { ...defaultBrief(), ...(((p?.deck ?? {}) as Partial<DeckState>).brief ?? {}) };
   const id = randomUUID();
+  let values: typeof schema.deckScenes.$inferInsert;
+  if (spec.kind === "duplicate") {
+    const src = rows.find((r) => r.id === spec.sceneId);
+    if (!src) throw new Error("Scene not found");
+    const { id: _i, createdAt: _c, updatedAt: _u, orderIndex: _o, ...rest } = src;
+    void _i; void _c; void _u; void _o;
+    values = { ...rest, id, projectId, orderIndex: pos, why: `Copy of scene ${src.orderIndex + 1}.` };
+  } else if (spec.kind === "media") {
+    await assertProjectAsset(projectId, spec.assetId);
+    values = {
+      id, projectId, orderIndex: pos, role: "content", assetId: spec.assetId, durationSec: 3, textMode: "auto", text: {},
+      layout: brief.mode === "presentation" ? "slide" : "headline-bottom", locked: false, why: "Added by you.",
+    };
+  } else {
+    const kind = spec.kind;
+    values = {
+      id, projectId, orderIndex: pos, role: kind === "cta" ? "cta" : kind === "slide" ? "content" : "title", assetId: null,
+      durationSec: kind === "slide" ? 5 : 3, textMode: "auto",
+      // A call to action starts from the brief's CTA, so it's useful even before the AI writes.
+      text: kind === "cta" && brief.cta?.text ? { headline: "", sub: brief.cta.text } : {},
+      layout: kind === "cta" ? "cta-card" : kind === "slide" ? "slide" : "title-card", locked: false, why: "Added by you.",
+    };
+  }
+  const write = spec.kind !== "duplicate" && !!spec.write;
+  if (write) values.why = "Rewriting…";
   await db.transaction(async (tx) => {
-    const shift = rows.slice(at).map((r) => r.id);
+    const shift = rows.slice(pos).map((r) => r.id);
     if (shift.length) await tx.update(schema.deckScenes).set({ orderIndex: sql`${schema.deckScenes.orderIndex} + 1` }).where(inArray(schema.deckScenes.id, shift));
-    await tx.insert(schema.deckScenes).values({
-      id, projectId, orderIndex: at, role: assetId ? "content" : "title", assetId,
-      durationSec: 3, textMode: "auto", text: {}, layout: assetId ? "headline-bottom" : "title-card", locked: false, why: "Added by you.",
-    });
+    await tx.insert(schema.deckScenes).values(values);
   });
+  if (write) {
+    const say = (r: (typeof rows)[number] | undefined) => {
+      const t = (r?.text ?? {}) as SceneText;
+      return t.headline || t.sub || (t.bullets ?? [])[0] || "";
+    };
+    const before = say(rows[pos - 1]), after = say(rows[pos]);
+    const where = !rows.length ? "the only scene" : pos === 0 ? "the opening scene" : pos === rows.length ? "the closing scene" : "a new scene in the middle";
+    const instruction = clip(`This is ${where} of the video.${before ? ` The scene before says "${before}".` : ""}${after ? ` The scene after says "${after}".` : ""} Write it so the story flows.`, 300);
+    try {
+      await enqueueDeck({ name: "scene", data: { sceneId: id, instruction } });
+    } catch {
+      await db.update(schema.deckScenes).set({ why: "Added by you." }).where(eq(schema.deckScenes.id, id));
+    }
+  }
   return id;
+}
+
+/** Add a scene after `afterIndex` (-1 = at the start) showing `assetId`, or a title card when null. */
+async function addSceneImpl(projectId: string, afterIndex: number, assetId: string | null): Promise<string> {
+  return insertSceneImpl(projectId, afterIndex + 1, assetId ? { kind: "media", assetId } : { kind: "title" });
 }
 
 async function deleteSceneImpl(projectId: string, sceneId: string): Promise<void> {
@@ -624,6 +675,7 @@ export async function updateScene(...args: Parameters<typeof updateSceneImpl>) {
 export async function rewriteSceneText(...args: Parameters<typeof rewriteSceneTextImpl>) { return toResult(() => rewriteSceneTextImpl(...args)); }
 export async function reorderScenes(...args: Parameters<typeof reorderScenesImpl>) { return toResult(() => reorderScenesImpl(...args)); }
 export async function addScene(...args: Parameters<typeof addSceneImpl>) { return toResult(() => addSceneImpl(...args)); }
+export async function insertScene(...args: Parameters<typeof insertSceneImpl>) { return toResult(() => insertSceneImpl(...args)); }
 export async function deleteScene(...args: Parameters<typeof deleteSceneImpl>) { return toResult(() => deleteSceneImpl(...args)); }
 export async function requestDeckExport(...args: Parameters<typeof requestDeckExportImpl>) { return toResult(() => requestDeckExportImpl(...args)); }
 export async function importFromUrl(...args: Parameters<typeof importFromUrlImpl>) { return toResult(() => importFromUrlImpl(...args)); }
