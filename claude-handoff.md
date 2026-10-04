@@ -35,6 +35,9 @@ Tree clean, in sync with origin/main. tsc + lint clean.
   `*.bak-20261003-backdrops`), clipwaltz-worker restarted idle; checksums match; wiki features/help-center/admin-docs.
   Dev-verified (real renders, PDF/PPTX, AI generation e2e); not exercised via the prod UI. Mockup:
   https://claude.ai/artifact/AN5HL8c7RjHjxG914oVq6V
+- **Timeline inserts (v12) — LIVE `36d36fa`:** + in every timeline gap (title / slide / CTA / media / copy), AI writes the
+  new scene to fit its neighbours, drag a scene onto a gap to move it, drag a file from Your media onto a gap. App-only;
+  deployed 2026-10-03 (build + pm2 restart clipwaltz, backup `/tmp/cw-pre-insert-src.tgz`); wiki updated. Dev-verified.
 - **Next focus:** nothing queued — ask the owner.
 - **Known, unfixed:** intermittent dev-only "unique key … passed a child from DeckPage" warning (seen after the New
   Project page soft-navigates to a new deck; not reproducible on demand); (nativeButton warning fixed in `9df1678`).
