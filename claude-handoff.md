@@ -26,10 +26,18 @@ Tree clean, in sync with origin/main. tsc + lint clean.
   `t-presentation-clean` (`defaultDeckTrackId`). Deployed 2026-10-03: src tarball → build → `pm2 restart clipwaltz`
   (backup `/tmp/cw-pre-audio-src.tgz`); on-box + www 200; wiki features/help-center/music-catalog updated. Not
   exercised via the prod UI.
+- **Backdrops / AI backdrops / zoom-out (v12) — LIVE `9df1678`:** 8 brand-tinted backdrop styles + brand gradient for
+  text scenes (deck default in Brand tab, per-scene in the scene panel), AI backdrops (one Wan frame, 2 credits, 3×3
+  brightness grid picks dark/white words), Edit media zoom to 0.6× (media card on the backdrop), backdrop drift + more
+  pull-outs + Ken Burns in/out, AutoWaltz blurred fill. One module `worker/deck/backdrop.mjs` draws preview/render/exports.
+  Deployed 2026-10-03: prod migration 0046, build, pm2 restart clipwaltz + clipwaltz-gen-worker (backup
+  `/tmp/cw-pre-backdrops-src.tgz`); AI box render-worker + deck/{backdrop,text-layer,export,camera,frame}.mjs (backups
+  `*.bak-20261003-backdrops`), clipwaltz-worker restarted idle; checksums match; wiki features/help-center/admin-docs.
+  Dev-verified (real renders, PDF/PPTX, AI generation e2e); not exercised via the prod UI. Mockup:
+  https://claude.ai/artifact/AN5HL8c7RjHjxG914oVq6V
 - **Next focus:** nothing queued — ask the owner.
 - **Known, unfixed:** intermittent dev-only "unique key … passed a child from DeckPage" warning (seen after the New
-  Project page soft-navigates to a new deck; not reproducible on demand); Base UI nativeButton warning from the
-  New Project wizard's Cancel link (`new-project-wizard.tsx:239`, add `nativeButton={false}`).
+  Project page soft-navigates to a new deck; not reproducible on demand); (nativeButton warning fixed in `9df1678`).
 - Hindi/Japanese/Chinese **not wanted** (owner, 2026-09-30) — don't propose. Rule: new client-called actions return
   ActionResult and are unwrapped (ADMIN_DOCS "Server action errors").
 
