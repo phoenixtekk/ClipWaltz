@@ -202,6 +202,7 @@ export function EditorWorkspace({
   return (
     <StudioShell
       kind="AutoWaltz"
+      leftWide={tab === "music"}
       title={project.title}
       subtitle={`${clipCount} · ${project.template} · ${project.aspect}`}
       tabs={TABS}

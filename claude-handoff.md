@@ -1,4 +1,5 @@
-<!-- session-version: 11 -->
+<!-- session-version: 12 -->
+<!-- pending-session-title: ClipWaltz v12 -->
 
 # ClipWaltz — session handoff
 
@@ -14,25 +15,36 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
-## Working state (2026-09-30, rotation to v11)
-Tree **clean**, in sync with origin/main (`709fe78`). tsc clean; lint clean (v11: fixed generation-panel + announcements-view set-state-in-effect; eslint now ignores `.claude/**` worktree copies) — `b20d585` deployed to linuxg1 2026-09-30 (2 components + eslint config, build, pm2 restart clipwaltz; backup `/tmp/cw-pre-lintfix-src.tgz`). All deployed.
+## Working state (2026-10-03, rotation to v12)
+**Tree DIRTY on purpose (owner chose to rotate without committing):** the Audio work below is uncommitted on top of
+`eb427bc` (origin/main in sync). tsc + lint clean. Uncommitted files: FEATURES.md, HELP_CENTER.md, MUSIC_CATALOG.md,
+src/components/{deck/deck-editor,editor-workspace,music-panel,studio/studio-shell}.tsx, src/lib/{music,project-actions,waltzmatch}.ts.
 ```
-709fe78 docs(handoff): action-errors fix deployed
-dcc5fd7 Merge remote-tracking branch 'origin/main' into claude/jovial-wescoff-66e528
-38b4ecf fix: return server action errors as ActionResult so users see them in production
-f48b8d6 feat(deck): music & voice mix, dynamic camera, brief history, tone presets
-79ee0c0 feat: AI credits + WaltzDeck phase 5 — AI fill, brand kit from website, translations
+eb427bc docs(handoff): Hindi/Japanese/Chinese not wanted
+3358ecc docs(handoff): credit grants deployed
+7b118c7 feat(admin): per-user AI credit grants for the current month
+da82e2f fix: hydration-safe dates in client components
+d8a2862 feat(editor): one-screen studio layout for WaltzDeck and AutoWaltz
 ```
-- Shipped in v10: WaltzDeck **Phase 3** (presentations, PDF/PPTX export, import), **Phase 4** (campaign packs + stats +
-  Free-plan "leaving ClipWaltz" interstitial), **Phase 5** (AI credits Free 30/Plus 300/Pro 1,000, AI fill, brand from
-  website, translations + 7 voices), music & voice mix (Steady duck default), dynamic camera, brief history, tone presets,
-  and the app-wide action-errors fix (ActionResult). Migrations 0040–0043 applied on prod.
-- **Scene media editing (v11, 2026-09-30):** Edit media dialog on deck scenes (crop/reposition = `deck_scenes.frame`, migration 0044; rotate; video start = `in_sec`) + Delete from project (dialog + media rows). Dev-verified incl. real render + PDF export (PSNR). **Deployed `8e0cf9e`:** linuxg1 migration 0044 + build + pm2 restart clipwaltz & clipwaltz-gen-worker (backup `/tmp/cw-pre-scenemedia-src.tgz`); AI box render-worker.mjs + deck/{frame,export,variants}.mjs (backups `*.bak-20260930-scenemedia`), clipwaltz-worker restarted idle. Wiki features/admin-docs/help-center updated. Not exercised through the prod UI (no prod login).
-- **One-screen editor studio (v11, 2026-09-30):** WaltzDeck + AutoWaltz rebuilt on `src/components/studio/studio-shell.tsx` (owner-approved invideo-style mockup https://claude.ai/artifact/D9JiqUUbzQdAexcnjrCKxg). AutoWaltz clip dialog → `clip-inspector.tsx`. Date hydration mismatch fixed + deployed (`da82e2f`, `<LocalDate>` / `useDateFormat`; backup `/tmp/cw-pre-datefix-src.tgz`). DeckPage key warning not seen in the last fresh loads, not investigated. **Deployed `d8a2862`** to linuxg1 (14 src files, build, pm2 restart clipwaltz; backup `/tmp/cw-pre-studio-src.tgz`); wiki updated.
-- **Admin AI credit grants (v11, 2026-09-30):** /admin section; this-month-only bonus on top of plan allowance, note shown on Billing, revoke; `credit_grants` (migration 0045). Dev-verified. **Deployed `7b118c7`:** prod migration 0045 applied, build, pm2 restart clipwaltz (backup `/tmp/cw-pre-creditgrants-src.tgz`); wiki features/admin-docs/help-center/billing updated.
-- **Next focus:** nothing queued — all 5 WaltzDeck phases are live; credit grants shipped. Hindi/Japanese/Chinese
-  **not wanted** (owner, 2026-09-30) — don't propose them. Ask the owner. Rule: new client-called actions must return ActionResult
-  and be unwrapped (ADMIN_DOCS "Server action errors").
+- **Shipped + deployed in v11** (details in FEATURES/ADMIN_DOCS; backups `/tmp/cw-pre-*-src.tgz` on linuxg1):
+  lint fix `b20d585` · scene media edit/crop/delete `8e0cf9e` (migration 0044, AI box worker) · one-screen studio
+  `d8a2862` (`studio-shell.tsx`, mockup https://claude.ai/artifact/D9JiqUUbzQdAexcnjrCKxg) · hydration-safe dates
+  `da82e2f` (`<LocalDate>`) · admin AI credit grants `7b118c7` (migration 0045). None exercised via the prod UI (no prod login).
+- **Uncommitted, dev-verified, NOT deployed — Audio:** (1) `StudioShell leftWide` widens the left panel on the music
+  tabs (deck Audio / AutoWaltz Music) + music tab labels `whitespace-nowrap`; (2) 7 gentle Pixabay beds (mood `gentle`,
+  ids `t-presentation-clean` … `t-inspiring`) seeded in **dev only**; new Ad decks default to `t-music-promotion`,
+  Presentation to `t-presentation-clean` (`defaultDeckTrackId`, `music.ts`); WaltzMatch calm/warm include gentle.
+  MP3s + manifest: `C:\Users\LACY~1.PHO\AppData\Local\Temp\claude\G--VisualStudioCode-ClipWaltz\203bac8c-abcb-459e-b747-1477798cd3ce\scratchpad\gentle-music\`
+  (temp — if gone, re-download per MUSIC_CATALOG.md; local `scripts/music-manifest.json` has all 13 entries).
+- **Next focus:** ask the owner to commit + deploy the Audio work. Deploy = seed the 7 tracks into **prod**
+  (`node --env-file=<prod env> scripts/seed-music.mjs <manifest-gentle.json> <dir>`, or run on linuxg1) → app build +
+  `pm2 restart clipwaltz` → wiki mirror (features, help-center, MUSIC_CATALOG if mirrored). Rule: only add Pixabay tracks
+  NOT "Content ID Registered" (MUSIC_CATALOG.md).
+- **Known, unfixed:** intermittent dev-only "unique key … passed a child from DeckPage" warning (seen after the New
+  Project page soft-navigates to a new deck; not reproducible on demand); Base UI nativeButton warning from the
+  New Project wizard's Cancel link (`new-project-wizard.tsx:239`, add `nativeButton={false}`).
+- Hindi/Japanese/Chinese **not wanted** (owner, 2026-09-30) — don't propose. Rule: new client-called actions return
+  ActionResult and are unwrapped (ADMIN_DOCS "Server action errors").
 
 ## Music & voice mix, dynamic camera, brief history, tone presets (2026-09-30, v10) — LIVE on prod (`f48b8d6`)
 Owner asks: music select/upload, gain + tone for music and voice, fix the ducking "pumping", brief history (15), tone

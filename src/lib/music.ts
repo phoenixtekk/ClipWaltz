@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { getAllProviderTracks } from "./music-providers";
 
@@ -59,4 +59,23 @@ export async function getFavoriteTrackIds(userId: string | null): Promise<Set<st
     .from(schema.musicFavorites)
     .where(eq(schema.musicFavorites.userId, userId));
   return new Set(rows.map((r) => r.trackId));
+}
+
+/** The catalogue beds new WaltzDeck ads / presentations start with (owner request 2026-09-30: gentle, not music-video music). */
+const DECK_DEFAULT_TRACK: Record<string, string> = { ad: "t-music-promotion", presentation: "t-presentation-clean" };
+
+/**
+ * Default soundtrack for a new WaltzDeck project: the mode's gentle bed if it's active, else any active catalogue track
+ * with mood "gentle"; null for slideshows (or when there are none) — the user picks, as before.
+ */
+export async function defaultDeckTrackId(mode: string): Promise<string | null> {
+  const preferred = DECK_DEFAULT_TRACK[mode];
+  if (!preferred) return null;
+  const catalogue = and(eq(schema.musicTracks.active, true), isNull(schema.musicTracks.ownerId));
+  const [hit] = await db.select({ id: schema.musicTracks.id }).from(schema.musicTracks)
+    .where(and(catalogue, eq(schema.musicTracks.id, preferred)));
+  if (hit) return hit.id;
+  const [gentle] = await db.select({ id: schema.musicTracks.id }).from(schema.musicTracks)
+    .where(and(catalogue, eq(schema.musicTracks.mood, "gentle"))).orderBy(asc(schema.musicTracks.title)).limit(1);
+  return gentle?.id ?? null;
 }

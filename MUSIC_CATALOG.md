@@ -15,6 +15,18 @@ The draft preview and (future) picker audition stream a track via `GET /api/musi
 - **`clipwaltz` (prod): still needs the same seed run before launch** — re-run the seeder with a
   prod `DATABASE_URL`, then confirm 0 active placeholders.
 
+- **2026-09-30 — 7 gentle beds added (dev; prod on deploy)**, mood `gentle`, for ads and presentations (owner
+  request): Presentation Clean Slide Deck, Presentation Music, Music Promotion, Gentle Morning Keys, Gentle Study Flow,
+  Peaceful Gentle, Inspiring (ids `t-presentation-clean` … `t-inspiring`; Pixabay ids in each `license_ref`). New
+  WaltzDeck **Ad** decks start on `t-music-promotion`, **Presentation** decks on `t-presentation-clean`
+  (`defaultDeckTrackId`, `src/lib/music.ts`; falls back to any active `gentle` track).
+
+**⚠ Content ID (rule, 2026-09-30):** many Pixabay tracks are marked **"Content ID Registered"** on their page — the
+artist has registered them with YouTube's Content ID, so users' videos can be claimed. That fails licensing criterion 2
+below. **Only add tracks whose page does NOT show "Content ID Registered"** (59 of 70 gentle candidates checked on
+2026-09-30 were registered) and note the check date in `license_ref`. Pixabay's CDN refuses downloads without the
+track page as the referrer — download from the page (or send its URL as `Referer`).
+
 `license_ref` is the per-track proof that a bed is safe to post; the seed script refuses placeholder
 refs unless `--allow-placeholder` (dev only).
 

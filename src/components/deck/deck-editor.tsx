@@ -356,6 +356,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
       <link rel="stylesheet" href={BRAND_FONTS_CSS} precedence="default" />
       <StudioShell
         kind="WaltzDeck"
+        leftWide={tab === "audio"}
         title={data.project.title}
         subtitle={`${modeLabel} · ${data.scenes.length ? `${data.scenes.length} scenes · ${total.toFixed(1)}s of ${brief.lengthSec}s` : "not planned yet"}`}
         tabs={tabs}

@@ -206,6 +206,9 @@ them there, then come back. (These are in addition to the "video ready" email, w
 - Turn **Share links** off to close all the pages again.
 
 ## WaltzDeck — music, voice mix and camera moves
+- **Gentle music:** new **Ad** and **Presentation** decks start with a calm, professional track. Find more under
+  *gentle* in **Audio → Browse** (Presentation Clean Slide Deck, Gentle Morning Keys, Inspiring and others), or pick any
+  other track.
 - **Music & voice** (**Audio** tab): choose a track, upload your own (My Music / Upload), or untick **Music in this video**.
   Set the **music level** and **tone**, and — with a voiceover — the **voice level** and **tone**.
 - **Music while the voice talks:** *Steady* keeps the music evenly lower under the voice (recommended); *Gentle duck*

@@ -181,7 +181,7 @@ export function MusicPanel({
             type="button"
             onClick={() => setTab(t.key)}
             className={cn(
-              "flex-1 rounded-md px-1.5 py-1 font-medium transition-colors",
+              "flex-1 whitespace-nowrap rounded-md px-1.5 py-1 font-medium transition-colors",
               tab === t.key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
             )}
           >

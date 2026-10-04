@@ -59,6 +59,8 @@ async function createProjectImpl(
     workspaceId = await ensurePersonalWorkspace(userId);
   }
   const id = randomUUID();
+  // New WaltzDeck ads / presentations start with a gentle bed (the user can change it); slideshows pick their own.
+  const deckTrackId = opts.deckMode ? await (await import("./music")).defaultDeckTrackId(opts.deckMode) : null;
   await db.insert(schema.projects).values({
     id,
     ownerId: userId,
@@ -69,7 +71,7 @@ async function createProjectImpl(
     description,
     aiTemplateId,
     ...(opts.deckMode
-      ? { kind: "deck", deck: { brief: defaultBrief(opts.deckMode) }, lengthSec: defaultBrief(opts.deckMode).lengthSec }
+      ? { kind: "deck", deck: { brief: defaultBrief(opts.deckMode) }, lengthSec: defaultBrief(opts.deckMode).lengthSec, musicTrackId: deckTrackId }
       : {}),
   });
   if (opts.deckMode) {

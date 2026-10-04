@@ -13,6 +13,15 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## Gentle music for ads & presentations; wider music panel (2026-09-30)
+- **7 gentle beds** (mood `gentle`) added to the music library: Presentation Clean Slide Deck, Presentation Music, Music
+  Promotion, Gentle Morning Keys, Gentle Study Flow, Peaceful Gentle, Inspiring — Pixabay, each checked **not** Content ID
+  registered (MUSIC_CATALOG.md). WaltzMatch counts "gentle" as calm / warm.
+- **New WaltzDeck Ad decks start on "Music Promotion", Presentation decks on "Presentation Clean Slide Deck"** (the
+  user can change it); Slideshows unchanged.
+- The studio's left panel widens on the music tabs (WaltzDeck **Audio**, AutoWaltz **Music**) so For You · Browse ·
+  Premium · My Music · Upload fit on one line.
+
 ## Admin AI credit grants (2026-09-30)
 - **/admin → AI credit grants:** give a user (by account email) extra AI credits for the **current month** with a note
   (e.g. "refund for the failed render"); this month's grants are listed with who gave them, each with **Revoke**. Grants

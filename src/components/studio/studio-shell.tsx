@@ -10,12 +10,14 @@ export type StudioTab<K extends string> = { key: K; label: string; icon?: ReactN
 export type StudioStep = { label: string; hint?: string; state: "done" | "current" | "todo"; onClick?: () => void };
 
 export function StudioShell<K extends string>({
-  kind, title, subtitle, tabs, tab, onTab, tools, left, stage, inspector, bottomLeft, bottom, steps,
+  kind, title, subtitle, tabs, tab, onTab, tools, left, stage, inspector, bottomLeft, bottom, steps, leftWide = false,
 }: {
   kind: string; title: ReactNode; subtitle?: ReactNode;
   tabs: StudioTab<K>[]; tab: K; onTab: (k: K) => void;
   tools?: ReactNode; left: ReactNode; stage: ReactNode; inspector?: ReactNode;
   bottomLeft?: ReactNode; bottom?: ReactNode; steps?: StudioStep[];
+  /** A wider left panel for content that needs it (the music library: its tabs and track rows). */
+  leftWide?: boolean;
 }) {
   return (
     <div className="cw-studio -mx-6 -my-8 flex flex-col gap-2 p-2 lg:h-[calc(100dvh-var(--cw-header-h))]">
@@ -58,8 +60,12 @@ export function StudioShell<K extends string>({
           "grid-cols-1 [grid-template-areas:'stage'_'left'_'insp'_'bottom']",
           "lg:grid-rows-[minmax(0,1fr)_minmax(13rem,34%)]",
           inspector
-            ? "lg:grid-cols-[clamp(17rem,22vw,21rem)_minmax(0,1fr)_clamp(15rem,20vw,19rem)] lg:[grid-template-areas:'left_stage_insp'_'left_bottom_bottom']"
-            : "lg:grid-cols-[clamp(17rem,22vw,21rem)_minmax(0,1fr)] lg:[grid-template-areas:'left_stage'_'left_bottom']",
+            ? leftWide
+              ? "lg:grid-cols-[clamp(22rem,27vw,26rem)_minmax(0,1fr)_clamp(15rem,20vw,19rem)] lg:[grid-template-areas:'left_stage_insp'_'left_bottom_bottom']"
+              : "lg:grid-cols-[clamp(17rem,22vw,21rem)_minmax(0,1fr)_clamp(15rem,20vw,19rem)] lg:[grid-template-areas:'left_stage_insp'_'left_bottom_bottom']"
+            : leftWide
+              ? "lg:grid-cols-[clamp(22rem,27vw,26rem)_minmax(0,1fr)] lg:[grid-template-areas:'left_stage'_'left_bottom']"
+              : "lg:grid-cols-[clamp(17rem,22vw,21rem)_minmax(0,1fr)] lg:[grid-template-areas:'left_stage'_'left_bottom']",
         )}
       >
         <section className="cw-studio-pane [grid-area:left] max-lg:max-h-[80vh]">{left}</section>

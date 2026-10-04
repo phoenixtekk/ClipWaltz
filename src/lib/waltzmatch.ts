@@ -16,9 +16,9 @@ export type MediaProfile = {
 // Desired track moods + target BPM per detected mood.
 const MOOD_TARGETS: Record<string, { moods: string[]; bpm: number }> = {
   happy: { moods: ["upbeat", "happy", "energetic", "pop"], bpm: 118 },
-  warm: { moods: ["emotional", "cinematic", "chill", "acoustic", "warm"], bpm: 92 },
+  warm: { moods: ["emotional", "cinematic", "chill", "acoustic", "warm", "gentle"], bpm: 92 },
   energetic: { moods: ["energetic", "upbeat", "electronic", "rock"], bpm: 132 },
-  calm: { moods: ["chill", "ambient", "calm", "acoustic"], bpm: 78 },
+  calm: { moods: ["chill", "ambient", "calm", "acoustic", "gentle"], bpm: 78 },
   epic: { moods: ["cinematic", "epic", "dramatic"], bpm: 100 },
 };
 
