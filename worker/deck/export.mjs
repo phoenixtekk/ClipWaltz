@@ -152,7 +152,8 @@ export async function buildDeckExport({ projectId, format, watermark, exportId }
         // layout. A picture slide (no editable text boxes) — the words are part of the artwork.
         const dur = Number(sc.duration_sec) || 4;
         const media = typeof still === "string" ? still : still?.dataUrl ?? null;
-        await page.setContent(motionHtml({ layout: sc.layout, text: hasText(sc) ? sc.text : {}, W, H, brand, dur, over: !!media }), { waitUntil: "load" });
+        await page.setContent(motionHtml({ layout: sc.layout, text: hasText(sc) ? sc.text : {}, W, H, brand, dur, over: !!media,
+          look: deckState.brief?.motion?.look, seed: deckState.brief?.motion?.seed, variant: sc.id }), { waitUntil: "load" });
         await page.evaluate(async ({ t, media }) => {
           await document.fonts.ready;
           if (media && getComputedStyle(document.body).backgroundColor === "rgba(0, 0, 0, 0)") {

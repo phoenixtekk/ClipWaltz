@@ -2,7 +2,7 @@
 // One WaltzDeck scene drawn in the browser: the media (video/photo) with the scene's text layout on top.
 // A close approximation of worker/deck/templates (same layout names, fonts and proportions) for the
 // storyboard cards and the instant preview; the render uses the real templates.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
 import { rotatedFill, rotationParent } from "@/lib/rotation";
 import { aspectNumber, cardRect, frameRect, type SceneFrameBox } from "@/lib/deck/frame";
@@ -41,7 +41,12 @@ function cameraStyle(move: CameraMove | null | undefined, mode: CameraMode | und
 /** Brand look for the preview (null = ClipWaltz defaults). */
 export type FrameBrand = { primary: string; secondary: string; headingFont: string; bodyFont: string; logoUrl: string | null } | null;
 
+/** The deck's animated-scene look + seed (brief.motion), provided by the editor; null = auto, seed 0. */
+export const DeckMotionContext = createContext<{ look: string; seed: number } | null>(null);
+
 export type FrameScene = {
+  /** Varies an animated scene's variant (worker/deck/motion.mjs) — the same id draws the same variant everywhere. */
+  id?: string;
   layout: string;
   textMode: string;
   text: SceneText;
@@ -168,7 +173,7 @@ export function SceneFrame({
       >
         {cam ? <style>{CAMERA_CSS}</style> : null}
         {behind ? <div className="absolute inset-0" style={cam}><div className="absolute inset-0" style={box}>{media}</div></div> : null}
-        <MotionLayer layout={scene.layout} text={t} brand={brand} aspect={aspect} durationSec={durationSec} playing={playing} over={behind} />
+        <MotionLayer layout={scene.layout} text={t} brand={brand} aspect={aspect} durationSec={durationSec} playing={playing} over={behind} variant={scene.id ?? ""} />
       </div>
     );
   }
@@ -230,9 +235,10 @@ function useLogoDataUrl(url: string | null) {
  * An animated scene's page at a fixed size (1280 px on the long side), scaled to the frame. Playing: runs once from the
  * start and holds the last frame; otherwise shows the moment where everything has arrived.
  */
-function MotionLayer({ layout, text, brand, aspect, durationSec, playing, over }: {
-  layout: string; text: SceneText; brand: FrameBrand; aspect: number; durationSec: number; playing: boolean; over: boolean;
+function MotionLayer({ layout, text, brand, aspect, durationSec, playing, over, variant }: {
+  layout: string; text: SceneText; brand: FrameBrand; aspect: number; durationSec: number; playing: boolean; over: boolean; variant: string;
 }) {
+  const motion = useContext(DeckMotionContext);
   const W = aspect >= 1 ? 1280 : Math.round(1280 * aspect), H = aspect >= 1 ? Math.round(1280 / aspect) : 1280;
   const boxRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
@@ -242,10 +248,10 @@ function MotionLayer({ layout, text, brand, aspect, durationSec, playing, over }
   const dur = Math.max(1, durationSec);
   const key = JSON.stringify([text.headline, text.sub, text.bullets]);
   const html = useMemo(() => motionHtml({
-    layout, text, W, H, dur, over, stars: 90, fontsCss: BRAND_FONTS_CSS,
+    layout, text, W, H, dur, over, stars: 90, fontsCss: BRAND_FONTS_CSS, look: motion?.look ?? "auto", seed: motion?.seed ?? 0, variant,
     brand: brand ? { primary: brand.primary, secondary: brand.secondary, headingFont: brand.headingFont, bodyFont: brand.bodyFont, logoDataUrl: logo } : {},
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [layout, key, W, H, dur, over, brand?.primary, brand?.secondary, brand?.headingFont, brand?.bodyFont, logo]);
+  }), [layout, key, W, H, dur, over, brand?.primary, brand?.secondary, brand?.headingFont, brand?.bodyFont, logo, motion?.look, motion?.seed, variant]);
   const pageKey = useMemo(() => { let h = 0; for (let i = 0; i < html.length; i++) h = (Math.imul(h, 31) + html.charCodeAt(i)) | 0; return `${h}-${html.length}`; }, [html]);
   useEffect(() => {
     const el = boxRef.current;

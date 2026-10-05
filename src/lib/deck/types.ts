@@ -3,6 +3,8 @@
 import type { SceneFrameBox } from "./frame";
 import type { ResolvedBackdrop, SceneBackdrop } from "../../../worker/deck/backdrop.mjs";
 export type { ResolvedBackdrop, SceneBackdrop };
+import type { LookKey } from "../../../worker/deck/motion.mjs";
+export type { LookKey };
 
 export type DeckMode = "ad" | "slideshow" | "presentation" | "explainer";
 export type TextMode = "auto" | "manual" | "off";
@@ -31,6 +33,10 @@ export const LAYOUTS = [
   { key: "mg-chat", label: "Animated: chat on a phone" },
   { key: "mg-fanout", label: "Animated: one message, every channel" },
   { key: "mg-end", label: "Animated: end card" },
+  { key: "mg-steps", label: "Animated: steps" },
+  { key: "mg-features", label: "Animated: feature cards" },
+  { key: "mg-compare", label: "Animated: before / after" },
+  { key: "mg-browser", label: "Animated: website / app screen" },
 ] as const;
 export type LayoutKey = (typeof LAYOUTS)[number]["key"];
 export const isMotionLayout = (l: string) => l.startsWith("mg-");
@@ -44,6 +50,10 @@ export const MOTION_FIELDS: Record<string, { headline: string; sub?: string; bul
   "mg-chat": { headline: "Chat name", bullets: "Messages — Name: message (Channel). Start with \"Me:\" for your own.", media: "behind" },
   "mg-fanout": { headline: "Headline (top)", bullets: "Channels (2–6) — e.g. SMS, Email, WhatsApp", media: "ignored" },
   "mg-end": { headline: "Name", sub: "Tagline", bullets: "Web address or call to action (first line)", media: "behind" },
+  "mg-steps": { headline: "Headline (top)", bullets: "Steps, one per line (2–4)", media: "ignored" },
+  "mg-features": { headline: "Headline (top)", bullets: "Features, one per line (3–6)", media: "ignored" },
+  "mg-compare": { headline: "Headline (top)", bullets: "Lines starting \"Before:\" and \"After:\" (or \"Without:\" / \"With:\")", media: "ignored" },
+  "mg-browser": { headline: "Page headline", sub: "Line under it", bullets: "Items on the page (2–4)", media: "ignored" },
 };
 
 export const ROLES = ["hook", "problem", "benefit", "proof", "content", "title", "cta"] as const;
@@ -111,6 +121,9 @@ export type DeckBrief = {
   language?: LanguageCode;
   /** What's behind text-only scenes unless a scene picks its own (worker/deck/backdrop.mjs). Absent = brand gradient. */
   backdrop?: SceneBackdrop;
+  /** Animated scenes' art direction: a look (or auto = picked from the seed) and the seed that varies every scene.
+   *  A new plan or "Shuffle" picks a new seed — the same storyboard renders differently (worker/deck/motion.mjs). */
+  motion?: { look: LookKey | "auto"; seed: number };
   /** Set on a translated copy: the deck it was translated from. */
   translatedFrom?: { projectId: string; title: string } | null;
 };
@@ -166,7 +179,14 @@ export type BackdropImage = {
   aspect: string; createdAt: string;
 };
 
-export type DeckState = { brief: DeckBrief; backdrops?: BackdropImage[]; plan?: DeckPlanStatus; import?: DeckImportStatus; brandSuggestion?: BrandSuggestion; translation?: DeckTranslation };
+/** "Edit with AI": the chat with the deck's editor (projects.deck.chat; the deck worker answers each message). */
+export type DeckChatMessage = { id: string; role: "user" | "assistant"; text: string; changes?: string[]; at: string };
+/** Still waiting on the AI? A turn older than 10 minutes was lost (e.g. a redeploy) — same rule as askDeckAi. */
+export const chatThinking = (c: { status?: string; startedAt?: string } | null | undefined) =>
+  c?.status === "thinking" && !!c.startedAt && Date.now() - Date.parse(c.startedAt) < 10 * 60 * 1000;
+export type DeckChat = { status: "idle" | "thinking" | "failed"; error?: string | null; startedAt?: string; messages: DeckChatMessage[] };
+
+export type DeckState = { brief: DeckBrief; backdrops?: BackdropImage[]; plan?: DeckPlanStatus; import?: DeckImportStatus; brandSuggestion?: BrandSuggestion; translation?: DeckTranslation; chat?: DeckChat };
 
 export type DeckExportFormat = "pdf" | "pptx";
 export type DeckExport = {

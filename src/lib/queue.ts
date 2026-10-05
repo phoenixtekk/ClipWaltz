@@ -114,6 +114,7 @@ export type DeckJob =
   | { name: "brand_from_site"; data: { projectId: string; url: string } }
   | { name: "translate"; data: { projectId: string } }
   | { name: "campaign_render"; data: { campaignId: string } }
+  | { name: "chat"; data: { projectId: string } }
   | { name: "import"; data: { projectId: string; source: "pptx" | "pdf" | "url"; key?: string; url?: string; name: string; userId: string } };
 
 let _deckQueue: Queue | null = null;

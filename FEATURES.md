@@ -13,6 +13,32 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## Explainer variety, Edit with AI chat, more AI shots (2026-10-05)
+- **Never the same film twice** (owner: "versatile … different aesthetics every time"): animated scenes now have **6
+  looks** — Neon space, Clean light, Bold gradient, Flat paper, Tech grid, Warm sunset (background, palette, surfaces,
+  shadows, particles) — and every scene draws its own **variant** from the deck's seed + its id (motion style,
+  arrangement, icons, entrance). Every plan picks a new seed (and with the look on Auto, a new look); **Brand →
+  Animated scenes look** sets the look or **Shuffle**s the seed. The same seed renders identically in preview, video
+  and slides.
+- **4 more animated layouts:** steps, feature cards, before / after, website / app screen (11 in total).
+- **Planner:** a random **story arc** per plan (problem → reveal, question-led, before/after, day in the life, feature
+  tour, pitch), a neutral layout guide (no example wording to copy — the old one leaked "Why force it?" from the TxtYa
+  proof), at least 4 different layouts. List layouts with fewer than 2 items become big words (no placeholder items);
+  plain text cards in an explainer become animated ones.
+- **More AI footage:** every explainer plan suggests **at least 2 real filmed shots** (a focused follow-up call when the
+  model offers fewer). **Film N suggested AI shots** (Brief panel, shows the credit cost) films them all at once; each
+  drops into its scene (over big words / chat / end card).
+- **Edit with AI** (button bottom-right of the deck editor): chat with the video's editor — "use a warmer look", "make
+  scene 2 punchier", "add a before/after after scene 2", "delete the last scene", "start over". The deck worker answers
+  and edits the storyboard (update / add / delete / move scenes, look, shuffle, re-plan); locked scenes are left alone;
+  numbers, claims and web addresses the owner never gave (brief or chat) are left out. Then "Render the new version".
+- Code-reviewed; fixes: a guarded chat edit keeps the scene's text (never blanks it); scenes locked while the AI thinks
+  are never changed; the chat's layouts follow the planner's rules; moves are applied before deletes/adds; one AI clip
+  per scene at a time ("Film all" can't charge twice); a lost chat turn stops blocking after 10 minutes.
+- Verified on dev: 6 looks × 11 layouts render with no errors (wide); re-plan → new arc + new look + 3 shot
+  suggestions; chat turns (look + steps 24 s; delete + add before/after) applied correctly; full render on the AI box
+  (41.7 s, new look, 117 s).
+
 ## WaltzDeck Explainer — animated scenes, one glowing look (2026-10-05)
 - **New deck mode "Explainer"** (owner: "build the explainer style into the product" after the TxtYa proof): animated
   scenes, an AI voiceover and one consistent look (dark space, the brand's main colour as the glow). No footage needed —

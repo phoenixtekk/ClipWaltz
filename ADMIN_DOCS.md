@@ -736,6 +736,28 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
   (`sudo -n systemctl restart clipwaltz-worker`). The app also builds `worker/deck/backdrop.mjs` (imported by `src/`),
   so the app tarball must include it.
 
+## Explainer variety + Edit with AI (2026-10-05)
+- **Looks + variants:** `motion.mjs` `LOOKS` (neon, clean, bold, paper, grid, sunset) → `look()` returns palette, surface,
+  shadow style (`fx`: glow / soft / lift / hard) and particles; `motionHtml({ …, look, seed, variant })` seeds
+  `rng(hash32(seed:variant:layout))` for the template's choices. `brief.motion = { look: key | "auto", seed }`;
+  `resolveLook("auto", seed)` picks from the seed. Seed set by `jobs.mjs` on every plan, by `setDeckMotion` (look /
+  shuffle) and by chat ops. Render passes `scene.id` as `variant` (`render-worker.mjs`, `export.mjs`); the editor gets
+  look + seed from `DeckMotionContext` (deck-editor provides `data.deck.brief.motion`), `FrameScene.id` as variant.
+  Campaign-variant snapshots render with their scenes' ids if present.
+- **Planner:** `STORY_ARCS` (random per plan), `MG_GUIDE` (neutral — no example wording), `ensureShots()` (≥ 2 shots for
+  explainers; converts a non-media layout to mg-words when it gets one), repair rules for list layouts / explainer
+  text cards.
+- **Chat:** `projects.deck.chat = { status: idle|thinking|failed, error, startedAt, messages[≤40] }`. `askDeckAi`
+  (≤ 600 chars, one turn at a time, stale after 10 min, refuses while planning) → queue job `chat` → `jobs.mjs
+  chatEdit` → `planner.mjs editDeck` (ops validated: known layouts, durations 1.2–15 s, scene numbers in range;
+  text guarded by `allowedNumbers` / `unverifiedClaim` with the owner's chat as source) → one transaction (scene numbers
+  resolved to ids first; locked scenes skipped; order_index rewritten) → assistant message with `changes[]`.
+  `replan` runs `plan()` after. `clearDeckChat` drops the history. UI `src/components/deck/deck-chat.tsx`.
+- **Film suggested shots:** deck-editor `shotScenes` (scene.prompt, no media, no fill running) → `fillScene` per scene
+  (credits per scene as the single "Generate a shot").
+- **Deploy:** no migration. linuxg1 app build + `pm2 restart clipwaltz clipwaltz-gen-worker` (planner + chat job);
+  AI box `render-worker.mjs` + `deck/{motion,text-layer,export}.mjs`.
+
 ## WaltzDeck Explainer & animated layouts (2026-10-05)
 - **Shared module:** `worker/deck/motion.mjs` (+ `motion.d.mts` for the app). `motionHtml({ layout, text, W, H, brand,
   dur, over, stars, fontsCss })` → an HTML page whose `render(t)` draws second t (pure function of t, script scoped in

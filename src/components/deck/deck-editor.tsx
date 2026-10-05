@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import {
   Sparkles, Upload, Loader2, Lock, Unlock, Trash2, Plus, ArrowUp, ArrowDown, Wand2, Play, Pause, RotateCcw, Info, ImageIcon, Mic, Captions,
   FileUp, Globe, Presentation, FileText, FileDown, Download, Crop, Music, Palette, Megaphone, Clapperboard, ChevronRight, SkipBack, SkipForward,
-  Copy, Film, Type, ListChecks,
+  Copy, Film, Type, ListChecks, Shuffle,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub,
@@ -17,24 +17,26 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { aspectClass, isWide } from "@/lib/aspect";
 import {
-  CAMERA_MODES, DECK_MODES, LANGUAGES, LAYOUTS, MAX_BULLETS, MOTION_FIELDS, MOTIONS, MOTION_LABELS, TONES, VOICES, type CameraMode,
+  CAMERA_MODES, DECK_MODES, LANGUAGES, LAYOUTS, MAX_BULLETS, MOTION_FIELDS, chatThinking, MOTIONS, MOTION_LABELS, TONES, VOICES, type CameraMode,
   type BrandSuggestion, type Campaign, type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type SceneTextMode, type TextMode, type VoiceMode, type ResolvedBackdrop,
 } from "@/lib/deck/types";
 import {
   getDeck, saveBrief, setAssetNote, describeAsset, requestPlan, updateScene, rewriteSceneText, reorderScenes, deleteScene,
-  requestDeckExport, importFromUrl, fillScene, translateDeck, getBriefHistory, removeBriefHistory, setDeckBackdrop, insertScene,
+  requestDeckExport, importFromUrl, fillScene, translateDeck, getBriefHistory, removeBriefHistory, setDeckBackdrop, setDeckMotion, insertScene,
   type DeckData, type DeckAsset, type ScenePatch, type NewScene,
 } from "@/lib/deck-actions";
 import { PresentView } from "./present-view";
+import { DeckChatPanel } from "./deck-chat";
 import { unwrap } from "@/lib/action-result";
 import { CampaignPanel } from "./campaign-panel";
 import { AudioMix } from "./audio-mix";
 import { pickMove } from "@/lib/deck/camera";
 import { AiFill } from "./ai-fill";
 import { useCredits } from "@/components/credits-line";
-import type { CreditBalance } from "@/lib/credits";
+import { generationCost, type CreditBalance } from "@/lib/credits";
 import { uploadProjectFile, isSupported } from "@/lib/upload-client";
-import { Backdrop, SceneFrame, type FrameBrand } from "./scene-frame";
+import { Backdrop, DeckMotionContext, SceneFrame, type FrameBrand } from "./scene-frame";
+import { LOOKS } from "../../../worker/deck/motion.mjs";
 import { BackdropPicker } from "./backdrop-picker";
 import { BACKDROP_STYLES } from "../../../worker/deck/backdrop.mjs";
 
@@ -81,6 +83,10 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
   const brandReading = brandSug.status === "queued" || brandSug.status === "reading";
   const tr = data.deck.translation ?? { status: "idle" as const };
   const translating = tr.status === "queued" || tr.status === "translating";
+  const chatBusy = chatThinking(data.deck.chat);
+  // Scenes the planner (or the chat) suggested a real AI-filmed shot for, not filmed yet.
+  const shotScenes = data.scenes.filter((x) => x.prompt && !x.assetId && !data.fills[x.id] && !x.locked);
+  const shotCost = shotScenes.reduce((n, x) => n + generationCost([3, 5, 8].find((d) => d >= x.durationSec) ?? 8), 0);
   const router = useRouter();
   // AI credits: re-read whenever a fill job starts or ends (a failed one refunds).
   const backdropBusy = data.backdropJobs.some((j) => !["failed", "cancelled", "completed", "retried"].includes(j.status));
@@ -94,10 +100,10 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
 
   // Poll while the worker is busy (planning, rewriting, describing fresh uploads, importing, exporting).
   useEffect(() => {
-    if (!planBusy && !rewriting && !describing && !importBusy && !exporting && !filling && !brandReading && !translating && !backdropBusy) return;
+    if (!planBusy && !rewriting && !describing && !importBusy && !exporting && !filling && !brandReading && !translating && !backdropBusy && !chatBusy) return;
     const t = setInterval(refresh, 2500);
     return () => clearInterval(t);
-  }, [planBusy, rewriting, describing, importBusy, exporting, filling, brandReading, translating, backdropBusy, refresh]);
+  }, [planBusy, rewriting, describing, importBusy, exporting, filling, brandReading, translating, backdropBusy, chatBusy, refresh]);
 
   // A translation fills the brief on the server: adopt it once, when it finishes.
   const [trSeen, setTrSeen] = useState(tr.status);
@@ -193,6 +199,24 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
       {data.scenes.length ? "Re-plan (keeps locked scenes)" : "Plan my video"}
     </Button>
   );
+  const shotsButton = shotScenes.length && canEdit ? (
+    <Button variant="secondary" className="w-full" disabled={pending || planBusy || (credits ? credits.left < shotCost : false)}
+      title={shotScenes.map((x, i) => `${i + 1}. ${x.prompt}`).join("\n")}
+      onClick={() => start(async () => {
+        // Each scene on its own: one failure (e.g. not enough credits) doesn't hide the shots that did start.
+        let ok = 0;
+        let err = "";
+        for (const x of shotScenes) {
+          try { unwrap(await fillScene(projectId, x.id, { mode: "generate", prompt: x.prompt ?? undefined })); ok++; }
+          catch (e) { err = (e as Error).message || "Couldn't start that shot."; }
+        }
+        await refresh();
+        if (ok) toast.success(`Filming ${ok} of ${shotScenes.length} AI shot${shotScenes.length === 1 ? "" : "s"} — each drops into its scene when it's ready (about 10 minutes each).`);
+        if (err) toast.error(err);
+      })}>
+      <Clapperboard className="size-4" /> Film {shotScenes.length} suggested AI shot{shotScenes.length === 1 ? "" : "s"} · {shotCost} credits
+    </Button>
+  ) : null;
 
   const left = (() => {
     if (tab === "audio") return (
@@ -208,6 +232,24 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
         <div className="space-y-5">
           <BrandSection projectId={projectId} kit={brandKit} canEdit={canEdit} suggestion={brandSug} onChanged={refresh}
             onSaved={(k, logo) => { setBrandKit(k); if (logo) setLogoVersion((v) => v + 1); }} />
+          <section className="space-y-2 border-t border-border pt-4">
+            <div>
+              <h3 className="text-sm font-semibold">Animated scenes look</h3>
+              <p className="text-[11px] text-muted-foreground">The art direction of every animated scene. Shuffle gives each scene a new variant — the same storyboard, a different film.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select value={data.deck.brief.motion?.look ?? "auto"} disabled={!canEdit} aria-label="Animated scenes look"
+                onChange={(e) => act(async () => { const m = unwrap(await setDeckMotion(projectId, { look: e.target.value })); setBrief((b) => ({ ...b, motion: m })); })}
+                className={cn(field, "h-8 w-auto")}>
+                <option value="auto">Auto (changes with every plan)</option>
+                {LOOKS.map((l) => <option key={l.key} value={l.key}>{l.label}</option>)}
+              </select>
+              <Button size="sm" variant="secondary" disabled={!canEdit}
+                onClick={() => act(async () => { const m = unwrap(await setDeckMotion(projectId, { shuffle: true })); setBrief((b) => ({ ...b, motion: m })); }, "Shuffled — every animated scene has a new variant.")}>
+                <Shuffle className="size-4" /> Shuffle
+              </Button>
+            </div>
+          </section>
           <section className="space-y-2 border-t border-border pt-4">
             <div>
               <h3 className="text-sm font-semibold">Text slide backdrop</h3>
@@ -239,7 +281,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
     if (tab === "render") return null; // kept mounted below
     return (
       <StudioPanel title="Brief" actions={<span className="rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">AI planner</span>}
-        footer={<div className="space-y-1.5">{planButton}<PlanStatus plan={plan} /></div>}>
+        footer={<div className="space-y-1.5">{planButton}<PlanStatus plan={plan} />{shotsButton}</div>}>
         <div className="space-y-4">
           <div className="flex rounded-lg border border-border bg-muted/50 p-0.5 text-sm">
             {DECK_MODES.map((m) => (
@@ -417,7 +459,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
   ];
 
   return (
-    <>
+    <DeckMotionContext.Provider value={data.deck.brief.motion ?? null}>
       {/* Same font families the render box has installed (src/lib/brand.ts) — so the preview matches. */}
       <link rel="stylesheet" href={BRAND_FONTS_CSS} precedence="default" />
       <StudioShell
@@ -473,6 +515,8 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
         }
         steps={steps}
       />
+      <DeckChatPanel projectId={projectId} chat={data.deck.chat ?? { status: "idle", messages: [] }} canEdit={canEdit} hasScenes={data.scenes.length > 0}
+        onChanged={refresh} onRender={() => setTab("render")} />
       {presenting !== null && data.scenes.length ? (
         <PresentView
           projectId={projectId}
@@ -484,7 +528,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
           onClose={() => setPresenting(null)}
         />
       ) : null}
-    </>
+    </DeckMotionContext.Provider>
   );
 }
 

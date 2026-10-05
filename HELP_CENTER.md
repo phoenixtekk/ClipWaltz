@@ -284,6 +284,20 @@ them there, then come back. (These are in addition to the "video ready" email, w
   translated, same clips and look. Prices, codes and web addresses stay exactly as you wrote them. Your original deck
   isn't changed. (In other languages the word-by-word caption highlight is timed approximately.)
 
+## WaltzDeck — edit your video by chatting with AI
+- Press **Edit with AI** (bottom-right of the editor) and say what you'd like: "use the sunset look", "make the opening
+  punchier", "add a before / after after scene 2", "delete the last scene", "start over". The AI changes the storyboard
+  and tells you what it did — then press **Render the new version**.
+- Locked scenes are never changed. It won't add prices, numbers or web addresses you haven't given it — tell it in the
+  chat ("our price is $9 a month") and it can use them.
+
+## WaltzDeck — a different look every time
+- Each plan gives your animated scenes a fresh look and new motion. To choose one yourself: **Brand → Animated scenes
+  look** (Neon space, Clean light, Bold gradient, Flat paper, Tech grid, Warm sunset, or Auto). **Shuffle** keeps your
+  words but gives every animated scene a new take.
+- **Film N suggested AI shots** (under Plan) films the real-footage shots the planner suggested, all at once — each one
+  goes into its scene when it's ready (about 10 minutes each; the button shows the AI credits).
+
 ## WaltzDeck — make an animated explainer
 - **New project → WaltzDeck → Explainer.** You don't need any photos or videos: write what your product does and who
   it's for, then press **Plan my video**. The AI writes the scenes and a voiceover, in one glowing look in your brand

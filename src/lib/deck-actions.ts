@@ -1,7 +1,7 @@
 "use server";
 // WaltzDeck server actions (06_ClipWaltz_WaltzDeck_Feature_Spec.md). Planning and rewrites run on the
 // generation worker (worker/deck/jobs.mjs) via the deck queue; the editor polls getDeck().
-import { randomUUID } from "crypto";
+import { randomInt, randomUUID } from "crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
@@ -15,10 +15,11 @@ import {
   CAMERA_MODES, DEFAULT_AUDIO, DUCK_MODES, MUSIC_TONES, VOICE_TONES, type DeckAudio,
   DECK_MODES, LANGUAGES, LAYOUTS, MAX_BRIEF_HISTORY, MAX_BULLETS, MAX_BULLET_CHARS, MOTIONS, ROLES, VOICES, defaultBrief, defaultVoiceFor,
   type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type DeckState, type SceneText, type SceneTextMode,
-  type ResolvedBackdrop, type SceneBackdrop, BACKDROP_PRESETS, type BackdropPresetKey,
+  type ResolvedBackdrop, type SceneBackdrop, BACKDROP_PRESETS, type BackdropPresetKey, type LookKey,
 } from "./deck/types";
 import { normFrame, type SceneFrameBox } from "./deck/frame";
 import { INTENSITIES, normBackdrop } from "../../worker/deck/backdrop.mjs";
+import { LOOKS } from "../../worker/deck/motion.mjs";
 const INTENSITY_KEYS: string[] = INTENSITIES;
 
 /** The asset exists and belongs to this project (never trust a client-sent asset id). */
@@ -135,6 +136,7 @@ async function getDeckImpl(projectId: string): Promise<DeckData> {
     deck: {
       brief: { ...defaultBrief(), ...(deck.brief ?? {}) }, plan: deck.plan ?? { status: "idle" }, import: deck.import ?? { status: "idle" },
       brandSuggestion: deck.brandSuggestion ?? { status: "idle" }, translation: deck.translation ?? { status: "idle" },
+      chat: deck.chat ?? { status: "idle", messages: [] },
     },
     fills,
     exports: latest.map((r) => ({
@@ -187,6 +189,7 @@ async function saveBriefImpl(projectId: string, input: Partial<DeckBrief>): Prom
       : cur.camera,
     // Only setDeckBackdrop changes it (the editor's brief copy can be older than a backdrop the worker just made).
     backdrop: cur.backdrop,
+    motion: cur.motion, // setDeckMotion / the planner own it
   };
   // A voice must speak the brief's language: switching language picks that language's first voice.
   if (next.voice && next.language && VOICES.find((v) => v.id === next.voice!.voiceId)?.lang !== next.language) {
@@ -474,6 +477,12 @@ async function fillSceneImpl(projectId: string, sceneId: string, input: { mode: 
   const [p] = await db.select({ aspect: schema.projects.aspect, deck: schema.projects.deck }).from(schema.projects).where(eq(schema.projects.id, projectId));
   const brief = { ...defaultBrief(), ...(((p.deck ?? {}) as Partial<DeckState>).brief ?? {}) };
   const text = (sc.text ?? {}) as SceneText;
+  // One AI clip per scene at a time (a double click or a retried "Film all" would otherwise charge twice).
+  const [running] = await db.select({ id: schema.generationJobs.id }).from(schema.generationJobs)
+    .where(and(eq(schema.generationJobs.projectId, projectId), sql`${schema.generationJobs.requestJson}->'deckFill'->>'sceneId' = ${sceneId}`,
+      sql`${schema.generationJobs.status} not in ('completed', 'failed', 'cancelled', 'retried')`,
+      sql`${schema.generationJobs.createdAt} > now() - interval '6 hours'`)).limit(1); // the worker gives up after 3 h
+  if (running) throw new Error("This scene already has an AI clip on the way.");
   const size = FILL_SIZE[p.aspect] ?? FILL_SIZE["9:16"];
   const durationSec = fillSeconds(sc.durationSec);
   const { createGenerationJob } = await import("./generation-actions");
@@ -559,6 +568,27 @@ export async function setDeckBackdrop(projectId: string, backdrop: SceneBackdrop
   });
 }
 
+/**
+ * The animated scenes' look (or "auto") and/or a new seed ("Shuffle": every animated scene gets a new variant; with
+ * auto, a new look too). Returns the new setting.
+ */
+export async function setDeckMotion(projectId: string, input: { look?: string; shuffle?: boolean }): Promise<ActionResult<{ look: LookKey | "auto"; seed: number }>> {
+  return toResult(async () => {
+    await assertAccess(projectId, "editor");
+    const [p] = await db.select({ deck: schema.projects.deck }).from(schema.projects).where(eq(schema.projects.id, projectId));
+    const cur = ((p?.deck ?? {}) as Partial<DeckState>).brief?.motion;
+    const look = input.look === "auto" || LOOKS.some((l) => l.key === input.look) ? (input.look as LookKey | "auto") : cur?.look ?? "auto";
+    const seed = input.shuffle || !cur ? randomInt(1, 2 ** 31 - 1) : cur.seed;
+    const motion = { look, seed };
+    await db.update(schema.projects).set({
+      deck: sql`jsonb_set(coalesce(${schema.projects.deck}, '{}'::jsonb), '{brief}',
+        coalesce(${schema.projects.deck}->'brief', '{}'::jsonb) || jsonb_build_object('motion', ${JSON.stringify(motion)}::jsonb))`,
+      updatedAt: new Date(),
+    }).where(eq(schema.projects.id, projectId));
+    return motion;
+  });
+}
+
 /** Remove an AI backdrop from the library; scenes (and the deck default) that used it go back to the deck default. */
 export async function deleteBackdropImage(projectId: string, imageId: string): Promise<ActionResult<void>> {
   return toResult(async () => {
@@ -592,6 +622,39 @@ export async function deleteBackdropImage(projectId: string, imageId: string): P
  * text, points, narration and brief — translated on the deck worker, voiced by a voice of that language and captioned
  * in it. The original is never touched. Returns the new project id (the editor opens it and shows the progress).
  */
+/** "Edit with AI": add the owner's message to the deck chat and ask the deck worker to answer it (and change the storyboard). */
+async function askDeckAiImpl(projectId: string, message: string): Promise<void> {
+  await assertAccess(projectId, "editor");
+  const text = clip(message, 600);
+  if (!text) throw new Error("Type what you'd like to change.");
+  const [p] = await db.select({ deck: schema.projects.deck }).from(schema.projects).where(eq(schema.projects.id, projectId));
+  const deck = (p?.deck ?? {}) as Partial<DeckState>;
+  const chat = deck.chat;
+  // One message at a time; a turn older than 10 min is stale (job lost in a redeploy) and doesn't block.
+  if (chat?.status === "thinking" && chat.startedAt && Date.now() - Date.parse(chat.startedAt) < 10 * 60 * 1000) throw new Error("Still working on your last message — one moment.");
+  const plan = deck.plan as { status?: string } | undefined;
+  if (plan?.status === "queued" || plan?.status === "describing" || plan?.status === "planning") throw new Error("The video is being planned — try again when it's ready.");
+  const messages = [...(chat?.messages ?? []), { id: randomUUID(), role: "user" as const, text, at: new Date().toISOString() }].slice(-40);
+  const next = { status: "thinking", error: null, startedAt: new Date().toISOString(), messages };
+  await db.update(schema.projects).set({
+    deck: sql`jsonb_set(coalesce(${schema.projects.deck}, '{}'::jsonb), '{chat}', ${JSON.stringify(next)}::jsonb)`,
+  }).where(eq(schema.projects.id, projectId));
+  try {
+    await enqueueDeck({ name: "chat", data: { projectId } }, `chat-${projectId}-${Date.now()}`);
+  } catch {
+    const failed = { ...next, status: "failed", error: "Couldn't reach the AI — try again in a moment." };
+    await db.update(schema.projects).set({ deck: sql`jsonb_set(coalesce(${schema.projects.deck}, '{}'::jsonb), '{chat}', ${JSON.stringify(failed)}::jsonb)` })
+      .where(eq(schema.projects.id, projectId));
+    throw new Error("Couldn't reach the AI — try again in a moment.");
+  }
+}
+
+/** Start the chat over (the storyboard isn't touched). */
+async function clearDeckChatImpl(projectId: string): Promise<void> {
+  await assertAccess(projectId, "editor");
+  await db.update(schema.projects).set({ deck: sql`coalesce(${schema.projects.deck}, '{}'::jsonb) #- '{chat}'` }).where(eq(schema.projects.id, projectId));
+}
+
 async function translateDeckImpl(projectId: string, lang: string): Promise<string> {
   const userId = await assertAccess(projectId, "editor");
   const L = LANGUAGES.find((l) => l.code === lang);
@@ -680,5 +743,7 @@ export async function deleteScene(...args: Parameters<typeof deleteSceneImpl>) {
 export async function requestDeckExport(...args: Parameters<typeof requestDeckExportImpl>) { return toResult(() => requestDeckExportImpl(...args)); }
 export async function importFromUrl(...args: Parameters<typeof importFromUrlImpl>) { return toResult(() => importFromUrlImpl(...args)); }
 export async function translateDeck(...args: Parameters<typeof translateDeckImpl>) { return toResult(() => translateDeckImpl(...args)); }
+export async function askDeckAi(...args: Parameters<typeof askDeckAiImpl>) { return toResult(() => askDeckAiImpl(...args)); }
+export async function clearDeckChat(...args: Parameters<typeof clearDeckChatImpl>) { return toResult(() => clearDeckChatImpl(...args)); }
 export async function getBriefHistory(...args: Parameters<typeof getBriefHistoryImpl>) { return toResult(() => getBriefHistoryImpl(...args)); }
 export async function removeBriefHistory(...args: Parameters<typeof removeBriefHistoryImpl>) { return toResult(() => removeBriefHistoryImpl(...args)); }

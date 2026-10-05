@@ -8,13 +8,13 @@
 //   brand_from_site {projectId, url} — suggest a brand kit from a public web page (phase 5)
 //   translate       {projectId} — translate a (copied) deck's words into its brief.language (phase 5)
 // Progress and results live in the DB (projects.deck.plan, deck_scenes) so the editor just polls.
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import IORedis from "ioredis";
 import { Worker } from "bullmq";
-import { describeMedia, planStoryboard, rewriteScene, writeHooks, translateDeck, chatJson, VISION_MODEL, TEXT_MODEL, DESCRIBE_VERSION } from "./planner.mjs";
+import { describeMedia, planStoryboard, rewriteScene, writeHooks, translateDeck, editDeck, fixLayout, chatJson, VISION_MODEL, TEXT_MODEL, DESCRIBE_VERSION } from "./planner.mjs";
 import { buildVariant, combinations, variantCode, snapshotLength, MAX_VARIANTS } from "./variants.mjs";
 import { brandFromSite } from "./brand-site.mjs";
 import { parsePptx, parsePdf, fetchPublic, readPage, sceneFromSlide, summarizeBrief, fallbackBrief } from "./importer.mjs";
@@ -120,6 +120,10 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
       });
       const used = new Set(result.scenes.map((s) => s.assetId).filter(Boolean));
       for (const o of order) if (o.lockedRow?.asset_id) used.add(o.lockedRow.asset_id);
+      // Every plan is a new film: a new seed for the animated scenes (and, with the look on Auto, a new look).
+      const motion = { look: brief.motion?.look ?? "auto", seed: randomInt(1, 2 ** 31 - 1) };
+      await sql`update projects set deck = jsonb_set(coalesce(deck, '{}'::jsonb), '{brief}',
+        coalesce(deck->'brief', '{}'::jsonb) || jsonb_build_object('motion', ${sql.json(motion)}::jsonb)) where id = ${projectId}`;
       await setPlan(projectId, {
         status: "ready", title: result.title, startedAt: started, finishedAt: new Date().toISOString(),
         unusedAssetIds: assets.filter((a) => !used.has(a.id)).map((a) => a.id), stats: result.stats,
@@ -327,6 +331,120 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
   const setTranslation = (projectId, st) =>
     sql`update projects set deck = jsonb_set(coalesce(deck, '{}'::jsonb), '{translation}', ${sql.json(st)}), updated_at = now() where id = ${projectId}`;
 
+  // ── "Edit with AI" chat: one turn = the owner's last message → a reply + storyboard changes ──────────
+  const setChat = (projectId, patch) =>
+    sql`update projects set deck = jsonb_set(coalesce(deck, '{}'::jsonb), '{chat}',
+      coalesce(deck->'chat', '{}'::jsonb) || ${sql.json(patch)}::jsonb), updated_at = now() where id = ${projectId}`;
+
+  async function chatEdit(projectId) {
+    const [p] = await sql`select id, deck from projects where id = ${projectId} and kind = 'deck'`;
+    if (!p) return;
+    const brief = p.deck?.brief ?? {};
+    const history = Array.isArray(p.deck?.chat?.messages) ? p.deck.chat.messages : [];
+    const say = async (text, changes = [], status = "idle", error = null) => {
+      const [cur] = await sql`select deck from projects where id = ${projectId}`;
+      const msgs = Array.isArray(cur?.deck?.chat?.messages) ? cur.deck.chat.messages : [];
+      const next = [...msgs, { id: randomUUID(), role: "assistant", text, changes, at: new Date().toISOString() }].slice(-40);
+      await setChat(projectId, { status, error, messages: next });
+    };
+    try {
+      const rows = await sql`select * from deck_scenes where project_id = ${projectId} order by order_index`;
+      const scenes = rows.map((r, i) => ({ n: i + 1, id: r.id, layout: r.layout, role: r.role, durationSec: r.duration_sec, text: r.text ?? {}, voice: r.voice,
+        shot: r.prompt, locked: r.locked, hasMedia: !!r.asset_id }));
+      const { reply, ops, flags } = await editDeck(brief, scenes, history);
+      const changes = [];
+      // Scene numbers refer to the storyboard the model saw: resolve them to rows first, then edit a working list.
+      const byNo = (k) => scenes[k - 1];
+      let list = scenes.map((s) => ({ ...s, dirty: false, isNew: false }));
+      const skipLocked = (s) => { if (s.locked) changes.push(`Scene ${s.n} is locked — left as it is.`); return s.locked; };
+      // Moves first (their "to" counts positions in the storyboard the model saw), then deletes and adds.
+      const rank = { update: 0, move: 1, delete: 2, add: 3 };
+      const sorted = ops.filter((o) => o.op in rank).map((o, k) => ({ o, k })).sort((a, b) => rank[a.o.op] - rank[b.o.op] || a.k - b.k).map((x) => x.o);
+      for (const o of sorted) {
+        if (o.op === "update") {
+          const s = list.find((x) => x.id === byNo(o.scene).id);
+          if (!s || skipLocked(s)) continue;
+          const t = { ...s.text };
+          for (const k of ["headline", "sub", "bullets"]) if (o[k] !== undefined) t[k] = o[k];
+          s.text = t;
+          if (o.voice !== undefined) s.voice = o.voice;
+          if (o.layout) s.layout = o.layout;
+          if (o.durationSec) s.durationSec = o.durationSec;
+          if (o.shot !== undefined) s.shot = o.shot || null;
+          s.dirty = true;
+          changes.push(`Changed scene ${s.n}.`);
+        } else if (o.op === "delete") {
+          const s = list.find((x) => x.id === byNo(o.scene).id);
+          if (!s || skipLocked(s)) continue;
+          list = list.filter((x) => x !== s);
+          changes.push(`Removed scene ${s.n}.`);
+        } else if (o.op === "add") {
+          const after = o.after === 0 ? -1 : list.findIndex((x) => x.id === byNo(o.after)?.id);
+          const at = o.after === 0 ? 0 : after >= 0 ? after + 1 : list.length;
+          list.splice(at, 0, { id: randomUUID(), n: null, isNew: true, dirty: true, role: o.role, layout: o.layout, durationSec: o.durationSec,
+            text: { headline: o.headline, sub: o.sub, bullets: o.bullets }, voice: o.voice, shot: o.shot || null, locked: false, hasMedia: false });
+          changes.push(`Added a scene${o.headline ? ` "${o.headline}"` : ""}.`);
+        } else if (o.op === "move") {
+          const s = list.find((x) => x.id === byNo(o.scene).id);
+          if (!s || skipLocked(s)) continue;
+          list = list.filter((x) => x !== s);
+          list.splice(Math.max(0, Math.min(list.length, o.to - 1)), 0, s);
+          changes.push(`Moved scene ${s.n} to position ${o.to}.`);
+        }
+      }
+      // Look / shuffle / start over.
+      let motion = null, replan = false;
+      for (const o of ops) {
+        if (o.op === "look") { motion = { look: o.look, seed: motion?.seed ?? brief.motion?.seed ?? randomInt(1, 2 ** 31 - 1) }; changes.push(`Look: ${o.look}.`); }
+        else if (o.op === "shuffle") { motion = { look: motion?.look ?? brief.motion?.look ?? "auto", seed: randomInt(1, 2 ** 31 - 1) }; changes.push("New visual take for every animated scene."); }
+        else if (o.op === "replan") replan = true;
+      }
+      if (flags.length) changes.push("Left out a number, claim or web address that isn't in your brief or messages.");
+      // The planner's layout rules on every scene the chat touched (no empty lists, an explainer stays animated).
+      for (const s of list) if (s.dirty) s.layout = fixLayout(s, brief.mode);
+      await sql.begin(async (tx) => {
+        // The model call can take minutes: re-read the storyboard. A scene locked meanwhile is never deleted or
+        // rewritten; a scene added meanwhile (or deleted meanwhile) is respected; anything not in the chat's order
+        // keeps its place after it.
+        const now = await tx`select id, locked from deck_scenes where project_id = ${projectId} order by order_index for update`;
+        const lockedNow = new Set(now.filter((r) => r.locked).map((r) => r.id));
+        const exists = new Set(now.map((r) => r.id));
+        list = list.filter((s) => s.isNew || exists.has(s.id));
+        for (const s of list) if (s.dirty && !s.isNew && lockedNow.has(s.id)) { s.dirty = false; changes.push(`Scene ${s.n} was locked meanwhile — left as it is.`); }
+        const keep = new Set(list.map((x) => x.id));
+        for (const r of now) {
+          if (keep.has(r.id)) continue;
+          if (scenes.some((s) => s.id === r.id) && !r.locked) await tx`delete from deck_scenes where id = ${r.id} and project_id = ${projectId} and not locked`;
+          else list.push({ id: r.id, dirty: false, isNew: false }); // locked meanwhile / added meanwhile: keep it
+        }
+        for (const [i, s] of list.entries()) {
+          if (s.isNew) {
+            await tx`insert into deck_scenes ${tx({ id: s.id, project_id: projectId, order_index: i, role: s.role, asset_id: null, duration_sec: s.durationSec,
+              text_mode: "auto", text: tx.json(s.text), layout: s.layout, voice: s.voice || null, prompt: s.shot, why: "Added in chat." })}`;
+          } else if (s.dirty) {
+            await tx`update deck_scenes set order_index = ${i}, text = ${tx.json(s.text)}, layout = ${s.layout}, duration_sec = ${s.durationSec},
+              voice = ${s.voice || null}, prompt = ${s.shot}, updated_at = now() where id = ${s.id} and not locked`;
+          } else {
+            await tx`update deck_scenes set order_index = ${i} where id = ${s.id}`;
+          }
+        }
+        if (motion) {
+          await tx`update projects set deck = jsonb_set(coalesce(deck, '{}'::jsonb), '{brief}',
+            coalesce(deck->'brief', '{}'::jsonb) || jsonb_build_object('motion', ${tx.json(motion)}::jsonb)) where id = ${projectId}`;
+        }
+      });
+      // The model's reply is written before the lock checks — don't let it claim a change that didn't happen.
+      const skipped = changes.some((c) => /locked/.test(c));
+      await say(skipped ? `${reply} (Note: a locked scene can't be changed — see below. Unlock it and ask again if you meant it.)` : reply,
+        replan ? [...changes, "Re-planning the whole video…"] : changes);
+      if (replan) await plan(projectId);
+      console.log(`[deck] chat ${projectId}: ${ops.length} op(s)`);
+    } catch (e) {
+      console.error(`[deck] chat ${projectId} failed: ${e.message}`);
+      await say("Sorry — I couldn't make that change just now. Please try again.", [], "failed", String(e.message).slice(0, 200));
+    }
+  }
+
   async function translate(projectId) {
     const [p] = await sql`select id, deck from projects where id = ${projectId} and kind = 'deck'`;
     if (!p) return;
@@ -449,6 +567,7 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
       else if (job.name === "campaign_render") await campaignRender(d.campaignId);
       else if (job.name === "brand_from_site") await brandSuggest(d.projectId, d.url);
       else if (job.name === "translate") await translate(d.projectId);
+      else if (job.name === "chat") await chatEdit(d.projectId);
     },
     // One at a time: the Ollama box is shared, parallel calls only queue there and evict models.
     { connection: new IORedis(redisUrl, { maxRetriesPerRequest: null }), concurrency: 1, lockDuration: 30 * 60 * 1000 },

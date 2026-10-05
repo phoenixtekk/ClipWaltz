@@ -1543,7 +1543,8 @@ async function deckSegments(dir, slots, W, H, style, segments, durations, waterm
         // picture; over-media layouts are a transparent overlay composited on the clip like a text layer.
         const md = join(dir, `mg${i}`);
         mkdirSync(md, { recursive: true });
-        const mg = await tr.renderMotion({ layout: scene.layout, text: scene.text_mode === "none" ? {} : scene.text ?? {}, W, H, brand, dur, over: !!a }, md);
+        const mg = await tr.renderMotion({ layout: scene.layout, text: scene.text_mode === "none" ? {} : scene.text ?? {}, W, H, brand, dur, over: !!a,
+          look: style.deck.motion?.look, seed: style.deck.motion?.seed, variant: scene.id }, md);
         if (mg.opaque) {
           await ffmpeg(["-framerate", "30", "-i", mg.pattern, "-vf", `scale=${W}:${H},setsar=1,format=yuv420p`, ...enc]);
           segments.push(seg);
@@ -1958,7 +1959,7 @@ async function loadRenderInputs(projectId, aspectOverride, deckVariant = null) {
     // Music & voice mix (phase 5+): levels, tone presets, how the music behaves under the voice; music can be off.
     const audio = { music: true, musicGainDb: 0, voiceGainDb: 0, musicTone: "neutral", voiceTone: "neutral", duck: "steady", ...(brief.audio ?? {}) };
     style.deck = {
-      mode: brief.mode ?? "ad", scenes, brand, voice: brief.voice ?? { mode: "off" }, captions: brief.captions ?? { enabled: true }, audio,
+      mode: brief.mode ?? "ad", motion: brief.motion ?? null, scenes, brand, voice: brief.voice ?? { mode: "off" }, captions: brief.captions ?? { enabled: true }, audio,
       camera: brief.camera?.mode ?? "off",
       backdrop: brief.backdrop ?? null, backdrops: project.deck?.backdrops ?? [],
     };
