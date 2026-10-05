@@ -384,12 +384,15 @@ export async function planStoryboard(brief, media, locked = []) {
  * scene onto big words if its layout can't show media. Mutates `scenes`.
  */
 export async function ensureShots(brief, scenes, want = 2) {
-  const have = scenes.filter((s) => s.shot).length;
-  if (have >= want || scenes.length < 3) return;
-  const free = scenes.map((s, i) => ({ s, i })).filter(({ s }) => !s.assetId && !s.shot && s.layout !== "mg-logo");
+  if (scenes.length < 3) return;
+  // The closing scene always gets a filmed shot (owner, 2026-10-05) — unless it already shows media or has one.
+  const lastIdx = scenes.length - 1, last = scenes[lastIdx];
+  const closing = !last.assetId && !last.shot ? [{ s: last, i: lastIdx }] : [];
+  const have = scenes.filter((s) => s.shot).length + closing.length;
+  const free = scenes.map((s, i) => ({ s, i })).filter(({ s, i }) => i !== lastIdx && !s.assetId && !s.shot && s.layout !== "mg-logo");
   const over = free.filter(({ s }) => OVER_MEDIA_LAYOUTS.includes(s.layout));
   const other = free.filter(({ s }) => !OVER_MEDIA_LAYOUTS.includes(s.layout) && s.text.headline && !["mg-steps", "mg-features", "mg-compare", "mg-browser", "mg-fanout"].includes(s.layout));
-  const picks = [...over, ...other].slice(0, want - have);
+  const picks = [...closing, ...[...over, ...other].slice(0, Math.max(0, want - have))];
   if (!picks.length) return;
   const list = picks.map(({ s, i }, k) => `${k + 1}. scene ${i + 1} (${s.role}) — on screen: "${[s.text.headline, s.text.sub].filter(Boolean).join(" — ")}"; voiceover: "${s.voice || ""}"`).join("\n");
   const prompt =
@@ -398,12 +401,23 @@ export async function ensureShots(brief, scenes, want = 2) {
     `(a specific person, place or object from this product's world; natural action; bright light; cinematic camera move). ` +
     `No text, logos, readable screens, brand names or abstract ideas. One sentence each, max 35 words.\n${list}\n` +
     `JSON keys: {"shots":[string]}`;
-  const { data } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.9, numPredict: 2000, timeoutMs: 180000 });
-  const shots = Array.isArray(data?.shots) ? data.shots.map((x) => str(x, 400)).filter(Boolean) : [];
+  // One retry when the reply is short (the closing scene must get its shot).
+  let shots = [];
+  for (let attempt = 0; attempt < 2 && shots.length < picks.length; attempt++) {
+    const { data } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.9, numPredict: 2000, timeoutMs: 180000 });
+    const got = Array.isArray(data?.shots) ? data.shots.map((x) => str(x, 400)).filter(Boolean) : [];
+    if (got.length > shots.length) shots = got;
+  }
   picks.forEach(({ s }, k) => {
     if (!shots[k]) return;
     s.shot = shots[k];
-    if (!OVER_MEDIA_LAYOUTS.includes(s.layout)) { s.layout = "mg-words"; s.text = { headline: s.text.headline, sub: s.text.sub, bullets: [] }; }
+    // The shot must be visible: a layout that draws its own picture becomes one that sits over the footage — the
+    // closing scene (or a name reveal) becomes the end card, anything else big words.
+    if (!OVER_MEDIA_LAYOUTS.includes(s.layout)) {
+      const toEnd = s === last && (s.role === "cta" || s.layout === "mg-logo" || s.role === "title");
+      s.layout = toEnd ? "mg-end" : "mg-words";
+      s.text = { headline: s.text.headline, sub: s.text.sub, bullets: [] };
+    }
     s.why = `${s.why} Suggested AI shot ready — open "Generate a shot" on this scene.`.trim();
   });
 }

@@ -13,6 +13,14 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## Rename a WaltzDeck in the editor; closing scene always gets a shot (2026-10-05)
+- **Rename in place:** click the project name (pencil) at the top of the WaltzDeck editor, type, Enter (Escape
+  cancels). Saved for the project everywhere (dashboard, editor); editors only. `src/components/studio/editable-title.tsx`
+  → `renameProject` (now also revalidates the project's pages).
+- **Explainers:** the planner always suggests a filmed shot for the **closing scene** (on top of the ≥ 2 others); a
+  closing layout that can't show footage becomes the end card (or big words). `ensureShots` retries once if the
+  model's reply is short. Verified live: a plan with 2 shots and a logo-reveal ending got a closing shot → end card.
+
 ## Bigger AI instruction boxes; clearer chat changes (2026-10-05)
 - The scene panel's **"Tell the AI what to change in this scene…"** box is now a 3-line, resizable text box (drag the
   corner; Enter sends, Shift+Enter = new line; up to 600 characters) with a send button. The **Edit with AI** chat

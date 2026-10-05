@@ -173,6 +173,7 @@ async function renameProjectImpl(projectId: string, title: string): Promise<void
     .set({ title: clean, updatedAt: new Date() })
     .where(eq(schema.projects.id, projectId));
   revalidatePath("/projects");
+  revalidatePath(`/projects/${projectId}`, "layout"); // the open editor (and its page title) shows the new name
 }
 
 // Length in seconds: 15s minimum up to 60 minutes (3600s). Non-finite → 30s.

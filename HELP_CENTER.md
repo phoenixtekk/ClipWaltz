@@ -284,6 +284,9 @@ them there, then come back. (These are in addition to the "video ready" email, w
   translated, same clips and look. Prices, codes and web addresses stay exactly as you wrote them. Your original deck
   isn't changed. (In other languages the word-by-word caption highlight is timed approximately.)
 
+## WaltzDeck — rename your project
+- Click the project name at the top of the editor (the pencil), type the new name and press Enter. Escape cancels.
+
 ## WaltzDeck — edit your video by chatting with AI
 - Press **Edit with AI** (bottom-right of the editor) and say what you'd like: "use the sunset look", "make the opening
   punchier", "add a before / after after scene 2", "delete the last scene", "start over". The AI changes the storyboard

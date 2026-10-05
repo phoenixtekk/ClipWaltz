@@ -27,6 +27,7 @@ import {
 } from "@/lib/deck-actions";
 import { PresentView } from "./present-view";
 import { DeckChatPanel } from "./deck-chat";
+import { EditableTitle } from "@/components/studio/editable-title";
 import { unwrap } from "@/lib/action-result";
 import { CampaignPanel } from "./campaign-panel";
 import { AudioMix } from "./audio-mix";
@@ -466,7 +467,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
       <StudioShell
         kind="WaltzDeck"
         leftWide={tab === "audio"}
-        title={data.project.title}
+        title={<EditableTitle projectId={projectId} title={data.project.title} canEdit={canEdit} onRenamed={() => { router.refresh(); return refresh(); }} />}
         subtitle={`${modeLabel} · ${data.scenes.length ? `${data.scenes.length} scenes · ${total.toFixed(1)}s of ${brief.lengthSec}s` : "not planned yet"}`}
         tabs={tabs}
         tab={tab}
