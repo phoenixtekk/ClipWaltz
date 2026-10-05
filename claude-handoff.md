@@ -75,6 +75,9 @@ Tree clean, in sync with origin/main (`44f0ad8`). tsc + lint clean. Everything b
   instruction into deck_scenes.prompt (= suggested shot) — cleared that one leaked value on prod. linuxg1 build +
   restart (backup `/tmp/cw-pre-rewritefb-src.tgz`), AI box motion.mjs (`*.bak-20261005-swarm`). Tested: owner's
   instruction on their scene inputs → bullets Desktops/Laptops/iPhones; dev toast + green verified.
+- **Owner data (2026-10-05, owner request):** Envyrix Endpoint scene 2 (mg-swarm) bullets set to Computers / Laptops /
+  iPhones on prod (headline/sub/voice unchanged). Music vs voice level already exist (Audio tab → Mix → Music level
+  −24…+6 dB / Voice level −12…+6 dB; render applies each to its own stem — render-worker.mjs audio graph).
 - **Next focus:** owner asked (2026-10-04) whether ClipWaltz can reach the quality of an Invideo-made reference video
   (https://www.youtube.com/watch?v=UYIHUdeTmPY) — proof built, see "Quality gap vs Invideo reference" below; owner
   to review the video and decide on productizing.
