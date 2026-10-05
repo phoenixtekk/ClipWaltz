@@ -32,6 +32,11 @@ Tree clean, in sync with origin/main (`44f0ad8`). tsc + lint clean. Everything b
     (backups `*.bak-20261003-backdrops`). Mockup https://claude.ai/artifact/AN5HL8c7RjHjxG914oVq6V
   - Timeline inserts `36d36fa`: + in every gap (title/slide/CTA/media/copy), AI writes the new scene, drag to move,
     drop media on a gap. Backups on linuxg1: `/tmp/cw-pre-{audio,backdrops,insert}-src.tgz`.
+- **Brand pronunciations "Say it right" — LIVE `a33470b` (2026-10-04, owner request):** Brand tab list (TxtYa → Text Ya,
+  ≤ 20); voice reads the respelling, captions keep the written word. Migration 0047 on dev + prod; app built + `pm2
+  restart clipwaltz` (backup `/tmp/cw-pre-pronounce-src.tgz`); AI box render-worker.mjs + deck/voice.mjs (backups
+  `*.bak-20261004-pronounce`), worker restarted idle, checksums match; wiki features/help-center/admin-docs updated.
+  Dev-verified (UI save/reload; dev render spoke "Text Ya", captions "TxtYa"); not exercised via the prod UI.
 - **Next focus:** owner asked (2026-10-04) whether ClipWaltz can reach the quality of an Invideo-made reference video
   (https://www.youtube.com/watch?v=UYIHUdeTmPY) — proof built, see "Quality gap vs Invideo reference" below; owner
   to review the video and decide on productizing.
