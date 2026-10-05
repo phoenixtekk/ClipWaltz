@@ -130,10 +130,10 @@ export function NewProjectWizard({ workspaceId, aiTemplates = [] }: { workspaceI
       </div>
 
       {kind === "deck" ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {DECK_MODES.map((m) => (
             <button key={m.key} type="button" aria-pressed={deckMode === m.key} disabled={pending}
-              onClick={() => { setDeckMode(m.key); if (m.key === "presentation") setAspect("16:9"); }}
+              onClick={() => { setDeckMode(m.key); if (m.key === "presentation" || m.key === "explainer") setAspect("16:9"); }}
               className={cn("flex flex-col items-start gap-1 rounded-xl border p-4 text-left transition-colors hover:border-primary/60",
                 deckMode === m.key ? "border-primary bg-primary/10" : "border-border bg-card")}>
               <p className="text-sm font-medium">{m.label}</p>

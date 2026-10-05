@@ -13,6 +13,31 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## WaltzDeck Explainer — animated scenes, one glowing look (2026-10-05)
+- **New deck mode "Explainer"** (owner: "build the explainer style into the product" after the TxtYa proof): animated
+  scenes, an AI voiceover and one consistent look (dark space, the brand's main colour as the glow). No footage needed —
+  an explainer can be planned and rendered with no media at all. New projects start 16:9, 40 s, AI voiceover on,
+  captions on (bottom of the frame), the "Music Promotion" bed.
+- **7 animated layouts** (any deck can use them, scene panel → layout): *apps orbiting a phone* · *notification
+  overload* (badges swarm a phone, counter to 99+) · *big words* (punch in one by one, glow line) · *logo reveal*
+  (shockwave + light sweep; brand logo above) · *chat on a phone* (messages pop in, channel tags) · *one message, every
+  channel* (fan-out to channel icons and back) · *end card* (name, tagline, web-address pill). Big words, chat and end
+  card sit over the scene's photo/video when it has one; the others draw their own picture.
+- **Text fields follow the layout:** the scene panel relabels headline / subline / lines (e.g. chat lines are
+  `Name: message (Channel)`, `Me: …` for your own; fan-out lines are channel names).
+- **AI planner:** writes the explainer storyboard (problem → turning point → logo reveal → how it works → end card) with
+  a voiceover line per scene, and may suggest 1–3 AI video shots (stored on the scene; "Generate a shot" opens with
+  it). Guards: web addresses not in the brief/CTA are removed (a plan once invented one); a model reply with no scenes
+  is retried once and never replaces the storyboard with nothing; a chat with < 2 messages becomes big words; the end
+  card carries the CTA words (and its web address in the pill). Only explainer plans use the animated layouts (in other
+  decks you pick them yourself). Rewrite / Shorter / Punchier keep an animated scene's chat lines, channels and address.
+- **Same pictures everywhere:** the render, the editor preview (live, animated while playing) and PDF/PowerPoint
+  exports (one settled frame per animated scene, as a picture slide) all draw from `worker/deck/motion.mjs`.
+- **Decks render without media** (render checkpoint and server action now require scenes, not clips, for decks).
+- Verified on dev: wizard → Explainer (16:9, 40 s, voice auto, music); planned with no media (7 animated scenes, 22 s);
+  editor preview still + playback; render on the AI box (40.0 s, −14.4 LUFS, all 7 scenes, captions bottom, 5.4 min);
+  PDF + PPTX exports (7 slides); animated layouts over a video (zoomed out) and a photo with the brand logo.
+
 ## Brand pronunciations — "Say it right" (2026-10-04)
 - **Brand tab → Say it right** (owner request after the TxtYa proof): a list of words and how the voiceover should say
   them, e.g. **TxtYa → Text Ya**. Up to 20 per workspace brand kit; saved when you leave a field or remove a row.

@@ -170,7 +170,7 @@ const rgba = (h, a) => `rgba(${[0, 1, 2].map((i) => parseInt(h.slice(1 + i * 2, 
 export async function createTextRenderer() {
   const { chromium } = await import("playwright-core");
   const browser = await chromium.launch({ executablePath: CHROMIUM, args: ["--no-sandbox", "--disable-gpu", "--font-render-hinting=none"] });
-  let page, bgPage = null;
+  let page, bgPage = null, mgPage = null;
   try {
     page = await browser.newPage();
   } catch (e) {
@@ -207,6 +207,24 @@ export async function createTextRenderer() {
       await bgPage.setContent(`<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;width:${W}px;height:${H}px;overflow:hidden;position:relative}${BACKDROP_CSS}</style></head><body>${
         backdropMarkup(backdrop, { primary: brand.primary, secondary: brand.secondary, aspect: W / H, zone })}<div style="position:absolute;inset:0;container-type:size">${shadow}</div></body></html>`, { waitUntil: "load" });
       await bgPage.screenshot({ path: file });
+    },
+    /**
+     * An animated scene (worker/deck/motion.mjs) for its whole length: one PNG per frame at FPS, transparent when it's
+     * an overlay over the scene's media. Returns { pattern, frames, opaque }.
+     */
+    async renderMotion({ layout, text, W, H, brand, dur, over }, outDir) {
+      const { motionHtml, motionOpaque } = await import("./motion.mjs");
+      const opaque = motionOpaque(layout, over);
+      if (!mgPage) mgPage = await browser.newPage();
+      await mgPage.setViewportSize({ width: W, height: H });
+      await mgPage.setContent(motionHtml({ layout, text, W, H, brand, dur, over }), { waitUntil: "load" });
+      await mgPage.evaluate(async () => { await document.fonts.ready; });
+      const frames = Math.max(1, Math.round(dur * FPS));
+      for (let f = 0; f < frames; f++) {
+        await mgPage.evaluate((t) => window.render(t), f / FPS);
+        await mgPage.screenshot({ path: join(outDir, `m${String(f).padStart(4, "0")}.png`), omitBackground: !opaque });
+      }
+      return { pattern: join(outDir, "m%04d.png"), frames, opaque };
     },
     /** White rounded rectangle on black, w×h px — the alpha mask that rounds a media card's corners. */
     async renderMask(w, h, radius, file) {

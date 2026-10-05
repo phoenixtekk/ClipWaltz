@@ -27,6 +27,7 @@ import postgres from "postgres";
 import { S3Client, GetObjectCommand, PutObjectCommand, CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand } from "@aws-sdk/client-s3";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { MOTION_LAYOUTS } from "./deck/motion.mjs";
 
 const run = promisify(execFile);
 const ONCE = process.argv.includes("--once");
@@ -1470,7 +1471,8 @@ async function deckTimeline(scenes, assets, beats, beatSync, srcDurs, voiceCfg, 
 async function deckSegments(dir, slots, W, H, style, segments, durations, watermark) {
   const cover = `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,fps=30`;
   const zoomedOut = (sl) => !!sl.asset && Number(sl.scene.frame?.zoom) < 1;
-  const needsText = slots.some((s) => hasDeckText(s.scene) || !s.asset || zoomedOut(s));
+  const isMotion = (sl) => MOTION_LAYOUTS.includes(sl.scene.layout); // animated scenes (worker/deck/motion.mjs)
+  const needsText = slots.some((s) => hasDeckText(s.scene) || !s.asset || zoomedOut(s) || isMotion(s));
   const tr = needsText ? await (await import("./deck/text-layer.mjs")).createTextRenderer() : null;
   // Watermark logo box (same geometry as the logo overlay: 15.4 % of the short side, 3 % padding, 438×278
   // PNG) — text layouts stay above it so the logo never covers a word.
@@ -1536,7 +1538,20 @@ async function deckSegments(dir, slots, W, H, style, segments, durations, waterm
       const text = hasDeckText(scene) ? scene.text : null;
       const backdrop = !a || zoomedOut(slots[i]) ? await backdropOf(scene) : null;
       let layer = null;
-      if (text || !a) {
+      if (isMotion(slots[i])) {
+        // Animated scene, drawn for its whole length. Without media (or a layout that never shows it) it's the whole
+        // picture; over-media layouts are a transparent overlay composited on the clip like a text layer.
+        const md = join(dir, `mg${i}`);
+        mkdirSync(md, { recursive: true });
+        const mg = await tr.renderMotion({ layout: scene.layout, text: scene.text_mode === "none" ? {} : scene.text ?? {}, W, H, brand, dur, over: !!a }, md);
+        if (mg.opaque) {
+          await ffmpeg(["-framerate", "30", "-i", mg.pattern, "-vf", `scale=${W}:${H},setsar=1,format=yuv420p`, ...enc]);
+          segments.push(seg);
+          durations.push(await probe(seg));
+          continue;
+        }
+        layer = { pattern: mg.pattern };
+      } else if (text || !a) {
         const ld = join(dir, `txt${i}`);
         mkdirSync(ld, { recursive: true });
         // Text cards: words only (transparent) — the backdrop is drawn below so it can drift.
@@ -1671,7 +1686,7 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
       const v = await import("./deck/voice.mjs");
       style.deck.voiceFile = await v.buildNarration(slots, starts, acc, dir, ffmpeg);
       if (style.deck.captions?.enabled !== false) {
-        const ass = v.buildCaptionsAss(slots, starts, W, H, style.deck.brand);
+        const ass = v.buildCaptionsAss(slots, starts, W, H, style.deck.brand, { position: style.deck.mode === "explainer" ? "bottom" : "top" });
         if (ass) {
           style.deck.captionsFile = join(dir, "captions.ass");
           writeFileSync(style.deck.captionsFile, ass);
@@ -1943,7 +1958,7 @@ async function loadRenderInputs(projectId, aspectOverride, deckVariant = null) {
     // Music & voice mix (phase 5+): levels, tone presets, how the music behaves under the voice; music can be off.
     const audio = { music: true, musicGainDb: 0, voiceGainDb: 0, musicTone: "neutral", voiceTone: "neutral", duck: "steady", ...(brief.audio ?? {}) };
     style.deck = {
-      scenes, brand, voice: brief.voice ?? { mode: "off" }, captions: brief.captions ?? { enabled: true }, audio,
+      mode: brief.mode ?? "ad", scenes, brand, voice: brief.voice ?? { mode: "off" }, captions: brief.captions ?? { enabled: true }, audio,
       camera: brief.camera?.mode ?? "off",
       backdrop: brief.backdrop ?? null, backdrops: project.deck?.backdrops ?? [],
     };

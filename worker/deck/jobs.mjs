@@ -77,7 +77,7 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
     const started = new Date().toISOString();
     try {
       const assets = await loadMedia(projectId);
-      if (!assets.length) throw new Error("Add some photos or videos first.");
+      if (!assets.length && brief.mode !== "explainer") throw new Error("Add some photos or videos first."); // explainers can be all animation
       const todo = assets.filter((a) => !isCurrent(a.ai_description));
       for (const [i, a] of todo.entries()) {
         await setPlan(projectId, { status: "describing", done: i, total: todo.length, startedAt: started });
@@ -95,6 +95,8 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
         media,
         locked.map((l) => ({ orderIndex: l.order_index, role: l.role, assetId: l.asset_id, durationSec: l.duration_sec, text: l.text })),
       );
+      // Never replace the storyboard with nothing (a re-plan deletes the unlocked scenes below).
+      if (!result.scenes.length) throw new Error("The planner came back empty — press Plan again.");
       // New scenes fill the slots around the locked ones; locked scenes keep their position. Locked rows are
       // re-read inside the transaction: the model call takes minutes and the user may lock a scene meanwhile.
       let order = [];
@@ -111,7 +113,7 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
           const textMode = brief.textMode === "off" && s.role !== "cta" ? "none" : "auto";
           await tx`insert into deck_scenes ${tx({
             id: randomUUID(), project_id: projectId, order_index: i, role: s.role, asset_id: s.assetId,
-            duration_sec: s.durationSec, in_sec: s.inSec ?? null, text_mode: textMode, text: tx.json(s.text), layout: s.layout, voice: s.voice || null,
+            duration_sec: s.durationSec, in_sec: s.inSec ?? null, text_mode: textMode, text: tx.json(s.text), layout: s.layout, voice: s.voice || null, prompt: s.shot || null,
             why: s.flags?.length ? `${s.why} (Removed ${s.flags.includes("removed-unverified-claim") ? "a claim" : "a number"} that wasn't in your brief.)`.trim() : s.why,
           })}`;
         }

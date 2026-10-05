@@ -109,10 +109,11 @@ const clean = (w) => String(w).replace(/[{}\\]/g, "").trim();
 
 /**
  * ASS captions: each scene's words in short groups (≤4 words, or up to a pause), each word filling with the
- * brand colour as it's spoken. Top-centre, clear of the bottom text layouts and the watermark.
+ * brand colour as it's spoken. Top-centre, clear of the bottom text layouts and the watermark — or bottom-centre
+ * (`position: "bottom"`) for explainers, whose animated scenes put their headline at the top.
  */
-export function buildCaptionsAss(slots, starts, W, H, brand = {}) {
-  const fs = Math.round(Math.min(W, H) * 0.08);
+export function buildCaptionsAss(slots, starts, W, H, brand = {}, { position = "top" } = {}) {
+  const fs = Math.round(Math.min(W, H) * (position === "bottom" ? 0.055 : 0.08));
   const font = String(brand.headingFont || "Montserrat").replace(/[^A-Za-z0-9 -]/g, "") || "Montserrat";
   const lines = [];
   slots.forEach((s, i) => {
@@ -153,7 +154,7 @@ export function buildCaptionsAss(slots, starts, W, H, brand = {}) {
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
     // Primary = the spoken (highlighted) colour, Secondary = not yet spoken.
-    `Style: Cap,${font},${fs},${assColour(brand.primary, "#fde047")},&H00FFFFFF&,&H00000000&,&H78000000&,-1,0,0,0,100,100,0,0,1,${Math.max(2, Math.round(fs * 0.07))},${Math.round(fs * 0.04)},8,${Math.round(W * 0.07)},${Math.round(W * 0.07)},${Math.round(H * 0.1)},1`,
+    `Style: Cap,${font},${fs},${assColour(brand.primary, "#fde047")},&H00FFFFFF&,&H00000000&,&H78000000&,-1,0,0,0,100,100,0,0,1,${Math.max(2, Math.round(fs * 0.07))},${Math.round(fs * 0.04)},${position === "bottom" ? 2 : 8},${Math.round(W * 0.07)},${Math.round(W * 0.07)},${Math.round(H * (position === "bottom" ? 0.06 : 0.1))},1`,
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",

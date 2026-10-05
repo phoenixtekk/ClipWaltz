@@ -2,13 +2,16 @@
 // One WaltzDeck scene drawn in the browser: the media (video/photo) with the scene's text layout on top.
 // A close approximation of worker/deck/templates (same layout names, fonts and proportions) for the
 // storyboard cards and the instant preview; the render uses the real templates.
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "cn";
 import { rotatedFill, rotationParent } from "@/lib/rotation";
 import { aspectNumber, cardRect, frameRect, type SceneFrameBox } from "@/lib/deck/frame";
 import type { CameraMode, ResolvedBackdrop, SceneText } from "@/lib/deck/types";
 import { BACKDROP_CSS, backdropMarkup, backdropTone, mediaArea, textZone, type TextZone } from "../../../worker/deck/backdrop.mjs";
 import { CAMERA_SIZE, type CameraMove } from "@/lib/deck/camera";
+import { motionHtml, motionOpaque, settledAt } from "../../../worker/deck/motion.mjs";
+import { BRAND_FONTS_CSS } from "@/lib/brand";
+import { isMotionLayout } from "@/lib/deck/types";
 
 // Preview versions of the render's camera moves (worker/deck/camera.mjs) as CSS animations on the media only.
 const CAMERA_CSS = `
@@ -154,6 +157,21 @@ export function SceneFrame({
       />
     )
   ) : null;
+  if (isMotionLayout(scene.layout)) {
+    // Animated scene (worker/deck/motion.mjs): the same page the render draws, in a scaled iframe. Over-media layouts
+    // sit on the scene's media; the others draw their own background and don't show it.
+    const behind = !!asset && !motionOpaque(scene.layout, true);
+    return (
+      <div
+        className={cn("relative w-full overflow-hidden rounded-lg bg-black [container-type:size]", aspectCss, className)}
+        style={behind && !zoomedOut ? rotationParent(asset!.rotation) : undefined}
+      >
+        {cam ? <style>{CAMERA_CSS}</style> : null}
+        {behind ? <div className="absolute inset-0" style={cam}><div className="absolute inset-0" style={box}>{media}</div></div> : null}
+        <MotionLayer layout={scene.layout} text={t} brand={brand} aspect={aspect} durationSec={durationSec} playing={playing} over={behind} />
+      </div>
+    );
+  }
   return (
     <div
       className={cn("relative w-full overflow-hidden rounded-lg bg-black [container-type:size]", aspectCss, className)}
@@ -184,6 +202,91 @@ export function SceneFrame({
           ink={cardOnly && backdropTone(scene.backdrop, textZone(textLayout, { card: true, wide })) === "light" ? "dark" : "light"}
         />
       ) : null}
+    </div>
+  );
+}
+
+/** The brand logo as a data URL for the sandboxed preview page (it has no cookies to load the app's logo route). */
+const logoCache = new Map<string, Promise<string | null>>();
+function useLogoDataUrl(url: string | null) {
+  const [got, setGot] = useState<{ url: string; data: string | null } | null>(null);
+  useEffect(() => {
+    if (!url) return;
+    let live = true;
+    if (!logoCache.has(url)) {
+      logoCache.set(url, fetch(url).then(async (r) => {
+        const b = r.ok ? await r.blob() : null;
+        if (!b || !/^image\/(png|jpeg|webp)$/.test(b.type)) return null;
+        return await new Promise<string | null>((res) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result)); fr.onerror = () => res(null); fr.readAsDataURL(b); });
+      }).catch(() => null));
+    }
+    void logoCache.get(url)!.then((data) => { if (live) setGot({ url, data }); });
+    return () => { live = false; };
+  }, [url]);
+  return url && got?.url === url ? got.data : null;
+}
+
+/**
+ * An animated scene's page at a fixed size (1280 px on the long side), scaled to the frame. Playing: runs once from the
+ * start and holds the last frame; otherwise shows the moment where everything has arrived.
+ */
+function MotionLayer({ layout, text, brand, aspect, durationSec, playing, over }: {
+  layout: string; text: SceneText; brand: FrameBrand; aspect: number; durationSec: number; playing: boolean; over: boolean;
+}) {
+  const W = aspect >= 1 ? 1280 : Math.round(1280 * aspect), H = aspect >= 1 ? Math.round(1280 / aspect) : 1280;
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const [scale, setScale] = useState(0);
+  const [loaded, setLoaded] = useState(0);
+  const logo = useLogoDataUrl(brand?.logoUrl ?? null);
+  const dur = Math.max(1, durationSec);
+  const key = JSON.stringify([text.headline, text.sub, text.bullets]);
+  const html = useMemo(() => motionHtml({
+    layout, text, W, H, dur, over, stars: 90, fontsCss: BRAND_FONTS_CSS,
+    brand: brand ? { primary: brand.primary, secondary: brand.secondary, headingFont: brand.headingFont, bodyFont: brand.bodyFont, logoDataUrl: logo } : {},
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [layout, key, W, H, dur, over, brand?.primary, brand?.secondary, brand?.headingFont, brand?.bodyFont, logo]);
+  const pageKey = useMemo(() => { let h = 0; for (let i = 0; i < html.length; i++) h = (Math.imul(h, 31) + html.charCodeAt(i)) | 0; return `${h}-${html.length}`; }, [html]);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setScale(el.clientWidth / W));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [W]);
+  // The page runs in a scripts-only sandbox (no same-origin access): it says when it's ready, and frames are drawn by
+  // message — so a slip in its escaping could never act as the app.
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      if (e.source && e.source === frameRef.current?.contentWindow && (e.data as { cwReady?: number } | null)?.cwReady) setLoaded((n) => n + 1);
+    };
+    addEventListener("message", onMsg);
+    return () => removeEventListener("message", onMsg);
+  }, []);
+  useEffect(() => {
+    const win = frameRef.current?.contentWindow;
+    if (!loaded || !win) return;
+    const draw = (t: number) => win.postMessage({ cwRender: t }, "*");
+    if (!playing) { draw(settledAt(dur)); return; }
+    let raf = 0;
+    const t0 = performance.now();
+    const tick = () => {
+      const t = Math.min(dur, (performance.now() - t0) / 1000);
+      draw(t);
+      if (t < dur) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [loaded, playing, dur]);
+  return (
+    <div ref={boxRef} className="absolute inset-0 overflow-hidden">
+      <iframe
+        // Remount when the page changes: changing srcdoc on the live sandboxed frame left the old page showing
+        // (verified 2026-10-05 — the brand logo arrived but never appeared).
+        key={pageKey}
+        ref={frameRef} srcDoc={html} title="" aria-hidden tabIndex={-1} sandbox="allow-scripts" onLoad={() => setLoaded((n) => n + 1)}
+        style={{ width: W, height: H, border: 0, background: "transparent", pointerEvents: "none", transform: `scale(${scale})`, transformOrigin: "0 0", colorScheme: "normal" }}
+      />
     </div>
   );
 }

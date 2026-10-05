@@ -62,7 +62,7 @@ export async function getFavoriteTrackIds(userId: string | null): Promise<Set<st
 }
 
 /** The catalogue beds new WaltzDeck ads / presentations start with (owner request 2026-09-30: gentle, not music-video music). */
-const DECK_DEFAULT_TRACK: Record<string, string> = { ad: "t-music-promotion", presentation: "t-presentation-clean" };
+const DECK_DEFAULT_TRACK: Record<string, string> = { ad: "t-music-promotion", presentation: "t-presentation-clean", explainer: "t-music-promotion" };
 
 /**
  * Default soundtrack for a new WaltzDeck project: the mode's gentle bed if it's active, else any active catalogue track

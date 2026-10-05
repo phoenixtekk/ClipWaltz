@@ -17,7 +17,7 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { aspectClass, isWide } from "@/lib/aspect";
 import {
-  CAMERA_MODES, DECK_MODES, LANGUAGES, LAYOUTS, MAX_BULLETS, MOTIONS, MOTION_LABELS, TONES, VOICES, type CameraMode,
+  CAMERA_MODES, DECK_MODES, LANGUAGES, LAYOUTS, MAX_BULLETS, MOTION_FIELDS, MOTIONS, MOTION_LABELS, TONES, VOICES, type CameraMode,
   type BrandSuggestion, type Campaign, type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type SceneTextMode, type TextMode, type VoiceMode, type ResolvedBackdrop,
 } from "@/lib/deck/types";
 import {
@@ -177,7 +177,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
 
   const selIndex = Math.max(0, data.scenes.findIndex((s) => s.id === selId));
   const selScene = data.scenes[selIndex] ?? null;
-  const modeLabel = brief.mode === "ad" ? "Ad" : brief.mode === "presentation" ? "Presentation" : "Slideshow";
+  const modeLabel = DECK_MODES.find((m) => m.key === brief.mode)?.label ?? "Slideshow";
   const tabs: StudioTab<DeckTab>[] = [
     { key: "storyboard", label: "Storyboard", icon: <Wand2 className="size-4" /> },
     { key: "audio", label: "Audio", icon: <Music className="size-4" /> },
@@ -187,7 +187,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
     { key: "render", label: "Render", icon: <Clapperboard className="size-4" /> },
   ];
   const planButton = (
-    <Button className="w-full" disabled={!canEdit || pending || planBusy || !data.assets.length}
+    <Button className="w-full" disabled={!canEdit || pending || planBusy || (!data.assets.length && brief.mode !== "explainer")}
       onClick={() => act(async () => { unwrap(await saveBrief(projectId, brief)); unwrap(await requestPlan(projectId)); })}>
       {planBusy ? <Loader2 className="size-4 animate-spin" /> : <Wand2 className="size-4" />}
       {data.scenes.length ? "Re-plan (keeps locked scenes)" : "Plan my video"}
@@ -244,8 +244,12 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
           <div className="flex rounded-lg border border-border bg-muted/50 p-0.5 text-sm">
             {DECK_MODES.map((m) => (
               <button key={m.key} type="button" disabled={!canEdit} aria-pressed={brief.mode === m.key} title={m.desc}
-                onClick={() => saveBriefNow({ mode: m.key, lengthSec: m.defaultLength })}
-                className={cn("flex-1 rounded-md px-2 py-1.5", brief.mode === m.key ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground")}>
+                onClick={() => saveBriefNow({
+                  mode: m.key, lengthSec: m.defaultLength,
+                  // An explainer is narrated: switching to it turns the AI voiceover on (it can be turned off again).
+                  ...(m.key === "explainer" && (brief.voice?.mode ?? "off") === "off" ? { voice: { voiceId: "af_heart", speed: 1, ...brief.voice, mode: "auto" as const } } : {}),
+                })}
+                className={cn("min-w-0 flex-1 truncate rounded-md px-1 py-1.5 text-xs", brief.mode === m.key ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground")}>
                 {m.label}
               </button>
             ))}
@@ -265,6 +269,8 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
                 ? "e.g. 15-second Instagram ad for our cold brew — summer vibe, easy to order, for busy commuters."
                 : brief.mode === "presentation"
                   ? "e.g. Q3 review for the team — what went well, what we learned, next steps. Friendly, clear."
+                  : brief.mode === "explainer"
+                    ? "e.g. 40-second explainer for TxtYa: groups are spread across texts, chats and email — one message reaches everyone on the channel they already use."
                   : "e.g. Our family trip to Lake Powell — warm, fun, in the order it happened."}
               className={cn(field, "resize-y py-2")} />
           </label>
@@ -404,8 +410,8 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
   ) : null;
 
   const steps: StudioStep[] = [
-    { label: "Add media", hint: data.assets.length ? `${data.assets.length} file${data.assets.length === 1 ? "" : "s"}${describing ? " · looking…" : " · all seen"}` : "photos & videos", state: data.assets.length ? "done" : "current" },
-    { label: "Brief & plan", hint: data.scenes.length ? `${data.scenes.length} scenes planned` : "write the brief, then plan", state: data.scenes.length ? "done" : data.assets.length ? "current" : "todo", onClick: () => setTab("storyboard") },
+    { label: "Add media", hint: data.assets.length ? `${data.assets.length} file${data.assets.length === 1 ? "" : "s"}${describing ? " · looking…" : " · all seen"}` : brief.mode === "explainer" ? "optional for explainers" : "photos & videos", state: data.assets.length ? "done" : "current" },
+    { label: "Brief & plan", hint: data.scenes.length ? `${data.scenes.length} scenes planned` : "write the brief, then plan", state: data.scenes.length ? "done" : data.assets.length || brief.mode === "explainer" ? "current" : "todo", onClick: () => setTab("storyboard") },
     { label: "Review scenes", hint: "text, media, voice", state: data.scenes.length ? "current" : "todo" },
     { label: "Render & share", hint: "video, slides, campaign", state: "todo", onClick: () => setTab("render") },
   ];
@@ -1020,6 +1026,7 @@ function SceneCard({
   const [headline, setHeadline] = useState(scene.text.headline ?? "");
   const [sub, setSub] = useState(scene.text.sub ?? "");
   const [bullets, setBullets] = useState((scene.text.bullets ?? []).join("\n"));
+  const mg = MOTION_FIELDS[scene.layout] ?? null; // animated layout: what its text fields mean
   const [ask, setAsk] = useState("");
   const [voice, setVoice] = useState(scene.voice ?? "");
   // Pick up server-side rewrites (the card stays mounted while the worker updates the text).
@@ -1098,10 +1105,18 @@ function SceneCard({
 
           {!textOff ? (
             <div className="space-y-1.5">
-              <input value={headline} disabled={!canEdit || busy} onChange={(e) => setHeadline(e.target.value)} onBlur={commitText} maxLength={90} placeholder="Headline" className={cn(field, "h-8 font-semibold")} />
-              <input value={sub} disabled={!canEdit || busy} onChange={(e) => setSub(e.target.value)} onBlur={commitText} maxLength={140} placeholder="Subline (optional)" className={cn(field, "h-8")} />
-              {scene.layout === "bullets" || scene.layout === "slide" ? (
-                <textarea value={bullets} disabled={!canEdit || busy} onChange={(e) => setBullets(e.target.value)} onBlur={commitText} rows={3} placeholder={`One point per line (up to ${MAX_BULLETS})`} className={cn(field, "py-1.5 text-xs")} />
+              <input value={headline} disabled={!canEdit || busy} onChange={(e) => setHeadline(e.target.value)} onBlur={commitText} maxLength={90}
+                placeholder={mg?.headline ?? "Headline"} aria-label={mg?.headline ?? "Headline"} className={cn(field, "h-8 font-semibold")} />
+              {!mg || mg.sub ? (
+                <input value={sub} disabled={!canEdit || busy} onChange={(e) => setSub(e.target.value)} onBlur={commitText} maxLength={140}
+                  placeholder={mg?.sub ?? "Subline (optional)"} aria-label={mg?.sub ?? "Subline"} className={cn(field, "h-8")} />
+              ) : null}
+              {scene.layout === "bullets" || scene.layout === "slide" || mg?.bullets ? (
+                <textarea value={bullets} disabled={!canEdit || busy} onChange={(e) => setBullets(e.target.value)} onBlur={commitText} rows={mg ? 4 : 3}
+                  placeholder={mg?.bullets ?? `One point per line (up to ${MAX_BULLETS})`} aria-label={mg?.bullets ?? "Points"} className={cn(field, "py-1.5 text-xs")} />
+              ) : null}
+              {mg && asset && mg.media === "ignored" ? (
+                <p className="text-[11px] text-muted-foreground">This animated layout draws its own picture — the scene&apos;s media isn&apos;t shown.</p>
               ) : null}
             </div>
           ) : <p className="text-xs text-muted-foreground">No text on this scene.</p>}
@@ -1147,7 +1162,7 @@ function SceneCard({
             </Fold>
           ) : null}
           <AiFill sceneSec={scene.durationSec} hasPhoto={asset?.kind === "photo"} fill={fill} credits={credits} canEdit={canEdit} onFill={onFill}
-            defaultPrompt={[scene.text.headline, scene.text.sub].filter(Boolean).join(" — ")} />
+            defaultPrompt={scene.prompt || [scene.text.headline, scene.text.sub].filter(Boolean).join(" — ")} />
           {scene.why ? (
             <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
               {busy ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />} {scene.why}

@@ -284,6 +284,20 @@ them there, then come back. (These are in addition to the "video ready" email, w
   translated, same clips and look. Prices, codes and web addresses stay exactly as you wrote them. Your original deck
   isn't changed. (In other languages the word-by-word caption highlight is timed approximately.)
 
+## WaltzDeck — make an animated explainer
+- **New project → WaltzDeck → Explainer.** You don't need any photos or videos: write what your product does and who
+  it's for, then press **Plan my video**. The AI writes the scenes and a voiceover, in one glowing look in your brand
+  colour.
+- **Animated scenes** (pick any of them in a scene's layout list — they work in any deck): apps orbiting a phone,
+  notification overload, big words, logo reveal, chat on a phone, one message to every channel, and an end card. The
+  boxes under the layout change to say what each one shows — for a chat, write one message per line like
+  `Sam: Got it, thanks! (WhatsApp)`, and start your own with `Me:`.
+- **Add real footage where it helps:** big words, chat and the end card play over the scene's photo or video. If the
+  planner suggested a shot, open **Generate a shot** on that scene — the description is already filled in (each AI
+  shot takes about 10 minutes and uses AI credits).
+- Press play in the editor to watch the animation; **Render HD** makes the video. Slides (PDF / PowerPoint) show each
+  animated scene as a picture.
+
 ## WaltzDeck — make the voiceover say your brand name right
 - Open **Brand** → **Say it right** → **Add a word**. Type the word as you write it (**TxtYa**) and how it should sound
   (**Text Ya**). Add as many as you need (up to 20), and remove one with the bin.

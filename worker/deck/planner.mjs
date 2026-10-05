@@ -5,6 +5,8 @@
 //      is then validated and repaired here — the model never gets the last word on ids, timing or text rules.
 // Pure functions: no DB, no storage. The caller (generation worker) loads inputs and saves the result.
 
+import { MOTION_LAYOUTS, OVER_MEDIA_LAYOUTS } from "./motion.mjs";
+
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://192.168.166.182:11434";
 // One model for both steps by default: the Ollama box is shared and evicts idle models, so a second
 // model means a 15–60 s reload between describe and plan (measured 2026-09-29). qwen3-vl:30b (MoE) answers
@@ -12,8 +14,8 @@ const OLLAMA_URL = process.env.OLLAMA_URL || "http://192.168.166.182:11434";
 export const VISION_MODEL = process.env.DECK_VISION_MODEL || "qwen3-vl:30b";
 export const TEXT_MODEL = process.env.DECK_TEXT_MODEL || "qwen3-vl:30b";
 
-export const MODES = ["ad", "slideshow", "presentation"]; // explainer, recap: later phases
-export const LAYOUTS = ["headline-bottom", "headline-center", "lower-third", "bullets", "title-card", "cta-card", "slide"];
+export const MODES = ["ad", "slideshow", "presentation", "explainer"];
+export const LAYOUTS = ["headline-bottom", "headline-center", "lower-third", "bullets", "title-card", "cta-card", "slide", ...MOTION_LAYOUTS];
 export const ROLES = ["hook", "problem", "benefit", "proof", "content", "title", "cta"];
 const WORDS_PER_SEC = 3; // comfortable on-screen reading speed
 const SPEECH_WPS = 2.8; // Kokoro at speed 1.0 (measured 2.7-3.3 words/s incl. pauses)
@@ -32,7 +34,10 @@ const MIN_SCENE = 1.2;
 const MAX_SCENE = 8;
 // Slides are read, not glanced at: longer scenes and more / longer points than an ad.
 const maxSceneOf = (mode) => (mode === "presentation" ? 15 : MAX_SCENE);
-const bulletLimits = (mode) => (mode === "presentation" ? { n: 5, chars: 80 } : { n: 4, chars: 60 });
+const bulletLimits = (mode) => (mode === "presentation" ? { n: 5, chars: 80 } : mode === "explainer" ? { n: 6, chars: 80 } : { n: 4, chars: 60 });
+const isMg = (l) => MOTION_LAYOUTS.includes(l);
+/** Animated layouts: how many bullets each uses (chat messages, channels, the end card's web address). */
+const MG_BULLETS = { "mg-chat": 5, "mg-fanout": 6, "mg-end": 1 };
 
 // Streams the reply (NDJSON) and returns the same shape as a non-streamed call. Streaming matters: Node's
 // fetch (undici) drops a request whose response headers take > 300 s, and a non-streamed Ollama call sends
@@ -198,6 +203,7 @@ export const PLAN_SCHEMA = {
           sub: { type: "string" },
           bullets: { type: "array", items: { type: "string" } },
           layout: { type: "string", enum: LAYOUTS },
+          shot: { type: "string" }, // explainer: an AI video shot to generate for this scene (optional)
           why: { type: "string" },
         },
         required: ["role", "media", "durationSec", "headline", "sub", "bullets", "layout", "why"],
@@ -224,7 +230,25 @@ const MODE_GUIDE = {
     "point — a short headline plus 2-4 bullets (max 8 words each) in layout 'slide' (media beside the text) or " +
     "'bullets'; use a photo/video on most slides when one fits. End with a closing slide (a summary or 'cta' card " +
     "if a call to action is given). Slides last 6-12 s — long enough to read.",
+  explainer:
+    "An ANIMATED EXPLAINER (like a polished product explainer: one consistent glowing look, a voiceover carrying the " +
+    "story, animated scenes instead of footage). Structure: the PROBLEM in 1-3 scenes (role 'problem'), a turning " +
+    "question or statement, the product reveal (layout mg-logo, role 'title'), how it works / the benefit in 2-3 " +
+    "scenes ('benefit'), and an end card (layout mg-end, role 'cta'). Use the ANIMATED layouts (mg-*) for most scenes; " +
+    "pick the one whose picture matches what the voiceover says. On-screen text is short (a headline of max 6 words); " +
+    "the voiceover does the explaining. Scenes last 3.5-7 s.",
 };
+
+/** The animated layouts as the planner sees them (worker/deck/motion.mjs). */
+const MG_GUIDE =
+  "ANIMATED layouts (media 0 unless noted):\n" +
+  "  mg-orbit — app icons orbiting a glowing phone (everyone uses different apps); headline only.\n" +
+  "  mg-swarm — notification badges swarming a phone, a counter climbing to 99+ (overload, noise, too much); headline only.\n" +
+  "  mg-words — 2-5 big words punching in one by one, good for a turning point, e.g. 'Why force it?'; headline = the words; sub usually empty (or a short line that adds to the words). Can sit over media or a shot.\n" +
+  "  mg-logo — the product name revealed with a glow; headline = the product/brand name, sub = a short tagline.\n" +
+  "  mg-chat — a chat on a phone, messages popping in; headline = chat name; bullets = 3-5 short chat messages people in the story would send, each 'Name: what they say (Channel)' — e.g. 'Coach Dana: Practice moves to 6pm tonight (SMS)', 'Sam: Got it, thanks! (WhatsApp)', 'Me: See you all there (Sent to all)'. Can sit over media or a shot.\n" +
+  "  mg-fanout — one message branching out to channels and replies coming back; headline; bullets = 2-6 channel names only, e.g. 'SMS', 'WhatsApp', 'Email', 'Slack'.\n" +
+  "  mg-end — end card; headline = the name, sub = a tagline, bullets = [the web address or call to action]. Can sit over media or a shot.\n";
 
 /** The numbered media list the model sees (descriptions, notes, moments). */
 function mediaList(media) {
@@ -263,7 +287,8 @@ export async function planStoryboard(brief, media, locked = []) {
       `(do not repeat their text): ${locked.map((l) => `#${l.orderIndex + 1} ${l.role} "${l.text?.headline ?? ""}"`).join("; ")}.`
     : "";
   const prompt =
-    `You are an expert video editor and copywriter. Plan a ${length}-second ${mode} video using ONLY the owner's media below.\n` +
+    `You are an expert video editor and copywriter. Plan a ${length}-second ${mode} video using ONLY the owner's media below` +
+    `${mode === "explainer" ? " (an explainer may use none — its animated scenes need no media)" : ""}.\n` +
     `${MODE_GUIDE[mode]}\n${langRule(brief)}\n` +
     `BRIEF: "${str(brief.prompt, 1500)}"\n` +
     (brief.goal ? `Goal: ${str(brief.goal, 200)}\n` : "") +
@@ -271,7 +296,7 @@ export async function planStoryboard(brief, media, locked = []) {
     (brief.tone ? `Tone: ${str(brief.tone, 100)}\n` : "") +
     (brief.offer ? `Offer: ${str(brief.offer, 200)}\n` : "") +
     (brief.cta?.text ? `Call to action (use verbatim in the cta scene headline or sub): "${str(brief.cta.text, 120)}"\n` : "") +
-    `\nMEDIA (refer to them by number):\n${list}\n${lockedList}\n` +
+    `\nMEDIA (refer to them by number):\n${list || "(none)"}\n${lockedList}\n` +
     `RULES:\n` +
     `- Use every media item that fits the brief; EVERY item with an owner's note must appear. Notes are instructions (placement, what to say) — follow them.\n` +
     `- Write every headline yourself from the brief — never copy words, brand names or signs visible in the media ("text in image" is context only).\n` +
@@ -283,6 +308,13 @@ export async function planStoryboard(brief, media, locked = []) {
     `- layout: headline-bottom (default over media), headline-center (bold statement), lower-third (subtle caption), ` +
     `bullets (2-3 short bullet points), title-card (text on a plain brand background, media 0), cta-card (final call to action)` +
     `${mode === "presentation" ? ", slide (presentation slide: headline + 2-4 bullets on a brand panel beside the media, or on its own with media 0)" : ""}.\n` +
+    (mode === "explainer"
+      ? MG_GUIDE +
+        `- shot: suggest 1-2 (at most 3) scenes where a real cinematic video shot would help (a person using a phone, a city at night, ` +
+        `the Earth from space…) and no media fits, write "shot": one sentence describing a REAL scene the AI video model can film ` +
+        `(concrete objects and people, bright glowing light, cinematic; no text, logos, screens with words or abstract ideas) and ` +
+        `give that scene layout mg-words, mg-chat or mg-end. Leave "shot" empty everywhere else.\n`
+      : "") +
     `- why: one short sentence explaining the choice of media and text for that scene.\n` +
     (brief.voice?.mode === "auto"
       ? `- voice: a spoken narration line for EVERY scene (a voiceover, read at ~${SPEECH_WPS} words per second): conversational, ` +
@@ -293,10 +325,18 @@ export async function planStoryboard(brief, media, locked = []) {
 
 ` +
     `JSON shape: {"title":string,"scenes":[{"role":${ROLES.map((r) => `"${r}"`).join("|")},"media":integer (1-based, 0 = none),` +
-    `"durationSec":number,"moment":integer,${brief.voice?.mode === "auto" ? '"voice":string,' : ""}"headline":string,"sub":string,"bullets":[string],"layout":${LAYOUTS.map((l) => `"${l}"`).join("|")},"why":string}]}`;
+    `"durationSec":number,"moment":integer,${brief.voice?.mode === "auto" ? '"voice":string,' : ""}"headline":string,"sub":string,"bullets":[string],"layout":${LAYOUTS.filter((l) => mode === "explainer" || !isMg(l)).map((l) => `"${l}"`).join("|")},${mode === "explainer" ? '"shot":string,' : ""}"why":string}]}`;
   const t0 = Date.now();
-  const { data: raw, raw: j } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.5, numPredict: 8000, numCtx: 16384, timeoutMs: 600000 });
+  let { data: raw, raw: j } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.5, numPredict: 8000, numCtx: 16384, timeoutMs: 600000 });
   if (process.env.DECK_DEBUG === "1") console.log(`[deck] raw plan: ${JSON.stringify(raw).slice(0, 4000)}`);
+  // No scenes at all (seen once on an explainer, 2026-10-05: the model returned nothing usable): one more try.
+  if (!Array.isArray(raw?.scenes) || !raw.scenes.length) {
+    console.warn("[deck] plan came back without scenes — retrying once");
+    ({ data: raw, raw: j } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.6, numPredict: 8000, numCtx: 16384, timeoutMs: 600000 }));
+  }
+  // Animated layouts are offered to explainers only (the JSON schema enum lists them all): elsewhere a model pick
+  // falls back to the usual defaults — an mg-orbit with the owner's photo would never show the photo.
+  if (mode !== "explainer") for (const s of Array.isArray(raw?.scenes) ? raw.scenes : []) if (isMg(s?.layout)) s.layout = "";
   let plan = repairPlan(raw, { brief: { ...brief, mode, lengthSec: length }, media, locked });
   // Narration that just repeats the on-screen text is dull (prod plan 2026-09-29: 6/6 lines == headline).
   // When most lines duplicate their text, one focused call writes the narration alone, then re-repair.
@@ -353,7 +393,15 @@ const CLAIM_RULES = [
   { re: /\b(clinically|scientifically|proven|doctor[- ]recommended|dermatologist)\b/i, keys: ["clinical", "scientific", "proven", "doctor", "dermatologist"] },
   { re: /\b(deals?|sale|discounts?|promo(tion)?s?|special offer)\b/i, keys: ["deal", "sale", "discount", "promo", "offer"], offerOk: true },
 ];
+const DOT_STOP = new Set(["more", "no", "a", "the", "any", "one", "every", "of", "and", "or", "to", "our", "your", "this", "that", "old", "new", "big", "early"]);
 export function unverifiedClaim(line, srcLower, hasOffer) {
+  // Web addresses (written or spoken: "example dot com") the owner never gave are invented — an explainer plan put a
+  // made-up "txtya.com" on its end card and in the voiceover (2026-10-05).
+  // "example dot com" is an address; "no more dot com clutter" isn't (a common word before "dot").
+  const low = String(line).toLowerCase().replace(/\b([a-z0-9-]+) dot (com|net|org|io|co|app|ai)\b/g,
+    (m, w, tld) => (DOT_STOP.has(w) ? m : `${w}.${tld}`));
+  const doms = low.match(/\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|co|app|ai|dev|us|uk|ca|au|de|fr|es|it|shop|store|biz|info|me|tv)\b/g) ?? [];
+  if (doms.some((d) => !srcLower.includes(d.replace(/^www\./, "")))) return true;
   for (const r of CLAIM_RULES) {
     if (!r.re.test(line)) continue;
     if (r.offerOk && hasOffer) continue;
@@ -391,7 +439,7 @@ async function writeNarration(brief, scenes, media) {
     return `${i + 1}. ${sc.role}, ${sc.durationSec}s — shows: ${m?.desc?.summary || (m ? "the owner's media" : "a text card")}; on-screen text: "${[sc.text.headline, sc.text.sub].filter(Boolean).join(" — ")}"`;
   }).join("\n");
   const prompt =
-    `Write the VOICEOVER for a ${brief.mode === "slideshow" ? "slideshow" : "short ad"}. ${langRule(brief)}BRIEF: "${str(brief.prompt, 1200)}"` +
+    `Write the VOICEOVER for a ${brief.mode === "slideshow" ? "slideshow" : brief.mode === "explainer" ? "short animated explainer" : "short ad"}. ${langRule(brief)}BRIEF: "${str(brief.prompt, 1200)}"` +
     (brief.tone ? ` Tone: ${str(brief.tone, 100)}.` : "") + (brief.offer ? ` Offer: ${str(brief.offer, 200)}.` : "") +
     (brief.cta?.text ? ` Call to action: "${str(brief.cta.text, 120)}".` : "") + `\nSCENES:\n${list}\n` +
     `One spoken line per scene, in order. Each line: conversational, 5-14 words, fits the scene length at ~${SPEECH_WPS} words per second, ` +
@@ -411,7 +459,7 @@ const wantsLast = (note) => /\b(last|end(?:ing)?|close|closing|finish|final)\b/i
  * Validate + repair a model plan: known media only, durations clamped and scaled to the target length,
  * text rules (textMode off / reading speed), a CTA end card for ads with a CTA, locked scenes restored.
  */
-export function repairPlan(raw, { brief, media, locked = [] }) {
+export function repairPlan(raw, { brief, media, locked = [], single = false }) {
   const length = brief.lengthSec;
   const MAXS = maxSceneOf(brief.mode);
   const BL = bulletLimits(brief.mode);
@@ -420,8 +468,13 @@ export function repairPlan(raw, { brief, media, locked = [] }) {
     const idx = Number.isInteger(s.media) ? s.media : 0;
     const m = idx >= 1 && idx <= media.length ? media[idx - 1] : null;
     const role = ROLES.includes(s.role) ? s.role : "content";
-    let layout = LAYOUTS.includes(s.layout) ? s.layout : m ? "headline-bottom" : "title-card";
-    if (!m && !["title-card", "cta-card", "slide"].includes(layout)) layout = role === "cta" ? "cta-card" : brief.mode === "presentation" ? "slide" : "title-card";
+    let layout = LAYOUTS.includes(s.layout) ? s.layout : m ? "headline-bottom" : brief.mode === "explainer" ? "mg-words" : "title-card";
+    if (!m && !isMg(layout) && !["title-card", "cta-card", "slide"].includes(layout)) {
+      layout = role === "cta" ? (brief.mode === "explainer" ? "mg-end" : "cta-card") : brief.mode === "presentation" ? "slide" : brief.mode === "explainer" ? "mg-words" : "title-card";
+    }
+    // A suggested AI shot (explainer) goes behind an over-media layout once it's generated.
+    const shot = brief.mode === "explainer" && !m ? str(s.shot, 400) : "";
+    if (shot && !OVER_MEDIA_LAYOUTS.includes(layout)) layout = role === "cta" ? "mg-end" : "mg-words";
     let dur = Math.max(MIN_SCENE, Math.min(MAXS, Number(s.durationSec) || 3));
     if (m?.kind === "video" && m.durationSec) dur = Math.min(dur, Math.max(MIN_SCENE, m.durationSec));
     const moments = m?.desc?.moments ?? [];
@@ -438,9 +491,12 @@ export function repairPlan(raw, { brief, media, locked = [] }) {
         bullets: (Array.isArray(s.bullets) ? s.bullets : []).map((b) => str(b, BL.chars)).filter(Boolean).slice(0, BL.n),
       },
       layout,
+      shot,
       why: str(s.why, 200),
     });
   }
+  // At most 3 suggested shots (each is ~10 min of GPU time).
+  scenes.filter((sc) => sc.shot).slice(3).forEach((sc) => { sc.shot = ""; });
   if (!scenes.length) {
     // The model returned nothing usable: one scene per media item, in upload order, no text.
     for (const m of media) scenes.push({ role: "content", assetId: m.id, durationSec: 3, text: { headline: "", sub: "", bullets: [] }, layout: "headline-bottom", why: "Fallback: media in upload order." });
@@ -480,7 +536,7 @@ export function repairPlan(raw, { brief, media, locked = [] }) {
   }
   // No invented claims beyond numbers: a line making one of these claims is kept only when the owner's own
   // words (brief, offer, CTA, notes) contain the claim. Verified need: "Limited time offer" slipped into a prod ad.
-  const srcText = [brief.prompt, brief.goal, brief.audience, brief.tone, brief.offer, brief.cta?.text, ...media.map((m) => m.note)].join(" ").toLowerCase();
+  const srcText = [brief.prompt, brief.goal, brief.audience, brief.tone, brief.offer, brief.cta?.text, brief.cta?.url, ...media.map((m) => m.note)].join(" ").toLowerCase();
   for (const sc of scenes) {
     const t = sc.text;
     const bad = (line) => !!line && unverifiedClaim(line, srcText, !!str(brief.offer, 200));
@@ -498,7 +554,21 @@ export function repairPlan(raw, { brief, media, locked = [] }) {
   if (lockedCta) {
     for (let i = scenes.length - 1; i >= 0; i--) if (scenes[i].role === "cta" && !scenes[i].assetId) scenes.splice(i, 1);
   }
-  if (brief.mode === "ad" && ctaText && !lockedCta) {
+  // Explainers end on the animated end card carrying the call to action (its web address when there is one).
+  if (brief.mode === "explainer" && ctaText && !lockedCta && !single) {
+    let last = scenes[scenes.length - 1];
+    if (!last || last.role !== "cta") {
+      last = { role: "cta", assetId: null, durationSec: 4, text: { headline: "", sub: "", bullets: [] }, layout: "mg-end", shot: "", why: "Ends on your call to action." };
+      scenes.push(last);
+    }
+    last.layout = "mg-end";
+    const url = str(brief.cta?.url, 80);
+    last.text.bullets = [url || ctaText];
+    // The owner's CTA words are on screen: in the pill (no web address) or else the tagline.
+    const t = last.text;
+    if (url && !`${t.headline} ${t.sub}`.toLowerCase().includes(ctaText.toLowerCase())) t.sub = ctaText;
+  }
+  if (brief.mode === "ad" && ctaText && !lockedCta && !single) {
     let last = scenes[scenes.length - 1];
     if (!last || last.role !== "cta") {
       last = { role: "cta", assetId: null, durationSec: 2.5, text: { headline: "", sub: "", bullets: [] }, layout: "cta-card", why: "Ends on your call to action." };
@@ -546,8 +616,15 @@ export function repairPlan(raw, { brief, media, locked = [] }) {
     s.inSec = t == null || !m?.durationSec ? null : Math.round(Math.max(0, Math.min(m.durationSec - s.durationSec, t - s.durationSec / 2)) * 10) / 10;
     delete s.momentT;
     if (brief.textMode === "off" && s.role !== "cta") s.text = { headline: "", sub: "", bullets: [] };
-    else s.text = fitText(s.text, Math.max(3, Math.floor(s.durationSec * WORDS_PER_SEC) + 1));
+    else if (isMg(s.layout)) {
+      // Animated layouts: the bullets are part of the picture (chat messages, channels, the end card's address), not
+      // reading load — keep them to what the layout uses; the headline stays short.
+      s.text = { headline: s.text.headline.split(/\s+/).slice(0, s.layout === "mg-words" ? 8 : 10).join(" "), sub: s.text.sub, bullets: s.text.bullets.slice(0, MG_BULLETS[s.layout] ?? 0) };
+    } else s.text = fitText(s.text, Math.max(3, Math.floor(s.durationSec * WORDS_PER_SEC) + 1));
+    if (s.shot) s.why = `${s.why} Suggested AI shot ready — open "Generate a shot" on this scene.`.trim();
     if (s.layout === "bullets" && s.text.bullets.length < 2) s.layout = s.assetId ? "headline-bottom" : "title-card";
+    // A chat needs a conversation: with fewer than two messages it becomes big words.
+    if (s.layout === "mg-chat" && s.text.bullets.length < 2) s.layout = "mg-words";
     // A presentation point with bullets but a layout that can't show them becomes a slide.
     if (brief.mode === "presentation" && s.text.bullets.length >= 2 && !["bullets", "slide"].includes(s.layout) && s.role !== "cta") s.layout = "slide";
   }
@@ -578,7 +655,10 @@ export async function rewriteScene(brief, scene, mediaItem, instruction, sibling
     (mediaItem ? `It shows: ${d.summary || "(no description)"}${mediaItem.note ? ` — owner's note: "${mediaItem.note}"` : ""}.` : "It is a text card with no media.") + "\n" +
     `Current text: headline "${scene.text?.headline ?? ""}", sub "${scene.text?.sub ?? ""}", bullets ${JSON.stringify(scene.text?.bullets ?? [])}.\n` +
     (siblings.length ? `Other scenes already say: ${siblings.map((t) => `"${t}"`).join(", ")} — don't repeat them.\n` : "") +
-    `${ask}\nRules: at most ${maxWords} words in total; ${scene.layout === "bullets" || scene.layout === "slide" ? "2-4 bullets" : "bullets only if the layout is bullets or slide"}; ` +
+    (isMg(scene.layout) ? `This is an ANIMATED scene: ${MG_GUIDE.split("\n").find((l) => l.trim().startsWith(scene.layout)) ?? scene.layout}\n` : "") +
+    `${ask}\nRules: ${isMg(scene.layout)
+      ? `headline at most ${scene.layout === "mg-words" ? 5 : 6} words; ${MG_BULLETS[scene.layout] ? `bullets as the layout describes (keep their meaning and format)` : "no bullets"}`
+      : `at most ${maxWords} words in total; ${scene.layout === "bullets" || scene.layout === "slide" ? "2-4 bullets" : "bullets only if the layout is bullets or slide"}`}; ` +
     `never invent facts, prices, numbers or claims not in the brief or note (no "limited time", "best", "free", "guaranteed", ratings…).\n` +
     (brief.voice?.mode === "auto" ? `Also write "voice": the spoken narration for this scene (≈${Math.max(3, Math.round((Number(scene.durationSec) || 3) * SPEECH_WPS))} words, complements the text).\n` : "") +
     `JSON keys: {"headline":string,"sub":string,"bullets":[string]${brief.voice?.mode === "auto" ? ',"voice":string' : ""}}`;
@@ -587,8 +667,12 @@ export async function rewriteScene(brief, scene, mediaItem, instruction, sibling
   const repaired = repairPlan(
     { title: "x", scenes: [{ role: scene.role, media: mediaItem ? 1 : 0, durationSec: scene.durationSec, headline: data.headline, sub: data.sub, bullets: data.bullets, voice: data.voice, layout: scene.layout, why: "" }] },
     // textMode "auto": the owner asked for text on THIS scene, even if the project default is Off.
-    { brief: { ...brief, mode: brief.mode === "presentation" ? "presentation" : "slideshow", lengthSec: scene.durationSec, cta: null, textMode: "auto" }, media },
+    // `single`: one scene being rewritten — no end card is added; the CTA stays in the owner's words (web-address guard).
+    { brief: { ...brief, mode: ["presentation", "explainer"].includes(brief.mode) ? brief.mode : "slideshow", lengthSec: scene.durationSec, textMode: "auto" }, media, single: true },
   ).scenes[0];
+  // An animated scene's lines are part of its picture (chat, channels, the end card's address): a reply without them
+  // keeps the current ones.
+  if (MG_BULLETS[scene.layout] && !repaired.text.bullets.length) repaired.text.bullets = (scene.text?.bullets ?? []).slice(0, MG_BULLETS[scene.layout]);
   return { ...repaired.text, ...(brief.voice?.mode === "auto" ? { voice: repaired.voice } : {}), ...(repaired.flags ? { flags: repaired.flags } : {}) };
 }
 
@@ -663,7 +747,7 @@ export async function writeHooks(brief, media, base, { hooks: k = 2, ctas: kc = 
   }
   // CTAs: same claim/number guard; web addresses and codes of the original must survive.
   const okNums = allowedNumbers(brief, media);
-  const src = [brief.prompt, brief.goal, brief.audience, brief.tone, brief.offer, brief.cta?.text, ...media.map((m) => m.note)].join(" ").toLowerCase();
+  const src = [brief.prompt, brief.goal, brief.audience, brief.tone, brief.offer, brief.cta?.text, brief.cta?.url, ...media.map((m) => m.note)].join(" ").toLowerCase();
   const must = (cta.match(/\b[\w-]+(\.[\w-]+)+\b|\b[A-Z0-9]{4,}\b/g) ?? []).map((x) => x.toLowerCase());
   const ctas = [];
   for (const c of (Array.isArray(data.ctas) ? data.ctas : []).slice(0, wantC)) {

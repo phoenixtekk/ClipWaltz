@@ -10,6 +10,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { sceneHtml } from "./text-layer.mjs";
+import { isMotionLayout, motionHtml, settledAt } from "./motion.mjs";
 import { vfFrame } from "./frame.mjs";
 import { cardRect, mediaArea, normBackdrop } from "./backdrop.mjs";
 
@@ -146,6 +147,27 @@ export async function buildDeckExport({ projectId, format, watermark, exportId }
     const slides = [];
     for (const [i, sc] of scenes.entries()) {
       const still = stills[i];
+      if (isMotionLayout(sc.layout)) {
+        // Animated scene: one frame where everything has arrived, the scene's photo / video frame under an overlay
+        // layout. A picture slide (no editable text boxes) — the words are part of the artwork.
+        const dur = Number(sc.duration_sec) || 4;
+        const media = typeof still === "string" ? still : still?.dataUrl ?? null;
+        await page.setContent(motionHtml({ layout: sc.layout, text: hasText(sc) ? sc.text : {}, W, H, brand, dur, over: !!media }), { waitUntil: "load" });
+        await page.evaluate(async ({ t, media }) => {
+          await document.fonts.ready;
+          if (media && getComputedStyle(document.body).backgroundColor === "rgba(0, 0, 0, 0)") {
+            const img = document.createElement("img");
+            img.src = media;
+            Object.assign(img.style, { position: "absolute", inset: "0", width: "100%", height: "100%", objectFit: "cover" });
+            document.body.prepend(img);
+            await img.decode().catch(() => {});
+          }
+          window.render(t);
+        }, { t: settledAt(dur), media });
+        if (format === "pdf") slides.push({ pdf: await page.pdf({ width: `${W}px`, height: `${H}px`, printBackground: true, pageRanges: "1", margin: { top: "0", right: "0", bottom: "0", left: "0" } }) });
+        else slides.push({ bg: await page.screenshot({ type: "jpeg", quality: 88 }), runs: [], notes: String(sc.voice ?? "").trim() });
+        continue;
+      }
       const card = !still;
       const mediaCard = still && typeof still === "object" ? still : null;
       await page.setContent(sceneHtml({

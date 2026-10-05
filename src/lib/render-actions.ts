@@ -62,7 +62,11 @@ async function createRenderImpl(projectId: string): Promise<string> {
     .select({ count: sql<number>`count(*)::int` })
     .from(schema.assets)
     .where(and(eq(schema.assets.projectId, projectId), eq(schema.assets.uploadState, "uploaded"), eq(schema.assets.hidden, false)));
-  if (!count) throw new Error("Add at least one clip before rendering");
+  if (proj.kind === "deck") {
+    // A WaltzDeck renders its storyboard; media is optional (text cards, animated explainer scenes).
+    const [{ scenes }] = await db.select({ scenes: sql<number>`count(*)::int` }).from(schema.deckScenes).where(eq(schema.deckScenes.projectId, projectId));
+    if (!scenes) throw new Error("Plan the video first — there are no scenes to render yet.");
+  } else if (!count) throw new Error("Add at least one clip before rendering");
 
   const { shouldWatermark } = await import("./watermark");
   const watermark = await shouldWatermark(userId); // every plan by default; admin can exempt paid plans
@@ -168,7 +172,8 @@ async function getRenderCheckpointImpl(projectId: string): Promise<RenderCheckpo
     : Math.min(proj.lengthSec, footageSec > 0 && !proj.loopToFill ? Math.max(footageSec, proj.lengthSec) : proj.lengthSec);
 
   const warnings: CheckWarning[] = [];
-  if (clips === 0) {
+  // A WaltzDeck renders its storyboard — text cards and animated scenes need no media (an explainer may have none).
+  if (clips === 0 && proj.kind !== "deck") {
     warnings.push({ level: "red", text: "No clips added yet — add media before rendering." });
   } else if (clips === 1) {
     warnings.push({
@@ -239,7 +244,7 @@ async function getRenderCheckpointImpl(projectId: string): Promise<RenderCheckpo
     summary,
     warnings,
     changes,
-    hasBlocking: clips === 0,
+    hasBlocking: clips === 0 && proj.kind !== "deck",
   };
 }
 

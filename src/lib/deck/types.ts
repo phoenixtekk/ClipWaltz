@@ -4,7 +4,7 @@ import type { SceneFrameBox } from "./frame";
 import type { ResolvedBackdrop, SceneBackdrop } from "../../../worker/deck/backdrop.mjs";
 export type { ResolvedBackdrop, SceneBackdrop };
 
-export type DeckMode = "ad" | "slideshow" | "presentation";
+export type DeckMode = "ad" | "slideshow" | "presentation" | "explainer";
 export type TextMode = "auto" | "manual" | "off";
 export type SceneTextMode = "auto" | "manual" | "none";
 
@@ -12,6 +12,7 @@ export const DECK_MODES: { key: DeckMode; label: string; desc: string; defaultLe
   { key: "ad", label: "Ad", desc: "Hook → benefits → call to action", defaultLength: 15 },
   { key: "slideshow", label: "Slideshow", desc: "Your story with captions, on the beat", defaultLength: 45 },
   { key: "presentation", label: "Presentation", desc: "Slides with points — present it, or export PDF / PowerPoint", defaultLength: 90 },
+  { key: "explainer", label: "Explainer", desc: "Animated scenes, a voiceover and one glowing look — no footage needed", defaultLength: 40 },
 ];
 
 export const LAYOUTS = [
@@ -22,8 +23,28 @@ export const LAYOUTS = [
   { key: "title-card", label: "Title card" },
   { key: "cta-card", label: "Call-to-action card" },
   { key: "slide", label: "Slide — title + points" },
+  // Animated scenes (worker/deck/motion.mjs — keep MOTION_LAYOUTS in sync).
+  { key: "mg-orbit", label: "Animated: apps orbiting a phone" },
+  { key: "mg-swarm", label: "Animated: notification overload" },
+  { key: "mg-words", label: "Animated: big words" },
+  { key: "mg-logo", label: "Animated: logo reveal" },
+  { key: "mg-chat", label: "Animated: chat on a phone" },
+  { key: "mg-fanout", label: "Animated: one message, every channel" },
+  { key: "mg-end", label: "Animated: end card" },
 ] as const;
 export type LayoutKey = (typeof LAYOUTS)[number]["key"];
+export const isMotionLayout = (l: string) => l.startsWith("mg-");
+
+/** What each animated layout does with the scene's text fields (editor hints). */
+export const MOTION_FIELDS: Record<string, { headline: string; sub?: string; bullets?: string; media: "behind" | "ignored" }> = {
+  "mg-orbit": { headline: "Headline (top)", media: "ignored" },
+  "mg-swarm": { headline: "Headline (top)", media: "ignored" },
+  "mg-words": { headline: "The words (up to 8, one at a time)", sub: "Small line under them", media: "behind" },
+  "mg-logo": { headline: "Name", sub: "Tagline", media: "ignored" },
+  "mg-chat": { headline: "Chat name", bullets: "Messages — Name: message (Channel). Start with \"Me:\" for your own.", media: "behind" },
+  "mg-fanout": { headline: "Headline (top)", bullets: "Channels (2–6) — e.g. SMS, Email, WhatsApp", media: "ignored" },
+  "mg-end": { headline: "Name", sub: "Tagline", bullets: "Web address or call to action (first line)", media: "behind" },
+};
 
 export const ROLES = ["hook", "problem", "benefit", "proof", "content", "title", "cta"] as const;
 export type SceneRole = (typeof ROLES)[number];
@@ -190,7 +211,8 @@ export const defaultBrief = (mode: DeckMode = "ad"): DeckBrief => ({
   lengthSec: DECK_MODES.find((m) => m.key === mode)?.defaultLength ?? 15,
   textMode: "auto",
   cta: null,
-  voice: { mode: "off", voiceId: "af_heart", speed: 1 },
+  // Explainers are narrated: the AI writes a voiceover line per scene (captions follow it).
+  voice: { mode: mode === "explainer" ? "auto" : "off", voiceId: "af_heart", speed: 1 },
   captions: { enabled: true },
 });
 

@@ -736,6 +736,36 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
   (`sudo -n systemctl restart clipwaltz-worker`). The app also builds `worker/deck/backdrop.mjs` (imported by `src/`),
   so the app tarball must include it.
 
+## WaltzDeck Explainer & animated layouts (2026-10-05)
+- **Shared module:** `worker/deck/motion.mjs` (+ `motion.d.mts` for the app). `motionHtml({ layout, text, W, H, brand,
+  dur, over, stars, fontsCss })` → an HTML page whose `render(t)` draws second t (pure function of t, script scoped in
+  an IIFE because the render reuses one page and `setContent` keeps the JS realm). `MOTION_LAYOUTS` (`mg-*`),
+  `OVER_MEDIA_LAYOUTS` (words / chat / end), `motionOpaque`, `settledAt`. Keep `LAYOUTS` / `MOTION_FIELDS` in
+  `src/lib/deck/types.ts` and `LAYOUTS` / `MG_GUIDE` in `planner.mjs` in sync. All user text goes through `esc()`;
+  colours `hex()`, fonts `cssFont()`, logo `okLogo()` (data URL or `/api/projects/<id>/brand-logo`), fonts CSS only
+  `https://fonts.googleapis.com/css2?…`.
+- **Render:** `text-layer.mjs renderMotion()` screenshots every frame (30 fps, PNG; transparent for over-media) →
+  `deckSegments` makes the whole segment (opaque) or passes it as the text layer over the media (incl. zoomed-out
+  cards and camera moves). Cost: ~5 min for a 40 s all-animated 1080p explainer on the AI box.
+- **Captions:** `buildCaptionsAss(..., { position: "bottom" })` for `mode === "explainer"` (5.5 % of the short side).
+- **Exports:** `export.mjs` draws `motionHtml` at `settledAt(dur)`, media still prepended under over-media layouts;
+  picture slides (no editable PPTX text boxes).
+- **Editor preview:** `scene-frame.tsx MotionLayer` — srcdoc iframe at 1280 px on the long side, scaled, in a
+  **scripts-only sandbox** (no `allow-same-origin`): the page posts `{cwReady}` until it gets its first
+  `{cwRender: t}` message; the editor drives frames by `postMessage` (rAF while playing, else the settled frame). The
+  iframe is keyed on a hash of the page (changing `srcdoc` on the live frame left the old page showing). The brand logo
+  is fetched by the editor and passed as a data URL (the sandboxed page has no cookies).
+- **Planner:** animated layouts are offered to (and kept for) explainer plans only — other modes' picks fall back to
+  the usual layouts. **Rewrite / Shorter / Punchier** on an animated scene describes its fields to the model and keeps
+  the current lines (chat, channels, address) when the reply has none (`repairPlan(..., { single: true })` adds no end
+  card and keeps the CTA in the source text). Mode `explainer` (`MODE_GUIDE`, `MG_GUIDE`, `shot` → `deck_scenes.prompt`, ≤ 3), `jobs.mjs` lets an
+  explainer plan with no media and refuses an empty result. `unverifiedClaim` also drops web addresses (written or
+  "x dot com") absent from brief/goal/audience/tone/offer/CTA text+URL/notes.
+- **Defaults:** `defaultBrief("explainer")` voice auto; `DECK_DEFAULT_TRACK.explainer = t-music-promotion`.
+- **Deploy:** no migration. linuxg1: app build + `pm2 restart clipwaltz` **and** `pm2 restart clipwaltz-gen-worker`
+  (it runs the deck planner: `deck/{planner,jobs,motion}.mjs`). AI box: `render-worker.mjs` +
+  `deck/{motion,text-layer,export,voice}.mjs` (`sudo -n systemctl restart clipwaltz-worker`).
+
 ## Brand pronunciations (2026-10-04)
 - **Schema:** migration `0047_brand_pronunciations` — `brand_kits.pronunciations_json jsonb`, `[{ word, say }]`.
   Cleaned server-side by `cleanPronunciations` (`brand-actions.ts`): word ≤ 40 / say ≤ 80 chars, control chars
