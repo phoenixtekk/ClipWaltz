@@ -157,7 +157,8 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
       await sql`update deck_scenes set text = ${sql.json(clean)}, text_mode = 'auto',
         why = ${flags ? "Rewritten (removed a claim that wasn't in your brief)." : "Rewritten."}, updated_at = now() where id = ${sceneId}`;
     } catch (e) {
-      await sql`update deck_scenes set why = ${`Couldn't rewrite: ${String(e.message).slice(0, 120)}`}, updated_at = now() where id = ${sceneId}`;
+      console.error(`[deck] rewrite ${sceneId} failed: ${e.message}`);
+      await sql`update deck_scenes set why = ${"Couldn't rewrite this scene — the AI didn't finish its answer. Please try again."}, updated_at = now() where id = ${sceneId}`;
     }
   }
 

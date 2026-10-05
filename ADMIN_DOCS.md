@@ -740,6 +740,13 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
   (`sudo -n systemctl restart clipwaltz-worker`). The app also builds `worker/deck/backdrop.mjs` (imported by `src/`),
   so the app tarball must include it.
 
+## AI token budgets (2026-10-05)
+- `chatJson` default **8,000** tokens / 300 s (was 3,000 / 180 s). qwen3-vl reasons before answering even with
+  `think:false`; a scene rewrite on prod failed with "no JSON object in model reply (eval 3000 tok, done: length)"
+  (reproduced 1 of 2 locally on the same scene; 5 of 5 OK at 8,000). Rewrite, describe, narration and shot calls
+  8,000; chat edits 10,000; plan / variants 8,000; translate 12,000. A failed rewrite now says so in red in the scene
+  panel; the raw error goes to the gen worker log (`[deck] rewrite <id> failed: …`).
+
 ## Explainer variety + Edit with AI (2026-10-05)
 - **Looks + variants:** `motion.mjs` `LOOKS` (neon, clean, bold, paper, grid, sunset) → `look()` returns palette, surface,
   shadow style (`fx`: glow / soft / lift / hard) and particles; `motionHtml({ …, look, seed, variant })` seeds

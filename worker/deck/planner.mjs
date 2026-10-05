@@ -102,7 +102,9 @@ export function extractJson(text) {
  */
 // Timeouts are generous: the Ollama box is shared, and a plan took 4.8 min on prod while another project's model
 // was loaded (2026-09-29) — 2-3x the dev timing.
-export async function chatJson(model, content, images, { temperature = 0.3, numPredict = 3000, numCtx, timeoutMs = 180000 } = {}) {
+// Budgets: qwen3-vl reasons before it answers even with think:false — a 3,000-token budget ran out mid-thought on a scene
+// rewrite (prod 2026-10-05: "no JSON object in model reply (eval 3000 tok, done: length)", 1 of 2 tries locally).
+export async function chatJson(model, content, images, { temperature = 0.3, numPredict = 8000, numCtx, timeoutMs = 300000 } = {}) {
   const msg = { role: "user", content: `${content}
 
 Reply with ONLY the JSON object — no markdown, no commentary.`, ...(images?.length ? { images } : {}) };
@@ -166,7 +168,7 @@ export async function describeMedia(framesB64, { kind, note, durationSec, times 
     (isVideo ? `moments: for EACH frame in order, a caption of 4-10 words saying what that frame shows.\n` : "") +
     `JSON keys: {"summary":string,"subject":string,"setting":string,"mood":string,"people":integer,` +
     `"textInImage":string,"goodFor":[${ROLES.map((r) => `"${r}"`).join("|")}],"quality":integer${isVideo ? ',"moments":[string]' : ""}}`;
-  const { data: d } = await chatJson(VISION_MODEL, prompt, framesB64, { temperature: 0.2, numPredict: 3000 });
+  const { data: d } = await chatJson(VISION_MODEL, prompt, framesB64, { temperature: 0.2, numPredict: 8000, timeoutMs: 300000 });
   return {
     summary: str(d.summary, 240),
     subject: str(d.subject, 60),
@@ -404,7 +406,7 @@ export async function ensureShots(brief, scenes, want = 2) {
   // One retry when the reply is short (the closing scene must get its shot).
   let shots = [];
   for (let attempt = 0; attempt < 2 && shots.length < picks.length; attempt++) {
-    const { data } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.9, numPredict: 2000, timeoutMs: 180000 });
+    const { data } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.9, numPredict: 8000, timeoutMs: 300000 });
     const got = Array.isArray(data?.shots) ? data.shots.map((x) => str(x, 400)).filter(Boolean) : [];
     if (got.length > shots.length) shots = got;
   }
@@ -508,7 +510,7 @@ async function writeNarration(brief, scenes, media) {
     `and ADDS something the on-screen text doesn't say (never repeat the on-screen text). Flow from line to line like one script. ` +
     `The last line says the call to action; write web addresses as spoken ("example dot com"). ` +
     `Never invent facts, prices, numbers or claims not in the brief.\nJSON keys: {"lines":[string]}`;
-  const { data } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.7, numPredict: 4000, timeoutMs: 300000 });
+  const { data } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.7, numPredict: 8000, timeoutMs: 300000 });
   const lines = Array.isArray(data.lines) ? data.lines.map((l) => str(l, 300)) : null;
   return lines && lines.length >= Math.ceil(scenes.length / 2) ? lines : null;
 }
@@ -731,7 +733,7 @@ export async function rewriteScene(brief, scene, mediaItem, instruction, sibling
     `never invent facts, prices, numbers or claims not in the brief or note (no "limited time", "best", "free", "guaranteed", ratings…).\n` +
     (brief.voice?.mode === "auto" ? `Also write "voice": the spoken narration for this scene (≈${Math.max(3, Math.round((Number(scene.durationSec) || 3) * SPEECH_WPS))} words, complements the text).\n` : "") +
     `JSON keys: {"headline":string,"sub":string,"bullets":[string]${brief.voice?.mode === "auto" ? ',"voice":string' : ""}}`;
-  const { data } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.7, numPredict: 3000 });
+  const { data } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.7, numPredict: 8000, timeoutMs: 300000 });
   const media = mediaItem ? [mediaItem] : [];
   const repaired = repairPlan(
     { title: "x", scenes: [{ role: scene.role, media: mediaItem ? 1 : 0, durationSec: scene.durationSec, headline: data.headline, sub: data.sub, bullets: data.bullets, voice: data.voice, layout: scene.layout, why: "" }] },
@@ -932,7 +934,7 @@ export async function editDeck(brief, scenes, history) {
     `Rules: never change LOCKED scenes; never invent facts, prices, numbers, claims or web addresses that are not in the brief or ` +
     `the owner's messages; on-screen text short; voice lines conversational, about ${SPEECH_WPS} words per second of the scene.\n` +
     `"reply": one or two friendly sentences saying what you changed (or your question).\nJSON: {"reply":string,"ops":[…]}`;
-  const { data } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.4, numPredict: 6000, numCtx: 16384, timeoutMs: 300000 });
+  const { data } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.4, numPredict: 10000, numCtx: 16384, timeoutMs: 420000 });
 
   // Guards: what the owner has said (brief + their chat) is the source of truth for numbers, claims and addresses.
   const said = history.filter((m) => m.role === "user").map((m) => m.text).join(" ");

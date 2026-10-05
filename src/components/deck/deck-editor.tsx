@@ -1217,8 +1217,8 @@ function SceneCard({
           <AiFill sceneSec={scene.durationSec} hasPhoto={asset?.kind === "photo"} fill={fill} credits={credits} canEdit={canEdit} onFill={onFill}
             defaultPrompt={scene.prompt || [scene.text.headline, scene.text.sub].filter(Boolean).join(" — ")} />
           {scene.why ? (
-            <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
-              {busy ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />} {scene.why}
+            <p className={cn("flex items-center gap-1 text-[11px]", /^Couldn't/.test(scene.why) && !busy ? "font-medium text-destructive" : "text-muted-foreground")}>
+              {busy ? <Loader2 className="size-3 animate-spin" /> : /^Couldn't/.test(scene.why) ? <Info className="size-3" /> : <Sparkles className="size-3" />} {scene.why}
             </p>
           ) : null}
         </div>
