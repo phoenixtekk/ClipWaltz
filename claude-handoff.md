@@ -37,6 +37,15 @@ Tree clean, in sync with origin/main (`44f0ad8`). tsc + lint clean. Everything b
   restart clipwaltz` (backup `/tmp/cw-pre-pronounce-src.tgz`); AI box render-worker.mjs + deck/voice.mjs (backups
   `*.bak-20261004-pronounce`), worker restarted idle, checksums match; wiki features/help-center/admin-docs updated.
   Dev-verified (UI save/reload; dev render spoke "Text Ya", captions "TxtYa"); not exercised via the prod UI.
+- **Explainer mode — LIVE `25786a5` (2026-10-05, owner: "build the explainer style into the product"):** deck mode
+  Explainer + 7 animated layouts (`mg-*`, `worker/deck/motion.mjs` shared by render / preview / exports), planner
+  explainer mode (suggested AI shots in `deck_scenes.prompt`, URL guard, empty-plan retry + guard), decks render
+  without media, bottom captions for explainers. Code-reviewed (5 findings fixed + preview iframe now scripts-only
+  sandbox via postMessage). Deployed: linuxg1 app build + `pm2 restart clipwaltz clipwaltz-gen-worker` (backup
+  `/tmp/cw-pre-explainer-src.tgz`); AI box render-worker + deck/{motion,text-layer,export,voice}.mjs (backups
+  `*.bak-20261005-explainer`), worker restarted idle; wiki updated. No migration. Dev-verified end to end (wizard,
+  no-media plan, preview + playback + logo, 40 s render ~5.5 min, PDF/PPTX, overlays on video/photo); not exercised via
+  the prod UI. Dev test project `5114407e-…` ("Explainer test"). The planner rarely suggests AI shots (0 in 3 runs).
 - **Next focus:** owner asked (2026-10-04) whether ClipWaltz can reach the quality of an Invideo-made reference video
   (https://www.youtube.com/watch?v=UYIHUdeTmPY) — proof built, see "Quality gap vs Invideo reference" below; owner
   to review the video and decide on productizing.
