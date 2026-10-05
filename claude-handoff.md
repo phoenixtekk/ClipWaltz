@@ -69,6 +69,12 @@ Tree clean, in sync with origin/main (`44f0ad8`). tsc + lint clean. Everything b
 - **AI token budgets — LIVE `5529fc5` (2026-10-05):** owner's scene rewrite (Envyrix Endpoint #2) failed: model ran out of
   its 3,000-token budget while reasoning. chatJson default 8,000/300 s, chat 10,000; failed rewrite = plain red message.
   Verified 5/5 rewrites on that scene's inputs locally. linuxg1 build + restart (backup `/tmp/cw-pre-tokens-src.tgz`).
+- **Rewrite feedback + swarm icons — LIVE `dbee8ce` (2026-10-05):** owner's rewrite DID run (Envyrix #2 headline → "Too Few
+  Intune Reports") but their instruction was visual (circles → computers/laptops/iPhones) which rewrite couldn't do. Now:
+  green ✓ Rewritten + toast; mg-swarm lines = icons (laptop/smartphone/tablet/computer…); rewrite no longer writes the
+  instruction into deck_scenes.prompt (= suggested shot) — cleared that one leaked value on prod. linuxg1 build +
+  restart (backup `/tmp/cw-pre-rewritefb-src.tgz`), AI box motion.mjs (`*.bak-20261005-swarm`). Tested: owner's
+  instruction on their scene inputs → bullets Desktops/Laptops/iPhones; dev toast + green verified.
 - **Next focus:** owner asked (2026-10-04) whether ClipWaltz can reach the quality of an Invideo-made reference video
   (https://www.youtube.com/watch?v=UYIHUdeTmPY) — proof built, see "Quality gap vs Invideo reference" below; owner
   to review the video and decide on productizing.
