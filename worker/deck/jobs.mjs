@@ -372,12 +372,17 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
           if (o.durationSec) s.durationSec = o.durationSec;
           if (o.shot !== undefined) s.shot = o.shot || null;
           s.dirty = true;
-          changes.push(`Changed scene ${s.n}.`);
+          const name = s.text?.headline ? ` ("${s.text.headline}")` : "";
+          changes.push(`Changed scene ${s.n}${name}.`);
+          // A shot on a layout that draws its own picture would never be seen — say so instead of hiding it.
+          if (o.shot && ["mg-orbit", "mg-swarm", "mg-logo", "mg-fanout", "mg-steps", "mg-features", "mg-compare", "mg-browser"].includes(s.layout)) {
+            changes.push(`Scene ${s.n}'s layout draws its own picture, so a filmed shot won't show there — ask me to switch it to big words, chat or the end card.`);
+          }
         } else if (o.op === "delete") {
           const s = list.find((x) => x.id === byNo(o.scene).id);
           if (!s || skipLocked(s)) continue;
           list = list.filter((x) => x !== s);
-          changes.push(`Removed scene ${s.n}.`);
+          changes.push(`Removed scene ${s.n}${s.text?.headline ? ` ("${s.text.headline}")` : ""}.`);
         } else if (o.op === "add") {
           const after = o.after === 0 ? -1 : list.findIndex((x) => x.id === byNo(o.after)?.id);
           const at = o.after === 0 ? 0 : after >= 0 ? after + 1 : list.length;
@@ -389,7 +394,7 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
           if (!s || skipLocked(s)) continue;
           list = list.filter((x) => x !== s);
           list.splice(Math.max(0, Math.min(list.length, o.to - 1)), 0, s);
-          changes.push(`Moved scene ${s.n} to position ${o.to}.`);
+          changes.push(`Moved scene ${s.n}${s.text?.headline ? ` ("${s.text.headline}")` : ""} to position ${o.to}.`);
         }
       }
       // Look / shuffle / start over.

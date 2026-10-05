@@ -297,7 +297,7 @@ async function updateSceneImpl(projectId: string, sceneId: string, patch: SceneP
 /** Ask the AI to rewrite one scene's text: "rewrite" | "shorter" | "punchier" | the user's own instruction. */
 async function rewriteSceneTextImpl(projectId: string, sceneId: string, instruction: string): Promise<void> {
   await assertAccess(projectId, "editor");
-  const ins = clip(instruction, 300) || "rewrite";
+  const ins = clip(instruction, 600) || "rewrite";
   const [s] = await db.select({ id: schema.deckScenes.id }).from(schema.deckScenes)
     .where(and(eq(schema.deckScenes.id, sceneId), eq(schema.deckScenes.projectId, projectId)));
   if (!s) throw new Error("Scene not found");
@@ -624,7 +624,7 @@ export async function deleteBackdropImage(projectId: string, imageId: string): P
 /** "Edit with AI": add the owner's message to the deck chat and ask the deck worker to answer it (and change the storyboard). */
 async function askDeckAiImpl(projectId: string, message: string): Promise<void> {
   await assertAccess(projectId, "editor");
-  const text = clip(message, 600);
+  const text = clip(message, 1500);
   if (!text) throw new Error("Type what you'd like to change.");
   const [p] = await db.select({ deck: schema.projects.deck }).from(schema.projects).where(eq(schema.projects.id, projectId));
   const deck = (p?.deck ?? {}) as Partial<DeckState>;

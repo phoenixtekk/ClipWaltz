@@ -1192,8 +1192,15 @@ function SceneCard({
               </button>
             )) : null}
             {!textOff ? (
-              <form onSubmit={(e) => { e.preventDefault(); if (ask.trim()) { onRewrite(ask.trim()); setAsk(""); } }} className="flex min-w-[160px] flex-1 items-center gap-1">
-                <input value={ask} disabled={!canEdit || busy} onChange={(e) => setAsk(e.target.value)} maxLength={300} placeholder="Tell the AI what to change in this scene…" className={cn(field, "h-7 text-[11px]")} />
+              <form onSubmit={(e) => { e.preventDefault(); if (ask.trim()) { onRewrite(ask.trim()); setAsk(""); } }} className="flex basis-full items-end gap-1.5">
+                {/* Owner request 2026-10-05: bigger and resizable (drag the corner). Enter sends, Shift+Enter = new line. */}
+                <textarea value={ask} disabled={!canEdit || busy} onChange={(e) => setAsk(e.target.value)} maxLength={600} rows={3}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (ask.trim()) { onRewrite(ask.trim()); setAsk(""); } } }}
+                  placeholder="Tell the AI what to change in this scene…" aria-label="Tell the AI what to change in this scene"
+                  className={cn(field, "max-h-[40vh] min-h-[4.5rem] resize-y py-1.5 text-xs")} />
+                <Button type="submit" size="sm" disabled={!canEdit || busy || !ask.trim()} title="Rewrite this scene">
+                  {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Wand2 className="size-3.5" />}
+                </Button>
               </form>
             ) : null}
             <select value={scene.assetId ?? ""} disabled={!canEdit} onChange={(e) => onPatch({ assetId: e.target.value || null })} className="h-7 max-w-[160px] rounded-md border border-border bg-background px-1.5 text-[11px]" title="Media">

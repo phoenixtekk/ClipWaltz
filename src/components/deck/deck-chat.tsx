@@ -55,7 +55,7 @@ export function DeckChatPanel({ projectId, chat, canEdit, hasScenes, onChanged, 
     );
   }
   return (
-    <section aria-label="Edit with AI" className="fixed bottom-5 right-5 z-40 flex h-[min(560px,calc(100vh-6rem))] w-[min(400px,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+    <section aria-label="Edit with AI" className="fixed bottom-5 right-5 z-40 flex h-[min(640px,calc(100vh-6rem))] w-[min(440px,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
       <header className="flex items-center gap-2 border-b border-border px-3 py-2">
         <Sparkles className="size-4 text-primary" />
         <p className="flex-1 text-sm font-semibold">Edit with AI</p>
@@ -99,10 +99,10 @@ export function DeckChatPanel({ projectId, chat, canEdit, hasScenes, onChanged, 
         ) : null}
       </div>
       <form className="flex items-end gap-2 border-t border-border p-2" onSubmit={(e) => { e.preventDefault(); void send(text); }}>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} disabled={!canEdit} rows={2} maxLength={600}
+        <textarea value={text} onChange={(e) => setText(e.target.value)} disabled={!canEdit} rows={4} maxLength={1500} aria-label="Tell the AI what to change"
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(text); } }}
           placeholder={canEdit ? "e.g. Make scene 2 about saving time, and use a warmer look" : "You can view this deck but not edit it."}
-          className="min-h-[2.5rem] flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary" />
+          className="max-h-[45vh] min-h-[6rem] flex-1 resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary" />
         <Button type="submit" size="icon" disabled={!canEdit || thinking || !text.trim()} aria-label="Send"><Send className="size-4" /></Button>
       </form>
     </section>

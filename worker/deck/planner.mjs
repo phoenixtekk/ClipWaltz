@@ -698,7 +698,7 @@ export async function rewriteScene(brief, scene, mediaItem, instruction, sibling
     instruction === "shorter" ? "Make it shorter and tighter."
     : instruction === "punchier" ? "Make it punchier and more energetic, still honest."
     : instruction === "rewrite" || !instruction ? "Write a fresh alternative."
-    : `The owner asks: "${str(instruction, 300)}".`;
+    : `The owner asks: "${str(instruction, 600)}".`;
   const maxWords = Math.max(3, Math.floor((Number(scene.durationSec) || 3) * WORDS_PER_SEC) + 1);
   const d = mediaItem?.desc ?? {};
   const prompt =
@@ -899,11 +899,11 @@ export async function editDeck(brief, scenes, history) {
     `#${s.n} ${s.layout} (${s.role}, ${s.durationSec}s${s.locked ? ", LOCKED" : ""}${s.hasMedia ? ", shows a photo/video" : ""}) ` +
     `headline:${JSON.stringify(s.text?.headline ?? "")} sub:${JSON.stringify(s.text?.sub ?? "")} bullets:${JSON.stringify(s.text?.bullets ?? [])} ` +
     `voice:${JSON.stringify(s.voice ?? "")}${s.shot ? ` shot:${JSON.stringify(s.shot)}` : ""}`).join("\n");
-  const convo = history.slice(-12).map((m) => `${m.role === "user" ? "OWNER" : "YOU"}: ${str(m.text, 700)}`).join("\n");
+  const convo = history.slice(-12).map((m) => `${m.role === "user" ? "OWNER" : "YOU"}: ${str(m.text, 1500)}`).join("\n");
   const prompt =
     `You edit a short ${brief.mode === "explainer" ? "animated explainer" : brief.mode ?? "ad"} video in ClipWaltz. The owner chats with you to change it. ${langRule(brief)}\n` +
     `BRIEF: "${str(brief.prompt, 1200)}"` + (brief.cta?.text ? ` CTA: "${str(brief.cta.text, 120)}"${brief.cta.url ? ` (${str(brief.cta.url, 120)})` : ""}.` : "") + "\n" +
-    `CURRENT STORYBOARD (in order):\n${list || "(empty)"}\n` +
+    `CURRENT STORYBOARD (in order; #1 is the opening scene${scenes.length ? `, #${scenes.length} is the LAST / closing scene` : ""}):\n${list || "(empty)"}\n` +
     `Animated-scenes LOOK: ${look} (options: ${EDIT_LOOKS.join(", ")}).\n` +
     `LAYOUTS: ${LAYOUTS.join(", ")}.\n${MG_GUIDE}` +
     `CONVERSATION:\n${convo}\n\n` +

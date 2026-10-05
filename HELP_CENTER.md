@@ -288,6 +288,8 @@ them there, then come back. (These are in addition to the "video ready" email, w
 - Press **Edit with AI** (bottom-right of the editor) and say what you'd like: "use the sunset look", "make the opening
   punchier", "add a before / after after scene 2", "delete the last scene", "start over". The AI changes the storyboard
   and tells you what it did — then press **Render the new version**.
+- Each change is listed with the scene's headline, so you can check it picked the right one. Drag the corner of the
+  message box to make it bigger.
 - Locked scenes are never changed. It won't add prices, numbers or web addresses you haven't given it — tell it in the
   chat ("our price is $9 a month") and it can use them.
 

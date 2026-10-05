@@ -13,6 +13,13 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## Bigger AI instruction boxes; clearer chat changes (2026-10-05)
+- The scene panel's **"Tell the AI what to change in this scene…"** box is now a 3-line, resizable text box (drag the
+  corner; Enter sends, Shift+Enter = new line; up to 600 characters) with a send button. The **Edit with AI** chat
+  box is 4 lines and resizable too (up to 1,500 characters); the chat panel is a little larger.
+- The chat lists each change with the scene's headline ("Changed scene 7 ("Real teamwork")"), knows which scene is
+  the closing one, and warns when a filmed shot is put on a layout that can't show it.
+
 ## Explainer variety, Edit with AI chat, more AI shots (2026-10-05)
 - **Never the same film twice** (owner: "versatile … different aesthetics every time"): animated scenes now have **6
   looks** — Neon space, Clean light, Bold gradient, Flat paper, Tech grid, Warm sunset (background, palette, surfaces,
