@@ -704,6 +704,7 @@ export const brandKits = pgTable("brand_kits", {
   fontsJson: jsonb(),
   styleGuidance: text(),
   logoKey: text(), // MinIO key of the uploaded logo (PNG/SVG/JPEG) — WaltzDeck end cards + corner logo
+  pronunciationsJson: jsonb(), // { word, say }[] — how the voiceover says brand words (TxtYa → "Text Ya")
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });

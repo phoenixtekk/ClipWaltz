@@ -10,7 +10,7 @@ import { userCanAccessProject } from "./workspace";
 import { putObject } from "./storage";
 import { enqueueDeck } from "./queue";
 import type { BrandSuggestion, DeckState } from "./deck/types";
-import { BRAND_FONTS, type BrandKit } from "./brand";
+import { BRAND_FONTS, MAX_PRONUNCIATIONS, type BrandKit, type Pronunciation } from "./brand";
 import { toResult } from "./action-result";
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -23,6 +23,21 @@ async function projectWorkspace(projectId: string, role: "viewer" | "editor") {
   return p as { id: string; workspaceId: string; brandKitId: string | null };
 }
 
+/** Keep well-formed rows only: a written word (≤ 40 chars) and how to say it (≤ 80), no duplicates, at most 20. */
+function cleanPronunciations(raw: unknown): Pronunciation[] {
+  const out: Pronunciation[] = [];
+  const seen = new Set<string>();
+  const tidy = (v: unknown, max: number) => String(v ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
+  for (const r of Array.isArray(raw) ? raw : []) {
+    const word = tidy((r as Pronunciation)?.word, 40), say = tidy((r as Pronunciation)?.say, 80);
+    if (!word || !say || word.toLowerCase() === say.toLowerCase() || seen.has(word.toLowerCase())) continue;
+    seen.add(word.toLowerCase());
+    out.push({ word, say });
+    if (out.length >= MAX_PRONUNCIATIONS) break;
+  }
+  return out;
+}
+
 const toKit = (k: typeof schema.brandKits.$inferSelect, applied: boolean): BrandKit => {
   const colors = Array.isArray(k.colorsJson) ? (k.colorsJson as string[]) : [];
   const fonts = (k.fontsJson ?? {}) as { heading?: string; body?: string };
@@ -33,6 +48,7 @@ const toKit = (k: typeof schema.brandKits.$inferSelect, applied: boolean): Brand
     headingFont: BRAND_FONTS.includes(fonts.heading as never) ? fonts.heading! : "Montserrat",
     bodyFont: BRAND_FONTS.includes(fonts.body as never) ? fonts.body! : "Inter",
     hasLogo: !!k.logoKey,
+    pronunciations: cleanPronunciations(k.pronunciationsJson),
     applied,
   };
 };
@@ -81,6 +97,18 @@ async function uploadBrandLogoImpl(projectId: string, form: FormData): Promise<B
   const key = `brand/${p.workspaceId}/${k.id}-${Date.now()}.${ext}`;
   await putObject(key, new Uint8Array(await file.arrayBuffer()), file.type);
   [k] = await db.update(schema.brandKits).set({ logoKey: key, updatedAt: new Date() }).where(eq(schema.brandKits.id, k.id)).returning();
+  revalidatePath(`/projects/${projectId}/deck`);
+  return toKit(k, p.brandKitId === k.id);
+}
+
+/** Save how the voiceover says brand words (the whole list). Creates the kit if needed; applies to every video that
+ *  uses the kit, on its next render. */
+async function savePronunciationsImpl(projectId: string, list: Pronunciation[]): Promise<BrandKit> {
+  const p = await projectWorkspace(projectId, "editor");
+  const rows = cleanPronunciations(list);
+  let [k] = await db.select().from(schema.brandKits).where(eq(schema.brandKits.workspaceId, p.workspaceId)).limit(1);
+  if (!k) [k] = await db.insert(schema.brandKits).values({ id: randomUUID(), workspaceId: p.workspaceId, colorsJson: ["#8b5cf6", "#120a24"], fontsJson: { heading: "Montserrat", body: "Inter" } }).returning();
+  [k] = await db.update(schema.brandKits).set({ pronunciationsJson: rows, updatedAt: new Date() }).where(eq(schema.brandKits.id, k.id)).returning();
   revalidatePath(`/projects/${projectId}/deck`);
   return toKit(k, p.brandKitId === k.id);
 }
@@ -135,6 +163,7 @@ async function dismissBrandSuggestionImpl(projectId: string): Promise<void> {
 // Client: unwrap(await action(...)).
 export async function saveBrandKit(...args: Parameters<typeof saveBrandKitImpl>) { return toResult(() => saveBrandKitImpl(...args)); }
 export async function uploadBrandLogo(...args: Parameters<typeof uploadBrandLogoImpl>) { return toResult(() => uploadBrandLogoImpl(...args)); }
+export async function savePronunciations(...args: Parameters<typeof savePronunciationsImpl>) { return toResult(() => savePronunciationsImpl(...args)); }
 export async function suggestBrandFromSite(...args: Parameters<typeof suggestBrandFromSiteImpl>) { return toResult(() => suggestBrandFromSiteImpl(...args)); }
 export async function applyBrandSuggestion(...args: Parameters<typeof applyBrandSuggestionImpl>) { return toResult(() => applyBrandSuggestionImpl(...args)); }
 export async function dismissBrandSuggestion(...args: Parameters<typeof dismissBrandSuggestionImpl>) { return toResult(() => dismissBrandSuggestionImpl(...args)); }

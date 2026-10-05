@@ -736,6 +736,18 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
   (`sudo -n systemctl restart clipwaltz-worker`). The app also builds `worker/deck/backdrop.mjs` (imported by `src/`),
   so the app tarball must include it.
 
+## Brand pronunciations (2026-10-04)
+- **Schema:** migration `0047_brand_pronunciations` — `brand_kits.pronunciations_json jsonb`, `[{ word, say }]`.
+  Cleaned server-side by `cleanPronunciations` (`brand-actions.ts`): word ≤ 40 / say ≤ 80 chars, control chars
+  stripped, no duplicates or word = say, max 20 (`MAX_PRONUNCIATIONS`, `src/lib/brand.ts`).
+- **Render:** `render-worker.mjs` loads the kit's list into `style.deck.brand.pronunciations` and passes it to
+  `synthScenes` (`worker/deck/voice.mjs`). `respell(line, list)` = one regex pass (all words as alternatives, longest
+  first, Unicode letter/number boundaries) → the text sent to Kokoro + the ordered substitutions; `respokenWords`
+  merges each run of spoken words back into the written word (start of the first, end of the last), only as many
+  times as it was substituted. Only applies when the project uses the brand kit (`projects.brand_kit_id`).
+- **Deploy:** migration 0047 + app build on linuxg1; on the AI box `render-worker.mjs` + `deck/voice.mjs`
+  (`sudo -n systemctl restart clipwaltz-worker`).
+
 ## WaltzDeck scene media editing (2026-09-30)
 - **Schema:** migration `0044_scene_frame` — `deck_scenes.frame jsonb` `{ x, y, zoom }` (centre as a fraction of the
   upright source, zoom 1–3); null = centred cover. Validated by `normFrame` (`src/lib/deck/frame.ts`) in `updateScene`.

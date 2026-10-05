@@ -45,8 +45,8 @@ import { aspectNumber } from "@/lib/deck/frame";
 import { rotatedFill } from "@/lib/rotation";
 import { LocalDate } from "@/components/local-date";
 import { deleteAsset } from "@/lib/asset-actions";
-import { BRAND_FONTS, BRAND_FONTS_CSS, type BrandKit } from "@/lib/brand";
-import { saveBrandKit, uploadBrandLogo, suggestBrandFromSite, applyBrandSuggestion, dismissBrandSuggestion } from "@/lib/brand-actions";
+import { BRAND_FONTS, BRAND_FONTS_CSS, MAX_PRONUNCIATIONS, type BrandKit, type Pronunciation } from "@/lib/brand";
+import { saveBrandKit, savePronunciations, uploadBrandLogo, suggestBrandFromSite, applyBrandSuggestion, dismissBrandSuggestion } from "@/lib/brand-actions";
 
 const BUSY = new Set(["queued", "describing", "planning"]);
 const IMPORT_BUSY = new Set(["queued", "reading", "summarizing"]);
@@ -770,11 +770,62 @@ function BrandSection({ projectId, kit, canEdit, suggestion, onChanged, onSaved 
         ) : null}
         <span className="text-[11px] text-muted-foreground">Saved for your workspace — reuse it on every video.</span>
       </div>
+      <PronunciationList projectId={projectId} initial={kit?.pronunciations ?? []} canEdit={canEdit} onSaved={onSaved} />
       {canEdit ? (
         <BrandFromSite projectId={projectId} suggestion={suggestion} onChanged={onChanged}
           onApplied={(k) => { setV({ primary: k.primary, secondary: k.secondary, headingFont: k.headingFont, bodyFont: k.bodyFont, applied: true }); onSaved(k, true); }} />
       ) : null}
     </section>
+  );
+}
+
+/** "Say it right": how the voiceover says brand words (TxtYa → Text Ya). Captions and on-screen text keep the
+ *  written word. Saved for the workspace on blur / remove, used on the next render. */
+function PronunciationList({ projectId, initial, canEdit, onSaved }: {
+  projectId: string; initial: Pronunciation[]; canEdit: boolean; onSaved: (k: BrandKit) => void;
+}) {
+  const [rows, setRows] = useState<Pronunciation[]>(initial);
+  const [busy, setBusy] = useState(false);
+  const saved = useRef(JSON.stringify(initial));
+  const save = async (next: Pronunciation[]) => {
+    const clean = next.filter((r) => r.word.trim() && r.say.trim());
+    if (JSON.stringify(clean) === saved.current) return;
+    setBusy(true);
+    try {
+      const k = unwrap(await savePronunciations(projectId, clean));
+      saved.current = JSON.stringify(k.pronunciations);
+      onSaved(k);
+    } catch (e) { toast.error((e as Error).message || "Couldn't save pronunciations."); }
+    setBusy(false);
+  };
+  const set = (i: number, patch: Partial<Pronunciation>) => setRows((rs) => rs.map((r, k) => (k === i ? { ...r, ...patch } : r)));
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-xs font-medium"><Mic className="size-3.5" /> Say it right</div>
+      <p className="text-[11px] text-muted-foreground">
+        How the voiceover should say your brand or product names. Captions and on-screen text keep the written word.
+      </p>
+      {rows.map((r, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <input value={r.word} maxLength={40} placeholder="Written (TxtYa)" aria-label="Written word" disabled={!canEdit || busy}
+            onChange={(e) => set(i, { word: e.target.value })} onBlur={() => save(rows)} className={cn(field, "h-8")} />
+          <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+          <input value={r.say} maxLength={80} placeholder="Say it as (Text Ya)" aria-label="Say it as" disabled={!canEdit || busy}
+            onChange={(e) => set(i, { say: e.target.value })} onBlur={() => save(rows)} className={cn(field, "h-8")} />
+          {canEdit ? (
+            <Button size="icon" variant="ghost" className="size-8 shrink-0" aria-label="Remove" disabled={busy}
+              onClick={() => { const next = rows.filter((_, k) => k !== i); setRows(next); save(next); }}>
+              <Trash2 className="size-4" />
+            </Button>
+          ) : null}
+        </div>
+      ))}
+      {canEdit && rows.length < MAX_PRONUNCIATIONS ? (
+        <Button size="sm" variant="secondary" disabled={busy} onClick={() => setRows([...rows, { word: "", say: "" }])}>
+          <Plus className="size-4" /> Add a word
+        </Button>
+      ) : null}
+    </div>
   );
 }
 

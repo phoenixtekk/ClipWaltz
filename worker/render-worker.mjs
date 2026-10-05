@@ -1441,7 +1441,7 @@ async function deckTimeline(scenes, assets, beats, beatSync, srcDurs, voiceCfg, 
   // shorter than its narration holds its last frame (tpad in deckSegments).
   if (voiceCfg?.mode && voiceCfg.mode !== "off" && slots.some((s) => String(s.scene.voice ?? "").trim())) {
     const { synthScenes } = await import("./deck/voice.mjs");
-    await synthScenes(slots, { voiceId: voiceCfg.voiceId, speed: voiceCfg.speed }, dir);
+    await synthScenes(slots, { voiceId: voiceCfg.voiceId, speed: voiceCfg.speed, pronunciations: voiceCfg.pronunciations }, dir);
     for (const s of slots) if (s.voice) { s.minDur = s.voice.dur + 0.35; s.dur = Math.max(s.dur, s.minDur); }
   }
   let musicOffset = 0;
@@ -1641,7 +1641,7 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
   }
 
   const { slots, musicOffset } = style.deck
-    ? await deckTimeline(style.deck.scenes, assets, beats, style.beatSync, srcDurs, style.deck.voice, dir)
+    ? await deckTimeline(style.deck.scenes, assets, beats, style.beatSync, srcDurs, { ...style.deck.voice, pronunciations: style.deck.brand?.pronunciations }, dir)
     : await buildTimeline(
     assets,
     beats,
@@ -1935,7 +1935,8 @@ async function loadRenderInputs(projectId, aspectOverride, deckVariant = null) {
       if (bk) {
         const colors = Array.isArray(bk.colors_json) ? bk.colors_json : [];
         const fonts = bk.fonts_json ?? {};
-        brand = { primary: colors[0], secondary: colors[1], headingFont: fonts.heading, bodyFont: fonts.body, logoKey: bk.logo_key };
+        brand = { primary: colors[0], secondary: colors[1], headingFont: fonts.heading, bodyFont: fonts.body, logoKey: bk.logo_key,
+          pronunciations: Array.isArray(bk.pronunciations_json) ? bk.pronunciations_json : [] };
       }
     }
     const brief = project.deck?.brief ?? {};

@@ -13,6 +13,17 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## Brand pronunciations — "Say it right" (2026-10-04)
+- **Brand tab → Say it right** (owner request after the TxtYa proof): a list of words and how the voiceover should say
+  them, e.g. **TxtYa → Text Ya**. Up to 20 per workspace brand kit; saved when you leave a field or remove a row.
+- The voiceover reads the respelling; **captions and on-screen text keep the written word** (the spoken words' timings
+  are merged back, so the word-by-word highlight covers "TxtYa" as one word). Whole words only, case-insensitive; the
+  longest entry wins ("TxtYa Pro" before "TxtYa"); an unrelated word that happens to sound the same is left alone.
+- Applies to every deck that uses the brand kit, on its next render.
+- Code: `brand_kits.pronunciations_json` (migration 0047), `savePronunciations` (`src/lib/brand-actions.ts`),
+  `PronunciationList` (`deck-editor.tsx`), `respell` / `respokenWords` in `worker/deck/voice.mjs`. Verified on dev:
+  saved + reloaded in the Brand tab; a dev render spoke "Text Ya" (twice) and burned "TxtYa" / "TxtYa Pro" captions.
+
 ## WaltzDeck timeline — add a scene anywhere, drag to move (2026-10-03)
 - **A + in every gap of the timeline** (before the first scene, between any two, and an **Add** tile at the end; also
   **Add scene** in the timeline header) opens a menu: **Title card**, **Slide — title + points**, **Call to action**

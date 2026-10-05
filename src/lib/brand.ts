@@ -3,6 +3,9 @@
 export const BRAND_FONTS = ["Montserrat", "Inter", "Lato", "Open Sans", "Roboto", "Noto Serif"] as const;
 export type BrandFont = (typeof BRAND_FONTS)[number];
 
+export type Pronunciation = { word: string; say: string };
+export const MAX_PRONUNCIATIONS = 20;
+
 export type BrandKit = {
   id: string;
   primary: string;
@@ -10,6 +13,8 @@ export type BrandKit = {
   headingFont: string;
   bodyFont: string;
   hasLogo: boolean;
+  /** How the voiceover says words it would get wrong (written → spoken); captions keep the written form. */
+  pronunciations: Pronunciation[];
   applied: boolean; // used by this project
 };
 

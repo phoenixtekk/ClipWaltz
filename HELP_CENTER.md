@@ -284,6 +284,13 @@ them there, then come back. (These are in addition to the "video ready" email, w
   translated, same clips and look. Prices, codes and web addresses stay exactly as you wrote them. Your original deck
   isn't changed. (In other languages the word-by-word caption highlight is timed approximately.)
 
+## WaltzDeck — make the voiceover say your brand name right
+- Open **Brand** → **Say it right** → **Add a word**. Type the word as you write it (**TxtYa**) and how it should sound
+  (**Text Ya**). Add as many as you need (up to 20), and remove one with the bin.
+- The voiceover says it your way; captions and the words on screen still show it as you write it.
+- It's saved for your workspace and used by every video with your brand on, the next time you render.
+- Tip: spell it out the way it sounds, with spaces between the parts ("Text Ya", "Kwik Pay").
+
 ## Waltz AI Remix — make a video you've already made even better
 - Open a project → **Waltz AI** tab → **Remix a video**. You'll see every finished video you've made:
   AutoWaltz music videos and Waltz AI clips, from all your projects. Pick one.

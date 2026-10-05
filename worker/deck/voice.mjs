@@ -6,11 +6,54 @@ import { join } from "node:path";
 
 const TTS_URL = process.env.TTS_URL || "http://127.0.0.1:8191";
 
+// Brand pronunciations (brand_kits.pronunciations_json, [{ word, say }]): the voice reads the respelling ("TxtYa" →
+// "Text Ya"), then the spoken words are merged back into the written one so the captions match the screen.
+const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const bare = (w) => String(w).toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+const usable = (list) => (Array.isArray(list) ? list : [])
+  .filter((p) => p && String(p.word ?? "").trim() && String(p.say ?? "").trim())
+  .sort((a, b) => b.word.length - a.word.length); // longest first: "TxtYa Pro" before "TxtYa"
+
+/** The line as it should be spoken, plus which words were respelled (in order) for respokenWords(). */
+export function respell(line, list) {
+  const ps = usable(list);
+  if (!ps.length) return { text: line, subs: [] };
+  // One pass with every word as an alternative, so a respelling is never matched again and subs stay in line order.
+  const re = new RegExp(`(?<![\\p{L}\\p{N}])(?:${ps.map((p) => reEsc(p.word.trim())).join("|")})(?![\\p{L}\\p{N}])`, "giu");
+  const subs = [];
+  const text = line.replace(re, (m) => {
+    const p = ps.find((x) => x.word.trim().toLowerCase() === m.toLowerCase());
+    subs.push(p);
+    return p.say.trim();
+  });
+  return { text, subs };
+}
+
+/** Merge each respelled run of spoken words back into its written word (timings span the run), in order. */
+export function respokenWords(words, subs) {
+  const out = [...words];
+  let k = 0;
+  for (const p of subs) {
+    const say = p.say.trim().split(/\s+/).map(bare).filter(Boolean);
+    if (!say.length) continue;
+    for (; k + say.length <= out.length; k++) {
+      if (!say.every((t, j) => bare(out[k + j].w) === t)) continue;
+      const last = out[k + say.length - 1];
+      const tail = String(last.w).match(/[^\p{L}\p{N}]+$/u)?.[0] ?? "";
+      out.splice(k, say.length, { ...out[k], w: p.word.trim() + tail, e: last.e });
+      k++;
+      break;
+    }
+  }
+  return out;
+}
+
 /** Narrate every slot whose scene has a voice line. Sets slot.voice = { file, dur, words:[{w,s,e}] }. */
-export async function synthScenes(slots, { voiceId = "af_heart", speed = 1 } = {}, dir) {
+export async function synthScenes(slots, { voiceId = "af_heart", speed = 1, pronunciations = [] } = {}, dir) {
   for (let i = 0; i < slots.length; i++) {
-    const line = String(slots[i].scene?.voice ?? "").trim();
-    if (!line) continue;
+    const written = String(slots[i].scene?.voice ?? "").trim();
+    if (!written) continue;
+    const { text: line, subs } = respell(written, pronunciations);
     let res;
     try {
       res = await fetch(`${TTS_URL}/tts`, {
@@ -26,7 +69,7 @@ export async function synthScenes(slots, { voiceId = "af_heart", speed = 1 } = {
     const j = await res.json();
     const file = join(dir, `voice${i}.wav`);
     writeFileSync(file, Buffer.from(j.wav, "base64"));
-    slots[i].voice = { file, dur: Number(j.duration) || 0, words: Array.isArray(j.words) ? j.words : [] };
+    slots[i].voice = { file, dur: Number(j.duration) || 0, words: respokenWords(Array.isArray(j.words) ? j.words : [], subs) };
   }
 }
 

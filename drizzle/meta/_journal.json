@@ -330,6 +330,13 @@
       "when": 1791077943013,
       "tag": "0046_scene_background",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791175090397,
+      "tag": "0047_brand_pronunciations",
+      "breakpoints": true
     }
   ]
 }
