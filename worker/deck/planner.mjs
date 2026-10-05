@@ -37,7 +37,7 @@ const maxSceneOf = (mode) => (mode === "presentation" ? 15 : MAX_SCENE);
 const bulletLimits = (mode) => (mode === "presentation" ? { n: 5, chars: 80 } : mode === "explainer" ? { n: 6, chars: 80 } : { n: 4, chars: 60 });
 const isMg = (l) => MOTION_LAYOUTS.includes(l);
 /** Animated layouts: how many bullets each uses (chat messages, channels, the end card's web address). */
-const MG_BULLETS = { "mg-chat": 5, "mg-fanout": 6, "mg-end": 1, "mg-steps": 4, "mg-features": 6, "mg-compare": 6, "mg-browser": 4 };
+const MG_BULLETS = { "mg-swarm": 3, "mg-chat": 5, "mg-fanout": 6, "mg-end": 1, "mg-steps": 4, "mg-features": 6, "mg-compare": 6, "mg-browser": 4 };
 
 // Streams the reply (NDJSON) and returns the same shape as a non-streamed call. Streaming matters: Node's
 // fetch (undici) drops a request whose response headers take > 300 s, and a non-streamed Ollama call sends
@@ -244,7 +244,7 @@ const MODE_GUIDE = {
 const MG_GUIDE =
   "ANIMATED layouts (media 0 unless noted) — pick by what the scene SAYS:\n" +
   "  mg-orbit — icons circling a device: many tools / apps / places at once; headline only.\n" +
-  "  mg-swarm — alerts piling onto a device with a climbing counter: overload, noise, things slipping through; headline only.\n" +
+  "  mg-swarm — things piling onto a device with a climbing counter: overload, noise, things slipping through; headline; bullets optional = 1-3 kinds of thing that pile up, drawn as icons (e.g. 'Laptops', 'iPhones', 'Emails', 'Invoices') — empty = numbered alert badges.\n" +
   "  mg-words — 2-5 big words appearing one by one: a key statement or question; headline = the words; sub optional. Can sit over a shot.\n" +
   "  mg-logo — the product name revealed; headline = the product/brand name, sub = a short tagline.\n" +
   "  mg-chat — a conversation on a phone: people messaging; headline = chat name; bullets = 3-5 messages as 'Name: what they say (Channel)', the sender's own as 'Me: …'. Can sit over a shot.\n" +

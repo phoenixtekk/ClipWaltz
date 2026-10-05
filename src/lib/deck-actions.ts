@@ -301,8 +301,8 @@ async function rewriteSceneTextImpl(projectId: string, sceneId: string, instruct
   const [s] = await db.select({ id: schema.deckScenes.id }).from(schema.deckScenes)
     .where(and(eq(schema.deckScenes.id, sceneId), eq(schema.deckScenes.projectId, projectId)));
   if (!s) throw new Error("Scene not found");
+  // (The instruction used to be kept in deck_scenes.prompt — that column is now the scene's suggested AI shot.)
   await db.update(schema.deckScenes).set({
-    prompt: ["rewrite", "shorter", "punchier"].includes(ins) ? undefined : ins,
     why: "Rewriting…", updatedAt: new Date(),
   }).where(eq(schema.deckScenes.id, sceneId));
   await enqueueDeck({ name: "scene", data: { sceneId, instruction: ins } });

@@ -44,7 +44,7 @@ export const isMotionLayout = (l: string) => l.startsWith("mg-");
 /** What each animated layout does with the scene's text fields (editor hints). */
 export const MOTION_FIELDS: Record<string, { headline: string; sub?: string; bullets?: string; media: "behind" | "ignored" }> = {
   "mg-orbit": { headline: "Headline (top)", media: "ignored" },
-  "mg-swarm": { headline: "Headline (top)", media: "ignored" },
+  "mg-swarm": { headline: "Headline (top)", bullets: "What piles up, as icons (optional) — e.g. Laptops, iPhones, Emails. Empty = numbered badges.", media: "ignored" },
   "mg-words": { headline: "The words (up to 8, one at a time)", sub: "Small line under them", media: "behind" },
   "mg-logo": { headline: "Name", sub: "Tagline", media: "ignored" },
   "mg-chat": { headline: "Chat name", bullets: "Messages — Name: message (Channel). Start with \"Me:\" for your own.", media: "behind" },

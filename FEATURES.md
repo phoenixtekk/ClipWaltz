@@ -13,6 +13,15 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## Rewrite feedback + icons in "notification overload" (2026-10-05)
+- **Rewrite feedback:** when "Tell the AI what to change in this scene" finishes, the scene panel shows **✓ Rewritten.** in
+  green and a pop-up says "Scene N rewritten — check the new words." (red message + pop-up if it fails).
+- **Notification overload with icons:** the animated swarm can pile up **icons instead of numbered circles** — its lines
+  name what piles up ("Laptops", "iPhones", "Emails"…; laptop / smartphone / tablet / computer icons added). The
+  planner, the per-scene rewrite and the chat know this (owner asked: "change the little circles … to little computers,
+  laptops, and iPhones" — the rewrite could only change words before).
+- Fix: a rewrite instruction no longer overwrites the scene's suggested AI shot (it used to be stored in the same field).
+
 ## Rename a WaltzDeck in the editor; closing scene always gets a shot (2026-10-05)
 - **Rename in place:** click the project name (pencil) at the top of the WaltzDeck editor, type, Enter (Escape
   cancels). Saved for the project everywhere (dashboard, editor); editors only. `src/components/studio/editable-title.tsx`

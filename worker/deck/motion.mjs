@@ -76,13 +76,18 @@ const G = {
   pin: '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
   sparkles: '<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/>',
   monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>',
+  laptop: '<path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"/>',
+  smartphone: '<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>',
+  tablet: '<rect width="16" height="20" x="4" y="2" rx="2" ry="2"/><line x1="12" x2="12.01" y1="18" y2="18"/>',
 };
 const ICON_KEYS = Object.keys(G).filter((k) => k !== "x" && k !== "check");
 const svg = (k, size, color = "#fff") => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${G[k] ?? G.sparkles}</svg>`;
 /** An icon for a word: channels, and common feature words. */
 function iconFor(label, i) {
   const l = String(label).toLowerCase();
-  const map = [[/sms|text|phone|call/, "phone"], [/mail/, "mail"], [/team|slack|discord|channel/, "hash"], [/chat|whats|messag|telegram|signal/, "chat"],
+  // Devices first ("iPhone" must not match the handset icon).
+  const map = [[/laptop|notebook|macbook/, "laptop"], [/iphone|smartphone|mobile|android|cell/, "smartphone"], [/tablet|ipad/, "tablet"],
+    [/computer|desktop|\bpcs?\b|monitor|server|device|endpoint|workstation/, "monitor"], [/sms|text|phone|call/, "phone"], [/mail/, "mail"], [/team|slack|discord|channel/, "hash"], [/chat|whats|messag|telegram|signal/, "chat"],
     [/video|zoom|meet/, "video"], [/web|site|online|global|world/, "globe"], [/secur|safe|privac|protect/, "shield"], [/lock|login|password/, "lock"],
     [/fast|speed|instant|quick/, "zap"], [/time|hour|minute|schedul|remind/, "clock"], [/calendar|date|book|event/, "calendar"],
     [/price|cost|pay|money|budget|save/, "dollar"], [/report|analytic|insight|track|chart|data/, "chart"], [/cloud|sync|backup/, "cloud"],
@@ -270,15 +275,19 @@ function draw(t){const intro=ease(t/1.2);
     const color = V.pick([L.hot, L.hot, L.acc]), hlPos = V.pick(["top", "bottom"]);
     const hw = hub === "phone" ? Math.min(W * 0.3, H * 0.28) : hub === "laptop" ? Math.min(W * 0.42, H * 0.6) : Math.min(W, H) * 0.24;
     const cy = H * (hlPos === "top" ? 0.56 : 0.46), n = Math.round(V.range(34, 52)), icon = V.pick(["bell", "mail", "chat", "at"]);
+    // What piles up: by default numbered alert badges; with lines ("laptops", "iPhones"…) the matching icons instead.
+    const kinds = (text.bullets ?? []).map((b) => String(b ?? "").trim()).filter(Boolean).slice(0, 4).map((b, i) => iconFor(b, i));
+    const icos = kinds.map((k) => svg(k, "60%")); // internal constant markup only (no user text)
+    const tiles = kinds.map((_, i) => (L.colorTiles ? TILE[(i * 3) % TILE.length][0] : i % 2 ? L.acc : L.acc2));
     const inner = Array.from({ length: 6 }, (_, i) => `<div id="m${i}" style="position:absolute;left:8%;right:8%;top:${8 + i * 14}%;height:9%;border-radius:1.4cqmin;background:${L.dark ? "#ffffff1f" : "#0f172a14"}"></div>`).join("");
     return page({ W, H, L, seed, css: `.bd{position:absolute;left:0;top:0;border-radius:${shape};background:${color};color:#fff;font-family:${L.hFont};font-weight:800;display:flex;align-items:center;justify-content:center;box-shadow:${L.fx === "glow" ? `0 0 2cqmin ${color}99` : shadow(L, 0.4)};will-change:transform}
 #cnt{position:absolute;left:auto;top:-3cqmin;right:-3cqmin;min-width:9cqmin;height:9cqmin;padding:0 1.5cqmin;font-size:4.5cqmin;z-index:9;border-radius:99px}`,
       body: device(hub, { x: W / 2, y: cy, w: hw, L, inner: hub === "orb" ? "" : inner, extra: `<div class="bd" id="cnt">0</div>${hub === "orb" ? svg(icon, hw * 0.4) : ""}` }) + `<div id="bz"></div>${headline(text, hlPos)}`,
-      script: `${HL_JS}const n=${n},px=W/2,py=${cy},pw=${hw},D=${dur},pat=${JSON.stringify(pattern)};const bz=$('bz');const B=[];
-for(let i=0;i<n;i++){const d=document.createElement('div');d.className='bd';const s=S*(0.035+rnd()*0.04);d.style.width=s+'px';d.style.height=s+'px';d.style.fontSize=(s*0.5)+'px';d.textContent=1+Math.floor(rnd()*9);bz.appendChild(d);
+      script: `${HL_JS}const n=${n},px=W/2,py=${cy},pw=${hw},D=${dur},pat=${JSON.stringify(pattern)},ICO=${JSON.stringify(icos)},TC=${JSON.stringify(tiles)},TOP=${hlPos === "top" ? 0.2 : 0.06},BOT=${hlPos === "top" ? 0.94 : 0.8};const bz=$('bz');const B=[];
+for(let i=0;i<n;i++){const d=document.createElement('div');d.className='bd';const s=S*(0.035+rnd()*0.04);d.style.width=s+'px';d.style.height=s+'px';d.style.fontSize=(s*0.5)+'px';if(ICO.length){const k=i%ICO.length;d.innerHTML=ICO[k];d.style.background=TC[k];d.style.borderRadius='24%';d.style.width=d.style.height=(s*1.35)+'px'}else d.textContent=1+Math.floor(rnd()*9);bz.appendChild(d);
   const ang=rnd()*6.283;const rr=pw*0.65+rnd()*S*0.24;const r=Math.hypot(W,H)*0.6;let sx,sy;
   if(pat==='rain'){sx=px+(rnd()-.5)*W;sy=-S*0.2}else if(pat==='spiral'){const a=ang+3;sx=px+Math.cos(a)*r;sy=py+Math.sin(a)*r}else{const side=rnd()*6.283;sx=px+Math.cos(side)*r;sy=py+Math.sin(side)*r}
-  B.push({d,s,sx,sy,tx:px+Math.cos(ang)*rr*(W>=H?1.25:0.9),ty:py+Math.sin(ang)*rr*(W>=H?0.95:1.3),t0:0.2+i*Math.max(1,D-1.6)/n,ph:rnd()*6.28})}
+  B.push({d,s,sx,sy,tx:px+Math.cos(ang)*rr*(W>=H?1.25:0.9),ty:Math.max(H*TOP,Math.min(H*BOT,py+Math.sin(ang)*rr*(W>=H?0.95:1.3))),t0:0.2+i*Math.max(1,D-1.6)/n,ph:rnd()*6.28})}
 const ph=$('ph'),cnt=$('cnt');
 function draw(t){let arrived=0;
   for(const b of B){const k=(t-b.t0)/0.7;const e=back(k);const sw=pat==='spiral'?(1-clamp(k))*1.2:0;const x=b.sx+(b.tx-b.sx)*e+Math.sin(t*3+b.ph)*4*clamp(k)+Math.cos(t*4)*sw*S*0.1;const y=b.sy+(b.ty-b.sy)*e+Math.cos(t*2.6+b.ph)*4*clamp(k);

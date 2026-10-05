@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import {
   Sparkles, Upload, Loader2, Lock, Unlock, Trash2, Plus, ArrowUp, ArrowDown, Wand2, Play, Pause, RotateCcw, Info, ImageIcon, Mic, Captions,
   FileUp, Globe, Presentation, FileText, FileDown, Download, Crop, Music, Palette, Megaphone, Clapperboard, ChevronRight, SkipBack, SkipForward,
-  Copy, Film, Type, ListChecks, Shuffle,
+  Copy, Film, Type, ListChecks, Shuffle, CheckCircle2,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub,
@@ -1095,6 +1095,16 @@ function SceneCard({
     onPatch({ text: next });
   };
   const busy = scene.why === "Rewriting…";
+  // Say clearly when a rewrite lands (owner, 2026-10-05: "no message at all" — the result was a small grey word).
+  const wasBusy = useRef(busy);
+  useEffect(() => {
+    if (wasBusy.current && !busy) {
+      if (/^Rewritten/.test(scene.why ?? "")) toast.success(`Scene ${index + 1} rewritten — check the new words.`);
+      else if (/^Couldn't/.test(scene.why ?? "")) toast.error(scene.why ?? "Couldn't rewrite this scene.");
+    }
+    wasBusy.current = busy;
+  }, [busy, scene.why, index]);
+  const rewritten = !busy && /^Rewritten/.test(scene.why ?? "");
   const textOff = scene.textMode === "none";
   return (
     <article className={cn("rounded-xl border bg-card p-3", scene.locked ? "border-[color:var(--cw-violet)]/60" : "border-border")}>
@@ -1217,8 +1227,10 @@ function SceneCard({
           <AiFill sceneSec={scene.durationSec} hasPhoto={asset?.kind === "photo"} fill={fill} credits={credits} canEdit={canEdit} onFill={onFill}
             defaultPrompt={scene.prompt || [scene.text.headline, scene.text.sub].filter(Boolean).join(" — ")} />
           {scene.why ? (
-            <p className={cn("flex items-center gap-1 text-[11px]", /^Couldn't/.test(scene.why) && !busy ? "font-medium text-destructive" : "text-muted-foreground")}>
-              {busy ? <Loader2 className="size-3 animate-spin" /> : /^Couldn't/.test(scene.why) ? <Info className="size-3" /> : <Sparkles className="size-3" />} {scene.why}
+            <p className={cn("flex items-center gap-1 text-[11px]", /^Couldn't/.test(scene.why) && !busy ? "font-medium text-destructive"
+              : rewritten ? "font-medium text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
+              {busy ? <Loader2 className="size-3 animate-spin" /> : /^Couldn't/.test(scene.why) ? <Info className="size-3" />
+                : rewritten ? <CheckCircle2 className="size-3.5" /> : <Sparkles className="size-3" />} {scene.why}
             </p>
           ) : null}
         </div>
