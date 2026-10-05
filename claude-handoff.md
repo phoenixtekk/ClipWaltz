@@ -54,6 +54,10 @@ Tree clean, in sync with origin/main (`44f0ad8`). tsc + lint clean. Everything b
   clipwaltz-gen-worker` (backup `/tmp/cw-pre-variety-src.tgz`); AI box render-worker + deck/{motion,text-layer,export}
   (backups `*.bak-20261005-variety`); wiki updated. Dev-verified (looks x layouts sheets, re-plan, 3 chat turns incl.
   locked scene, render 41.7 s sunset). "Film all shots" button not clicked (would hold the shared GPU ~30 min).
+- **AI shot fixes — LIVE `11e8d84` (2026-10-05):** deck AI clips capped at 5 s (`deckFillSeconds`; 8 s would exceed the
+  20-min GPU budget), "Film suggested shots" skips media-less layouts. App-only deploy (backup
+  `/tmp/cw-pre-fill5-src.tgz`). Verified on dev: 3 suggested shots filmed (15 credits) via a local generation worker
+  (Windows needs `WATERMARK_PATH=worker/WaterMark.png`), re-render 45.6 s with real footage behind 3 scenes.
 - **Next focus:** owner asked (2026-10-04) whether ClipWaltz can reach the quality of an Invideo-made reference video
   (https://www.youtube.com/watch?v=UYIHUdeTmPY) — proof built, see "Quality gap vs Invideo reference" below; owner
   to review the video and decide on productizing.
