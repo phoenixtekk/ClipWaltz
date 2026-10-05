@@ -66,6 +66,9 @@ Tree clean, in sync with origin/main (`44f0ad8`). tsc + lint clean. Everything b
 - **Rename + closing shot — LIVE `c988389` (2026-10-05):** WaltzDeck editor title is editable in place (EditableTitle →
   renameProject); explainer planner always suggests a shot for the closing scene (ensureShots, one retry). linuxg1
   build + restart app + gen worker (backup `/tmp/cw-pre-rename-src.tgz`). Dev-verified (rename saved; live planner call).
+- **AI token budgets — LIVE `5529fc5` (2026-10-05):** owner's scene rewrite (Envyrix Endpoint #2) failed: model ran out of
+  its 3,000-token budget while reasoning. chatJson default 8,000/300 s, chat 10,000; failed rewrite = plain red message.
+  Verified 5/5 rewrites on that scene's inputs locally. linuxg1 build + restart (backup `/tmp/cw-pre-tokens-src.tgz`).
 - **Next focus:** owner asked (2026-10-04) whether ClipWaltz can reach the quality of an Invideo-made reference video
   (https://www.youtube.com/watch?v=UYIHUdeTmPY) — proof built, see "Quality gap vs Invideo reference" below; owner
   to review the video and decide on productizing.
