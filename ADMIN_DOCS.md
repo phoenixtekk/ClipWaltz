@@ -566,6 +566,10 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
   + `REDIS_URL=redis://127.0.0.1:6380` in `.env.local`, run `node --env-file=.env.local worker/deck/dev-worker.mjs`
   (refuses the prod queue name and any DB but `clipwaltz_dev`). Dev renders: a one-shot copy of the worker on the AI
   box with `DATABASE_URL` pointed at `clipwaltz_dev` and `--once`.
+  Dev AI clips (Generate a shot / Film suggested shots): run `worker/generation-worker.mjs` locally with
+  `--env-file=.env.local --env-file=.env.development.local`, `AISERVER_API_TOKEN` (from linuxg1, never echoed) and, on
+  Windows, `WATERMARK_PATH=worker/WaterMark.png` — ffmpeg's `movie=` filter can't read a `G:\…` path (verified
+  2026-10-05: "Failed to avformat_open_input 'G'"); a relative path works. Production (Linux) is unaffected.
 
 ## WaltzDeck voice & captions (Phase 2, 2026-09-29)
 - **Voice service:** `clipwaltz-tts` systemd unit on the AI box (User=lacy), **127.0.0.1:8191** only — Kokoro-82M
@@ -753,8 +757,12 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
   text guarded by `allowedNumbers` / `unverifiedClaim` with the owner's chat as source) → one transaction (scene numbers
   resolved to ids first; locked scenes skipped; order_index rewritten) → assistant message with `changes[]`.
   `replan` runs `plan()` after. `clearDeckChat` drops the history. UI `src/components/deck/deck-chat.tsx`.
-- **Film suggested shots:** deck-editor `shotScenes` (scene.prompt, no media, no fill running) → `fillScene` per scene
-  (credits per scene as the single "Generate a shot").
+- **Film suggested shots:** deck-editor `shotScenes` (scene.prompt, no media, no fill running, a layout that shows media)
+  → `fillScene` per scene (credits per scene as the single "Generate a shot"); `fillSceneImpl` refuses a scene with a
+  fill already running (< 6 h old).
+- **Deck AI clip length:** `deckFillSeconds` (`src/lib/deck/types.ts`) = 3 s for scenes ≤ 3 s, else **5 s** (Wan 2.2 5B is
+  made for 121 frames; 8 s = 193 frames at 1280×720 would run past the 20-min GPU budget on a 10 GB card). A longer
+  scene is trimmed to the clip unless its voiceover needs longer (then the last frame holds).
 - **Deploy:** no migration. linuxg1 app build + `pm2 restart clipwaltz clipwaltz-gen-worker` (planner + chat job);
   AI box `render-worker.mjs` + `deck/{motion,text-layer,export}.mjs`.
 

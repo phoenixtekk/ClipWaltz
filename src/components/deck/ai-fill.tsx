@@ -8,9 +8,10 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { CreditsLine, notEnough } from "@/components/credits-line";
 import { generationCost, type CreditBalance } from "@/lib/credits";
+import { deckFillSeconds } from "@/lib/deck/types";
 
 /** Same rule as fillScene (src/lib/deck-actions.ts): the shortest Waltz AI length that covers the scene. */
-const fillSeconds = (sceneSec: number) => [3, 5, 8].find((d) => d >= sceneSec) ?? 8;
+const fillSeconds = deckFillSeconds;
 const ACTIVE = (s: string) => !["failed", "cancelled", "completed", "retried"].includes(s);
 
 export function AiFill({ sceneSec, hasPhoto, defaultPrompt, fill, credits, canEdit, onFill }: {

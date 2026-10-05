@@ -17,7 +17,7 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { aspectClass, isWide } from "@/lib/aspect";
 import {
-  CAMERA_MODES, DECK_MODES, LANGUAGES, LAYOUTS, MAX_BULLETS, MOTION_FIELDS, chatThinking, MOTIONS, MOTION_LABELS, TONES, VOICES, type CameraMode,
+  CAMERA_MODES, DECK_MODES, LANGUAGES, LAYOUTS, MAX_BULLETS, MOTION_FIELDS, chatThinking, deckFillSeconds, MOTIONS, MOTION_LABELS, TONES, VOICES, type CameraMode,
   type BrandSuggestion, type Campaign, type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type SceneTextMode, type TextMode, type VoiceMode, type ResolvedBackdrop,
 } from "@/lib/deck/types";
 import {
@@ -85,8 +85,9 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
   const translating = tr.status === "queued" || tr.status === "translating";
   const chatBusy = chatThinking(data.deck.chat);
   // Scenes the planner (or the chat) suggested a real AI-filmed shot for, not filmed yet.
-  const shotScenes = data.scenes.filter((x) => x.prompt && !x.assetId && !data.fills[x.id] && !x.locked);
-  const shotCost = shotScenes.reduce((n, x) => n + generationCost([3, 5, 8].find((d) => d >= x.durationSec) ?? 8), 0);
+  // Only layouts that show media (an animated layout like steps draws its own picture — a shot there is never seen).
+  const shotScenes = data.scenes.filter((x) => x.prompt && !x.assetId && !data.fills[x.id] && !x.locked && MOTION_FIELDS[x.layout]?.media !== "ignored");
+  const shotCost = shotScenes.reduce((n, x) => n + generationCost(deckFillSeconds(x.durationSec)), 0);
   const router = useRouter();
   // AI credits: re-read whenever a fill job starts or ends (a failed one refunds).
   const backdropBusy = data.backdropJobs.some((j) => !["failed", "cancelled", "completed", "retried"].includes(j.status));

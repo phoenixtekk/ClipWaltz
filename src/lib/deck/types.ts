@@ -184,6 +184,9 @@ export type DeckChatMessage = { id: string; role: "user" | "assistant"; text: st
 /** Still waiting on the AI? A turn older than 10 minutes was lost (e.g. a redeploy) — same rule as askDeckAi. */
 export const chatThinking = (c: { status?: string; startedAt?: string } | null | undefined) =>
   c?.status === "thinking" && !!c.startedAt && Date.now() - Date.parse(c.startedAt) < 10 * 60 * 1000;
+/** Length of a scene's AI clip ("Generate a shot" / "Bring to life"): 3 or 5 s. Wan 2.2 5B is made for 121 frames (5 s);
+ *  longer clips run past the 20-min GPU budget on a 10 GB card — a longer scene holds the clip's last frame. */
+export const deckFillSeconds = (sceneSec: number) => (sceneSec <= 3 ? 3 : 5);
 export type DeckChat = { status: "idle" | "thinking" | "failed"; error?: string | null; startedAt?: string; messages: DeckChatMessage[] };
 
 export type DeckState = { brief: DeckBrief; backdrops?: BackdropImage[]; plan?: DeckPlanStatus; import?: DeckImportStatus; brandSuggestion?: BrandSuggestion; translation?: DeckTranslation; chat?: DeckChat };

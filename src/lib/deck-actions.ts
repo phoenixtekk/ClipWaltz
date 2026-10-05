@@ -13,7 +13,7 @@ import { deleteObject } from "./storage";
 import { toResult, unwrap, type ActionResult } from "./action-result";
 import {
   CAMERA_MODES, DEFAULT_AUDIO, DUCK_MODES, MUSIC_TONES, VOICE_TONES, type DeckAudio,
-  DECK_MODES, LANGUAGES, LAYOUTS, MAX_BRIEF_HISTORY, MAX_BULLETS, MAX_BULLET_CHARS, MOTIONS, ROLES, VOICES, defaultBrief, defaultVoiceFor,
+  DECK_MODES, LANGUAGES, LAYOUTS, MAX_BRIEF_HISTORY, deckFillSeconds, MAX_BULLETS, MAX_BULLET_CHARS, MOTIONS, ROLES, VOICES, defaultBrief, defaultVoiceFor,
   type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type DeckState, type SceneText, type SceneTextMode,
   type ResolvedBackdrop, type SceneBackdrop, BACKDROP_PRESETS, type BackdropPresetKey, type LookKey,
 } from "./deck/types";
@@ -453,12 +453,11 @@ async function importFromUrlImpl(projectId: string, rawUrl: string): Promise<voi
 // ── AI fill (phase 5) ──────────────────────────────────────────────────────────────────────────────
 
 /** Clip lengths Waltz AI makes (src/components/generation-panel.tsx DURATIONS); the scene gets the shortest that covers it. */
-const FILL_DURATIONS = [3, 5, 8];
 /** Waltz AI frame sizes (divisible by 16) per project shape; 4:5 is generated portrait and cropped by the render. */
 const FILL_SIZE: Record<string, { w: number; h: number }> = {
   "16:9": { w: 1280, h: 720 }, "9:16": { w: 720, h: 1280 }, "1:1": { w: 768, h: 768 }, "4:5": { w: 720, h: 1280 },
 };
-const fillSeconds = (sceneSec: number) => FILL_DURATIONS.find((d) => d >= sceneSec) ?? FILL_DURATIONS[FILL_DURATIONS.length - 1];
+const fillSeconds = deckFillSeconds;
 
 /**
  * Make an AI clip for a scene and put it in the scene when it's ready (costs AI credits, refunded if it fails):
