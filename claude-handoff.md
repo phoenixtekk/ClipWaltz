@@ -46,6 +46,14 @@ Tree clean, in sync with origin/main (`44f0ad8`). tsc + lint clean. Everything b
   `*.bak-20261005-explainer`), worker restarted idle; wiki updated. No migration. Dev-verified end to end (wizard,
   no-media plan, preview + playback + logo, 40 s render ~5.5 min, PDF/PPTX, overlays on video/photo); not exercised via
   the prod UI. Dev test project `5114407e-…` ("Explainer test"). The planner rarely suggests AI shots (0 in 3 runs).
+- **Explainer variety + Edit with AI — LIVE `c68a875` (2026-10-05, owner: "never similar videos unless asked"; chat to
+  edit; more AI shots):** 6 looks + seeded per-scene variants (new seed every plan; Brand tab look + Shuffle), 4 new
+  layouts (steps/features/compare/browser), random story arcs + neutral guide (old guide leaked TxtYa proof wording),
+  ensureShots (>= 2 per explainer) + "Film N suggested AI shots" button, Edit with AI chat (deck job `chat`,
+  `editDeck` ops). Code-reviewed (4 bugs + 3 minor fixed). Deployed: linuxg1 build + `pm2 restart clipwaltz
+  clipwaltz-gen-worker` (backup `/tmp/cw-pre-variety-src.tgz`); AI box render-worker + deck/{motion,text-layer,export}
+  (backups `*.bak-20261005-variety`); wiki updated. Dev-verified (looks x layouts sheets, re-plan, 3 chat turns incl.
+  locked scene, render 41.7 s sunset). "Film all shots" button not clicked (would hold the shared GPU ~30 min).
 - **Next focus:** owner asked (2026-10-04) whether ClipWaltz can reach the quality of an Invideo-made reference video
   (https://www.youtube.com/watch?v=UYIHUdeTmPY) — proof built, see "Quality gap vs Invideo reference" below; owner
   to review the video and decide on productizing.
