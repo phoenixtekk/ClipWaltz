@@ -78,6 +78,9 @@ Tree clean, in sync with origin/main (`44f0ad8`). tsc + lint clean. Everything b
 - **Owner data (2026-10-05, owner request):** Envyrix Endpoint scene 2 (mg-swarm) bullets set to Computers / Laptops /
   iPhones on prod (headline/sub/voice unchanged). Music vs voice level already exist (Audio tab → Mix → Music level
   −24…+6 dB / Voice level −12…+6 dB; render applies each to its own stem — render-worker.mjs audio graph).
+- **Caption position per scene — LIVE `f84b9c2` (2026-10-05):** scene panel Captions: Deck default/Top/Bottom + chat op
+  `captions`; migration 0048 on dev + prod; linuxg1 build + restart (backup `/tmp/cw-pre-captionpos-src.tgz`); AI box
+  deck/voice.mjs (`*.bak-20261005-captionpos`). Dev render verified (scene 1 top, scene 2 default bottom).
 - **Next focus:** owner asked (2026-10-04) whether ClipWaltz can reach the quality of an Invideo-made reference video
   (https://www.youtube.com/watch?v=UYIHUdeTmPY) — proof built, see "Quality gap vs Invideo reference" below; owner
   to review the video and decide on productizing.
