@@ -88,6 +88,7 @@ function resolveBackdrop(projectId: string, own: unknown, deck: Partial<DeckStat
 
 const toScene = (r: typeof schema.deckScenes.$inferSelect, deck: Partial<DeckState>): DeckScene => ({
   id: r.id, orderIndex: r.orderIndex, role: r.role, assetId: r.assetId, inSec: r.inSec, outSec: r.outSec, frame: normFrame(r.frame),
+  captionPosition: r.captionPosition === "top" || r.captionPosition === "bottom" ? r.captionPosition : null,
   background: normBackdrop(r.background), backdrop: resolveBackdrop(r.projectId, r.background, deck),
   durationSec: r.durationSec, textMode: r.textMode as SceneTextMode, text: (r.text ?? {}) as SceneText,
   layout: r.layout, motion: r.motion, transition: r.transition, locked: r.locked, voice: r.voice, prompt: r.prompt, why: r.why,
@@ -252,6 +253,7 @@ export type ScenePatch = Partial<{
   inSec: number | null; outSec: number | null; locked: boolean; motion: string; transition: string; role: string;
   frame: SceneFrameBox | null;
   background: SceneBackdrop | null;
+  captionPosition: "top" | "bottom" | null;
 }>;
 
 /** Edit one scene. Typing your own words makes the text Manual and locks the scene (re-plans keep it). */
@@ -274,6 +276,7 @@ async function updateSceneImpl(projectId: string, sceneId: string, patch: SceneP
   }
   if (patch.textMode && ["auto", "manual", "none"].includes(patch.textMode)) set.textMode = patch.textMode;
   if (patch.layout && LAYOUTS.some((l) => l.key === patch.layout)) set.layout = patch.layout;
+  if (patch.captionPosition !== undefined) set.captionPosition = patch.captionPosition === "top" || patch.captionPosition === "bottom" ? patch.captionPosition : null;
   if (patch.role && (ROLES as readonly string[]).includes(patch.role)) set.role = patch.role;
   if (patch.motion && (MOTIONS as readonly string[]).includes(patch.motion)) set.motion = patch.motion;
   if (patch.transition && ["cut", "crossfade"].includes(patch.transition)) set.transition = patch.transition;

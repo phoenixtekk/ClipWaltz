@@ -740,6 +740,12 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
   (`sudo -n systemctl restart clipwaltz-worker`). The app also builds `worker/deck/backdrop.mjs` (imported by `src/`),
   so the app tarball must include it.
 
+## Per-scene caption position (2026-10-05)
+- Migration **0048** `deck_scenes.caption_position` (text: top | bottom | null = deck default). `updateScene` patch
+  `captionPosition`; chat op field `captions` (top / bottom / auto). Render: `voice.mjs buildCaptionsAss` reads
+  `slot.scene.caption_position` per line (`{nNsN}` + the event's MarginV). Deploy: prod migration, app, gen worker,
+  AI box `deck/voice.mjs`.
+
 ## AI token budgets (2026-10-05)
 - `chatJson` default **8,000** tokens / 300 s (was 3,000 / 180 s). qwen3-vl reasons before answering even with
   `think:false`; a scene rewrite on prod failed with "no JSON object in model reply (eval 3000 tok, done: length)"

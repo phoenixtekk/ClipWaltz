@@ -113,11 +113,17 @@ const clean = (w) => String(w).replace(/[{}\\]/g, "").trim();
  * (`position: "bottom"`) for explainers, whose animated scenes put their headline at the top.
  */
 export function buildCaptionsAss(slots, starts, W, H, brand = {}, { position = "top" } = {}) {
-  const fs = Math.round(Math.min(W, H) * (position === "bottom" ? 0.055 : 0.08));
+  // Each scene can override the deck's position (deck_scenes.caption_position: top | bottom | null = the deck's).
+  const place = (p) => (p === "bottom"
+    ? { an: 2, fs: Math.round(Math.min(W, H) * 0.055), mv: Math.round(H * 0.06) }
+    : { an: 8, fs: Math.round(Math.min(W, H) * 0.08), mv: Math.round(H * 0.1) });
+  const fs = place(position).fs;
   const font = String(brand.headingFont || "Montserrat").replace(/[^A-Za-z0-9 -]/g, "") || "Montserrat";
   const lines = [];
   slots.forEach((s, i) => {
     if (!s.voice?.words?.length) return;
+    const own = s.scene?.caption_position ?? s.scene?.captionPosition;
+    const at = place(own === "top" || own === "bottom" ? own : position);
     const base = starts[i] + 0.12;
     const ws = s.voice.words.map((w) => ({ w: clean(w.w), s: base + Number(w.s), e: base + Number(w.e) })).filter((w) => w.w);
     let group = [];
@@ -129,7 +135,7 @@ export function buildCaptionsAss(slots, starts, W, H, brand = {}, { position = "
         const dur = (next ? next.s : w.e) - w.s; // include the gap before the next word
         return `{\\kf${Math.max(1, Math.round(dur * 100))}}${w.w}`;
       }).join(" ");
-      lines.push({ start, end, text });
+      lines.push({ start, end, text, at });
       group = [];
     };
     for (const w of ws) {
@@ -142,7 +148,8 @@ export function buildCaptionsAss(slots, starts, W, H, brand = {}, { position = "
   // A line never lingers into the next one (libass would stack them).
   lines.sort((a, b) => a.start - b.start);
   for (let k = 0; k < lines.length - 1; k++) lines[k].end = Math.min(lines[k].end, lines[k + 1].start - 0.01);
-  const events = lines.map((l) => `Dialogue: 0,${assTime(l.start)},${assTime(l.end)},Cap,,0,0,0,,${l.text}`);
+  // Per line: alignment (\an8 top / \an2 bottom), its size and vertical margin.
+  const events = lines.map((l) => `Dialogue: 0,${assTime(l.start)},${assTime(l.end)},Cap,,0,0,${l.at.mv},,{\\an${l.at.an}\\fs${l.at.fs}}${l.text}`);
   return [
     "[Script Info]",
     "ScriptType: v4.00+",

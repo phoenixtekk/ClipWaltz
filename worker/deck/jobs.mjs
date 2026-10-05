@@ -351,7 +351,7 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
     try {
       const rows = await sql`select * from deck_scenes where project_id = ${projectId} order by order_index`;
       const scenes = rows.map((r, i) => ({ n: i + 1, id: r.id, layout: r.layout, role: r.role, durationSec: r.duration_sec, text: r.text ?? {}, voice: r.voice,
-        shot: r.prompt, locked: r.locked, hasMedia: !!r.asset_id }));
+        shot: r.prompt, captions: r.caption_position, locked: r.locked, hasMedia: !!r.asset_id }));
       const { reply, ops, flags } = await editDeck(brief, scenes, history);
       const changes = [];
       // Scene numbers refer to the storyboard the model saw: resolve them to rows first, then edit a working list.
@@ -372,6 +372,7 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
           if (o.layout) s.layout = o.layout;
           if (o.durationSec) s.durationSec = o.durationSec;
           if (o.shot !== undefined) s.shot = o.shot || null;
+          if (o.captions) s.captions = o.captions === "auto" ? null : o.captions;
           s.dirty = true;
           const name = s.text?.headline ? ` ("${s.text.headline}")` : "";
           changes.push(`Changed scene ${s.n}${name}.`);
@@ -429,7 +430,7 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
               text_mode: "auto", text: tx.json(s.text), layout: s.layout, voice: s.voice || null, prompt: s.shot, why: "Added in chat." })}`;
           } else if (s.dirty) {
             await tx`update deck_scenes set order_index = ${i}, text = ${tx.json(s.text)}, layout = ${s.layout}, duration_sec = ${s.durationSec},
-              voice = ${s.voice || null}, prompt = ${s.shot}, updated_at = now() where id = ${s.id} and not locked`;
+              voice = ${s.voice || null}, prompt = ${s.shot}, caption_position = ${s.captions ?? null}, updated_at = now() where id = ${s.id} and not locked`;
           } else {
             await tx`update deck_scenes set order_index = ${i} where id = ${s.id}`;
           }

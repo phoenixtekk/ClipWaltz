@@ -735,7 +735,8 @@ export const deckScenes = pgTable("deck_scenes", {
   transition: text().notNull().default("cut"), // cut | crossfade
   locked: boolean().notNull().default(false),
   voice: text(), // narration line for this scene (phase 2); null/empty = silent
-  prompt: text(), // per-scene instruction from the user ("more premium", "mention free shipping")
+  prompt: text(), // the scene's suggested AI shot (planner / chat) — was the user's rewrite instruction before 2026-10-05
+  captionPosition: text(), // voiceover captions for this scene: "top" | "bottom"; null = the deck's default
   why: text(), // planner's one-line reason for its choices, shown on the card
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),

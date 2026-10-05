@@ -337,6 +337,13 @@
       "when": 1791175090397,
       "tag": "0047_brand_pronunciations",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1791242979735,
+      "tag": "0048_scene_caption_position",
+      "breakpoints": true
     }
   ]
 }

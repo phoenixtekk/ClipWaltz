@@ -914,7 +914,7 @@ export async function editDeck(brief, scenes, history) {
   const list = scenes.map((s) =>
     `#${s.n} ${s.layout} (${s.role}, ${s.durationSec}s${s.locked ? ", LOCKED" : ""}${s.hasMedia ? ", shows a photo/video" : ""}) ` +
     `headline:${JSON.stringify(s.text?.headline ?? "")} sub:${JSON.stringify(s.text?.sub ?? "")} bullets:${JSON.stringify(s.text?.bullets ?? [])} ` +
-    `voice:${JSON.stringify(s.voice ?? "")}${s.shot ? ` shot:${JSON.stringify(s.shot)}` : ""}`).join("\n");
+    `voice:${JSON.stringify(s.voice ?? "")}${s.shot ? ` shot:${JSON.stringify(s.shot)}` : ""}${s.captions ? ` captions:${s.captions}` : ""}`).join("\n");
   const convo = history.slice(-12).map((m) => `${m.role === "user" ? "OWNER" : "YOU"}: ${str(m.text, 1500)}`).join("\n");
   const prompt =
     `You edit a short ${brief.mode === "explainer" ? "animated explainer" : brief.mode ?? "ad"} video in ClipWaltz. The owner chats with you to change it. ${langRule(brief)}\n` +
@@ -925,7 +925,8 @@ export async function editDeck(brief, scenes, history) {
     `CONVERSATION:\n${convo}\n\n` +
     `Do what the owner's LAST message asks — that and nothing else. If it is unclear, ask one short question and make no changes.\n` +
     `Operations (scene numbers = the CURRENT storyboard above):\n` +
-    `  {"op":"update","scene":n, and any of "headline","sub","bullets","voice","layout","durationSec","shot"}\n` +
+    `  {"op":"update","scene":n, and any of "headline","sub","bullets","voice","layout","durationSec","shot","captions"}\n` +
+    `  ("captions" = where that scene's voiceover words show: "top", "bottom" or "auto" = the video's default)\n` +
     `  {"op":"add","after":n (0 = at the start),"role":"content","layout":…,"headline":…,"sub":…,"bullets":[…],"voice":…,"durationSec":…,"shot":…}\n` +
     `  {"op":"delete","scene":n}   {"op":"move","scene":n,"to":m}\n` +
     `  {"op":"look","look":"${EDIT_LOOKS.join("|")}"}   {"op":"shuffle"} (a fresh visual take of every animated scene)\n` +
@@ -964,6 +965,7 @@ export async function editDeck(brief, scenes, history) {
     if (typeof o.layout === "string" && LAYOUTS.includes(o.layout)) f.layout = o.layout;
     if (o.durationSec !== undefined && Number.isFinite(Number(o.durationSec))) f.durationSec = Math.round(Math.max(MIN_SCENE, Math.min(15, Number(o.durationSec))) * 10) / 10;
     if (o.shot !== undefined) f.shot = str(o.shot, 400);
+    if (["top", "bottom", "auto"].includes(o.captions)) f.captions = o.captions;
     return f;
   };
   const ops = [];

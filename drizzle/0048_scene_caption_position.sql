@@ -1,0 +1,1 @@
+ALTER TABLE "deck_scenes" ADD COLUMN "caption_position" text;

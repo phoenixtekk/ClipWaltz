@@ -284,6 +284,10 @@ them there, then come back. (These are in addition to the "video ready" email, w
   translated, same clips and look. Prices, codes and web addresses stay exactly as you wrote them. Your original deck
   isn't changed. (In other languages the word-by-word caption highlight is timed approximately.)
 
+## WaltzDeck — where the voiceover words show
+- In a scene's panel, pick **Captions: Top** or **Bottom** (or leave **Deck default**). Each scene can be different — e.g.
+  move the words to the top when the bottom of the picture is busy. You can also ask in **Edit with AI**.
+
 ## WaltzDeck — "Tell the AI what to change in this scene"
 - Type what you want and press Enter. When it's done you'll see **✓ Rewritten.** in green and a pop-up. It can change the
   words, the voiceover and — for animated scenes — the lines the animation uses, e.g. "make the circles laptops and

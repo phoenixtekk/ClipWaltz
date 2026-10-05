@@ -13,6 +13,12 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## Voiceover captions: top or bottom per scene (2026-10-05)
+- Scene panel → **Captions: Deck default / Top / Bottom** (shown when the deck has a voiceover). The deck default stays
+  bottom for explainers and top for other decks. The Edit with AI chat can change it too ("put scene 3's captions at the
+  top"). Migration 0048 (`deck_scenes.caption_position`); `buildCaptionsAss` places each line with `{n8}` / `{n2}`,
+  its own size and margin. Verified on dev: scene 1 = Top, scene 2 = default (bottom) in one render.
+
 ## Rewrite feedback + icons in "notification overload" (2026-10-05)
 - **Rewrite feedback:** when "Tell the AI what to change in this scene" finishes, the scene panel shows **✓ Rewritten.** in
   green and a pop-up says "Scene N rewritten — check the new words." (red message + pop-up if it fails).

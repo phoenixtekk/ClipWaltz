@@ -1148,6 +1148,15 @@ function SceneCard({
             <select value={scene.motion} disabled={!canEdit} onChange={(e) => onPatch({ motion: e.target.value })} className="h-7 rounded-md border border-border bg-background px-1.5" title="Camera move for this scene (dynamic camera)">
               {MOTIONS.map((m) => <option key={m} value={m}>{MOTION_LABELS[m]}</option>)}
             </select>
+            {voiceMode !== "off" ? (
+              <select value={scene.captionPosition ?? ""} disabled={!canEdit} aria-label="Where this scene's voiceover captions show"
+                onChange={(e) => onPatch({ captionPosition: (e.target.value || null) as "top" | "bottom" | null })}
+                className="h-7 rounded-md border border-border bg-background px-1.5" title="Where this scene's voiceover words show">
+                <option value="">Captions: Deck default</option>
+                <option value="top">Captions: Top</option>
+                <option value="bottom">Captions: Bottom</option>
+              </select>
+            ) : null}
             <div className="ml-auto flex items-center gap-0.5">
               <IconBtn label={scene.locked ? "Unlock (re-plans may change it)" : "Lock (re-plans keep it)"} disabled={!canEdit} onClick={() => onPatch({ locked: !scene.locked })}>
                 {scene.locked ? <Lock className="size-3.5 text-[color:var(--cw-violet)]" /> : <Unlock className="size-3.5" />}

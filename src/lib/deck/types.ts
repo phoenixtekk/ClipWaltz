@@ -214,6 +214,8 @@ export type DeckScene = {
   frame: SceneFrameBox | null;
   /** This scene's own backdrop (null = the deck default). */
   background: SceneBackdrop | null;
+  /** Where this scene's voiceover captions show; null = the deck default (bottom for explainers, top otherwise). */
+  captionPosition: "top" | "bottom" | null;
   /** The backdrop it actually gets (own, else the deck default, else the brand gradient), ready to draw. */
   backdrop: ResolvedBackdrop;
   durationSec: number;
