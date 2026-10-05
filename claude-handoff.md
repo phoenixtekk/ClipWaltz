@@ -1,5 +1,5 @@
-<!-- session-version: 12 -->
-<!-- pending-session-title: ClipWaltz v12 -->
+<!-- session-version: 13 -->
+<!-- pending-session-title: ClipWaltz v13 -->
 
 # ClipWaltz — session handoff
 
@@ -15,34 +15,60 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
-## Working state (2026-10-03, v12)
-Tree clean, in sync with origin/main. tsc + lint clean.
-- **Shipped + deployed in v11** (details in FEATURES/ADMIN_DOCS; backups `/tmp/cw-pre-*-src.tgz` on linuxg1):
-  lint fix `b20d585` · scene media edit/crop/delete `8e0cf9e` (migration 0044, AI box worker) · one-screen studio
-  `d8a2862` (`studio-shell.tsx`, mockup https://claude.ai/artifact/D9JiqUUbzQdAexcnjrCKxg) · hydration-safe dates
-  `da82e2f` (`<LocalDate>`) · admin AI credit grants `7b118c7` (migration 0045). None exercised via the prod UI (no prod login).
-- **Audio (v12) — LIVE `79c28bb`:** wider left panel on music tabs (`StudioShell leftWide`); 7 gentle Pixabay beds
-  (mood `gentle`) seeded into **prod** (music_tracks active 176); Ad decks default `t-music-promotion`, Presentation
-  `t-presentation-clean` (`defaultDeckTrackId`). Deployed 2026-10-03: src tarball → build → `pm2 restart clipwaltz`
-  (backup `/tmp/cw-pre-audio-src.tgz`); on-box + www 200; wiki features/help-center/music-catalog updated. Not
-  exercised via the prod UI.
-- **Backdrops / AI backdrops / zoom-out (v12) — LIVE `9df1678`:** 8 brand-tinted backdrop styles + brand gradient for
-  text scenes (deck default in Brand tab, per-scene in the scene panel), AI backdrops (one Wan frame, 2 credits, 3×3
-  brightness grid picks dark/white words), Edit media zoom to 0.6× (media card on the backdrop), backdrop drift + more
-  pull-outs + Ken Burns in/out, AutoWaltz blurred fill. One module `worker/deck/backdrop.mjs` draws preview/render/exports.
-  Deployed 2026-10-03: prod migration 0046, build, pm2 restart clipwaltz + clipwaltz-gen-worker (backup
-  `/tmp/cw-pre-backdrops-src.tgz`); AI box render-worker + deck/{backdrop,text-layer,export,camera,frame}.mjs (backups
-  `*.bak-20261003-backdrops`), clipwaltz-worker restarted idle; checksums match; wiki features/help-center/admin-docs.
-  Dev-verified (real renders, PDF/PPTX, AI generation e2e); not exercised via the prod UI. Mockup:
-  https://claude.ai/artifact/AN5HL8c7RjHjxG914oVq6V
-- **Timeline inserts (v12) — LIVE `36d36fa`:** + in every timeline gap (title / slide / CTA / media / copy), AI writes the
-  new scene to fit its neighbours, drag a scene onto a gap to move it, drag a file from Your media onto a gap. App-only;
-  deployed 2026-10-03 (build + pm2 restart clipwaltz, backup `/tmp/cw-pre-insert-src.tgz`); wiki updated. Dev-verified.
-- **Next focus:** nothing queued — ask the owner.
-- **Known, unfixed:** intermittent dev-only "unique key … passed a child from DeckPage" warning (seen after the New
-  Project page soft-navigates to a new deck; not reproducible on demand); (nativeButton warning fixed in `9df1678`).
+## Working state (2026-10-04, rotation to v13)
+Tree clean, in sync with origin/main (`44f0ad8`). tsc + lint clean. Everything below is deployed.
+```
+44f0ad8 docs(handoff): timeline inserts deployed
+36d36fa feat(deck): add a scene anywhere on the timeline, drag to move or drop media
+9df1678 feat(deck): backdrops for text slides, AI backdrops, zoom-out media cards; AutoWaltz blurred fill
+79c28bb feat(audio): gentle music beds, per-deck default tracks, wider music panel
+```
+- **Shipped in v12 (all LIVE, dev-verified, not exercised via the prod UI — no prod login):**
+  - Audio `79c28bb`: 7 gentle Pixabay beds seeded in prod; Ad/Presentation default tracks; wider music panel.
+  - Backdrops `9df1678`: 8 brand-tinted styles + brand gradient for text scenes (Brand tab default, per-scene
+    override), AI backdrops (one Wan frame, 2 credits; 3×3 brightness grid picks dark/white words), Edit media zoom to
+    0.6× (media card on the backdrop), backdrop drift, more pull-outs, Ken Burns in/out, AutoWaltz blurred fill.
+    One module `worker/deck/backdrop.mjs` draws preview/render/exports. Migration 0046 on prod; AI box worker updated
+    (backups `*.bak-20261003-backdrops`). Mockup https://claude.ai/artifact/AN5HL8c7RjHjxG914oVq6V
+  - Timeline inserts `36d36fa`: + in every gap (title/slide/CTA/media/copy), AI writes the new scene, drag to move,
+    drop media on a gap. Backups on linuxg1: `/tmp/cw-pre-{audio,backdrops,insert}-src.tgz`.
+- **Next focus:** owner asked (2026-10-04) whether ClipWaltz can reach the quality of an Invideo-made reference video
+  (https://www.youtube.com/watch?v=UYIHUdeTmPY) — proof built, see "Quality gap vs Invideo reference" below; owner
+  to review the video and decide on productizing.
+- **Known, unfixed:** intermittent dev-only "unique key … passed a child from DeckPage" warning (not reproducible).
 - Hindi/Japanese/Chinese **not wanted** (owner, 2026-09-30) — don't propose. Rule: new client-called actions return
-  ActionResult and are unwrapped (ADMIN_DOCS "Server action errors").
+  ActionResult and are unwrapped (ADMIN_DOCS "Server action errors"). Dev test login + dev queues in
+  `.env.development.local`; one-shot dev render: `render-worker.mjs --once` (also drains slide exports).
+
+## Quality gap vs Invideo reference (2026-10-04, owner question)
+Reference: https://www.youtube.com/watch?v=UYIHUdeTmPY ("TxtYa, Cross Channel Group Communication", 40.5 s, 16:9,
+made with Invideo per the owner). Reviewed from frames (YouTube served 640×360 to the browser — composition judged,
+not fine detail; audio not heard, but burned-in captions show a voiceover).
+- **What it is:** no user footage — every shot is generated or motion graphics, in ONE look (dark navy starfield, cyan
+  glow): app icons orbiting a glowing phone, red notification bubbles swarming, kinetic text ("Why force it?" + glow
+  line), glowing logo reveal, a 3-panel split screen (hand-held phone / chat UI with bubbles popping in one by one /
+  phone), world-map network + logo + URL end card, synced captions.
+- **Where its polish comes from (estimate):** (1) one consistent style across shots; (2) crisp motion-graphics UI
+  (chat bubbles, icons, logo glow, split screens) — deterministic, not AI video; (3) a few generated hero shots;
+  (4) voiceover + captions.
+- **ClipWaltz today:** (2)/(4) are within reach — the Chromium text-layer engine + ffmpeg already render animated
+  HTML/CSS per frame, Kokoro TTS + burned captions exist. (1) needs a per-project style bible applied to every prompt
+  and template. (3) is the hard part: Wan 2.2 5B on a 10 GB RTX 3080 makes good abstract/glow stills (verified) but
+  photoreal hands, legible phone UIs and shot-to-shot consistency need a bigger model (14B-class, ~24 GB+ VRAM) or a
+  paid cloud video API — an owner cost decision. Not yet tested: Wan 5B *video* on this kind of prompt.
+- **Proof BUILT (2026-10-04, owner-approved), not product code:** `scripts/proof/` (motion.mjs = 8 frame-exact
+  HTML templates in one style: iconOrbit, notificationSwarm, kineticText, logoReveal, chatUI, fanOut, endCard,
+  starfield; storyboard.mjs; wan.mjs = direct AISERVER t2v; compose.mjs = Kokoro VO → scene timing → segments →
+  xfade → narration + ducked music + karaoke captions, reusing worker/deck/voice.mjs; preview.mjs = stills).
+  Ran on the AI box in `~/cw-proof` (symlinks to ~/clipwaltz worker + node_modules; output `txtya-proof.mp4`,
+  34.3 s 1080p, -16.4 LUFS; compose 4.7 min). Sent to the owner with a frame sheet.
+  - **Wan 2.2 5B video, 1280×704 / 121 frames: ~10 min per clip per 3080** (2 in parallel). Photoreal people/hands
+    with glowing phones: good (woman-with-phone portrait shot is near stock quality). Earth-from-space: good.
+    Abstract "network of glowing lines": FAILED (dim gradient); a concrete prompt (fiber optics) worked → prompt
+    rule: describe real objects, not abstractions. Phone screens are soft blobs, never legible UI → UI must be
+    motion templates (as here). End-card URL `txtya.com` is a placeholder.
+  - **Owner to decide:** whether to productize (templates into WaltzDeck scenes + a style bible + an AI-explainer
+    planner) and whether Wan's 10 min/clip is acceptable or a faster/bigger model is worth the spend.
 
 ## Music & voice mix, dynamic camera, brief history, tone presets (2026-09-30, v10) — LIVE on prod (`f48b8d6`)
 Owner asks: music select/upload, gain + tone for music and voice, fix the ducking "pumping", brief history (15), tone
