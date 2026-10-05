@@ -58,6 +58,11 @@ Tree clean, in sync with origin/main (`44f0ad8`). tsc + lint clean. Everything b
   20-min GPU budget), "Film suggested shots" skips media-less layouts. App-only deploy (backup
   `/tmp/cw-pre-fill5-src.tgz`). Verified on dev: 3 suggested shots filmed (15 credits) via a local generation worker
   (Windows needs `WATERMARK_PATH=worker/WaterMark.png`), re-render 45.6 s with real footage behind 3 scenes.
+- **AI boxes + chat clarity — LIVE `dd01ea7` (2026-10-05):** scene-panel "Tell the AI what to change in this scene" =
+  3-line resizable textarea + send (600 chars); chat input 4 lines resizable (1500); chat knows the closing scene, names
+  changed scenes, warns on shots for media-less layouts. linuxg1 build + restart app + gen worker (backup
+  `/tmp/cw-pre-aibox-src.tgz`). Dev: closing-scene shot added via chat (first try hit scene 6 — fixed by the numbering
+  hint), filmed (5 credits), re-render 45.4 s with 4 filmed scenes.
 - **Next focus:** owner asked (2026-10-04) whether ClipWaltz can reach the quality of an Invideo-made reference video
   (https://www.youtube.com/watch?v=UYIHUdeTmPY) — proof built, see "Quality gap vs Invideo reference" below; owner
   to review the video and decide on productizing.
