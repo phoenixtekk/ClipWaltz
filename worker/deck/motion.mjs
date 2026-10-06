@@ -278,7 +278,8 @@ function draw(t){const intro=ease(t/1.2);
     const hub = V.pick(["phone", "laptop", "orb"]), pattern = V.pick(["burst", "rain", "spiral"]), shape = V.pick(["50%", "28%", "99px"]);
     const color = V.pick([L.hot, L.hot, L.acc]), hlPos = capFlip(V.pick(["top", "bottom"]), text.cap);
     const hw = hub === "phone" ? Math.min(W * 0.3, H * 0.28) : hub === "laptop" ? Math.min(W * 0.42, H * 0.6) : Math.min(W, H) * 0.24;
-    const cy = H * (hlPos === "top" ? 0.56 : 0.46), n = Math.round(V.range(34, 52)), icon = V.pick(["bell", "mail", "chat", "at"]);
+    // With captions at the bottom the phone sits a little higher so the words never cover it.
+    const cy = H * (hlPos === "top" ? (text.cap === "bottom" ? 0.52 : 0.56) : 0.46), n = Math.round(V.range(34, 52)), icon = V.pick(["bell", "mail", "chat", "at"]);
     // What piles up: by default numbered alert badges; with lines ("laptops", "iPhones"…) the matching icons instead.
     const kinds = (text.bullets ?? []).map((b) => String(b ?? "").trim()).filter(Boolean).slice(0, 4).map((b, i) => iconFor(b, i));
     const icos = kinds.map((k) => svg(k, "60%")); // internal constant markup only (no user text)
@@ -287,7 +288,7 @@ function draw(t){const intro=ease(t/1.2);
     return page({ W, H, L, seed, css: `.bd{position:absolute;left:0;top:0;border-radius:${shape};background:${color};color:#fff;font-family:${L.hFont};font-weight:800;display:flex;align-items:center;justify-content:center;box-shadow:${L.fx === "glow" ? `0 0 2cqmin ${color}99` : shadow(L, 0.4)};will-change:transform}
 #cnt{position:absolute;left:auto;top:-3cqmin;right:-3cqmin;min-width:9cqmin;height:9cqmin;padding:0 1.5cqmin;font-size:4.5cqmin;z-index:9;border-radius:99px}`,
       body: device(hub, { x: W / 2, y: cy, w: hw, L, inner: hub === "orb" ? "" : inner, extra: `<div class="bd" id="cnt">0</div>${hub === "orb" ? svg(icon, hw * 0.4) : ""}` }) + `<div id="bz"></div>${headline(text, hlPos)}`,
-      script: `${HL_JS}const n=${n},px=W/2,py=${cy},pw=${hw},D=${dur},pat=${JSON.stringify(pattern)},ICO=${JSON.stringify(icos)},TC=${JSON.stringify(tiles)},TOP=${hlPos === "top" ? 0.2 : 0.06},BOT=${hlPos === "top" ? 0.94 : 0.8};const bz=$('bz');const B=[];
+      script: `${HL_JS}const n=${n},px=W/2,py=${cy},pw=${hw},D=${dur},pat=${JSON.stringify(pattern)},ICO=${JSON.stringify(icos)},TC=${JSON.stringify(tiles)},TOP=${hlPos === "top" || text.cap === "top" ? 0.2 : 0.06},BOT=${hlPos === "top" && text.cap !== "bottom" ? 0.94 : 0.8};const bz=$('bz');const B=[];
 for(let i=0;i<n;i++){const d=document.createElement('div');d.className='bd';const s=S*(0.035+rnd()*0.04);d.style.width=s+'px';d.style.height=s+'px';d.style.fontSize=(s*0.5)+'px';if(ICO.length){const k=i%ICO.length;d.innerHTML=ICO[k];d.style.background=TC[k];d.style.borderRadius='24%';d.style.width=d.style.height=(s*1.35)+'px'}else d.textContent=1+Math.floor(rnd()*9);bz.appendChild(d);
   const ang=rnd()*6.283;const rr=pw*0.65+rnd()*S*0.24;const r=Math.hypot(W,H)*0.6;let sx,sy;
   if(pat==='rain'){sx=px+(rnd()-.5)*W;sy=-S*0.2}else if(pat==='spiral'){const a=ang+3;sx=px+Math.cos(a)*r;sy=py+Math.sin(a)*r}else{const side=rnd()*6.283;sx=px+Math.cos(side)*r;sy=py+Math.sin(side)*r}
