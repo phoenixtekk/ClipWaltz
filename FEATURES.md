@@ -13,6 +13,14 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## Logo reveal shows the whole name; rewrite fixes "cut off" text (2026-10-06)
+- **Bug (owner):** the animated logo reveal drew only the first 24 letters ("Streamlined Intune Repor"). Now the whole name
+  shows (up to 80 characters), wrapping between words and shrinking to fit; letter timing scales so long names finish
+  appearing; the logo sits clear of the name in portrait. Checked 288 combinations (3 shapes × 3 name lengths × 8
+  variants × logo on/off × 2 lengths): every letter visible, nothing off-frame or overlapping.
+- **Rewrite:** "Tell the AI what to change in this scene" now shortens text when you say it's cut off / doesn't fit, and
+  if the AI returns the same words the scene says **"No change — …"** instead of a green "Rewritten.".
+
 ## Voiceover captions: top or bottom per scene (2026-10-05)
 - Scene panel → **Captions: Deck default / Top / Bottom** (shown when the deck has a voiceover). The deck default stays
   bottom for explainers and top for other decks. The Edit with AI chat can change it too ("put scene 3's captions at the

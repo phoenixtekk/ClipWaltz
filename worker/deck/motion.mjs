@@ -325,28 +325,35 @@ function draw(t){if(veil)veil.style.opacity=ease(t/0.4);
   if(sub){const k=ease((t-0.45-n*0.3)/0.6);sub.style.opacity=k;sub.style.transform='translateY('+(1-k)*S*0.03+'px)'}}` });
   },
 
-  "mg-logo"({ W, H, L, V, text, brand, seed }) {
-    const letters = [...String(text.headline ?? "")].slice(0, 24);
+  "mg-logo"({ W, H, L, V, text, brand, seed, dur }) {
+    // The whole name (owner, 2026-10-06: "Streamlined Intune Reporting" showed as "…Repor" — a 24-letter cap). Letters are
+    // grouped by word so a long name wraps between words, and [data-fit] shrinks it until it fits.
+    const letters = [...String(text.headline ?? "").replace(/\s+/g, " ").trim()].slice(0, 80);
+    let li = 0;
+    const nameHtml = letters.join("").split(" ").filter(Boolean).map((w) => `<span class="wd">${[...w].map((c) => `<span class="l" id="l${li++}">${esc(c)}</span>`).join("")}</span>`).join(" ");
     const style = V.pick(["shock", "split", "wipe", "zoom", "type"]);
     const logo = okLogo(brand.logoDataUrl);
-    return page({ W, H, L, seed, css: `#lg{position:absolute;left:5%;right:5%;top:${logo ? 40 : 30}%;height:22%;display:flex;justify-content:center;align-items:center;font-size:${W >= H ? 20 : 17}cqmin;white-space:pre}
+    return page({ W, H, L, seed, css: `#lg{position:absolute;left:5%;right:5%;top:${logo ? 38 : 26}%;height:${logo ? 26 : 32}%;display:flex;flex-wrap:wrap;justify-content:center;align-content:safe center;column-gap:.25em;line-height:1.05;text-align:center;font-size:${W >= H ? 20 : 17}cqmin}
+.wd{display:inline-block;white-space:nowrap}
 .l{font-family:${L.hFont};font-weight:900;color:var(--ink);display:inline-block;text-shadow:${textFx(L)}}
-#tg{position:absolute;left:6%;right:6%;top:${logo ? 66 : 60}%;text-align:center;font-family:${L.bFont};font-weight:500;font-size:4.4cqmin;color:var(--sub);letter-spacing:.06em;text-transform:uppercase}
+#tg{position:absolute;left:6%;right:6%;top:${logo ? 67 : 62}%;text-align:center;font-family:${L.bFont};font-weight:500;font-size:4.4cqmin;color:var(--sub);letter-spacing:.06em;text-transform:uppercase}
 .rg{position:absolute;left:50%;top:44%;border-radius:50%;border:0.6cqmin solid ${L.acc};${L.fx === "glow" ? `box-shadow:0 0 4cqmin ${L.acc}, inset 0 0 4cqmin ${L.acc}` : ""}}
 #flash{position:absolute;inset:0;background:radial-gradient(circle at 50% 44%, ${L.dark ? "#ffffff" : L.acc + "55"} 0%, ${L.acc}55 18%, transparent 55%)}
 #sweep{position:absolute;top:0;bottom:0;width:18%;background:linear-gradient(90deg,transparent,#ffffff55,transparent);transform:skewX(-20deg);mix-blend-mode:${L.dark ? "screen" : "normal"}}
 #mask{position:absolute;left:0;top:30%;height:30%;background:${L.acc};z-index:5}
-#logo{position:absolute;left:50%;top:${W >= H ? 14 : 22}%;height:20%;max-width:50%;object-fit:contain;transform:translateX(-50%)}`,
-      body: `${style === "shock" ? '<div id="flash"></div><div class="rg" id="r0"></div><div class="rg" id="r1"></div>' : ""}${logo ? `<img id="logo" src="${logo}" alt="">` : ""}<div id="lg" data-fit>${letters.map((c, i) => `<span class="l" id="l${i}">${esc(c)}</span>`).join("")}</div>${style === "wipe" ? '<div id="mask"></div>' : ""}<div id="sweep"></div>${text.sub ? `<div id="tg">${esc(text.sub)}</div>` : ""}`,
-      script: `const n=${letters.length},st=${JSON.stringify(style)};
+#logo{position:absolute;left:50%;top:${W >= H ? 12 : 16}%;height:${W >= H ? 20 : 15}%;max-width:50%;object-fit:contain;transform:translateX(-50%)}`,
+      body: `${style === "shock" ? '<div id="flash"></div><div class="rg" id="r0"></div><div class="rg" id="r1"></div>' : ""}${logo ? `<img id="logo" src="${logo}" alt="">` : ""}<div id="lg" data-fit>${nameHtml}</div>${style === "wipe" ? '<div id="mask"></div>' : ""}<div id="sweep"></div>${text.sub ? `<div id="tg">${esc(text.sub)}</div>` : ""}`,
+      script: `const n=${li},st=${JSON.stringify(style)},D=${dur};
 function draw(t){
   if(st==='shock'){for(const [i,d] of [[0,0],[1,0.18]]){const k=ease((t-0.1-d)/1.1);const r=$('r'+i);const s=S*(0.1+1.3*k);r.style.width=s+'px';r.style.height=s+'px';r.style.transform='translate(-50%,-50%)';r.style.opacity=(1-k)*(t>0.1+d?1:0)}
     $('flash').style.opacity=Math.max(0,1-Math.abs(t-0.35)/0.45)*0.9+0.15}
   const lg=$('logo');if(lg){const k=ease((t-0.2)/0.6);lg.style.opacity=k;lg.style.transform='translateX(-50%) scale('+(0.7+0.3*back((t-0.2)/0.6))+')'}
-  for(let i=0;i<n;i++){const el=$('l'+i);let k=(t-0.3-i*0.07)/0.5;
+  // Per-letter steps shrink for long names so every letter is in well before the scene ends.
+  const st1=Math.min(0.07,(D*0.45)/Math.max(1,n)),st2=Math.min(0.09,(D*0.5)/Math.max(1,n));
+  for(let i=0;i<n;i++){const el=$('l'+i);let k=(t-0.3-i*st1)/0.5;
     if(st==='split'){const side=i<n/2?-1:1;k=(t-0.3)/0.8;el.style.opacity=clamp(k*1.5);el.style.transform='translateX('+(side*(1-easeIO(k))*W*0.3)+'px)'}
     else if(st==='zoom'){k=(t-0.2)/0.9;el.style.opacity=clamp(k*1.5);el.style.transform='scale('+(1+2*(1-ease(k)))+')';el.style.filter='blur('+(Math.max(0,1-clamp(k))*14)+'px)'}
-    else if(st==='type'){el.style.opacity=t>0.3+i*0.09?1:0;el.style.transform='none'}
+    else if(st==='type'){el.style.opacity=t>0.3+i*st2?1:0;el.style.transform='none'}
     else if(st==='wipe'){el.style.opacity=t>0.8?1:0;el.style.transform='none'}
     else{el.style.opacity=clamp(k*1.6);el.style.transform='translateY('+((1-back(k))*S*0.06)+'px) scale('+(0.6+0.4*back(k))+')';el.style.filter='blur('+(Math.max(0,1-clamp(k))*10)+'px)'}}
   const mk=$('mask');if(mk){const a=easeIO((t-0.2)/0.6),b=easeIO((t-0.8)/0.6);mk.style.left=(b*100)+'%';mk.style.width=((a-b)*100)+'%'}

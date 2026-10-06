@@ -731,6 +731,8 @@ export async function rewriteScene(brief, scene, mediaItem, instruction, sibling
       ? `headline at most ${scene.layout === "mg-words" ? 5 : 6} words; ${MG_BULLETS[scene.layout] ? `bullets as the layout describes (keep their meaning and format)` : "no bullets"}`
       : `at most ${maxWords} words in total; ${scene.layout === "bullets" || scene.layout === "slide" ? "2-4 bullets" : "bullets only if the layout is bullets or slide"}`}; ` +
     `never invent facts, prices, numbers or claims not in the brief or note (no "limited time", "best", "free", "guaranteed", ratings…).\n` +
+    `If the owner says text is cut off, missing letters, too long or doesn't fit, make that text clearly SHORTER (fewer and shorter ` +
+    `words, same meaning) — you cannot see the screen, so shortening is how you fix it.\n` +
     (brief.voice?.mode === "auto" ? `Also write "voice": the spoken narration for this scene (≈${Math.max(3, Math.round((Number(scene.durationSec) || 3) * SPEECH_WPS))} words, complements the text).\n` : "") +
     `JSON keys: {"headline":string,"sub":string,"bullets":[string]${brief.voice?.mode === "auto" ? ',"voice":string' : ""}}`;
   const { data } = await chatJson(TEXT_MODEL, prompt, null, { temperature: 0.7, numPredict: 8000, timeoutMs: 300000 });

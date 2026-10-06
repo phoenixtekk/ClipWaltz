@@ -153,9 +153,14 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
         others.map((o) => o.text?.headline).filter(Boolean),
       );
       const { flags, voice, ...clean } = text;
+      // Same words back = nothing changed — say so instead of a green "Rewritten." (owner, 2026-10-06: a rewrite
+      // "worked" but the scene looked the same).
+      const norm = (t) => JSON.stringify([t?.headline ?? "", t?.sub ?? "", (t?.bullets ?? []).filter(Boolean)]);
+      const same = norm(clean) === norm(s.text) && (voice === undefined || (voice || null) === (s.voice || null));
       if (voice !== undefined) await sql`update deck_scenes set voice = ${voice || null} where id = ${sceneId}`;
       await sql`update deck_scenes set text = ${sql.json(clean)}, text_mode = 'auto',
-        why = ${flags ? "Rewritten (removed a claim that wasn't in your brief)." : "Rewritten."}, updated_at = now() where id = ${sceneId}`;
+        why = ${same ? "No change — the AI kept the same words. Try asking another way (e.g. \"make the headline shorter\")."
+          : flags ? "Rewritten (removed a claim that wasn't in your brief)." : "Rewritten."}, updated_at = now() where id = ${sceneId}`;
     } catch (e) {
       console.error(`[deck] rewrite ${sceneId} failed: ${e.message}`);
       await sql`update deck_scenes set why = ${"Couldn't rewrite this scene — the AI didn't finish its answer. Please try again."}, updated_at = now() where id = ${sceneId}`;

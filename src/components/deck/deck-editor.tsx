@@ -1101,6 +1101,7 @@ function SceneCard({
     if (wasBusy.current && !busy) {
       if (/^Rewritten/.test(scene.why ?? "")) toast.success(`Scene ${index + 1} rewritten — check the new words.`);
       else if (/^Couldn't/.test(scene.why ?? "")) toast.error(scene.why ?? "Couldn't rewrite this scene.");
+      else if (/^No change/.test(scene.why ?? "")) toast.message(scene.why ?? "No change.");
     }
     wasBusy.current = busy;
   }, [busy, scene.why, index]);
