@@ -37,6 +37,22 @@ ships. It will also surface in-app at `/help`.
 - On a phone the category list sits above your videos and scrolls sideways; use **Properties** or **Move to** to move
   videos.
 
+## Save your videos to Google Drive, OneDrive, Dropbox or Box
+- Open your profile menu → **Cloud storage** and click **Connect** on the service you use. Sign in and allow
+  ClipWaltz to save files. You can connect more than one.
+- From then on, **every video you finish is saved there automatically**, in a **ClipWaltz** folder. Choose how it's
+  organised: **ClipWaltz › Category › Project** (matches your Projects page), **ClipWaltz › Project**, or everything in
+  one **ClipWaltz** folder. Files are named like *Spring promo v3 (9x16).mp4* and are never overwritten.
+- Turn **Save finished videos automatically** off to stop automatic saves but keep the connection.
+- **Save an older version:** in a project's **Render history**, click the cloud button next to any version →
+  **Save to …**. A small badge shows each save: spinning while uploading, a tick when done (click it to open the file
+  in Google Drive or OneDrive), or a warning if it failed — use **Retry**.
+- **If a save fails** (for example your storage is full or the connection expired), it's listed under **Recent saves**
+  with the reason; fix it, then press **Retry** or **Reconnect**.
+- **Privacy:** ClipWaltz only uploads your finished videos — it never reads or deletes your other files (with Google
+  Drive it can only see the files it created). **Disconnect** any time; videos already saved stay in your storage.
+- Services marked **Coming soon** aren't switched on yet.
+
 ## Importing your media
 - If an upload fails, press **Retry** next to the file — large files pick up where they stopped.
 - **Drag & drop** files, or use the **file/folder picker**.

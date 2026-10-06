@@ -26,6 +26,8 @@ export type UploadFile = {
   size: number;
   mime: string;
   read: (start: number, end: number) => Promise<Uint8Array>; // inclusive byte range
+  /** A current access token (refreshed if needed) — for providers whose every request needs one (Box). */
+  token?: () => Promise<string>;
 };
 
 export type UploadResult = { id: string; url: string | null; path: string };

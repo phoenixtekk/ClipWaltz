@@ -28,7 +28,7 @@ async function token(body: Record<string, string>): Promise<Tokens> {
 const auth = (t: string) => ({ authorization: `Bearer ${t}` });
 
 /** The id of folder `name` under `parentId` (created if missing). */
-async function folder(t: string, parentId: string, name: string): Promise<string> {
+async function folder(t: string, parentId: string, name: string, retried = false): Promise<string> {
   const list = await fetch(`${GRAPH}/me/drive/items/${parentId}/children?$select=id,name,folder&$top=999`, { headers: auth(t) });
   if (list.ok) {
     const j = (await list.json()) as { value?: { id: string; name: string; folder?: unknown }[] };
@@ -41,7 +41,8 @@ async function folder(t: string, parentId: string, name: string): Promise<string
     body: JSON.stringify({ name, folder: {}, "@microsoft.graph.conflictBehavior": "fail" }),
   });
   if (res.ok) return ((await res.json()) as { id: string }).id;
-  if (res.status === 409) return folder(t, parentId, name); // created meanwhile — look it up again
+  if (res.status === 409 && !retried) return folder(t, parentId, name, true); // created meanwhile — look it up once more
+  if (res.status === 409) throw new Error(`OneDrive has an item called “${name}” that isn't a folder`);
   throw new Error(`OneDrive couldn't create the folder “${name}” (${res.status})`);
 }
 

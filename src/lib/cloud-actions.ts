@@ -86,10 +86,10 @@ async function saveRenderToCloudImpl(renderId: string, p: CloudProviderId) {
   const [existing] = await db
     .select({ status: schema.cloudSaves.status })
     .from(schema.cloudSaves)
-    .where(and(eq(schema.cloudSaves.renderId, renderId), eq(schema.cloudSaves.provider, p)));
+    .where(and(eq(schema.cloudSaves.renderId, renderId), eq(schema.cloudSaves.provider, p), eq(schema.cloudSaves.userId, userId)));
   if (existing?.status === "done") {
     // Saving again on purpose: start a fresh row.
-    await db.delete(schema.cloudSaves).where(and(eq(schema.cloudSaves.renderId, renderId), eq(schema.cloudSaves.provider, p)));
+    await db.delete(schema.cloudSaves).where(and(eq(schema.cloudSaves.renderId, renderId), eq(schema.cloudSaves.provider, p), eq(schema.cloudSaves.userId, userId)));
   }
   await enqueueRenderSaves(renderId, { only: p, userId });
   revalidatePath(`/projects/${r.projectId}`, "layout");

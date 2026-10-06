@@ -65,7 +65,7 @@ async function uploadSmall(t: string, parent: string, name: string, bytes: Uint8
   throw new Error("Box upload failed: too many files with that name");
 }
 
-async function uploadChunked(t: string, parent: string, name: string, size: number, read: (s: number, e: number) => Promise<Uint8Array>) {
+async function uploadChunked(t: string, parent: string, name: string, size: number, read: (s: number, e: number) => Promise<Uint8Array>, fresh: () => Promise<string>) {
   let session: { id: string; part_size: number } | null = null;
   let finalName = name;
   for (let n = 1; n <= 20 && !session; n++) {
@@ -86,6 +86,7 @@ async function uploadChunked(t: string, parent: string, name: string, size: numb
     const end = Math.min(size, start + session.part_size) - 1;
     const bytes = await read(start, end);
     whole.update(bytes);
+    t = await fresh(); // a long upload outlives one access token
     const res = await fetch(`${UPLOAD}/files/upload_sessions/${session.id}`, {
       method: "PUT",
       headers: {
@@ -99,6 +100,7 @@ async function uploadChunked(t: string, parent: string, name: string, size: numb
   }
   const digest = `sha=${whole.digest("base64")}`;
   for (let i = 0; i < 30; i++) {
+    t = await fresh();
     const res = await fetch(`${UPLOAD}/files/upload_sessions/${session.id}/commit`, {
       method: "POST",
       headers: { ...auth(t), "content-type": "application/json", digest },
@@ -135,7 +137,7 @@ export const box: CloudProvider = {
     for (const name of f.folders) parent = await folder(t, parent, name);
     const file = f.size < CHUNKED_MIN
       ? await uploadSmall(t, parent, f.name, await f.read(0, f.size - 1))
-      : await uploadChunked(t, parent, f.name, f.size, f.read);
+      : await uploadChunked(t, parent, f.name, f.size, f.read, f.token ?? (async () => t));
     return { id: file.id, url: null, path: [...f.folders, file.name].join("/") };
   },
 };

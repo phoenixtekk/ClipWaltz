@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { decryptToken, encryptToken } from "./crypto";
 import { CLOUD_PROVIDERS, type CloudProviderId, type FolderLayout, type Tokens } from "./types";
@@ -64,7 +64,9 @@ export async function updateConnection(userId: string, p: CloudProviderId, patch
     .where(and(eq(schema.oauthAccounts.userId, userId), eq(schema.oauthAccounts.provider, p)));
 }
 
-// One refresh at a time per connection (two uploads finishing together must not both spend a rotating refresh token).
+// One refresh at a time per connection — across processes too (Box refresh tokens are single-use: two refreshes
+// racing would burn the token). In-process callers share the promise; processes serialise on an advisory lock and
+// re-read the row inside it, so a token another process just refreshed is used instead of refreshing again.
 const refreshing = new Map<string, Promise<string>>();
 
 /** A valid access token, refreshing (and storing a rotated refresh token) when it has expired. */
@@ -79,16 +81,21 @@ export async function accessToken(userId: string, p: CloudProviderId): Promise<s
   if (!row) throw new Error("not connected");
   const current = decryptToken(row.accessToken);
   if (current && row.expiresAt && row.expiresAt.getTime() > Date.now()) return current;
-  const rt = decryptToken(row.refreshToken);
-  if (!rt) throw new Error("the connection has expired — reconnect it in Cloud storage");
-  const job = (async () => {
+  const job = db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`cloud-token:${k}`}))`);
+    const [fresh] = await tx.select().from(schema.oauthAccounts).where(eq(schema.oauthAccounts.id, row.id));
+    if (!fresh) throw new Error("not connected");
+    const now = decryptToken(fresh.accessToken);
+    if (now && fresh.expiresAt && fresh.expiresAt.getTime() > Date.now()) return now; // refreshed meanwhile
+    const rt = decryptToken(fresh.refreshToken);
+    if (!rt) throw new Error("the connection has expired — reconnect it in Cloud storage");
     let t: Tokens;
     try {
       t = await provider(p).refresh(rt);
     } catch (e) {
       throw new Error(`the connection has expired — reconnect it in Cloud storage (${(e as Error).message})`);
     }
-    await db
+    await tx
       .update(schema.oauthAccounts)
       .set({
         accessToken: encryptToken(t.accessToken),
@@ -96,9 +103,9 @@ export async function accessToken(userId: string, p: CloudProviderId): Promise<s
         expiresAt: expiry(t),
         updatedAt: new Date(),
       })
-      .where(eq(schema.oauthAccounts.id, row.id));
+      .where(eq(schema.oauthAccounts.id, fresh.id));
     return t.accessToken;
-  })();
+  });
   refreshing.set(k, job);
   try {
     return await job;

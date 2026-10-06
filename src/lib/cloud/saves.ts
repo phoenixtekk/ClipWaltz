@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { and, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { and, eq, lt, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { headObject, getObjectRange } from "@/lib/storage";
 import { accessToken, updateConnection } from "./store";
@@ -54,7 +54,7 @@ function schedule(id: string) {
   chain = chain.then(() => processSave(id)).catch(() => {}).finally(() => scheduled.delete(id));
 }
 
-/** Requeue rows a restart interrupted (uploading > 3 h, or queued > 2 min and not in this process's queue). */
+/** Requeue rows a restart interrupted (uploading > 6 h, or queued > 2 min and not in this process's queue). */
 export async function resumeStale(userId?: string) {
   const now = Date.now();
   const rows = await db
@@ -63,12 +63,13 @@ export async function resumeStale(userId?: string) {
     .where(and(
       userId ? eq(schema.cloudSaves.userId, userId) : undefined,
       or(
-        and(eq(schema.cloudSaves.status, "uploading"), lt(schema.cloudSaves.updatedAt, new Date(now - 3 * 3600_000))),
+        and(eq(schema.cloudSaves.status, "uploading"), lt(schema.cloudSaves.updatedAt, new Date(now - 6 * 3600_000))),
         and(eq(schema.cloudSaves.status, "queued"), lt(schema.cloudSaves.updatedAt, new Date(now - 120_000))),
       ),
     ))
     .limit(50);
   for (const r of rows) {
+    if (scheduled.has(r.id)) continue; // still queued or uploading in this process
     await db.update(schema.cloudSaves).set({ status: "queued", updatedAt: new Date() }).where(eq(schema.cloudSaves.id, r.id));
     schedule(r.id);
   }
@@ -117,6 +118,7 @@ async function processSave(id: string) {
       size: head.size,
       mime: head.contentType || "video/mp4",
       read: (s, e) => getObjectRange(key, s, e),
+      token: () => accessToken(claimed.userId, p),
     });
     await db.update(schema.cloudSaves).set({
       status: "done", remoteId: res.id, remoteUrl: res.url, remotePath: res.path, bytes: head.size, error: null,
@@ -134,15 +136,4 @@ async function processSave(id: string) {
     console.error(`[cloud] render ${claimed.renderId} → ${p} failed (attempt ${claimed.attempts}):`, msg);
     if (retry) setTimeout(() => schedule(id), 30_000 * claimed.attempts).unref?.();
   }
-}
-
-export type SaveRow = { id: string; renderId: string; provider: CloudProviderId; status: string; remoteUrl: string | null; remotePath: string | null; error: string | null; completedAt: string | null };
-
-export async function savesForRenders(renderIds: string[]): Promise<SaveRow[]> {
-  if (!renderIds.length) return [];
-  const rows = await db.select().from(schema.cloudSaves).where(inArray(schema.cloudSaves.renderId, renderIds));
-  return rows.map((r) => ({
-    id: r.id, renderId: r.renderId, provider: r.provider as CloudProviderId, status: r.status, remoteUrl: r.remoteUrl,
-    remotePath: r.remotePath, error: r.error, completedAt: r.completedAt?.toISOString() ?? null,
-  }));
 }

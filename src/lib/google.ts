@@ -129,7 +129,8 @@ export async function googleAccessToken(userId: string): Promise<string> {
   const expiresAt = t.expires_in ? new Date(Date.now() + (t.expires_in - 60) * 1000) : null;
   await db
     .update(schema.oauthAccounts)
-    .set({ accessToken: encryptToken(t.access_token), expiresAt, updatedAt: new Date() })
+    // Also rewrites the refresh token, so a pre-0049 plaintext one ends up encrypted (rotated if Google sent one).
+    .set({ accessToken: encryptToken(t.access_token), refreshToken: encryptToken(t.refresh_token || refreshToken), expiresAt, updatedAt: new Date() })
     .where(eq(schema.oauthAccounts.id, row.id));
   return t.access_token;
 }
