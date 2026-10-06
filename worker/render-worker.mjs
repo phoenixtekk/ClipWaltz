@@ -1544,7 +1544,11 @@ async function deckSegments(dir, slots, W, H, style, segments, durations, waterm
         const md = join(dir, `mg${i}`);
         mkdirSync(md, { recursive: true });
         const mg = await tr.renderMotion({ layout: scene.layout, text: scene.text_mode === "none" ? {} : scene.text ?? {}, W, H, brand, dur, over: !!a,
-          look: style.deck.motion?.look, seed: style.deck.motion?.seed, variant: scene.id }, md);
+          look: style.deck.motion?.look, seed: style.deck.motion?.seed, variant: scene.id,
+          // Where this scene's voiceover captions go (same rule as buildCaptionsAss) — the headline keeps clear of it.
+          captions: slots[i].voice && style.deck.captions?.enabled !== false
+            ? (scene.caption_position === "top" || scene.caption_position === "bottom" ? scene.caption_position : style.deck.mode === "explainer" ? "bottom" : "top")
+            : null }, md);
         if (mg.opaque) {
           await ffmpeg(["-framerate", "30", "-i", mg.pattern, "-vf", `scale=${W}:${H},setsar=1,format=yuv420p`, ...enc]);
           segments.push(seg);

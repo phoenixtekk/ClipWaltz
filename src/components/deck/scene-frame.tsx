@@ -42,11 +42,15 @@ function cameraStyle(move: CameraMove | null | undefined, mode: CameraMode | und
 export type FrameBrand = { primary: string; secondary: string; headingFont: string; bodyFont: string; logoUrl: string | null } | null;
 
 /** The deck's animated-scene look + seed (brief.motion), provided by the editor; null = auto, seed 0. */
-export const DeckMotionContext = createContext<{ look: string; seed: number } | null>(null);
+/** `captions` = where voiceover captions go by default ("top" | "bottom"), null when the deck has none. */
+export const DeckMotionContext = createContext<{ look: string; seed: number; captions?: "top" | "bottom" | null } | null>(null);
 
 export type FrameScene = {
   /** Varies an animated scene's variant (worker/deck/motion.mjs) — the same id draws the same variant everywhere. */
   id?: string;
+  /** The scene's voiceover line and its caption setting (animated scenes keep their headline clear of the captions). */
+  voice?: string | null;
+  captionPosition?: "top" | "bottom" | null;
   layout: string;
   textMode: string;
   text: SceneText;
@@ -173,7 +177,7 @@ export function SceneFrame({
       >
         {cam ? <style>{CAMERA_CSS}</style> : null}
         {behind ? <div className="absolute inset-0" style={cam}><div className="absolute inset-0" style={box}>{media}</div></div> : null}
-        <MotionLayer layout={scene.layout} text={t} brand={brand} aspect={aspect} durationSec={durationSec} playing={playing} over={behind} variant={scene.id ?? ""} />
+        <MotionLayer layout={scene.layout} text={t} brand={brand} aspect={aspect} durationSec={durationSec} playing={playing} over={behind} variant={scene.id ?? ""} captionPos={scene.captionPosition ?? null} hasVoice={!!scene.voice?.trim()} />
       </div>
     );
   }
@@ -235,10 +239,12 @@ function useLogoDataUrl(url: string | null) {
  * An animated scene's page at a fixed size (1280 px on the long side), scaled to the frame. Playing: runs once from the
  * start and holds the last frame; otherwise shows the moment where everything has arrived.
  */
-function MotionLayer({ layout, text, brand, aspect, durationSec, playing, over, variant }: {
+function MotionLayer({ layout, text, brand, aspect, durationSec, playing, over, variant, captionPos, hasVoice }: {
   layout: string; text: SceneText; brand: FrameBrand; aspect: number; durationSec: number; playing: boolean; over: boolean; variant: string;
+  captionPos: "top" | "bottom" | null; hasVoice: boolean;
 }) {
   const motion = useContext(DeckMotionContext);
+  const captions = hasVoice && motion?.captions ? (captionPos ?? motion.captions) : null;
   const W = aspect >= 1 ? 1280 : Math.round(1280 * aspect), H = aspect >= 1 ? Math.round(1280 / aspect) : 1280;
   const boxRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
@@ -248,10 +254,10 @@ function MotionLayer({ layout, text, brand, aspect, durationSec, playing, over, 
   const dur = Math.max(1, durationSec);
   const key = JSON.stringify([text.headline, text.sub, text.bullets]);
   const html = useMemo(() => motionHtml({
-    layout, text, W, H, dur, over, stars: 90, fontsCss: BRAND_FONTS_CSS, look: motion?.look ?? "auto", seed: motion?.seed ?? 0, variant,
+    layout, text, W, H, dur, over, stars: 90, fontsCss: BRAND_FONTS_CSS, look: motion?.look ?? "auto", seed: motion?.seed ?? 0, variant, captions,
     brand: brand ? { primary: brand.primary, secondary: brand.secondary, headingFont: brand.headingFont, bodyFont: brand.bodyFont, logoDataUrl: logo } : {},
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [layout, key, W, H, dur, over, brand?.primary, brand?.secondary, brand?.headingFont, brand?.bodyFont, logo, motion?.look, motion?.seed, variant]);
+  }), [layout, key, W, H, dur, over, brand?.primary, brand?.secondary, brand?.headingFont, brand?.bodyFont, logo, motion?.look, motion?.seed, variant, captions]);
   const pageKey = useMemo(() => { let h = 0; for (let i = 0; i < html.length; i++) h = (Math.imul(h, 31) + html.charCodeAt(i)) | 0; return `${h}-${html.length}`; }, [html]);
   useEffect(() => {
     const el = boxRef.current;

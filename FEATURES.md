@@ -18,6 +18,9 @@ Both carry the bottom-left logo watermark (Free always; paid per the `/admin` sw
   shows (up to 80 characters), wrapping between words and shrinking to fit; letter timing scales so long names finish
   appearing; the logo sits clear of the name in portrait. Checked 288 combinations (3 shapes × 3 name lengths × 8
   variants × logo on/off × 2 lengths): every letter visible, nothing off-frame or overlapping.
+- **Captions never cover a headline:** an animated scene knows where its voiceover captions go (its own setting or the deck
+  default) and keeps its headline on the other side, or just below top captions (checked: 11 layouts × top/bottom × wide
+  and tall × 6 variants, no overlap). Seen on Envyrix scene 2 after its captions moved to the bottom.
 - **Rewrite:** "Tell the AI what to change in this scene" now shortens text when you say it's cut off / doesn't fit, and
   if the AI returns the same words the scene says **"No change — …"** instead of a green "Rewritten.".
 

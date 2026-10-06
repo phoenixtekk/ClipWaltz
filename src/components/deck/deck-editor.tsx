@@ -461,7 +461,10 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
   ];
 
   return (
-    <DeckMotionContext.Provider value={data.deck.brief.motion ?? null}>
+    <DeckMotionContext.Provider value={{
+      look: data.deck.brief.motion?.look ?? "auto", seed: data.deck.brief.motion?.seed ?? 0,
+      captions: (brief.voice?.mode ?? "off") !== "off" && brief.captions?.enabled !== false ? (brief.mode === "explainer" ? "bottom" : "top") : null,
+    }}>
       {/* Same font families the render box has installed (src/lib/brand.ts) — so the preview matches. */}
       <link rel="stylesheet" href={BRAND_FONTS_CSS} precedence="default" />
       <StudioShell

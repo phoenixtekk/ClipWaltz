@@ -212,12 +212,12 @@ export async function createTextRenderer() {
      * An animated scene (worker/deck/motion.mjs) for its whole length: one PNG per frame at FPS, transparent when it's
      * an overlay over the scene's media. Returns { pattern, frames, opaque }.
      */
-    async renderMotion({ layout, text, W, H, brand, dur, over, look, seed, variant }, outDir) {
+    async renderMotion({ layout, text, W, H, brand, dur, over, look, seed, variant, captions = null }, outDir) {
       const { motionHtml, motionOpaque } = await import("./motion.mjs");
       const opaque = motionOpaque(layout, over);
       if (!mgPage) mgPage = await browser.newPage();
       await mgPage.setViewportSize({ width: W, height: H });
-      await mgPage.setContent(motionHtml({ layout, text, W, H, brand, dur, over, look, seed, variant }), { waitUntil: "load" });
+      await mgPage.setContent(motionHtml({ layout, text, W, H, brand, dur, over, look, seed, variant, captions }), { waitUntil: "load" });
       await mgPage.evaluate(async () => { await document.fonts.ready; });
       const frames = Math.max(1, Math.round(dur * FPS));
       for (let f = 0; f < frames; f++) {

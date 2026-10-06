@@ -197,7 +197,11 @@ if(parent!==window){let n=0;const ping=()=>{if(driven||n++>40)return;parent.post
 }
 
 /** The headline at the top or bottom (variant), fading in. */
-const headline = (text, pos = "top") => (text.headline ? `<h1 class="h hl" id="hl" data-fit style="${pos === "top" ? "top:6%" : "bottom:7%"};max-height:16%">${esc(text.headline)}</h1>` : "");
+// Captions (the voiceover words) own the top or bottom band of a scene (text.cap: "top" | "bottom" | null): a headline
+// stays out of it — variable templates put it on the other side (capFlip); a fixed-top headline moves below the
+// top captions.
+const capFlip = (pos, cap) => (cap === "bottom" ? "top" : cap === "top" ? "bottom" : pos);
+const headline = (text, pos = "top") => (text.headline ? `<h1 class="h hl" id="hl" data-fit style="${pos === "top" ? (text.cap === "top" ? "top:19%;max-height:9%" : "top:6%;max-height:16%") : (text.cap === "bottom" ? "bottom:17%;max-height:9%" : "bottom:7%;max-height:16%")}">${esc(text.headline)}</h1>` : "");
 const HL_JS = "const hl=$('hl');const hlAt=(t,d=0.4)=>{if(hl){const k=ease((t-d)/0.7);hl.style.opacity=k;hl.style.transform='translateY('+(1-k)*S*0.03+'px)'}};";
 
 /** A device that holds a picture: phone, laptop screen or an orb. `inner` = HTML inside the screen. */
@@ -252,7 +256,7 @@ export function parseCompare(bullets) {
 const TEMPLATES = {
   "mg-orbit"({ W, H, L, V, text, seed }) {
     const hub = V.pick(["phone", "laptop", "orb"]), wide = W >= H;
-    const hlPos = V.pick(["top", "top", "bottom"]);
+    const hlPos = capFlip(V.pick(["top", "top", "bottom"]), text.cap);
     const n = Math.round(V.range(6, 10)), size = Math.round(Math.min(W, H) * V.range(0.085, 0.115));
     const icons = V.shuffle(ICON_KEYS).slice(0, n);
     const dir = V.pick([1, -1]), speed = V.range(0.35, 0.7), tilt = V.range(0.08, 0.15), cy = H * (hlPos === "top" ? 0.55 : 0.45);
@@ -272,7 +276,7 @@ function draw(t){const intro=ease(t/1.2);
 
   "mg-swarm"({ W, H, L, V, text, dur, seed }) {
     const hub = V.pick(["phone", "laptop", "orb"]), pattern = V.pick(["burst", "rain", "spiral"]), shape = V.pick(["50%", "28%", "99px"]);
-    const color = V.pick([L.hot, L.hot, L.acc]), hlPos = V.pick(["top", "bottom"]);
+    const color = V.pick([L.hot, L.hot, L.acc]), hlPos = capFlip(V.pick(["top", "bottom"]), text.cap);
     const hw = hub === "phone" ? Math.min(W * 0.3, H * 0.28) : hub === "laptop" ? Math.min(W * 0.42, H * 0.6) : Math.min(W, H) * 0.24;
     const cy = H * (hlPos === "top" ? 0.56 : 0.46), n = Math.round(V.range(34, 52)), icon = V.pick(["bell", "mail", "chat", "at"]);
     // What piles up: by default numbered alert badges; with lines ("laptops", "iPhones"…) the matching icons instead.
@@ -397,7 +401,7 @@ function draw(t){const k0=ease(t/0.6);ph.style.opacity=k0;ph.style.transform='tr
   "mg-fanout"({ W, H, L, V, text, seed }) {
     const labels = (text.bullets ?? []).map((b) => String(b ?? "").trim()).filter(Boolean).slice(0, 6);
     const n = labels.length, wide = W >= H, arr = V.pick(wide ? ["sides", "radial", "tree"] : ["sides", "radial", "tree"]);
-    const hlPos = arr === "tree" ? "top" : V.pick(["top", "bottom"]);
+    const hlPos0 = V.pick(["top", "bottom"]), hlPos = arr === "tree" ? "top" : capFlip(hlPos0, text.cap);
     const cx = W / 2, cy = arr === "tree" ? H * 0.36 : H * (hlPos === "top" ? 0.58 : 0.46);
     const pts = labels.map((_, i) => {
       if (arr === "radial") { const a = -Math.PI / 2 + (i / n) * Math.PI * 2 + 0.3; const rx = W * (wide ? 0.32 : 0.36), ry = H * (wide ? 0.27 : 0.22); return { x: cx + Math.cos(a) * rx, y: cy + Math.sin(a) * ry }; }
@@ -542,12 +546,13 @@ function draw(t){const k=ease(t/0.7);win.style.opacity=k;win.style.transform='tr
  * overlay. `dur` = the scene length (s). `look` = a LOOKS key or "auto"; `seed` = the deck's seed; `variant` = something
  * unique to the scene (its id) — together they pick this scene's variant. `stars` lowers the starfield for small previews.
  */
-export function motionHtml({ layout, text = {}, W, H, brand = {}, dur = 4, over = false, stars = 200, fontsCss = "", look: lookName = "auto", seed = 0, variant = "" }) {
+export function motionHtml({ layout, text = {}, W, H, brand = {}, dur = 4, over = false, stars = 200, fontsCss = "", look: lookName = "auto", seed = 0, variant = "", captions = null }) {
   const tpl = TEMPLATES[layout] ?? TEMPLATES["mg-words"];
   const s = Math.round(num(seed, 0));
   const lookKey = resolveLook(lookName, s);
   const vseed = hash32(`${s}:${variant}:${layout}`);
-  const t = { headline: String(text?.headline ?? ""), sub: String(text?.sub ?? ""), bullets: Array.isArray(text?.bullets) ? text.bullets : [] };
+  const t = { headline: String(text?.headline ?? ""), sub: String(text?.sub ?? ""), bullets: Array.isArray(text?.bullets) ? text.bullets : [],
+    cap: captions === "top" || captions === "bottom" ? captions : null };
   return tpl({ W: Math.round(W), H: Math.round(H), L: look(lookKey, brand ?? {}, fontsCss, Math.max(0, Math.round(num(stars, 200)))), V: rng(vseed), seed: vseed,
     text: t, brand: brand ?? {}, dur: Math.max(1, num(dur, 4)), over: !!over && OVER_MEDIA_LAYOUTS.includes(layout) });
 }

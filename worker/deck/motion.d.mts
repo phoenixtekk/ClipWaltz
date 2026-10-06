@@ -11,7 +11,7 @@ export type MotionBrand = { primary?: string; secondary?: string; headingFont?: 
 export function motionHtml(o: {
   layout: string; text?: { headline?: string; sub?: string; bullets?: string[] }; W: number; H: number;
   brand?: MotionBrand; dur?: number; over?: boolean; stars?: number; fontsCss?: string;
-  look?: string; seed?: number; variant?: string;
+  look?: string; seed?: number; variant?: string; captions?: "top" | "bottom" | null;
 }): string;
 export function motionOpaque(layout: string, hasMedia: boolean): boolean;
 export function settledAt(dur: number): number;
