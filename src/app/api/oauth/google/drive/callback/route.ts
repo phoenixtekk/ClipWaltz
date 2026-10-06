@@ -1,11 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireUserId } from "@/lib/auth";
 import { exchangeDriveCode, upsertDriveTokens } from "@/lib/drive";
+import { finishCloudOAuth, isCloudCallback } from "@/lib/cloud/oauth";
 
 export const runtime = "nodejs";
 
 // Google redirects here after Drive consent (user still carries their session cookie).
 export async function GET(req: NextRequest) {
+  // Connected from account → Cloud storage (same redirect URI, its own state cookie).
+  if (isCloudCallback(req)) return finishCloudOAuth(req, "google_drive");
   let userId: string;
   try {
     userId = await requireUserId();

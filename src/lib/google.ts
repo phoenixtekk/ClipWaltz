@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { db, schema } from "@/db";
+import { decryptToken, encryptToken } from "./cloud/crypto";
 
 // Google cloud import — OAuth + the Google Photos Picker API (session-based; the
 // sanctioned way to let users pick their own photos). Scope is read-only picker access.
@@ -71,9 +72,9 @@ export async function upsertGoogleTokens(userId: string, t: TokenResp) {
     await db
       .update(schema.oauthAccounts)
       .set({
-        accessToken: t.access_token ?? null,
+        accessToken: encryptToken(t.access_token),
         // keep the prior refresh token if Google didn't return a new one
-        refreshToken: t.refresh_token ?? existing.refreshToken,
+        refreshToken: t.refresh_token ? encryptToken(t.refresh_token) : existing.refreshToken,
         expiresAt,
         scope: t.scope ?? SCOPE,
         updatedAt: new Date(),
@@ -84,8 +85,8 @@ export async function upsertGoogleTokens(userId: string, t: TokenResp) {
       id: randomUUID(),
       userId,
       provider: "google",
-      accessToken: t.access_token ?? null,
-      refreshToken: t.refresh_token ?? null,
+      accessToken: encryptToken(t.access_token),
+      refreshToken: encryptToken(t.refresh_token),
       expiresAt,
       scope: t.scope ?? SCOPE,
     });
@@ -107,17 +108,19 @@ export async function googleAccessToken(userId: string): Promise<string> {
     .from(schema.oauthAccounts)
     .where(and(eq(schema.oauthAccounts.userId, userId), eq(schema.oauthAccounts.provider, "google")));
   if (!row) throw new Error("Google account not connected");
-  if (row.accessToken && row.expiresAt && row.expiresAt.getTime() > Date.now()) {
-    return row.accessToken;
+  const current = decryptToken(row.accessToken);
+  if (current && row.expiresAt && row.expiresAt.getTime() > Date.now()) {
+    return current;
   }
-  if (!row.refreshToken) throw new Error("Google session expired — reconnect");
+  const refreshToken = decryptToken(row.refreshToken);
+  if (!refreshToken) throw new Error("Google session expired — reconnect");
   const res = await fetch(TOKEN, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: clientId(),
       client_secret: clientSecret(),
-      refresh_token: row.refreshToken,
+      refresh_token: refreshToken,
       grant_type: "refresh_token",
     }),
   });
@@ -126,7 +129,7 @@ export async function googleAccessToken(userId: string): Promise<string> {
   const expiresAt = t.expires_in ? new Date(Date.now() + (t.expires_in - 60) * 1000) : null;
   await db
     .update(schema.oauthAccounts)
-    .set({ accessToken: t.access_token, expiresAt, updatedAt: new Date() })
+    .set({ accessToken: encryptToken(t.access_token), expiresAt, updatedAt: new Date() })
     .where(eq(schema.oauthAccounts.id, row.id));
   return t.access_token;
 }

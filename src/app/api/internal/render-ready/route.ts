@@ -1,8 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { sendEmail, simpleEmail } from "@/lib/email";
 import { sendPushToUser } from "@/lib/push";
+import { enqueueRenderSaves, resumeStale } from "@/lib/cloud/saves";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,6 +46,11 @@ export async function POST(req: Request) {
   }
 
   const base = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.clipwaltz.com";
+
+  // Cloud storage auto-save (every finished video, campaign variants included) — after the response; the uploads
+  // themselves run on in this process (src/lib/cloud/saves.ts). Also picks up saves a restart interrupted.
+  after(() => enqueueRenderSaves(renderId).then(() => resumeStale())
+    .catch((e) => console.error("[render-ready] cloud save failed:", (e as Error).message)));
 
   // WaltzDeck campaign pack: one notification for the whole pack, when its last variant is done (the worker renders
   // one at a time, so exactly one variant sees "nothing left").

@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { db, schema } from "@/db";
+import { decryptToken, encryptToken } from "./cloud/crypto";
 
 // Google Drive backup — a separate OAuth connection (provider "google_drive") from the
 // Photos import, using the least-privilege drive.file scope (ClipWaltz only ever sees the
@@ -67,8 +68,8 @@ export async function upsertDriveTokens(userId: string, t: TokenResp) {
     await db
       .update(schema.oauthAccounts)
       .set({
-        accessToken: t.access_token ?? null,
-        refreshToken: t.refresh_token ?? existing.refreshToken,
+        accessToken: encryptToken(t.access_token),
+        refreshToken: t.refresh_token ? encryptToken(t.refresh_token) : existing.refreshToken,
         expiresAt,
         scope: t.scope ?? SCOPE,
         updatedAt: new Date(),
@@ -79,8 +80,8 @@ export async function upsertDriveTokens(userId: string, t: TokenResp) {
       id: randomUUID(),
       userId,
       provider: PROVIDER,
-      accessToken: t.access_token ?? null,
-      refreshToken: t.refresh_token ?? null,
+      accessToken: encryptToken(t.access_token),
+      refreshToken: encryptToken(t.refresh_token),
       expiresAt,
       scope: t.scope ?? SCOPE,
     });
@@ -108,15 +109,17 @@ export async function driveAccessToken(userId: string): Promise<string> {
     .from(schema.oauthAccounts)
     .where(and(eq(schema.oauthAccounts.userId, userId), eq(schema.oauthAccounts.provider, PROVIDER)));
   if (!row) throw new Error("Google Drive not connected");
-  if (row.accessToken && row.expiresAt && row.expiresAt.getTime() > Date.now()) return row.accessToken;
-  if (!row.refreshToken) throw new Error("Drive session expired — reconnect");
+  const current = decryptToken(row.accessToken);
+  if (current && row.expiresAt && row.expiresAt.getTime() > Date.now()) return current;
+  const refreshToken = decryptToken(row.refreshToken);
+  if (!refreshToken) throw new Error("Drive session expired — reconnect");
   const res = await fetch(TOKEN, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: clientId(),
       client_secret: clientSecret(),
-      refresh_token: row.refreshToken,
+      refresh_token: refreshToken,
       grant_type: "refresh_token",
     }),
   });
@@ -125,7 +128,7 @@ export async function driveAccessToken(userId: string): Promise<string> {
   const expiresAt = t.expires_in ? new Date(Date.now() + (t.expires_in - 60) * 1000) : null;
   await db
     .update(schema.oauthAccounts)
-    .set({ accessToken: t.access_token, expiresAt, updatedAt: new Date() })
+    .set({ accessToken: encryptToken(t.access_token), expiresAt, updatedAt: new Date() })
     .where(eq(schema.oauthAccounts.id, row.id));
   return t.access_token;
 }

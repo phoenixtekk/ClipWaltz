@@ -9,6 +9,7 @@ import {
   jsonb,
   index,
   uniqueIndex,
+  bigint,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth-schema";
 
@@ -302,9 +303,39 @@ export const oauthAccounts = pgTable("oauth_accounts", {
   refreshToken: text(),
   expiresAt: timestamp({ withTimezone: true }),
   scope: text(),
+  // Cloud storage (account → Cloud storage): who it's connected as, whether finished videos are saved there
+  // automatically, how folders are laid out (category | project | flat), and the last save problem to show.
+  // Tokens written since 0049 are AES-GCM encrypted ("enc1:" prefix, src/lib/cloud/crypto.ts); older rows are plaintext.
+  accountLabel: text(),
+  autoSave: boolean().notNull().default(false),
+  folderLayout: text().notNull().default("category"),
+  lastError: text(),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
+
+// A finished video saved to a user's connected cloud storage (one row per render × provider × user). Queued by the
+// render-ready hook (auto-save) or "Save to…"; processed in the app process (src/lib/cloud/saves.ts).
+export const cloudSaves = pgTable(
+  "cloud_saves",
+  {
+    id: text().primaryKey(),
+    userId: text().notNull().references(() => user.id, { onDelete: "cascade" }),
+    renderId: text().notNull().references(() => renders.id, { onDelete: "cascade" }),
+    provider: text().notNull(), // google_drive | onedrive | dropbox | box
+    status: text().notNull().default("queued"), // queued | uploading | done | failed
+    remoteId: text(),
+    remoteUrl: text(),
+    remotePath: text(), // folder path + file name as saved, for display
+    bytes: bigint({ mode: "number" }),
+    attempts: integer().notNull().default(0),
+    error: text(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp({ withTimezone: true }),
+  },
+  (t) => [uniqueIndex("cloud_saves_render_provider_user").on(t.renderId, t.provider, t.userId), index("cloud_saves_user").on(t.userId)],
+);
 
 // Community-feed likes on shared renders.
 export const renderLikes = pgTable("render_likes", {

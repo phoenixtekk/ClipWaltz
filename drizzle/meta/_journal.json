@@ -344,6 +344,20 @@
       "when": 1791242979735,
       "tag": "0048_scene_caption_position",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1791261242748,
+      "tag": "0049_cloud_storage",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1791261448791,
+      "tag": "0050_cloud_saves_per_user",
+      "breakpoints": true
     }
   ]
 }

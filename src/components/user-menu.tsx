@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, User as UserIcon, CreditCard, Bell, Users, LifeBuoy, MessageSquare } from "lucide-react";
+import { LogOut, User as UserIcon, CreditCard, Bell, Cloud, Users, LifeBuoy, MessageSquare } from "lucide-react";
 import { authClient, useSession } from "@/lib/auth-client";
 import {
   DropdownMenu,
@@ -63,6 +63,9 @@ export function UserMenu() {
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => router.push("/account/notifications")}>
           <Bell className="size-4" /> Notifications
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => router.push("/account/storage")}>
+          <Cloud className="size-4" /> Cloud storage
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => router.push("/help")}>
           <LifeBuoy className="size-4" /> Help Center

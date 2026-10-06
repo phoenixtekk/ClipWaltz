@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { userCanAccessProject } from "./workspace";
 import { requireUserId } from "./auth";
@@ -56,6 +56,8 @@ export type RenderHistoryItem = {
   visibility: string;
   createdAt: string; // ISO
   hasOutput: boolean;
+  // This user's cloud storage saves of the render (account → Cloud storage).
+  cloud: { id: string; provider: string; status: string; url: string | null; path: string | null; error: string | null }[];
 };
 
 /** All finished renders for a project the user owns, newest first (for the download history). */
@@ -72,6 +74,11 @@ export async function listRenders(projectId: string): Promise<RenderHistoryItem[
     // Campaign variants (WaltzDeck packs) live in their pack, not in the project's own render history.
     .where(and(eq(schema.renders.projectId, projectId), eq(schema.renders.status, "done"), isNull(schema.renders.campaignId)))
     .orderBy(desc(schema.renders.version));
+  const ids = rows.filter((r) => !!r.outputKey).map((r) => r.id);
+  const saves = ids.length
+    ? await db.select().from(schema.cloudSaves)
+      .where(and(inArray(schema.cloudSaves.renderId, ids), eq(schema.cloudSaves.userId, userId)))
+    : [];
   return rows
     .filter((r) => !!r.outputKey)
     .map((r) => ({
@@ -81,6 +88,9 @@ export async function listRenders(projectId: string): Promise<RenderHistoryItem[
       visibility: r.visibility,
       createdAt: (r.completedAt ?? r.createdAt).toISOString(),
       hasOutput: true,
+      cloud: saves.filter((c) => c.renderId === r.id).map((c) => ({
+        id: c.id, provider: c.provider, status: c.status, url: c.remoteUrl, path: c.remotePath, error: c.error,
+      })),
     }));
 }
 
