@@ -81,6 +81,11 @@ Tree clean, in sync with origin/main (`44f0ad8`). tsc + lint clean. Everything b
 - **Caption position per scene — LIVE `f84b9c2` (2026-10-05):** scene panel Captions: Deck default/Top/Bottom + chat op
   `captions`; migration 0048 on dev + prod; linuxg1 build + restart (backup `/tmp/cw-pre-captionpos-src.tgz`); AI box
   deck/voice.mjs (`*.bak-20261005-captionpos`). Dev render verified (scene 1 top, scene 2 default bottom).
+- **Logo/caption fixes — LIVE `a86de01` + `b5c81bf` + `d6ba107` (2026-10-06):** mg-logo truncated names at 24 letters
+  (owner: "Streamlined Intune Repor") → full name wrapped + fit (288 combos checked); rewrite shortens on "cut off" and
+  reports "No change"; animated headlines keep clear of the scene's caption band (264 combos); swarm stays above bottom
+  captions. Owner data: Envyrix scene 2 caption_position = bottom. Their full render v7 predates these — they need a
+  Render HD. Backups `/tmp/cw-pre-{logofix,capband}-src.tgz`, AI box `*.bak-20261006-{logofix,capband}`.
 - **Next focus:** owner asked (2026-10-04) whether ClipWaltz can reach the quality of an Invideo-made reference video
   (https://www.youtube.com/watch?v=UYIHUdeTmPY) — proof built, see "Quality gap vs Invideo reference" below; owner
   to review the video and decide on productizing.
