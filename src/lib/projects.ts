@@ -17,6 +17,8 @@ export type ProjectSummary = {
   category: string | null; // folder name on the projects page; null = Uncategorized
   tags: string[]; // free-form labels
   updatedAt: string; // ISO — serializable across the RSC boundary
+  description?: string | null; // shown/edited in the Projects page's Properties dialog
+  createdAt?: string; // ISO
 };
 
 export type ProjectDetail = ProjectSummary & {
@@ -150,6 +152,8 @@ export async function listProjects(workspaceId?: string, includeLegacy = false):
     clips: clipMap.get(r.id) ?? 0,
     category: r.category,
     tags: Array.isArray(r.tags) ? (r.tags as string[]) : [],
+    description: r.description,
+    createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
   }));
 }

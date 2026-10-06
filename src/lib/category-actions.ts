@@ -101,6 +101,23 @@ async function moveCategoryImpl(id: string, dir: -1 | 1): Promise<void> {
   revalidatePath("/projects");
 }
 
+/** Drag-reorder in the Projects rail: `ids` is the full new order; unknown ids are ignored. */
+async function reorderCategoriesImpl(ids: string[]): Promise<void> {
+  const userId = await requireUserId();
+  const mine = await db
+    .select({ id: schema.projectCategories.id })
+    .from(schema.projectCategories)
+    .where(eq(schema.projectCategories.ownerId, userId))
+    .orderBy(schema.projectCategories.sortOrder, schema.projectCategories.createdAt);
+  const known = new Set(mine.map((c) => c.id));
+  const order = [...(ids ?? []).filter((id) => known.has(id)), ...mine.map((c) => c.id).filter((id) => !(ids ?? []).includes(id))];
+  for (let i = 0; i < order.length; i++) {
+    await db.update(schema.projectCategories).set({ sortOrder: i })
+      .where(and(eq(schema.projectCategories.id, order[i]), eq(schema.projectCategories.ownerId, userId)));
+  }
+  revalidatePath("/projects");
+}
+
 // Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
 // Client: unwrap(await action(...)).
 export async function createCategory(...args: Parameters<typeof createCategoryImpl>) { return toResult(() => createCategoryImpl(...args)); }
@@ -108,3 +125,4 @@ export async function renameCategory(...args: Parameters<typeof renameCategoryIm
 export async function deleteCategory(...args: Parameters<typeof deleteCategoryImpl>) { return toResult(() => deleteCategoryImpl(...args)); }
 export async function setCategoryColor(...args: Parameters<typeof setCategoryColorImpl>) { return toResult(() => setCategoryColorImpl(...args)); }
 export async function moveCategory(...args: Parameters<typeof moveCategoryImpl>) { return toResult(() => moveCategoryImpl(...args)); }
+export async function reorderCategories(...args: Parameters<typeof reorderCategoriesImpl>) { return toResult(() => reorderCategoriesImpl(...args)); }

@@ -1,10 +1,10 @@
 "use client";
-import { useTransition, useState } from "react";
+import { useCallback, useTransition, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  MoreVertical, Pencil, Copy, Trash2, FolderOpen, ImagePlus, Play,
-  RectangleHorizontal, RectangleVertical, Square, Tag, FolderInput,
+  MoreVertical, Copy, Trash2, FolderOpen, ImagePlus, Play,
+  RectangleHorizontal, RectangleVertical, Square, SlidersHorizontal, FolderInput, Check,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -20,14 +20,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "cn";
 import type { ProjectStatus, ProjectSummary } from "@/lib/projects";
-import {
-  deleteProject, renameProject, duplicateProject,
-  setProjectCategory, setProjectTags,
-} from "@/lib/project-actions";
+import { deleteProject, duplicateProject, setProjectCategory } from "@/lib/project-actions";
 import { createCategory } from "@/lib/category-actions";
 import { aspectLabel, isWide } from "@/lib/aspect";
 import { unwrap } from "@/lib/action-result";
 import { LocalDate } from "@/components/local-date";
+import { ProjectPropertiesDialog } from "@/components/project-properties-dialog";
 
 const STATUS: Record<ProjectStatus, { label: string; className: string }> = {
   draft: { label: "Draft", className: "text-muted-foreground border-border bg-background/80" },
@@ -53,13 +51,19 @@ function relativeTime(iso: string): React.ReactNode {
 export function ProjectCard({
   project,
   categories = [],
+  selected,
+  onToggleSelect,
 }: {
   project: ProjectSummary;
   categories?: string[];
+  /** Projects page multi-select: when onToggleSelect is set the card shows a select box. */
+  selected?: boolean;
+  onToggleSelect?: (additive: boolean) => void;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [thumbOk, setThumbOk] = useState(true);
+  const [propsOpen, setPropsOpen] = useState(false);
   const status = STATUS[project.status] ?? STATUS.draft;
   const wide = isWide(project.aspect);
   const editHref = project.kind === "deck" ? `/projects/${project.id}/deck` : `/projects/${project.id}/edit`;
@@ -72,20 +76,11 @@ export function ProjectCard({
       try { await fn(); router.refresh(); } catch { toast.error(errMsg); }
     });
   }
-  const onRename = () => {
-    const next = window.prompt("Rename project", project.title);
-    if (next != null) run(async () => unwrap(await renameProject(project.id, next)), "Could not rename the project.");
-  };
   const onDelete = () => {
     if (window.confirm(`Delete "${project.title}"? This cannot be undone.`))
       run(async () => unwrap(await deleteProject(project.id)), "Could not delete the project.");
   };
-  const onEditTags = () => {
-    const next = window.prompt("Tags (comma-separated):", project.tags.join(", "));
-    if (next == null) return;
-    const tags = next.split(",").map((t) => t.trim()).filter(Boolean);
-    run(async () => unwrap(await setProjectTags(project.id, tags)), "Could not save tags.");
-  };
+  const closeProps = useCallback(() => setPropsOpen(false), []);
   const moveTo = (c: string | null) => run(async () => unwrap(await setProjectCategory(project.id, c)), "Could not move the project.");
   const onNewCategory = () => {
     const c = window.prompt("New category name:");
@@ -97,10 +92,23 @@ export function ProjectCard({
   return (
     <div
       className={cn(
-        "cw-sheen group flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card transition-all hover:-translate-y-0.5 hover:border-[color:var(--cw-violet)]/50 hover:shadow-xl hover:shadow-[color:var(--cw-violet)]/10",
+        "cw-sheen group relative flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card transition-all hover:-translate-y-0.5 hover:border-[color:var(--cw-violet)]/50 hover:shadow-xl hover:shadow-[color:var(--cw-violet)]/10",
         pending && "opacity-50",
+        selected && "border-primary ring-2 ring-primary",
       )}
     >
+      {onToggleSelect ? (
+        <button
+          type="button" role="checkbox" aria-checked={!!selected} aria-label={`Select ${displayName}`}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleSelect(e.shiftKey || e.ctrlKey || e.metaKey); }}
+          className={cn(
+            "absolute left-2 top-8 z-10 grid size-6 place-items-center rounded-md border bg-background/80 backdrop-blur-sm transition-opacity",
+            selected ? "border-primary bg-primary text-primary-foreground opacity-100" : "border-border opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+          )}
+        >
+          {selected ? <Check className="size-4" /> : null}
+        </button>
+      ) : null}
       {/* Uniform 16:9 thumbnail for every card so the grid stays even; orientation shown as an icon. */}
       <Link href={editHref} className="block" aria-label={`Open ${displayName}`}>
         <div className="relative flex aspect-video items-center justify-center overflow-hidden bg-gradient-to-br from-[color:var(--cw-blue)]/20 via-[color:var(--cw-magenta)]/15 to-[color:var(--cw-coral)]/15">
@@ -148,18 +156,15 @@ export function ProjectCard({
               <DropdownMenuItem onClick={() => router.push(`/projects/${project.id}/import`)}>
                 <ImagePlus className="size-4" /> Add media
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={onRename}>
-                <Pencil className="size-4" /> Rename
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onEditTags}>
-                <Tag className="size-4" /> Edit tags…
+              <DropdownMenuItem onClick={() => setPropsOpen(true)}>
+                <SlidersHorizontal className="size-4" /> Properties…
               </DropdownMenuItem>
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
                   <FolderInput className="size-4" /> Move to
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
-                  <DropdownMenuItem onClick={() => moveTo(null)}>Uncategorized</DropdownMenuItem>
+                  {project.category ? <DropdownMenuItem onClick={() => moveTo(null)}>Uncategorized</DropdownMenuItem> : null}
                   {categories.filter((c) => c !== project.category).map((c) => (
                     <DropdownMenuItem key={c} onClick={() => moveTo(c)}>{c}</DropdownMenuItem>
                   ))}
@@ -188,6 +193,7 @@ export function ProjectCard({
           </div>
         ) : null}
       </div>
+      <ProjectPropertiesDialog project={project} categories={categories} open={propsOpen} onClose={closeProps} />
     </div>
   );
 }

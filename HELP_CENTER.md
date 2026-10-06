@@ -20,6 +20,23 @@ ships. It will also surface in-app at `/help`.
   exports are all deleted too (it can't be undone — download anything you want to keep first). A photo or
   video you also use in another project stays in that project.
 
+## Organising your projects (categories)
+- The **Projects** page has a list of **categories** on the left. Click **All projects**, **Uncategorized** or a
+  category to show only those videos on the right. The page remembers your choice in its address, so you can bookmark it.
+- **New category:** click **New category** at the bottom of the list (or the folder icon at the top), type a name and
+  press Enter. Each new category gets its own colour.
+- **Move a video:** drag its card onto a category in the list. To move several, tick the box in the corner of each card
+  (it appears when you point at a card), then drag any of them, or use **Move to** in the bar that appears.
+- **Manage categories:** double-click a category to rename it, drag the dots on its left to change the order, or use
+  its **⋮** menu to rename, change its colour or delete it. Deleting a category never deletes videos — they move to
+  **Uncategorized**.
+- **Video properties:** on a card, open **⋮ → Properties…** to change the name, description, category and tags in one
+  place, and to see its type, format, number of clips and dates.
+- **Find things fast:** search by name, description or tag, click tags to filter, and sort by last edited, newest,
+  name or status.
+- On a phone the category list sits above your videos and scrolls sideways; use **Properties** or **Move to** to move
+  videos.
+
 ## Importing your media
 - If an upload fails, press **Retry** next to the file — large files pick up where they stopped.
 - **Drag & drop** files, or use the **file/folder picker**.

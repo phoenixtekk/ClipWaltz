@@ -9,9 +9,9 @@ import { ProjectsBoard } from "@/components/projects-board";
 
 export const metadata = { title: "Projects" };
 
-export default async function ProjectsPage({ searchParams }: { searchParams: Promise<{ ws?: string }> }) {
+export default async function ProjectsPage({ searchParams }: { searchParams: Promise<{ ws?: string; category?: string }> }) {
   const session = await getSession();
-  const { ws } = await searchParams;
+  const { ws, category } = await searchParams;
   const workspaces = await listMyWorkspaces();
   // Personal workspace first (listMyWorkspaces orders it so); ?ws= switches to a shared one.
   const current = workspaces.find((w) => w.id === ws) ?? workspaces[0];
@@ -75,7 +75,7 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
         ) : (
           <EmptyState />
         )
-      ) : <ProjectsBoard projects={projects} categories={categories} />}
+      ) : <ProjectsBoard projects={projects} categories={categories} initialCategory={category} />}
     </div>
   );
 }

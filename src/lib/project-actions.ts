@@ -1,6 +1,6 @@
 "use server";
 import { randomUUID } from "crypto";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { db, schema } from "@/db";
@@ -162,6 +162,40 @@ async function setProjectTagsImpl(projectId: string, tags: string[]): Promise<vo
     .set({ tags: clean, updatedAt: new Date() })
     .where(eq(schema.projects.id, projectId));
   revalidatePath("/projects");
+}
+
+/** Move several projects into one category at once (bulk move / multi-card drag). Each is editor-checked. */
+async function setProjectsCategoryImpl(projectIds: string[], category: string | null): Promise<number> {
+  const userId = await requireUserId();
+  const ids = Array.from(new Set((projectIds ?? []).map(String))).slice(0, 500);
+  for (const id of ids) await assertEditor(userId, id);
+  if (!ids.length) return 0;
+  const c = (category ?? "").trim().slice(0, 60);
+  await db
+    .update(schema.projects)
+    .set({ category: c || null, updatedAt: new Date() })
+    .where(inArray(schema.projects.id, ids));
+  revalidatePath("/projects");
+  return ids.length;
+}
+
+/** The Projects page's Properties dialog: name, description, category and tags in one save. */
+async function updateProjectPropertiesImpl(
+  projectId: string,
+  p: { title: string; description: string | null; category: string | null; tags: string[] },
+): Promise<void> {
+  const userId = await requireUserId();
+  await assertEditor(userId, projectId);
+  const title = String(p.title ?? "").trim().slice(0, 120) || "Untitled project";
+  const description = String(p.description ?? "").trim().slice(0, 1000) || null;
+  const category = String(p.category ?? "").trim().slice(0, 60) || null;
+  const tags = Array.from(new Set((p.tags ?? []).map((t) => String(t).trim().slice(0, 30)).filter(Boolean))).slice(0, 12);
+  await db
+    .update(schema.projects)
+    .set({ title, description, category, tags, updatedAt: new Date() })
+    .where(eq(schema.projects.id, projectId));
+  revalidatePath("/projects");
+  revalidatePath(`/projects/${projectId}`, "layout");
 }
 
 async function renameProjectImpl(projectId: string, title: string): Promise<void> {
@@ -356,6 +390,8 @@ export async function setProjectAspect(...args: Parameters<typeof setProjectAspe
 export async function deleteProject(...args: Parameters<typeof deleteProjectImpl>) { return toResult(() => deleteProjectImpl(...args)); }
 export async function setProjectCategory(...args: Parameters<typeof setProjectCategoryImpl>) { return toResult(() => setProjectCategoryImpl(...args)); }
 export async function setProjectTags(...args: Parameters<typeof setProjectTagsImpl>) { return toResult(() => setProjectTagsImpl(...args)); }
+export async function setProjectsCategory(...args: Parameters<typeof setProjectsCategoryImpl>) { return toResult(() => setProjectsCategoryImpl(...args)); }
+export async function updateProjectProperties(...args: Parameters<typeof updateProjectPropertiesImpl>) { return toResult(() => updateProjectPropertiesImpl(...args)); }
 export async function renameProject(...args: Parameters<typeof renameProjectImpl>) { return toResult(() => renameProjectImpl(...args)); }
 export async function setProjectLength(...args: Parameters<typeof setProjectLengthImpl>) { return toResult(() => setProjectLengthImpl(...args)); }
 export async function setProjectStyle(...args: Parameters<typeof setProjectStyleImpl>) { return toResult(() => setProjectStyleImpl(...args)); }

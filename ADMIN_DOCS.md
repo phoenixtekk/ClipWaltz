@@ -809,6 +809,15 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
   (it runs the deck planner: `deck/{planner,jobs,motion}.mjs`). AI box: `render-worker.mjs` +
   `deck/{motion,text-layer,export,voice}.mjs` (`sudo -n systemctl restart clipwaltz-worker`).
 
+## Projects category rail + video properties (2026-10-05)
+- **No migration.** Uses `projects.category` (name), `projects.description`, `projects.tags`, `project_categories`.
+- **Actions:** `setProjectsCategory(ids, cat)` (bulk move, each id editor-checked, ≤ 500), `updateProjectProperties(id,
+  { title, description, category, tags })` (`project-actions.ts`); `reorderCategories(ids)` (`category-actions.ts`,
+  rewrites `sort_order` 0..n for the caller's categories; unknown ids ignored, missing ones appended).
+- **UI:** `projects-board.tsx` (rail + grid; `?category=` read by `projects/page.tsx`, written with
+  `history.replaceState`), `project-properties-dialog.tsx`, `project-card.tsx` (select box, Properties).
+- **Deploy:** linuxg1 app build + `pm2 restart clipwaltz`.
+
 ## Brand pronunciations (2026-10-04)
 - **Schema:** migration `0047_brand_pronunciations` — `brand_kits.pronunciations_json jsonb`, `[{ word, say }]`.
   Cleaned server-side by `cleanPronunciations` (`brand-actions.ts`): word ≤ 40 / say ≤ 80 chars, control chars
