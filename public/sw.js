@@ -23,7 +23,7 @@ self.addEventListener("push", (event) => {
       // don't double-notify. When you're away (no focused tab), show the OS toast.
       const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
       const focused = wins.some((w) => w.focused);
-      if (focused) return;
+      if (focused && !data.force) return;
 
       await self.registration.showNotification(title, {
         body,

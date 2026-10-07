@@ -87,6 +87,7 @@ export type PushPayload = {
   body: string;
   url?: string;
   tag?: string;
+  force?: boolean; // show even when a ClipWaltz tab is focused (the "Send test" button)
 };
 
 /**

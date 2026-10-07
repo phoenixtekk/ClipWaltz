@@ -152,8 +152,15 @@ the avatar menu → **Notifications** (`/account/notifications`) and flip on eit
 
 Your browser will ask permission the first time you enable a notification — choose **Allow**. Both
 switches are remembered **per browser and device**, so set them on each computer you use. If a
-switch won't turn on, notifications are blocked for the site in your browser settings — re-enable
-them there, then come back. (These are in addition to the "video ready" email, which always sends.)
+switch won't turn on, the page tells you why under the switch. Usually Chrome showed the request as a
+small bell / "Notifications blocked" icon at the right of the address bar instead of a pop-up, or it
+was closed: click that icon (or the icon at the left of the address bar → **Site settings** →
+**Notifications**) and choose **Allow**, then turn the switch on again. (These are in addition to the
+"video ready" email, which always sends.)
+- **Send test notification** (appears once the Windows switch is on) sends a real notification to this
+  browser straight away. If no toast appears within a few seconds, check **Windows Settings → System →
+  Notifications**: notifications must be on for **Google Chrome** (or your browser) and **Do not
+  disturb** must be off.
 
 ## Billing & plans
 - Free vs Plus vs Pro; how to upgrade (secure Stripe checkout); managing your plan; invoices.

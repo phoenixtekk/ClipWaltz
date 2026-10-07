@@ -20,6 +20,8 @@ export function NotificationSettings({ vapidPublicKey }: { vapidPublicKey: strin
   const [perm, setPerm] = useState<NotificationPermission>("default");
   const [inTab, setInTab] = useState(true);
   const [push, setPush] = useState(false);
+  // Why turning on Windows notifications didn't work, shown under the switch until it succeeds.
+  const [pushHelp, setPushHelp] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const supported = mounted && notificationsSupported();
   const canPush = mounted && pushSupported() && Boolean(vapidPublicKey);
@@ -37,7 +39,7 @@ export function NotificationSettings({ vapidPublicKey }: { vapidPublicKey: strin
 
   function toggleInTab() {
     start(async () => {
-      const next = !inTab;
+      const next = !(inTab && perm === "granted");
       if (next && perm !== "granted") {
         const p = await requestPermission();
         setPerm(p);
@@ -56,9 +58,14 @@ export function NotificationSettings({ vapidPublicKey }: { vapidPublicKey: strin
     start(async () => {
       try {
         if (!push) {
-          await enablePush(vapidPublicKey);
-          setPerm(permissionState());
+          setPushHelp(null);
+          try {
+            await enablePush(vapidPublicKey);
+          } finally {
+            setPerm(permissionState());
+          }
           setPush(true);
+          if (permissionState() === "granted" && getInTabPref()) setInTab(true);
           toast.success("You'll get a notification even when ClipWaltz is closed.");
         } else {
           await disablePush();
@@ -66,7 +73,30 @@ export function NotificationSettings({ vapidPublicKey }: { vapidPublicKey: strin
           toast.success("Background notifications off for this browser.");
         }
       } catch (e) {
+        const p = permissionState();
+        // Chrome often shows the request as a small bell in the address bar ("quiet" prompt), or it was closed.
+        setPushHelp(
+          p === "denied"
+            ? "Notifications are blocked for ClipWaltz. Click the icon at the left of the address bar → Site settings → Notifications → Allow, reload this page, then turn this on again."
+            : p === "default"
+              ? "Your browser didn't give permission. Look for a bell or “Notifications blocked” icon at the right of the address bar and choose Allow — or click the icon at the left of the address bar → Site settings → Notifications → Allow. Then turn this on again."
+              : (e as Error).message || "Could not turn on Windows notifications.",
+        );
         toast.error((e as Error).message || "Could not update push notifications.");
+      }
+    });
+  }
+
+  // Server → browser push round trip; the toast appears even with this tab focused.
+  function sendTest() {
+    start(async () => {
+      try {
+        const res = await fetch("/api/push/test", { method: "POST" });
+        const j = (await res.json().catch(() => ({}))) as { sent?: number; error?: string };
+        if (!res.ok || !j.sent) throw new Error(j.error || "No notification could be sent to this browser — turn the switch off and on again.");
+        toast.success("Test sent. No Windows toast within a few seconds? Check Windows Settings → System → Notifications → Google Chrome is on, and Do not disturb is off.");
+      } catch (e) {
+        toast.error((e as Error).message);
       }
     });
   }
@@ -92,9 +122,10 @@ export function NotificationSettings({ vapidPublicKey }: { vapidPublicKey: strin
         icon={<AppWindow className="size-5" />}
         title="Browser notification (while ClipWaltz is open)"
         desc="Pop a notification the moment a render finishes and you're on the site."
-        checked={inTab}
+        checked={inTab && perm === "granted"}
         disabled={!supported || pending}
         onToggle={toggleInTab}
+        note={mounted && supported && perm === "default" ? "Needs your browser's permission — turn it on to allow." : undefined}
       />
 
       <ToggleRow
@@ -109,9 +140,19 @@ export function NotificationSettings({ vapidPublicKey }: { vapidPublicKey: strin
             ? vapidPublicKey
               ? "This browser can't do background push."
               : "Background push isn't configured on the server yet."
-            : undefined
+            : pushHelp ?? undefined
         }
       />
+
+      {push ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border px-4 py-3 text-sm">
+          <span className="text-muted-foreground">Check it works on this device:</span>
+          <button type="button" onClick={sendTest} disabled={pending}
+            className="rounded-full border border-border px-3 py-1 font-medium hover:border-primary hover:text-primary disabled:opacity-50">
+            Send test notification
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
