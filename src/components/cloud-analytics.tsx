@@ -99,7 +99,7 @@ function StatusTable({ data }: { data: CloudAnalytics }) {
         <thead className="text-xs text-muted-foreground">
           <tr><th className="pb-2 font-medium">Service</th><th className="pb-2 font-medium">Status</th><th className="pb-2 font-medium">Space used</th>
             <th className="pb-2 text-right font-medium">Saved</th><th className="pb-2 text-right font-medium">Failed</th><th className="pb-2 text-right font-medium">Queued</th>
-            <th className="pb-2 text-right font-medium">Avg. time</th><th className="pb-2 font-medium">Last save</th></tr>
+            <th className="pb-2 text-right font-medium">Avg. time</th><th className="pb-2 pl-4 font-medium">Last save</th></tr>
         </thead>
         <tbody className="divide-y divide-border">
           {data.connections.map((c) => {
@@ -128,7 +128,7 @@ function StatusTable({ data }: { data: CloudAnalytics }) {
                 <td className="py-2 text-right tabular-nums">{p.failed}</td>
                 <td className="py-2 text-right tabular-nums">{p.pending}</td>
                 <td className="py-2 text-right tabular-nums">{fmtSecs(p.avgSeconds)}</td>
-                <td className="py-2 pl-3 text-xs text-muted-foreground">{p.lastAt ? <LocalDate value={p.lastAt} /> : "—"}</td>
+                <td className="py-2 pl-4 text-xs text-muted-foreground">{p.lastAt ? <LocalDate value={p.lastAt} /> : "—"}</td>
               </tr>
             );
           })}
@@ -189,7 +189,7 @@ function DailyChart({ data }: { data: CloudAnalytics }) {
                   y -= h;
                   return <rect key={p} x={x + 1} y={y} width={w} height={Math.max(1, h - 2)} rx={Math.min(4, w / 2)} fill={color(p)} opacity={hover == null || hover === i ? 1 : 0.45} />;
                 })}
-                {(i === 0 || i === days.length - 1 || (days.length <= 31 && i % 7 === 0)) ? (
+                {(i === 0 || i === days.length - 1 || (days.length <= 31 && i % 7 === 0 && i > 0 && days.length - 1 - i >= 4)) ? (
                   <text x={x + bw / 2} y={H - 6} textAnchor="middle" className="fill-muted-foreground text-[10px]">{label(day)}</text>
                 ) : null}
               </g>
