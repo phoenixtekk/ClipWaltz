@@ -8,6 +8,7 @@ import { getChatMessages } from "@/lib/chat";
 import { getAuthUserId } from "@/lib/auth";
 import { CommunityChat } from "@/components/community-chat";
 import { aspectClass } from "@/lib/aspect";
+import { VideoPreview } from "@/components/video-preview";
 
 export const metadata = {
   title: "Community feed",
@@ -83,16 +84,17 @@ export default async function FeedPage() {
                         aspectClass(e.aspect)
                       }`}
                     >
+                      <VideoPreview renderId={e.renderId} />
                       {i === 0 ? (
-                        <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-full bg-amber-400/90 px-1.5 py-0.5 text-[10px] font-bold text-amber-950">
+                        <span className="absolute left-1.5 top-1.5 z-10 inline-flex items-center gap-0.5 rounded-full bg-amber-400/90 px-1.5 py-0.5 text-[10px] font-bold text-amber-950">
                           <Crown className="size-3" /> 1st
                         </span>
                       ) : (
-                        <span className="absolute left-1.5 top-1.5 rounded-full bg-black/40 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                        <span className="absolute left-1.5 top-1.5 z-10 rounded-full bg-black/40 px-1.5 py-0.5 text-[10px] font-semibold text-white">
                           #{i + 1}
                         </span>
                       )}
-                      <Play className="size-4 translate-x-0.5 fill-white text-white opacity-80 transition-transform group-hover:scale-110" />
+                      <Play className="relative size-4 translate-x-0.5 fill-white text-white opacity-80 drop-shadow transition-transform group-hover:scale-110" />
                     </div>
                     <p className="cw-subtle mt-1 flex items-center justify-between gap-1 text-[11px]">
                       <span className="truncate">{e.creator}</span>
@@ -130,11 +132,13 @@ export default async function FeedPage() {
                   <div key={it.renderId} className="cw-glass cw-lift overflow-hidden rounded-2xl">
                     <Link href={`/w/${it.renderId}`} className="group block" aria-label={`Watch ${it.title}`}>
                       <div
-                        className={`relative flex items-center justify-center bg-gradient-to-br from-[color:var(--cw-blue)]/25 via-[color:var(--cw-magenta)]/20 to-[color:var(--cw-coral)]/20 ${
+                        className={`relative flex items-center justify-center overflow-hidden bg-gradient-to-br from-[color:var(--cw-blue)]/25 via-[color:var(--cw-magenta)]/20 to-[color:var(--cw-coral)]/20 ${
                           aspectClass(it.aspect)
                         }`}
                       >
-                        <div className="flex size-11 items-center justify-center rounded-full bg-white/85 transition-transform group-hover:scale-110">
+                        <VideoPreview renderId={it.renderId} />
+                        {/* Play badge fades out while the preview plays on hover */}
+                        <div className="pointer-events-none relative flex size-11 items-center justify-center rounded-full bg-white/85 transition-all group-hover:scale-110 group-hover:opacity-0">
                           <Play className="size-4 translate-x-0.5 fill-slate-900 text-slate-900" />
                         </div>
                       </div>

@@ -168,6 +168,8 @@ was closed: click that icon (or the icon at the left of the address bar → **Si
 ## Community
 - **Share** a finished video as Public and it appears in the Community feed; Unlisted gives a
   link-only page; Private keeps it to you.
+- **Previews:** every video in the Community feed (and the contest board) shows a still from the video;
+  on a computer, point at one to play a silent preview. Click it to watch with sound.
 - **Your creator profile** (`/account/profile`): add a bio and links (website, Instagram, TikTok,
   YouTube). Your public page at `/u/<you>` lists all your public videos.
 - **Likes & comments:** like any video and leave comments on its watch page.
