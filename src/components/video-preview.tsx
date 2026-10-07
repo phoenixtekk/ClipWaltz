@@ -44,7 +44,10 @@ export function VideoPreview({ renderId, className }: { renderId: string; classN
       aria-hidden
       tabIndex={-1}
       onLoadedMetadata={still}
+      // Any of these means a frame can be shown (some browsers don't surface "seeked" for the first seek).
       onSeeked={() => setReady(true)}
+      onLoadedData={() => setReady(true)}
+      onCanPlay={() => setReady(true)}
       onMouseEnter={() => { if (ready && canHover()) ref.current?.play().catch(() => {}); }}
       onMouseLeave={() => { const v = ref.current; if (v && !v.paused) { v.pause(); still(); } }}
       className={`absolute inset-0 size-full object-cover transition-opacity duration-300 ${ready ? "opacity-100" : "opacity-0"} ${className ?? ""}`}
