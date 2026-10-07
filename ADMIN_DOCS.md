@@ -824,8 +824,7 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
 - **Analytics:** `/account/storage/analytics` (`getCloudAnalytics(days)`: 7/30/90/365) — totals, per service, per
   video type, per format, per day (stacked), top projects, and per-service health + quota. Quota calls (best effort,
   "Not reported" on failure): Drive `about?fields=storageQuota` (no `limit` = unlimited), Graph `/me/drive` `quota`
-  (`used` or `total − remaining`), Dropbox `users/get_space_usage` (team: per-user cap if set), Box `users/me`
-  `space_amount/space_used` (Box documents no "unlimited" value; shown as reported).
+  (`used` or `total − remaining`), Dropbox `users/get_space_usage` (team: per-user cap if set).
 - **Connect logging:** every OAuth outcome logs `[cloud] <provider> connect <result> — <reason>`; redirects are built on
   `NEXT_PUBLIC_APP_URL` (www), never `req.url`.
 - **Deploy:** migration 0051 + app build + `pm2 restart clipwaltz`.
@@ -837,12 +836,11 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
   `0050_cloud_saves_per_user` makes the unique index `(render_id, provider, user_id)`.
 - **Code:** `src/lib/cloud/` — `types.ts`, `crypto.ts`, `store.ts` (connections, single-flight token refresh that
   stores rotated refresh tokens), `oauth.ts` (state cookie `cs_state_<provider> = <provider>:<uuid>`), `saves.ts` (queue +
-  uploader), providers `google-drive.ts`, `onedrive.ts`, `dropbox.ts`, `box.ts`. Actions `src/lib/cloud-actions.ts`.
+  uploader), providers `google-drive.ts`, `onedrive.ts`, `dropbox.ts`. Actions `src/lib/cloud-actions.ts`.
   Routes `/api/oauth/cloud/[provider]/{start,callback}`; Google Drive reuses `/api/oauth/google/drive/callback` (it
   branches into the cloud flow when `cs_state_google_drive` matches).
 - **Flow:** worker → `POST /api/internal/render-ready` → `after(enqueueRenderSaves + resumeStale)`. Uploads run one at a
-  time in the app process, streaming MinIO ranges (Drive 16 MiB, Graph 10 MiB, Dropbox 8 MiB, Box session part size;
-  Box < 20 MB = single request). Up to 3 attempts with backoff; "reconnect"-type errors fail at once and set
+  time in the app process, streaming MinIO ranges (Drive 16 MiB, Graph 10 MiB, Dropbox 8 MiB). Up to 3 attempts with backoff; "reconnect"-type errors fail at once and set
   `oauth_accounts.last_error`. A restart leaves rows queued/uploading — `resumeStale` requeues queued > 2 min and
   uploading > 6 h and not running in this process (called on render-ready and when the Cloud storage page loads).
 - **Env (app, linuxg1 `.env.local`):**
@@ -856,8 +854,6 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
   - Dropbox: `DROPBOX_APP_KEY` (defaults to `NEXT_PUBLIC_DROPBOX_APP_KEY`) + `DROPBOX_APP_SECRET`. App console:
     redirect URI `https://www.clipwaltz.com/api/oauth/cloud/dropbox/callback`, permissions `files.content.write` +
     `account_info.read`. Development status = 500 users; apply for production once 50 have linked.
-  - Box: `BOX_CLIENT_ID` + `BOX_CLIENT_SECRET`. Developer Console → new **User** (OAuth 2.0) app, scope "Read and write
-    all files and folders", redirect URI `https://www.clipwaltz.com/api/oauth/cloud/box/callback`.
   - A provider shows **Coming soon** until both its id and secret are set.
 - **Troubleshoot:** `pm2 logs clipwaltz | grep "\[cloud\]"`; `select provider,status,error,attempts from cloud_saves
   order by updated_at desc limit 20;`.

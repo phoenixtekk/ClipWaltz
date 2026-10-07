@@ -337,7 +337,7 @@ export const cloudSaves = pgTable(
     id: text().primaryKey(),
     userId: text().notNull().references(() => user.id, { onDelete: "cascade" }),
     renderId: text().notNull().references(() => renders.id, { onDelete: "cascade" }),
-    provider: text().notNull(), // google_drive | onedrive | dropbox | box
+    provider: text().notNull(), // google_drive | onedrive | dropbox
     status: text().notNull().default("queued"), // queued | uploading | done | failed
     remoteId: text(),
     remoteUrl: text(),

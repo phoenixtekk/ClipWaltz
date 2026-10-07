@@ -12,11 +12,11 @@ import { LocalDate } from "@/components/local-date";
 // Each provider keeps its slot whatever is shown — colour follows the entity, never its rank. Light-mode aqua and
 // yellow sit under 3:1 on white, so every chart carries direct labels and a table view.
 const VIZ_CSS = `
-.cw-viz { --s-google_drive:#2a78d6; --s-onedrive:#eb6834; --s-dropbox:#1baf7a; --s-box:#eda100; --seq:#2a78d6;
+.cw-viz { --s-google_drive:#2a78d6; --s-onedrive:#eb6834; --s-dropbox:#1baf7a; --seq:#2a78d6;
   --grid: color-mix(in oklab, currentColor 12%, transparent); --good:#0ca30c; --critical:#d03b3b; --warning:#fab219; }
 @media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) .cw-viz {
-  --s-google_drive:#3987e5; --s-onedrive:#d95926; --s-dropbox:#199e70; --s-box:#c98500; --seq:#3987e5; } }
-:root[data-theme="dark"] .cw-viz, .dark .cw-viz { --s-google_drive:#3987e5; --s-onedrive:#d95926; --s-dropbox:#199e70; --s-box:#c98500; --seq:#3987e5; }
+  --s-google_drive:#3987e5; --s-onedrive:#d95926; --s-dropbox:#199e70; --seq:#3987e5; } }
+:root[data-theme="dark"] .cw-viz, .dark .cw-viz { --s-google_drive:#3987e5; --s-onedrive:#d95926; --s-dropbox:#199e70; --seq:#3987e5; }
 `;
 const color = (p: CloudProviderId) => `var(--s-${p})`;
 

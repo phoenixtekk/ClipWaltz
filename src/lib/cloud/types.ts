@@ -1,5 +1,5 @@
 // Cloud storage providers a user can connect so finished videos are saved there (account → Cloud storage).
-export const CLOUD_PROVIDERS = ["google_drive", "onedrive", "dropbox", "box"] as const;
+export const CLOUD_PROVIDERS = ["google_drive", "onedrive", "dropbox"] as const;
 export type CloudProviderId = (typeof CLOUD_PROVIDERS)[number];
 export const isCloudProvider = (v: unknown): v is CloudProviderId => CLOUD_PROVIDERS.includes(v as CloudProviderId);
 
@@ -7,7 +7,6 @@ export const PROVIDER_LABEL: Record<CloudProviderId, string> = {
   google_drive: "Google Drive",
   onedrive: "OneDrive",
   dropbox: "Dropbox",
-  box: "Box",
 };
 
 export type FolderLayout = "category" | "project" | "flat";
@@ -26,7 +25,7 @@ export type UploadFile = {
   size: number;
   mime: string;
   read: (start: number, end: number) => Promise<Uint8Array>; // inclusive byte range
-  /** A current access token (refreshed if needed) — for providers whose every request needs one (Box). */
+  /** A current access token (refreshed if needed), for providers whose upload requests each need one. */
   token?: () => Promise<string>;
 };
 

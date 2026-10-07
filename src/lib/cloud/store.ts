@@ -64,8 +64,8 @@ export async function updateConnection(userId: string, p: CloudProviderId, patch
     .where(and(eq(schema.oauthAccounts.userId, userId), eq(schema.oauthAccounts.provider, p)));
 }
 
-// One refresh at a time per connection — across processes too (Box refresh tokens are single-use: two refreshes
-// racing would burn the token). In-process callers share the promise; processes serialise on an advisory lock and
+// One refresh at a time per connection — across processes too (a provider that rotates refresh tokens would have
+// one burned by two refreshes racing). In-process callers share the promise; processes serialise on an advisory lock and
 // re-read the row inside it, so a token another process just refreshed is used instead of refreshing again.
 const refreshing = new Map<string, Promise<string>>();
 

@@ -16,13 +16,11 @@ const MARK: Record<CloudProviderId, { bg: string; text: string }> = {
   google_drive: { bg: "#1a73e8", text: "G" },
   onedrive: { bg: "#0364b8", text: "O" },
   dropbox: { bg: "#0061fe", text: "D" },
-  box: { bg: "#0071f7", text: "B" },
 };
 const WHERE: Record<CloudProviderId, string> = {
   google_drive: "My Drive › ClipWaltz. ClipWaltz can only see the files it creates there.",
   onedrive: "OneDrive › ClipWaltz.",
   dropbox: "Dropbox › ClipWaltz (inside Apps if the app uses an app folder).",
-  box: "All Files › ClipWaltz.",
 };
 const LAYOUTS: { key: FolderLayout; label: string }[] = [
   { key: "category", label: "ClipWaltz › Category › Project" },

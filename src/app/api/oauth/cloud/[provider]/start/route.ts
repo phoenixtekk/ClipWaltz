@@ -4,7 +4,7 @@ import { isCloudProvider } from "@/lib/cloud/types";
 
 export const runtime = "nodejs";
 
-// Begin connecting a Cloud storage provider (Google Drive, OneDrive, Dropbox, Box) — account → Cloud storage.
+// Begin connecting a Cloud storage provider (Google Drive, OneDrive, Dropbox) — account → Cloud storage.
 export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: string }> }) {
   const { provider } = await ctx.params;
   if (!isCloudProvider(provider)) return new NextResponse("not found", { status: 404 });

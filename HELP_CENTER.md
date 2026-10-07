@@ -37,7 +37,7 @@ ships. It will also surface in-app at `/help`.
 - On a phone the category list sits above your videos and scrolls sideways; use **Properties** or **Move to** to move
   videos.
 
-## Save your videos to Google Drive, OneDrive, Dropbox or Box
+## Save your videos to Google Drive, OneDrive or Dropbox
 - Open your profile menu → **Cloud storage** and click **Connect** on the service you use. Sign in and allow
   ClipWaltz to save files. You can connect more than one.
 - From then on, **every video you finish is saved there automatically**, in a **ClipWaltz** folder. Choose how it's
