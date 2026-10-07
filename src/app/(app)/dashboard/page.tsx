@@ -27,7 +27,8 @@ export default async function DashboardPage() {
   ]);
 
   const firstName = (session?.user?.name || "").split(" ")[0] || "there";
-  const recent = projects.slice(0, 6);
+  // Two full rows of recent projects at every width (grid is 3 / 4 / 5 / 6 columns → 6 / 8 / 10 / 12 cards).
+  const recent = projects.slice(0, 12);
   const quotaPct =
     stats.quota == null ? 0 : Math.min(100, Math.round((stats.rendersThisMonth / stats.quota) * 100));
 
@@ -105,8 +106,10 @@ export default async function DashboardPage() {
               </div>
             ) : (
               <div className="grid grid-cols-3 items-start gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-                {recent.map((p) => (
-                  <ProjectCard key={p.id} project={p} />
+                {recent.map((p, i) => (
+                  <div key={p.id} className={i >= 10 ? "hidden lg:block" : i >= 8 ? "hidden md:block" : i >= 6 ? "hidden sm:block" : undefined}>
+                    <ProjectCard project={p} />
+                  </div>
                 ))}
               </div>
             )}

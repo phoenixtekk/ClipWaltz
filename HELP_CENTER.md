@@ -14,7 +14,7 @@ ships. It will also surface in-app at `/help`.
 - Creating an account · signing in.
 - **Your dashboard** is the first thing you see after signing in: your stats (projects, videos
   made, minutes, likes, comments), how many renders you've used this month vs your plan, a
-  **Jump back in** row of recent projects, and a **community feed** on the right — tap any of it
+  **Jump back in** section (two rows of your most recent projects), and a **community feed** on the right — tap any of it
   to explore what others are making.
 - **Deleting a project** removes it for good: its uploaded clips, finished videos, Waltz AI clips and
   exports are all deleted too (it can't be undone — download anything you want to keep first). A photo or

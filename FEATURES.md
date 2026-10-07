@@ -529,7 +529,7 @@ version in the current project (the "import"); the original is untouched.
   worker honours it in `buildTimeline` (`worker/render-worker.mjs`).
 - **Dashboard** (`/dashboard`) — the post-login landing page. Analytics tiles (projects, videos
   made, minutes, likes, comments), a plan usage-vs-quota meter with an upgrade nudge, a "Jump back
-  in" recent-projects grid, and a right rail showing a live community feed where any click opens
+  in" recent-projects grid (two full rows: 6 / 8 / 10 / 12 cards at 3 / 4 / 5 / 6 columns), and a right rail showing a live community feed where any click opens
   `/community`. `src/lib/dashboard.ts`, `src/app/(app)/dashboard/page.tsx`.
 - **Admin announcements / promos** — an admin content area (`/admin`) to publish in-app cards &
   banners: upgrade promos targeted at Free users, feature drops, contest banners, cross-promo.
