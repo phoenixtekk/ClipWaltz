@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { CloudTargetPicker } from "@/components/cloud-target-picker";
 import { saveCloudRouting, type CloudRouting } from "@/lib/cloud-actions";
 import { PROVIDER_LABEL } from "@/lib/cloud/types";
-import { RULE_FIELDS, RULE_FIELD_LABEL, VIDEO_TYPES, VIDEO_TYPE_LABEL, type CloudRule, type RuleField } from "@/lib/cloud/routing";
+import { RULE_FIELDS, RULE_FIELD_LABEL, VIDEO_TYPES, VIDEO_TYPE_LABEL, type CloudRule, type RuleField } from "@/lib/cloud/routing-shared";
 import { unwrap } from "@/lib/action-result";
 
 const field = "h-8 rounded-lg border border-border bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";

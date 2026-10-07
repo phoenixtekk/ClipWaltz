@@ -5,7 +5,7 @@ import { CheckCircle2, AlertTriangle, MinusCircle, Table2 } from "lucide-react";
 import { cn } from "cn";
 import type { CloudAnalytics } from "@/lib/cloud-actions";
 import { CLOUD_PROVIDERS, PROVIDER_LABEL, type CloudProviderId } from "@/lib/cloud/types";
-import { VIDEO_TYPE_LABEL, type VideoType } from "@/lib/cloud/routing";
+import { VIDEO_TYPE_LABEL, type VideoType } from "@/lib/cloud/routing-shared";
 import { LocalDate } from "@/components/local-date";
 
 // Colours by role (validated with the dataviz validator: adjacent CVD ΔE ≥ 8.4, normal ≥ 19.8 in both modes).
