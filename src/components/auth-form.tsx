@@ -1,7 +1,7 @@
 "use client";
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,6 @@ function safeRedirect(raw: string | null): string {
 }
 
 export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
-  const router = useRouter();
   const sp = useSearchParams();
   // Same-site paths only (e.g. an invite link) — never an absolute/protocol-relative URL.
   const redirect = safeRedirect(sp.get("redirect"));
@@ -48,8 +47,9 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
           ? await authClient.signUp.email({ name, email, password })
           : await authClient.signIn.email({ email, password });
         if (res.error) throw new Error(res.error.message || "Authentication failed");
-        router.push(redirect);
-        router.refresh();
+        // Full page load, not router.push: links prefetched while signed out (e.g. the landing page's /projects)
+        // sit in the client router cache as redirects to /sign-in and would replay after signing in.
+        window.location.assign(redirect);
       } catch (err) {
         toast.error((err as Error).message || "Authentication failed");
       }

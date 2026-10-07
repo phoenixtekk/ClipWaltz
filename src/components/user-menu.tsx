@@ -25,8 +25,8 @@ export function UserMenu() {
 
   async function handleSignOut() {
     await authClient.signOut();
-    router.push("/");
-    router.refresh();
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- full load drops the signed-in router cache
+    window.location.assign("/");
   }
 
   return (
