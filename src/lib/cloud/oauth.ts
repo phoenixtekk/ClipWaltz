@@ -22,6 +22,7 @@ export async function startCloudOAuth(req: NextRequest, p: CloudProviderId) {
     return NextResponse.redirect(new URL(`/sign-in?redirect=${encodeURIComponent(PAGE)}`, req.url));
   }
   if (!provider(p).configured()) return NextResponse.redirect(back(req, p, "unavailable"));
+  console.log(`[cloud] ${p} connect started`);
   const state = randomUUID();
   const res = NextResponse.redirect(provider(p).authUrl(state, redirectUri(p)));
   res.cookies.set(STATE(p), `${p}:${state}`, cookie);
@@ -37,26 +38,29 @@ export async function finishCloudOAuth(req: NextRequest, p: CloudProviderId) {
   try {
     userId = await requireUserId();
   } catch {
+    console.warn(`[cloud] ${p} callback without a session → sign-in`);
     return NextResponse.redirect(new URL("/sign-in", req.url));
   }
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const expected = req.cookies.get(STATE(p))?.value;
-  const done = (result: string) => {
+  const done = (result: string, why = "") => {
+    // Every outcome is logged (never the code or tokens) so a failed connect can be traced from pm2 logs.
+    console.log(`[cloud] ${p} connect ${result}${why ? ` — ${why}` : ""} (user ${userId})`);
     const res = NextResponse.redirect(back(req, p, result));
     res.cookies.delete(STATE(p));
     return res;
   };
-  if (url.searchParams.get("error")) return done("cancelled");
-  if (!code || !state || expected !== `${p}:${state}`) return done("error");
+  if (url.searchParams.get("error")) return done("cancelled", String(url.searchParams.get("error")).slice(0, 80));
+  if (!code || !state) return done("error", "no code/state in the callback");
+  if (expected !== `${p}:${state}`) return done("error", expected ? "state mismatch" : "state cookie missing");
   try {
     const tokens = await provider(p).exchange(code, redirectUri(p));
     const label = await provider(p).whoAmI(tokens.accessToken).catch(() => null);
     await saveConnection(userId, p, tokens, label);
   } catch (e) {
-    console.error(`[cloud] ${p} connect failed:`, (e as Error).message);
-    return done("error");
+    return done("error", (e as Error).message.slice(0, 200));
   }
   return done("connected");
 }
