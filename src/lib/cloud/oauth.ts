@@ -13,13 +13,14 @@ const cookie = { httpOnly: true, secure: true, sameSite: "lax" as const, maxAge:
 
 const base = () => process.env.NEXT_PUBLIC_APP_URL ?? "https://www.clipwaltz.com";
 export const redirectUri = (p: CloudProviderId) => `${base()}${provider(p).redirectPath}`;
-const back = (req: NextRequest, p: CloudProviderId, result: string) => new URL(`${PAGE}?provider=${p}&result=${result}`, req.url);
+// Built on the canonical www. origin, not req.url (behind the tunnel that can be the bare apex host).
+const back = (_req: NextRequest, p: CloudProviderId, result: string) => new URL(`${PAGE}?provider=${p}&result=${result}`, base());
 
 export async function startCloudOAuth(req: NextRequest, p: CloudProviderId) {
   try {
     await requireUserId();
   } catch {
-    return NextResponse.redirect(new URL(`/sign-in?redirect=${encodeURIComponent(PAGE)}`, req.url));
+    return NextResponse.redirect(new URL(`/sign-in?redirect=${encodeURIComponent(PAGE)}`, base()));
   }
   if (!provider(p).configured()) return NextResponse.redirect(back(req, p, "unavailable"));
   console.log(`[cloud] ${p} connect started`);
@@ -39,7 +40,7 @@ export async function finishCloudOAuth(req: NextRequest, p: CloudProviderId) {
     userId = await requireUserId();
   } catch {
     console.warn(`[cloud] ${p} callback without a session → sign-in`);
-    return NextResponse.redirect(new URL("/sign-in", req.url));
+    return NextResponse.redirect(new URL("/sign-in", base()));
   }
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
