@@ -43,6 +43,8 @@ export interface CloudProvider {
   /** "Connected as …" — an email or display name; null if the provider won't say. */
   whoAmI(accessToken: string): Promise<string | null>;
   upload(accessToken: string, file: UploadFile): Promise<UploadResult>;
+  /** Storage used / total in bytes (total null = unlimited or not reported). Optional per provider. */
+  quota?(accessToken: string): Promise<{ used: number; total: number | null }>;
 }
 
 /** Folder/file names every provider accepts: no \ / : * ? " < > |, control chars or trailing dots/spaces. */

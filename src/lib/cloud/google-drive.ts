@@ -65,6 +65,12 @@ export const googleDrive: CloudProvider = {
     const j = (await res.json()) as { user?: { emailAddress?: string; displayName?: string } };
     return j.user?.emailAddress || j.user?.displayName || null;
   },
+  async quota(token) {
+    const res = await fetch(`${API}/about?fields=storageQuota`, { headers: { authorization: `Bearer ${token}` } });
+    if (!res.ok) throw new Error(`Drive quota ${res.status}`);
+    const q = ((await res.json()) as { storageQuota?: { limit?: string; usage?: string } }).storageQuota ?? {};
+    return { used: Number(q.usage ?? 0), total: q.limit ? Number(q.limit) : null }; // no limit = unlimited
+  },
   async upload(token, f) {
     let parent = "root";
     for (const name of f.folders) parent = await folderId(token, parent, name);

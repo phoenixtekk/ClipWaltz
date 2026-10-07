@@ -5,7 +5,8 @@ import { Check, AlertTriangle, Loader2, ExternalLink, FolderTree, CloudUpload, U
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
-import { disconnectCloud, saveRenderToCloud, setCloudAutoSave, setCloudFolderLayout, type CloudProviderState, type RecentSave } from "@/lib/cloud-actions";
+import { disconnectCloud, saveRenderToCloud, setCloudFolderLayout, type CloudProviderState, type CloudRouting, type RecentSave } from "@/lib/cloud-actions";
+import { CloudRoutingEditor } from "@/components/cloud-routing-editor";
 import { PROVIDER_LABEL, isCloudProvider, type CloudProviderId, type FolderLayout } from "@/lib/cloud/types";
 import { unwrap } from "@/lib/action-result";
 import { LocalDate } from "@/components/local-date";
@@ -36,9 +37,10 @@ const RESULT: Record<string, { ok: boolean; text: string }> = {
 };
 
 export function CloudStorageSettings({
-  providers, recent, provider, result,
+  providers, recent, provider, result, routing,
 }: {
   providers: CloudProviderState[];
+  routing: CloudRouting;
   recent: RecentSave[];
   provider?: string;
   result?: string;
@@ -93,14 +95,6 @@ export function CloudStorageSettings({
 
               {c ? (
                 <div className="space-y-3 text-sm">
-                  <label className="flex items-center justify-between gap-3">
-                    <span>Save finished videos automatically</span>
-                    <input
-                      type="checkbox" role="switch" checked={c.autoSave} disabled={pending}
-                      onChange={(e) => act(async () => unwrap(await setCloudAutoSave(p.id, e.target.checked)))}
-                      className="size-4 accent-[color:var(--primary)]"
-                    />
-                  </label>
                   <label className="block space-y-1">
                     <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><FolderTree className="size-3.5" /> Folders</span>
                     <select
@@ -139,6 +133,8 @@ export function CloudStorageSettings({
           );
         })}
       </div>
+
+      {routing.connected.length ? <CloudRoutingEditor routing={routing} /> : null}
 
       <p className="flex gap-2 text-xs text-muted-foreground">
         <ShieldCheck className="mt-0.5 size-4 shrink-0" />

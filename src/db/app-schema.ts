@@ -109,6 +109,9 @@ export const projects = pgTable("projects", {
   kind: text().notNull().default("autowaltz"),
   deck: jsonb(), // DeckBrief (src/lib/deck/types.ts): mode, prompt, cta, textMode, plan status…; null unless kind=deck
   brandKitId: text(), // brand_kits.id applied to renders (no FK: brand_kits is declared later in this file)
+  // Cloud storage destinations for this project's videos (string[] of provider ids; [] = don't save);
+  // null = follow the owner's rules / default (src/lib/cloud/routing.ts).
+  cloudTargets: jsonb(),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
@@ -266,6 +269,8 @@ export const renders = pgTable("renders", {
   variant: jsonb(),
   description: text(), // AI-generated YouTube description (when project.describe is on)
   sharedAt: timestamp({ withTimezone: true }),
+  // "Save to" picked at render time (string[] of provider ids; [] = don't save); null = project setting / rules.
+  cloudTargets: jsonb(),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp({ withTimezone: true }),
 });
@@ -310,6 +315,16 @@ export const oauthAccounts = pgTable("oauth_accounts", {
   autoSave: boolean().notNull().default(false),
   folderLayout: text().notNull().default("category"),
   lastError: text(),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+// Where a user's finished videos are saved: default destinations + ordered rules (first match wins). No row = the
+// connections with auto_save on are the default (behaviour before 0051). See src/lib/cloud/routing.ts.
+export const cloudPrefs = pgTable("cloud_prefs", {
+  userId: text().primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  defaultTargets: jsonb().notNull().default([]), // CloudProviderId[]
+  rules: jsonb().notNull().default([]), // CloudRule[]
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });

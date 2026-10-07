@@ -1,4 +1,5 @@
 "use server";
+import { cleanTargets } from "./cloud/routing";
 import { randomUUID } from "crypto";
 import { and, asc, desc, eq, sql, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -49,7 +50,8 @@ function snapshotSettings(
 }
 
 /** Queue an HD render for a project (owner-checked). A worker picks it up. */
-async function createRenderImpl(projectId: string): Promise<string> {
+/** `cloudTargets`: the render modal's "Save to" (provider ids; [] = don't save); omitted = project setting / rules. */
+async function createRenderImpl(projectId: string, opts: { cloudTargets?: string[] | null } = {}): Promise<string> {
   const userId = await requireUserId();
 
   const [proj] = await db
@@ -85,6 +87,8 @@ async function createRenderImpl(projectId: string): Promise<string> {
     status: "queued",
     watermark,
     settings: snapshotSettings(proj, count),
+    // Saves go to the project owner's storage, so only the owner's pick is kept.
+    cloudTargets: Array.isArray(opts.cloudTargets) && proj.ownerId === userId ? cleanTargets(opts.cloudTargets) : null,
   });
   await db
     .update(schema.projects)

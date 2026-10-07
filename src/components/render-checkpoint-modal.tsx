@@ -30,8 +30,11 @@ export function RenderCheckpointModal({
   pending,
   onConfirm,
   onCancel,
+  extra,
 }: {
   checkpoint: RenderCheckpoint;
+  /** Extra controls above the buttons (e.g. "Save to" cloud storage). */
+  extra?: React.ReactNode;
   isRerender: boolean;
   pending: boolean;
   onConfirm: () => void;
@@ -128,6 +131,8 @@ export function RenderCheckpointModal({
             </div>
           ))}
         </dl>
+
+        {extra}
 
         <label className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
           <input

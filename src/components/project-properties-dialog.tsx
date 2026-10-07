@@ -8,6 +8,9 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import type { ProjectSummary } from "@/lib/projects";
 import { updateProjectProperties } from "@/lib/project-actions";
+import { previewRenderTargets, setProjectCloudTargets } from "@/lib/cloud-actions";
+import { CloudTargetPicker } from "@/components/cloud-target-picker";
+import type { CloudProviderId } from "@/lib/cloud/types";
 import { createCategory } from "@/lib/category-actions";
 import { aspectLabel } from "@/lib/aspect";
 import { unwrap } from "@/lib/action-result";
@@ -40,6 +43,15 @@ function PropertiesForm({ project, categories, onClose }: { project: ProjectSumm
   const [tags, setTags] = useState<string[]>(project.tags);
   const [tagDraft, setTagDraft] = useState("");
   const nameRef = useRef<HTMLInputElement>(null);
+  // "Save finished videos to": follow my rules (null) or a fixed list for this project. Owner + connected storage only.
+  const [dest, setDest] = useState<{ connected: CloudProviderId[]; initial: CloudProviderId[] | null; value: CloudProviderId[] | null } | null>(null);
+  useEffect(() => {
+    previewRenderTargets(project.id).then((r) => {
+      if (r.ok && r.data.owner && r.data.connected.length) {
+        setDest({ connected: r.data.connected, initial: r.data.projectTargets, value: r.data.projectTargets });
+      }
+    }).catch(() => {});
+  }, [project.id]);
 
   useEffect(() => {
     nameRef.current?.focus();
@@ -66,6 +78,7 @@ function PropertiesForm({ project, categories, onClose }: { project: ProjectSumm
         const pendingTag = tagDraft.trim();
         const allTags = pendingTag && !tags.includes(pendingTag) ? [...tags, pendingTag] : tags;
         unwrap(await updateProjectProperties(project.id, { title, description, category: cat, tags: allTags }));
+        if (dest && JSON.stringify(dest.value) !== JSON.stringify(dest.initial)) unwrap(await setProjectCloudTargets(project.id, dest.value));
         toast.success("Properties saved");
         onClose();
         router.refresh();
@@ -133,6 +146,23 @@ function PropertiesForm({ project, categories, onClose }: { project: ProjectSumm
             ) : null}
           </div>
         </div>
+
+        {dest ? (
+          <div className="space-y-1.5">
+            <label htmlFor="pp-dest" className="text-xs font-medium text-muted-foreground">Save finished videos to</label>
+            <select id="pp-dest" value={dest.value === null ? "rules" : "custom"} className={field}
+              onChange={(e) => setDest({ ...dest, value: e.target.value === "rules" ? null : dest.value ?? [...dest.connected] })}>
+              <option value="rules">Follow my storage rules</option>
+              <option value="custom">Choose for this project</option>
+            </select>
+            {dest.value !== null ? (
+              <>
+                <CloudTargetPicker connected={dest.connected} value={dest.value} onChange={(v) => setDest({ ...dest, value: v })} />
+                {dest.value.length === 0 ? <p className="text-[11px] text-muted-foreground">This project&apos;s videos won&apos;t be saved to cloud storage.</p> : null}
+              </>
+            ) : null}
+          </div>
+        ) : null}
 
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg bg-muted/40 px-3 py-2 text-xs sm:grid-cols-3">
           <div><dt className="text-muted-foreground">Type</dt><dd>{kind}</dd></div>

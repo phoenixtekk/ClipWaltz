@@ -53,6 +53,20 @@ ships. It will also surface in-app at `/help`.
   Drive it can only see the files it created). **Disconnect** any time; videos already saved stay in your storage.
 - Services marked **Coming soon** aren't switched on yet.
 
+## Choose which videos go where (more than one storage)
+- **Default:** on **Cloud storage → Where videos go**, tick the services every finished video should go to. Untick all
+  to stop automatic saving.
+- **Rules:** click **Add rule** to send some videos somewhere else — by **video type** (music video, ad, slideshow,
+  presentation, explainer, campaign pack), **category**, or **format** (9:16, 16:9, 1:1, 4:5). Rules are checked from
+  the top; the first that matches decides. A rule with no service ticked means "don't save these". Use the arrows to
+  reorder, then **Save**.
+- **One project:** open the project's **⋮ → Properties…** → **Save finished videos to** → *Choose for this project*.
+- **One video:** when you press **Render HD**, the dialog shows **Save the finished video to** with your rules already
+  applied — change it for just this render.
+- **Analytics:** **Cloud storage → Analytics** shows how many videos were saved, how much space they use, a day-by-day
+  chart, breakdowns by service, video type, format and project, and each service's status and free space. Pick a
+  range (7, 30, 90 days or a year); every chart has **Show as table**.
+
 ## Importing your media
 - If an upload fails, press **Retry** next to the file — large files pick up where they stopped.
 - **Drag & drop** files, or use the **file/folder picker**.

@@ -5,6 +5,7 @@ import { headObject, getObjectRange } from "@/lib/storage";
 import { accessToken, updateConnection } from "./store";
 import { provider } from "./providers";
 import { cleanName, isCloudProvider, type CloudProviderId, type FolderLayout } from "./types";
+import { getPrefs, resolveTargets, videoType } from "./routing";
 
 // Saving finished videos to connected cloud storage. A cloud_saves row per render × provider is the queue;
 // uploads run in this (app) process one at a time, streaming from MinIO in chunks — nothing is buffered whole.
@@ -12,22 +13,33 @@ import { cleanName, isCloudProvider, type CloudProviderId, type FolderLayout } f
 
 const MAX_ATTEMPTS = 3;
 
-/** Queue a render for every connection with auto-save on (or just `only`, e.g. "Save to…"). Returns queued ids. */
+/** Queue a render for the destinations its routing resolves to (or just `only`, e.g. "Save to…"). Returns queued ids. */
 export async function enqueueRenderSaves(renderId: string, opts: { only?: CloudProviderId; userId?: string } = {}): Promise<string[]> {
   const [r] = await db
-    .select({ status: schema.renders.status, outputKey: schema.renders.outputKey, ownerId: schema.projects.ownerId })
+    .select({
+      status: schema.renders.status, outputKey: schema.renders.outputKey, ownerId: schema.projects.ownerId,
+      kind: schema.projects.kind, deck: schema.projects.deck, category: schema.projects.category, aspect: schema.renders.aspect,
+      campaignId: schema.renders.campaignId, projectTargets: schema.projects.cloudTargets, renderTargets: schema.renders.cloudTargets,
+    })
     .from(schema.renders)
     .innerJoin(schema.projects, eq(schema.renders.projectId, schema.projects.id))
     .where(eq(schema.renders.id, renderId));
   if (!r || r.status !== "done" || !r.outputKey) return [];
   const userId = opts.userId ?? r.ownerId; // the project owner's storage (or whoever pressed Save to…)
   const conns = await db
-    .select({ provider: schema.oauthAccounts.provider, autoSave: schema.oauthAccounts.autoSave })
+    .select({ provider: schema.oauthAccounts.provider })
     .from(schema.oauthAccounts)
     .where(eq(schema.oauthAccounts.userId, userId));
-  const targets = conns
-    .filter((c) => isCloudProvider(c.provider) && (opts.only ? c.provider === opts.only : c.autoSave))
-    .map((c) => c.provider as CloudProviderId);
+  const connected = conns.map((c) => c.provider).filter(isCloudProvider);
+  let targets: CloudProviderId[];
+  if (opts.only) targets = connected.filter((p) => p === opts.only);
+  else {
+    // Render "Save to" / project setting / rules / default — and only for the project owner's own storage.
+    if (userId !== r.ownerId) return [];
+    const res = resolveTargets(await getPrefs(userId), { type: videoType(r.kind, r.deck, r.campaignId), category: r.category, aspect: r.aspect },
+      connected, r.projectTargets, r.renderTargets);
+    targets = res.targets;
+  }
   const ids: string[] = [];
   for (const p of targets) {
     // A failed (or manual re-)save goes back to the queue; one that's done or running stays as it is.

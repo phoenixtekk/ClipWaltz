@@ -132,6 +132,12 @@ export const box: CloudProvider = {
     const j = (await res.json()) as { login?: string; name?: string };
     return j.login || j.name || null;
   },
+  async quota(t) {
+    const res = await fetch(`${API}/users/me?fields=space_amount,space_used`, { headers: auth(t) });
+    if (!res.ok) throw new Error(`Box quota ${res.status}`);
+    const j = (await res.json()) as { space_amount?: number; space_used?: number };
+    return { used: j.space_used ?? 0, total: j.space_amount ?? null };
+  },
   async upload(t, f) {
     let parent = "0"; // the user's All Files root
     for (const name of f.folders) parent = await folder(t, parent, name);

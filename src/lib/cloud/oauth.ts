@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireUserId } from "@/lib/auth";
 import { provider } from "./providers";
 import { saveConnection } from "./store";
+import { addDefaultTarget } from "./routing";
 import type { CloudProviderId } from "./types";
 
 // OAuth for Cloud storage connections. start → provider consent → callback (same browser session).
@@ -60,6 +61,7 @@ export async function finishCloudOAuth(req: NextRequest, p: CloudProviderId) {
     const tokens = await provider(p).exchange(code, redirectUri(p));
     const label = await provider(p).whoAmI(tokens.accessToken).catch(() => null);
     await saveConnection(userId, p, tokens, label);
+    await addDefaultTarget(userId, p);
   } catch (e) {
     return done("error", (e as Error).message.slice(0, 200));
   }

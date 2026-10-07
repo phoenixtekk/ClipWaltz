@@ -13,6 +13,13 @@ import { EnterContestButton } from "@/components/enter-contest";
 import { DownloadButton, DownloadFolderChip } from "@/components/download-controls";
 import { RenderCheckpointModal, SKIP_KEY } from "@/components/render-checkpoint-modal";
 import { unwrap } from "@/lib/action-result";
+import { previewRenderTargets } from "@/lib/cloud-actions";
+import { CloudTargetPicker } from "@/components/cloud-target-picker";
+import type { CloudProviderId } from "@/lib/cloud/types";
+
+const SOURCE: Record<string, string> = {
+  project: "this project's setting", rule: "your storage rules", default: "your default destinations", render: "your choice",
+};
 
 type R = { id: string; status: string; version: number; hasOutput: boolean; visibility: string; description?: string | null } | null;
 type Contest = { theme: string; entered: boolean } | null;
@@ -45,6 +52,8 @@ export function RenderPanel({
   const [copied, setCopied] = useState(false);
   const [checkpoint, setCheckpoint] = useState<RenderCheckpoint | null>(null);
   const [checking, setChecking] = useState(false);
+  // "Save to" for the render being started: null until loaded / when the user has no storage connected.
+  const [cloud, setCloud] = useState<{ connected: CloudProviderId[]; source: string; targets: CloudProviderId[]; touched: boolean } | null>(null);
   const notifiedRef = useRef<string | null>(null);
   const active = !!render && (render.status === "queued" || render.status === "rendering");
   const isRerender = !!render?.hasOutput;
@@ -83,7 +92,13 @@ export function RenderPanel({
     setChecking(true);
     (async () => {
       try {
-        const cp = unwrap(await getRenderCheckpoint(projectId));
+        const [cp, dest] = await Promise.all([
+          getRenderCheckpoint(projectId).then(unwrap),
+          previewRenderTargets(projectId).then((r) => (r.ok ? r.data : null)).catch(() => null),
+        ]);
+        setCloud(dest && dest.owner && dest.connected.length
+          ? { connected: dest.connected, source: dest.resolved.source, targets: dest.resolved.targets, touched: false }
+          : null);
         const needsAttention = cp.hasBlocking || cp.warnings.some((w) => w.level !== "info");
         let skip = false;
         try {
@@ -105,7 +120,8 @@ export function RenderPanel({
   function doCreate() {
     start(async () => {
       try {
-        const id = unwrap(await createRender(projectId));
+        // Only send a "Save to" when the user changed it — otherwise the rules decide when it finishes.
+        const id = unwrap(await createRender(projectId, cloud?.touched ? { cloudTargets: cloud.targets } : {}));
         setCheckpoint(null);
         setRender({ id, status: "queued", version: (render?.version ?? 0) + 1, hasOutput: false, visibility: "private", description: null });
       } catch (e) {
@@ -121,6 +137,18 @@ export function RenderPanel({
       pending={pending}
       onConfirm={doCreate}
       onCancel={() => setCheckpoint(null)}
+      extra={cloud ? (
+        <div className="mb-3 space-y-1.5 rounded-lg border border-border p-2.5">
+          <p className="text-xs font-medium">Save the finished video to</p>
+          <CloudTargetPicker
+            connected={cloud.connected} value={cloud.targets} disabled={pending}
+            onChange={(targets) => setCloud({ ...cloud, targets, touched: true })}
+          />
+          <p className="text-[11px] text-muted-foreground">
+            {cloud.targets.length === 0 ? "Won't be saved to cloud storage." : cloud.touched ? "Just for this render." : `From ${SOURCE[cloud.source] ?? "your settings"}.`}
+          </p>
+        </div>
+      ) : null}
     />
   ) : null;
 

@@ -809,6 +809,27 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
   (it runs the deck planner: `deck/{planner,jobs,motion}.mjs`). AI box: `render-worker.mjs` +
   `deck/{motion,text-layer,export,voice}.mjs` (`sudo -n systemctl restart clipwaltz-worker`).
 
+## Cloud storage routing + analytics (2026-10-07)
+- **Schema:** `0051_cloud_routing` — `cloud_prefs` (user_id PK, `default_targets` jsonb provider[], `rules` jsonb
+  `[{ id, field: type|category|aspect, values[], targets[] }]`), `projects.cloud_targets` and `renders.cloud_targets`
+  (jsonb provider[]; `[]` = don't save; null = fall through).
+- **Resolution** (`src/lib/cloud/routing.ts` `resolveTargets`, first answer wins): render "Save to" → project setting →
+  first matching rule → default destinations. No `cloud_prefs` row = default is every connection with `auto_save`
+  (pre-0051 behaviour). Providers not connected are dropped. Video type = `videoType(kind, deck, campaignId)`:
+  music | ad | slideshow | presentation | explainer | campaign. Auto-saves only ever use the project owner's storage.
+  Connecting a service adds it to the default (`addDefaultTarget`) when prefs exist.
+- **UI:** Cloud storage page "Where videos go" (`cloud-routing-editor.tsx`, replaces the per-service auto-save switch);
+  render dialog "Save to" (`render-panel.tsx` → `createRender(projectId, { cloudTargets })`, sent only when changed);
+  Video properties "Save finished videos to" (`setProjectCloudTargets`, owner only).
+- **Analytics:** `/account/storage/analytics` (`getCloudAnalytics(days)`: 7/30/90/365) — totals, per service, per
+  video type, per format, per day (stacked), top projects, and per-service health + quota. Quota calls (best effort,
+  "Not reported" on failure): Drive `about?fields=storageQuota` (no `limit` = unlimited), Graph `/me/drive` `quota`
+  (`used` or `total − remaining`), Dropbox `users/get_space_usage` (team: per-user cap if set), Box `users/me`
+  `space_amount/space_used` (Box documents no "unlimited" value; shown as reported).
+- **Connect logging:** every OAuth outcome logs `[cloud] <provider> connect <result> — <reason>`; redirects are built on
+  `NEXT_PUBLIC_APP_URL` (www), never `req.url`.
+- **Deploy:** migration 0051 + app build + `pm2 restart clipwaltz`.
+
 ## Cloud storage auto-save (2026-10-05)
 - **Schema:** `0049_cloud_storage` — `oauth_accounts` + `account_label`, `auto_save` (default false; set true when
   connected from Cloud storage), `folder_layout` (category | project | flat), `last_error`; new `cloud_saves` (one row

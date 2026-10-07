@@ -62,6 +62,13 @@ export const oneDrive: CloudProvider = {
     const j = (await res.json()) as { displayName?: string; mail?: string; userPrincipalName?: string };
     return j.mail || j.userPrincipalName || j.displayName || null;
   },
+  async quota(t) {
+    const res = await fetch(`${GRAPH}/me/drive?$select=quota`, { headers: auth(t) });
+    if (!res.ok) throw new Error(`OneDrive quota ${res.status}`);
+    const q = ((await res.json()) as { quota?: { total?: number; used?: number; remaining?: number } }).quota ?? {};
+    const used = q.used ?? (q.total != null && q.remaining != null ? q.total - q.remaining : 0);
+    return { used, total: q.total ?? null };
+  },
   async upload(t, f) {
     const rootRes = await fetch(`${GRAPH}/me/drive/root?$select=id`, { headers: auth(t) });
     if (!rootRes.ok) throw new Error(`OneDrive isn't available for this account (${rootRes.status})`);

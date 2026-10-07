@@ -47,12 +47,20 @@ export const dropbox: CloudProvider = {
   exchange: (code, redirectUri) => token({ grant_type: "authorization_code", code, redirect_uri: redirectUri }),
   refresh: (refreshToken) => token({ grant_type: "refresh_token", refresh_token: refreshToken }),
   async whoAmI(t) {
-    const res = await fetch("https://api.dropboxapi.com/2/users/get_current_account", {
-      method: "POST", headers: { authorization: `Bearer ${t}`, "content-type": "application/json" }, body: "null",
-    });
+    // No-argument RPC: only the Authorization header, no body (as in Dropbox's examples).
+    const res = await fetch("https://api.dropboxapi.com/2/users/get_current_account", { method: "POST", headers: { authorization: `Bearer ${t}` } });
     if (!res.ok) return null;
     const j = (await res.json()) as { email?: string; name?: { display_name?: string } };
     return j.email || j.name?.display_name || null;
+  },
+  async quota(t) {
+    const res = await fetch("https://api.dropboxapi.com/2/users/get_space_usage", { method: "POST", headers: { authorization: `Bearer ${t}` } });
+    if (!res.ok) throw new Error(`Dropbox quota ${res.status}`);
+    const j = (await res.json()) as { used?: number; allocation?: { ".tag"?: string; allocated?: number; user_within_team_space_allocated?: number } };
+    const a = j.allocation ?? {};
+    // Team accounts: a per-user cap when set (0 = none), otherwise the team's whole allocation.
+    const total = a[".tag"] === "team" && a.user_within_team_space_allocated ? a.user_within_team_space_allocated : a.allocated ?? null;
+    return { used: j.used ?? 0, total };
   },
   async upload(t, f) {
     const { session_id } = (await content(t, "upload_session/start", { close: false }, new Uint8Array())) as { session_id: string };
