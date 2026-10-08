@@ -186,6 +186,8 @@ export const media = pgTable("media", {
   // Worker claims that ended in a crash (bumped on claim, zeroed on any clean finish or give-up).
   // reapStaleConversions() fails the file once this hits the cap so a crash-looping file stops.
   conversionAttempts: integer().notNull().default(0),
+  conversionWorker: text(), // lease holder while 'converting' (render worker id)
+  conversionHeartbeatAt: timestamp({ withTimezone: true }),
   reframeMode: text().notNull().default("follow"), // 360 reframe: flat | follow (default: track the action) | tiny
   // Insta360 split recordings: the other lens of this clip ("…_00_N" front ↔ "…_10_N" rear). The front
   // media holds the stitched 360 conversion; the rear is hidden where both are in a project.
@@ -271,6 +273,12 @@ export const renders = pgTable("renders", {
   sharedAt: timestamp({ withTimezone: true }),
   // "Save to" picked at render time (string[] of provider ids; [] = don't save); null = project setting / rules.
   cloudTargets: jsonb(),
+  // Queue + lease (multi-worker): claim order is priority desc, then created_at (paid plans first — pro 20, plus 10,
+  // free 0, set at createRender). The claiming worker writes worker_id and refreshes heartbeat_at every ~20 s; a
+  // 'rendering' row whose heartbeat is older than the lease timeout is an orphan (worker died) and gets failed.
+  priority: integer().notNull().default(0),
+  workerId: text(),
+  heartbeatAt: timestamp({ withTimezone: true }),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp({ withTimezone: true }),
 });
@@ -802,9 +810,22 @@ export const deckExports = pgTable("deck_exports", {
   error: text(),
   attempts: integer().notNull().default(0),
   requestedBy: text(),
+  workerId: text(), // lease holder while 'running'
+  heartbeatAt: timestamp({ withTimezone: true }),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   startedAt: timestamp({ withTimezone: true }),
   finishedAt: timestamp({ withTimezone: true }),
+});
+
+// Render workers (one row per worker process, e.g. the AI box and AISERVER). Upserted every ~20 s; the queue's
+// capacity for wait estimates = sum(concurrency) of workers seen in the last 2 minutes.
+export const renderWorkers = pgTable("render_workers", {
+  id: text().primaryKey(), // WORKER_ID env, else hostname
+  host: text().notNull(),
+  concurrency: integer().notNull().default(1),
+  active: integer().notNull().default(0), // renders running right now
+  startedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  lastSeenAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
 
 // WaltzDeck "What is this video for?" history: a user's last 15 briefs (newest first by usedAt), to reuse in a click.

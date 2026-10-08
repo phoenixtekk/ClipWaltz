@@ -52,7 +52,12 @@ function providerClock(timeoutMs) {
 if (!process.env.DATABASE_URL) { console.error("DATABASE_URL required"); process.exit(1); }
 if (!AISERVER_TOKEN) { console.error("AISERVER_API_TOKEN required"); process.exit(1); }
 
-const sql = postgres(process.env.DATABASE_URL, { prepare: false });
+// Bounded pool (shared Postgres, max_connections 100): enough for the 2+2+1 job concurrency below.
+const sql = postgres(process.env.DATABASE_URL, {
+  prepare: false,
+  max: Number(process.env.DATABASE_POOL_MAX ?? 5),
+  idle_timeout: 30,
+});
 const S3_MAX_SOCKETS = Number(process.env.S3_MAX_SOCKETS ?? 256);
 const s3 = new S3Client({
   endpoint: process.env.S3_ENDPOINT ?? "http://192.168.166.169:9000",

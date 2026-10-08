@@ -535,6 +535,8 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
       const voiceOn = !!brief.voice?.mode && brief.voice.mode !== "off";
       const baseCta = cfg.ctas.find((x) => x.original)?.text ?? brief.cta?.text ?? "";
       const [{ maxv }] = await sql`select coalesce(max(version), 0)::int as maxv from renders where project_id = ${c.project_id}`;
+      // Queue priority = the project owner's plan (paid plans render first; see renders.priority).
+      const [{ prio }] = await sql`select coalesce((select case u.plan when 'pro' then 20 when 'plus' then 10 else 0 end from "user" u join projects p on p.owner_id = u.id where p.id = ${c.project_id}), 0)::int as prio`;
       await sql.begin(async (tx) => {
         // Share links may have been switched on while the pack was building: new variants follow the switch.
         const [{ shared }] = await tx`select shared from deck_campaigns where id = ${campaignId} for update`;
@@ -549,7 +551,7 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
           const { code, label } = variantCode(v.hookIdx, v.ctaIdx, lengthSec, v.aspect);
           await tx`insert into renders ${tx({
             id: randomUUID(), project_id: c.project_id, version: maxv + 1 + i, aspect: v.aspect, status: "queued",
-            watermark: cfg.watermark !== false, campaign_id: campaignId, visibility: shared ? "unlisted" : "private",
+            watermark: cfg.watermark !== false, campaign_id: campaignId, visibility: shared ? "unlisted" : "private", priority: prio,
             ...(shared ? { shared_at: new Date() } : {}),
             settings: tx.json({ deckVariant: { scenes: scenes.map((s) => ({ ...s, created_at: undefined, updated_at: undefined })) }, aspect: v.aspect, lengthSec: snapshotLength(scenes) }),
             variant: tx.json({ code, label, hookId: v.hook.id, ctaId: v.cta.id, lengthSec, targetSec: v.lengthSec, aspect: v.aspect,

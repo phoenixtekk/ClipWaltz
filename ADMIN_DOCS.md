@@ -27,7 +27,19 @@ npm run dev                        # http://localhost:3000
 See [`env.example`](env.example) for the full list. Groups:
 - **App:** `NEXT_PUBLIC_APP_URL`
 - **Auth:** `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `AUTH_REQUIRE_EMAIL_VERIFICATION`, optional social creds
-- **DB:** `DATABASE_URL`
+- **DB:** `DATABASE_URL`, optional `DATABASE_POOL_MAX` (per-process pool cap — see below)
+
+### Postgres connection budget (shared server — 2026-10-06)
+The linuxg1 Postgres (`max_connections` 100) is shared by ~10 apps. On 2026-10-06 04:37–04:46 UTC
+ClipWaltz connections (mostly `clipwaltz_dev`) filled every slot and other apps (VelvetSong, mibrow)
+were refused. Two caps now apply:
+- **Per-process pools** (postgres.js defaults to 10): app `src/db/index.ts` **5**, gen worker **5**
+  (job concurrency 2+2+1), render worker **3**; override with `DATABASE_POOL_MAX`. `idle_timeout` 30 s.
+  In `next dev` the client is cached on `globalThis` so hot reloads don't leak a new pool each time.
+- **Hard role cap:** `ALTER ROLE clipwaltz CONNECTION LIMIT 30` (covers `clipwaltz` + `clipwaltz_dev`
+  together). Over the cap, ClipWaltz alone gets `too many connections for role` — other apps are safe.
+  Check: `sudo -u postgres psql -Atc "select count(*) from pg_stat_activity where usename='clipwaltz'"`.
+  Undo: `ALTER ROLE clipwaltz CONNECTION LIMIT -1`.
 - **Storage (MinIO):** `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_REGION`
 - **Storage edge (ADR-0003):** `S3_PUBLIC_ENDPOINT=https://media.clipwaltz.com` turns on direct
   browser ↔ MinIO media (presigned URLs); unset it (or `MEDIA_DIRECT=0`) to fall back to proxying.

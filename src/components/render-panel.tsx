@@ -13,6 +13,7 @@ import { EnterContestButton } from "@/components/enter-contest";
 import { DownloadButton, DownloadFolderChip } from "@/components/download-controls";
 import { RenderCheckpointModal, SKIP_KEY } from "@/components/render-checkpoint-modal";
 import { unwrap } from "@/lib/action-result";
+import type { QueueInfo } from "@/lib/render-queue";
 import { previewRenderTargets } from "@/lib/cloud-actions";
 import { CloudTargetPicker } from "@/components/cloud-target-picker";
 import type { CloudProviderId } from "@/lib/cloud/types";
@@ -57,6 +58,7 @@ export function RenderPanel({
   const notifiedRef = useRef<string | null>(null);
   const active = !!render && (render.status === "queued" || render.status === "rendering");
   const isRerender = !!render?.hasOutput;
+  const [queue, setQueue] = useState<QueueInfo | null>(null);
 
   useEffect(() => {
     if (!active) return;
@@ -64,8 +66,9 @@ export function RenderPanel({
       try {
         const res = await fetch(`/api/projects/${projectId}/render/status`, { cache: "no-store" });
         if (!res.ok) return;
-        const j = (await res.json()) as { render: R };
+        const j = (await res.json()) as { render: R; queue?: QueueInfo | null };
         setRender(j.render);
+        setQueue(j.queue ?? null);
         if (j.render && (j.render.status === "done" || j.render.status === "failed")) {
           // In-tab (per-browser) notification — fire once per render id.
           if (j.render.status === "done" && notifiedRef.current !== j.render.id) {
@@ -237,13 +240,36 @@ export function RenderPanel({
   }
 
   if (active) {
+    const mins = (sec: number | null) => (sec == null ? null : sec < 60 ? "under a minute" : `about ${Math.round(sec / 60)} min`);
+    const queued = render?.status === "queued";
+    const q = queue;
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-4 py-3 text-sm">
-        <Loader2 className="size-4 animate-spin text-primary" />
-        <span className="font-medium">
-          {render?.status === "queued" ? "Queued for rendering…" : "Rendering your video…"}
-        </span>
-        <span className="text-muted-foreground">You can leave — we&apos;ll have it ready shortly.</span>
+      <div className="space-y-1.5 rounded-lg border border-primary/40 bg-primary/10 px-4 py-3 text-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <Loader2 className="size-4 animate-spin text-primary" />
+          <span className="font-medium">
+            {queued
+              ? q?.position
+                ? q.position === 1 ? "Next in line" : `#${q.position} in line`
+                : "Queued for rendering…"
+              : "Rendering your video…"}
+          </span>
+          {q && q.capacity === 0 ? (
+            <span className="text-muted-foreground">Our render machines are restarting — your video will start as soon as they&apos;re back.</span>
+          ) : q ? (
+            <span className="text-muted-foreground">
+              {queued
+                ? q.etaStartSec === 0 ? `Starting now · ready in ${mins(q.etaDoneSec)}` : `Starts in ${mins(q.etaStartSec)} · ready in ${mins(q.etaDoneSec)}`
+                : `Ready in ${mins(q.etaDoneSec)}`}
+            </span>
+          ) : null}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          You can leave — we&apos;ll notify you when it&apos;s ready.
+          {queued && q && q.priority === 0 && (q.position ?? 1) > 1 ? (
+            <> Plus and Pro renders go to the front of the line — <a href="/account/billing" className="font-medium text-primary underline">upgrade</a> to skip the wait.</>
+          ) : null}
+        </p>
       </div>
     );
   }
