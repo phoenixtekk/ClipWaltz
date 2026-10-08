@@ -132,9 +132,9 @@ export default async function FeedPage() {
           </section>
         ) : null}
 
-        <div className="grid gap-8 lg:grid-cols-[1fr_20rem] lg:items-start">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
           {/* Feed */}
-          <div>
+          <div className="min-w-0">
             {items.length === 0 ? (
               <div className="cw-glass mx-auto max-w-md rounded-2xl p-10 text-center">
                 <p className="cw-muted">No public creations yet — be the first to share one!</p>
