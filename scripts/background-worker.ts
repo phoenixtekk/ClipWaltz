@@ -48,7 +48,7 @@ async function watchQueue() {
     if (on && now - alerted[key] > REPEAT_MS) {
       await notify(subject, body);
       alerted[key] = now;
-    } else if (!on && alerted[key]) {
+    } else if (!on && alerted[key] && !(key === "slow" && offline)) {
       await notify(`ClipWaltz: render queue back to normal`, `Cleared: ${key === "offline" ? "render workers are back online" : `queue wait under ${ALERT_AFTER_MIN} min`}. ${state}.`);
       alerted[key] = 0;
     }
