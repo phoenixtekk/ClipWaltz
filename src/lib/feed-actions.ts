@@ -1,6 +1,6 @@
 "use server";
 import { randomUUID } from "crypto";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { userCanAccessProject } from "./workspace";
@@ -30,6 +30,27 @@ async function shareRenderImpl(renderId: string, visibility: string): Promise<st
   return v;
 }
 
+/**
+ * Video properties → "Show on the Community page": the project's latest finished video (campaign variants excluded)
+ * and whether it's public. `canShare` = the caller created the project and can still edit it (shareRender's rule).
+ */
+async function communityShareStateImpl(projectId: string): Promise<{
+  renderId: string | null; version: number | null; visibility: string | null; canShare: boolean;
+}> {
+  const userId = await requireUserId();
+  const [p] = await db.select({ ownerId: schema.projects.ownerId }).from(schema.projects).where(eq(schema.projects.id, String(projectId)));
+  if (!p || !(await userCanAccessProject(userId, String(projectId), "viewer"))) throw new Error("Project not found");
+  const [r] = await db
+    .select({ id: schema.renders.id, version: schema.renders.version, visibility: schema.renders.visibility })
+    .from(schema.renders)
+    .where(and(eq(schema.renders.projectId, String(projectId)), eq(schema.renders.status, "done"),
+      isNotNull(schema.renders.outputKey), isNull(schema.renders.campaignId)))
+    .orderBy(desc(schema.renders.version))
+    .limit(1);
+  const canShare = p.ownerId === userId && (await userCanAccessProject(userId, String(projectId), "editor"));
+  return { renderId: r?.id ?? null, version: r?.version ?? null, visibility: r?.visibility ?? null, canShare };
+}
+
 /** Like / unlike a shared render (auth). Returns the new liked state. */
 async function toggleLikeImpl(renderId: string): Promise<boolean> {
   const userId = await requireUserId();
@@ -49,4 +70,5 @@ async function toggleLikeImpl(renderId: string): Promise<boolean> {
 // Exported actions return ActionResult (action-result.ts — thrown messages are hidden in production builds).
 // Client: unwrap(await action(...)).
 export async function shareRender(...args: Parameters<typeof shareRenderImpl>) { return toResult(() => shareRenderImpl(...args)); }
+export async function communityShareState(...args: Parameters<typeof communityShareStateImpl>) { return toResult(() => communityShareStateImpl(...args)); }
 export async function toggleLike(...args: Parameters<typeof toggleLikeImpl>) { return toResult(() => toggleLikeImpl(...args)); }

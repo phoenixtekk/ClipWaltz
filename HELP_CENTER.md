@@ -32,6 +32,9 @@ ships. It will also surface in-app at `/help`.
   **Uncategorized**.
 - **Video properties:** on a card, open **⋮ → Properties…** to change the name, description, category and tags in one
   place, and to see its type, format, number of clips and dates.
+- **Share to the Community page from Properties:** tick **Show on the Community page** to make the project's latest
+  finished version public in the Community feed; untick it to make it private again. It's available once the video has
+  been rendered, and only to the person who created the project.
 - **Find things fast:** search by name, description or tag, click tags to filter, and sort by last edited, newest,
   name or status.
 - On a phone the category list sits above your videos and scrolls sideways; use **Properties** or **Move to** to move

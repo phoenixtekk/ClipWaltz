@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import type { ProjectSummary } from "@/lib/projects";
 import { updateProjectProperties } from "@/lib/project-actions";
 import { previewRenderTargets, setProjectCloudTargets } from "@/lib/cloud-actions";
+import { communityShareState, shareRender } from "@/lib/feed-actions";
 import { CloudTargetPicker } from "@/components/cloud-target-picker";
 import type { CloudProviderId } from "@/lib/cloud/types";
 import { createCategory } from "@/lib/category-actions";
@@ -45,6 +46,16 @@ function PropertiesForm({ project, categories, onClose }: { project: ProjectSumm
   const nameRef = useRef<HTMLInputElement>(null);
   // "Save finished videos to": follow my rules (null) or a fixed list for this project. Owner + connected storage only.
   const [dest, setDest] = useState<{ connected: CloudProviderId[]; initial: CloudProviderId[] | null; value: CloudProviderId[] | null } | null>(null);
+  // "Show on the Community page": the latest finished video's public/private state (null until loaded).
+  const [share, setShare] = useState<{ renderId: string | null; version: number | null; initial: boolean; value: boolean; canShare: boolean } | null>(null);
+  useEffect(() => {
+    communityShareState(project.id).then((r) => {
+      if (r.ok) {
+        const pub = r.data.visibility === "public";
+        setShare({ renderId: r.data.renderId, version: r.data.version, initial: pub, value: pub, canShare: r.data.canShare });
+      }
+    }).catch(() => {});
+  }, [project.id]);
   useEffect(() => {
     previewRenderTargets(project.id).then((r) => {
       if (r.ok && r.data.owner && r.data.connected.length) {
@@ -79,6 +90,7 @@ function PropertiesForm({ project, categories, onClose }: { project: ProjectSumm
         const allTags = pendingTag && !tags.includes(pendingTag) ? [...tags, pendingTag] : tags;
         unwrap(await updateProjectProperties(project.id, { title, description, category: cat, tags: allTags }));
         if (dest && JSON.stringify(dest.value) !== JSON.stringify(dest.initial)) unwrap(await setProjectCloudTargets(project.id, dest.value));
+        if (share?.renderId && share.value !== share.initial) unwrap(await shareRender(share.renderId, share.value ? "public" : "private"));
         toast.success("Properties saved");
         onClose();
         router.refresh();
@@ -146,6 +158,28 @@ function PropertiesForm({ project, categories, onClose }: { project: ProjectSumm
             ) : null}
           </div>
         </div>
+
+        {share ? (
+          <div className="space-y-1">
+            <label className={cn("flex items-start gap-2.5 text-sm", (!share.renderId || !share.canShare) && "opacity-60")}>
+              <input
+                type="checkbox" checked={share.value} disabled={!share.renderId || !share.canShare}
+                onChange={(e) => setShare({ ...share, value: e.target.checked })}
+                className="mt-0.5 size-4 accent-[color:var(--primary)]"
+              />
+              <span>
+                <span className="font-medium">Show on the Community page</span>
+                <span className="block text-xs text-muted-foreground">
+                  {!share.renderId
+                    ? "Render the video first — then you can share it."
+                    : !share.canShare
+                      ? "Only the person who created this project can share it."
+                      : `Shares the latest version (v${share.version}) publicly. Untick to make it private again.`}
+                </span>
+              </span>
+            </label>
+          </div>
+        ) : null}
 
         {dest ? (
           <div className="space-y-1.5">
