@@ -36,7 +36,8 @@ const POLL_MS = 5000;
 // lease on every job it claims (worker_id + heartbeat_at, refreshed every HEARTBEAT_MS). A job whose heartbeat is older
 // than LEASE_MS belongs to a dead worker and is recovered by any worker. MISC_JOBS=0 leaves slide exports, 360
 // conversions, Auto-Batch and clip-length fill to other workers (the batch folders live on the AI box).
-const WORKER_ID = process.env.WORKER_ID || hostname();
+// --once runs get their own id so the main worker on the same host never treats them as its own orphans.
+const WORKER_ID = (process.env.WORKER_ID || hostname()) + (process.argv.includes("--once") ? `-once-${process.pid}` : "");
 const RENDER_CONCURRENCY = Math.max(1, Math.min(8, Number(process.env.RENDER_CONCURRENCY ?? 1)));
 const MISC_JOBS = process.env.MISC_JOBS !== "0";
 const LEASE_MS = Math.max(60000, Number(process.env.LEASE_TIMEOUT_MS ?? 180000));
@@ -734,24 +735,27 @@ async function claimConversion() {
                 order by created_at asc limit 1 for update skip locked)
     returning *`;
   const m = rows[0] ?? null;
-  if (m) held.media.add(m.id);
   // Mirror to the project placements so the editor shows "converting", not a stale state.
-  if (m) await sql`update assets set conversion_state='converting' where media_id=${m.id}`;
+  if (m) await sql`update assets set conversion_state='converting' where media_id=${m.id}`.catch((e) => console.error("[worker] assets mirror:", e.message));
   return m;
 }
 async function convTick() {
   const m = await claimConversion();
   if (!m) return false;
+  held.media.add(m.id);
   try {
-    await convertMedia(m);
-  } catch (e) {
-    console.error(`[worker] convert media ${m.id} FAILED:`, e.message);
-    await sql`update media set conversion_state='failed' where id=${m.id}`;
-    await sql`update assets set conversion_state='failed' where media_id=${m.id}`;
+    try {
+      await convertMedia(m);
+    } catch (e) {
+      console.error(`[worker] convert media ${m.id} FAILED:`, e.message);
+      await sql`update media set conversion_state='failed' where id=${m.id}`;
+      await sql`update assets set conversion_state='failed' where media_id=${m.id}`;
+    }
+    // Clean finish either way (ready/failed/re-queued): only crashes accumulate attempts.
+    await sql`update media set conversion_attempts=0 where id=${m.id}`;
+  } finally {
+    held.media.delete(m.id); // a leaked id would keep heartbeating a dead job forever
   }
-  // Clean finish either way (ready/failed/re-queued): only crashes accumulate attempts.
-  await sql`update media set conversion_attempts=0 where id=${m.id}`;
-  held.media.delete(m.id);
   return true;
 }
 
@@ -2027,7 +2031,7 @@ async function processRender(r) {
       if (postText) console.log(`[worker] render ${r.id} post text generated (${postText.length} chars)`);
     }
     const secs = Math.round((Date.now() - started) / 1000);
-    await sql`update renders set status='done', output_key=${key}, cpu_seconds=${secs}, completed_at=now(), description=${postText} where id=${r.id}`;
+    await sql`update renders set status='done', output_key=${key}, cpu_seconds=${secs}, completed_at=now(), description=${postText} where id=${r.id} and status='rendering' and (worker_id=${WORKER_ID} or worker_id is null)`;
     await sql`update projects set status='ready', updated_at=now() where id=${r.project_id}`;
     console.log(`[worker] render ${r.id} done in ${secs}s → ${key}`);
     // Licensing ledger: snapshot the music license for this render (best-effort).
@@ -2053,7 +2057,7 @@ async function processRender(r) {
 async function claimOne() {
   const rows = await sql`
     update renders set status='rendering', started_at=now(), worker_id=${WORKER_ID}, heartbeat_at=now()
-    where id = (select id from renders where status='queued' order by priority desc, created_at asc limit 1 for update skip locked)
+    where id = (select id from renders where status='queued' order by priority desc, created_at asc, id asc limit 1 for update skip locked)
     returning *`;
   if (rows[0]) held.renders.add(rows[0].id);
   return rows[0] ?? null;
@@ -2089,9 +2093,10 @@ async function deckExportTick() {
     returning *`;
   if (!row) return false;
   held.deckExports.add(row.id);
-  const dir = mkdtempSync(join(tmpdir(), "cw-deckx-"));
+  let dir = null;
   const t0 = Date.now();
   try {
+    dir = mkdtempSync(join(tmpdir(), "cw-deckx-"));
     const { buildDeckExport } = await import("./deck/export.mjs");
     const res = await buildDeckExport({ projectId: row.project_id, format: row.format, watermark: row.watermark, exportId: row.id }, dir, deckExportIo());
     await sql`update deck_exports set status='done', output_key=${res.key}, error=null, finished_at=now() where id=${row.id}`;
@@ -2101,7 +2106,7 @@ async function deckExportTick() {
     await sql`update deck_exports set status='failed', error=${String(e.message).slice(0, 300)}, finished_at=now() where id=${row.id}`;
   } finally {
     held.deckExports.delete(row.id);
-    rmSync(dir, { recursive: true, force: true });
+    if (dir) rmSync(dir, { recursive: true, force: true });
   }
   return true;
 }

@@ -24,7 +24,7 @@ export async function getQueueInfo(renderId: string): Promise<QueueInfo | null> 
     with r as (select id, status, priority, created_at, started_at from renders where id = ${renderId})
     select r.status, r.priority,
       (select count(*)::int from renders q where q.status = 'queued' and q.id <> r.id
-         and (q.priority > r.priority or (q.priority = r.priority and q.created_at < r.created_at))) as ahead,
+         and (q.priority > r.priority or (q.priority = r.priority and (q.created_at < r.created_at or (q.created_at = r.created_at and q.id < r.id))))) as ahead,
       (select count(*)::int from renders q where q.status = 'queued' and q.id <> r.id
          and q.priority > r.priority and q.created_at > r.created_at) as paid_ahead,
       (select count(*)::int from renders where status = 'rendering') as running,
