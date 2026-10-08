@@ -58,12 +58,39 @@ export async function enqueueRenderSaves(renderId: string, opts: { only?: CloudP
   return ids;
 }
 
+// Uploads run in the cloud worker process (scripts/cloud-worker.ts, CLOUD_WORKER=1), not the web app — so the site can
+// run as several copies. The app only inserts queued rows; the worker polls for them. Read at call time (the worker
+// sets the env before importing this module, but imports are hoisted).
+const inWorker = () => process.env.CLOUD_WORKER === "1";
 let chain: Promise<void> = Promise.resolve();
 const scheduled = new Set<string>();
 function schedule(id: string) {
+  if (!inWorker()) return; // the cloud worker picks it up
   if (scheduled.has(id)) return;
   scheduled.add(id);
   chain = chain.then(() => processSave(id)).catch(() => {}).finally(() => scheduled.delete(id));
+}
+
+/** Cloud worker: schedule queued rows (oldest first), backing off 30 s × attempts after a failed try. */
+export async function pollQueued(limit = 10): Promise<number> {
+  const rows = await db
+    .select({ id: schema.cloudSaves.id })
+    .from(schema.cloudSaves)
+    .where(and(
+      eq(schema.cloudSaves.status, "queued"),
+      sql`${schema.cloudSaves.updatedAt} < now() - make_interval(secs => 30 * ${schema.cloudSaves.attempts})`,
+    ))
+    .orderBy(schema.cloudSaves.createdAt)
+    .limit(limit);
+  for (const r of rows) schedule(r.id);
+  return rows.length;
+}
+
+/** Cloud worker startup: it's the only uploader, so anything still 'uploading' was cut off by its restart. */
+export async function recoverInterrupted(): Promise<number> {
+  const rows = await db.update(schema.cloudSaves).set({ status: "queued", updatedAt: new Date() })
+    .where(eq(schema.cloudSaves.status, "uploading")).returning({ id: schema.cloudSaves.id });
+  return rows.length;
 }
 
 /** Requeue rows a restart interrupted (uploading > 6 h, or queued > 2 min and not in this process's queue). */
@@ -146,6 +173,6 @@ async function processSave(id: string) {
       .where(eq(schema.cloudSaves.id, id));
     if (!retry) await updateConnection(claimed.userId, p, { lastError: msg }).catch(() => {});
     console.error(`[cloud] render ${claimed.renderId} → ${p} failed (attempt ${claimed.attempts}):`, msg);
-    if (retry) setTimeout(() => schedule(id), 30_000 * claimed.attempts).unref?.();
+    // A retry stays 'queued'; pollQueued() picks it up after its backoff.
   }
 }

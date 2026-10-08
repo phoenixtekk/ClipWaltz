@@ -151,6 +151,9 @@ async function createRenderImpl(projectId: string, opts: { cloudTargets?: string
     .where(eq(schema.renders.projectId, projectId));
 
   const id = randomUUID();
+  // Queue priority from the project owner's plan: paid plans render first (worker claims priority desc, then age).
+  const [owner] = await db.select({ plan: schema.user.plan }).from(schema.user).where(eq(schema.user.id, proj.ownerId));
+  const priority = owner?.plan === "pro" ? 20 : owner?.plan === "plus" ? 10 : 0;
   try {
     await db.insert(schema.renders).values({
       id,
@@ -159,6 +162,7 @@ async function createRenderImpl(projectId: string, opts: { cloudTargets?: string
       aspect: proj.aspect,
       status: "queued",
       watermark,
+      priority,
       settings: { ...snapshotSettings(proj, count), ...(presenterChargeId ? { presenterChargeId } : {}), ...(presenterSnap ? { presenter: presenterSnap } : {}), ...(voiceSnap ? { voiceClone: voiceSnap } : {}) },
       // Saves go to the project owner's storage, so only the owner's pick is kept.
       cloudTargets: Array.isArray(opts.cloudTargets) && proj.ownerId === userId ? cleanTargets(opts.cloudTargets) : null,

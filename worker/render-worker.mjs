@@ -14,7 +14,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, createWriteStream, readdirSync, statSync, existsSync, mkdirSync, renameSync, copyFileSync, unlinkSync, cpSync, openSync, readSync, closeSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, hostname } from "node:os";
 import { join, extname, basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
@@ -34,6 +34,16 @@ import { isPresenterLayout, narrationRequest, presenterClip, presenterFootage, p
 const run = promisify(execFile);
 const ONCE = process.argv.includes("--once");
 const POLL_MS = 5000;
+// Multi-worker (AI box + AISERVER): each process has a stable id, runs RENDER_CONCURRENCY renders at once, and holds a
+// lease on every job it claims (worker_id + heartbeat_at, refreshed every HEARTBEAT_MS). A job whose heartbeat is older
+// than LEASE_MS belongs to a dead worker and is recovered by any worker. MISC_JOBS=0 leaves slide exports, 360
+// conversions, Auto-Batch and clip-length fill to other workers (the batch folders live on the AI box).
+const WORKER_ID = process.env.WORKER_ID || hostname();
+const RENDER_CONCURRENCY = Math.max(1, Math.min(8, Number(process.env.RENDER_CONCURRENCY ?? 1)));
+const MISC_JOBS = process.env.MISC_JOBS !== "0";
+const LEASE_MS = Math.max(60000, Number(process.env.LEASE_TIMEOUT_MS ?? 180000));
+const HEARTBEAT_MS = 20000;
+const held = { renders: new Set(), media: new Set(), deckExports: new Set() };
 const PER_IMAGE = 2;
 const PER_VIDEO = 4;
 // Max segments fed to a single xfade filtergraph. A single graph over ALL segments makes
@@ -42,7 +52,12 @@ const PER_VIDEO = 4;
 // chunks of this many segments instead; tune with XFADE_CHUNK if the box has more/less RAM.
 const XFADE_CHUNK = Math.max(2, Number(process.env.XFADE_CHUNK ?? 10));
 
-const sql = postgres(process.env.DATABASE_URL, { prepare: false });
+// Bounded pool (shared Postgres on linuxg1, max_connections 100).
+const sql = postgres(process.env.DATABASE_URL, {
+  prepare: false,
+  max: Number(process.env.DATABASE_POOL_MAX ?? 3),
+  idle_timeout: 30,
+});
 const S3_MAX_SOCKETS = Number(process.env.S3_MAX_SOCKETS ?? 256);
 const s3 = new S3Client({
   endpoint: process.env.S3_ENDPOINT ?? "http://192.168.166.169:9000",
@@ -725,11 +740,13 @@ async function convertMedia(m) {
 async function claimConversion() {
   // conversion_attempts counts claims that never reached a clean finish (see reapStaleConversions).
   const rows = await sql`
-    update media set conversion_state='converting', conversion_attempts = conversion_attempts + 1
+    update media set conversion_state='converting', conversion_attempts = conversion_attempts + 1,
+      conversion_worker=${WORKER_ID}, conversion_heartbeat_at=now()
     where id = (select id from media where conversion_state='pending'
                 order by created_at asc limit 1 for update skip locked)
     returning *`;
   const m = rows[0] ?? null;
+  if (m) held.media.add(m.id);
   // Mirror to the project placements so the editor shows "converting", not a stale state.
   if (m) await sql`update assets set conversion_state='converting' where media_id=${m.id}`;
   return m;
@@ -746,6 +763,7 @@ async function convTick() {
   }
   // Clean finish either way (ready/failed/re-queued): only crashes accumulate attempts.
   await sql`update media set conversion_attempts=0 where id=${m.id}`;
+  held.media.delete(m.id);
   return true;
 }
 
@@ -756,11 +774,16 @@ async function convTick() {
 // unless it has already crashed the worker CONV_MAX_ATTEMPTS times (a file that OOMs ffmpeg every
 // run would otherwise crash-loop the worker forever) — then fail it. Assets follow their media row.
 const CONV_MAX_ATTEMPTS = 3;
-async function reapStaleConversions() {
+async function reapStaleConversions(startup = false) {
+  const lease = `${Math.round(LEASE_MS / 1000)} seconds`;
+  // Orphans: at startup this worker's own (or pre-lease) rows; at any time an expired lease.
+  const orphan = startup
+    ? sql`conversion_state='converting' and (conversion_worker=${WORKER_ID} or conversion_worker is null or coalesce(conversion_heartbeat_at, now() - ${lease}::interval - interval '1 second') < now() - ${lease}::interval)`
+    : sql`conversion_state='converting' and coalesce(conversion_heartbeat_at, now() - ${lease}::interval - interval '1 second') < now() - ${lease}::interval`;
   const failed = await sql`update media set conversion_state='failed', conversion_attempts=0
-    where conversion_state='converting' and conversion_attempts >= ${CONV_MAX_ATTEMPTS} returning id`;
-  const requeued = await sql`update media set conversion_state='pending'
-    where conversion_state='converting' returning id, conversion_attempts`;
+    where ${orphan} and conversion_attempts >= ${CONV_MAX_ATTEMPTS} returning id`;
+  const requeued = await sql`update media set conversion_state='pending', conversion_worker=null
+    where ${orphan} returning id, conversion_attempts`;
   for (const r of failed) await sql`update assets set conversion_state='failed' where media_id=${r.id}`;
   for (const r of requeued) await sql`update assets set conversion_state='pending' where media_id=${r.id}`;
   if (failed.length) console.log(`[worker] failed ${failed.length} conversion(s) that crashed the worker ${CONV_MAX_ATTEMPTS}×: ${failed.map((r) => r.id).join(", ")}`);
@@ -2188,20 +2211,27 @@ async function refundPresenterCharge(settings) {
 
 async function claimOne() {
   const rows = await sql`
-    update renders set status='rendering', started_at=now()
-    where id = (select id from renders where status='queued' order by created_at asc limit 1 for update skip locked)
+    update renders set status='rendering', started_at=now(), worker_id=${WORKER_ID}, heartbeat_at=now()
+    where id = (select id from renders where status='queued' order by priority desc, created_at asc limit 1 for update skip locked)
     returning *`;
+  if (rows[0]) held.renders.add(rows[0].id);
   return rows[0] ?? null;
 }
 
-// Crash recovery. A hard crash (OOM/SIGKILL/deploy restart) skips the tick() catch that marks a
-// render 'failed', so it's orphaned in 'rendering' forever — and claimOne() only picks up 'queued',
-// so it never retries and the user's spinner never stops. This worker is the ONLY writer of the
-// 'rendering' status, so at startup any row still 'rendering' is an orphan from a previous run.
-// Fail them (+ their projects) so the UI shows "try again". (A multi-worker deployment would need
-// a per-render heartbeat/lease instead of a blanket startup sweep.)
-async function reapStaleRenders() {
-  const rows = await sql`update renders set status='failed', error_message='worker restarted mid-render (orphan reaped)' where status='rendering' returning id, project_id, settings`;
+// Crash recovery with leases (several workers render at once). A hard crash (OOM/SIGKILL/deploy restart) skips the
+// tick() catch, leaving the render 'rendering' forever. Orphans are: at startup, rows this worker id held in its
+// previous run (and pre-lease rows with no worker id); at any time, rows whose heartbeat is older than LEASE_MS (that
+// worker died). Fail them (+ their projects) so the UI shows "try again". Another live worker's renders keep a fresh
+// heartbeat and are never touched.
+async function reapStaleRenders(startup = false) {
+  const lease = `${Math.round(LEASE_MS / 1000)} seconds`;
+  const rows = startup
+    ? await sql`update renders set status='failed', error_message='render worker restarted mid-render (orphan reaped)'
+        where status='rendering' and (worker_id=${WORKER_ID} or worker_id is null or coalesce(heartbeat_at, started_at) < now() - ${lease}::interval)
+        returning id, project_id, settings`
+    : await sql`update renders set status='failed', error_message='render worker stopped responding (lease expired)'
+        where status='rendering' and coalesce(heartbeat_at, started_at) < now() - ${lease}::interval
+        returning id, project_id, settings`;
   if (rows.length === 0) return;
   for (const row of rows) {
     await sql`update projects set status='failed', updated_at=now() where id=${row.project_id}`.catch(() => {});
@@ -2214,10 +2244,11 @@ async function reapStaleRenders() {
 const deckExportIo = () => ({ sql, download, uploadFile, ffmpeg, probe, dims, watermarkPath: WATERMARK_PATH });
 async function deckExportTick() {
   const [row] = await sql`
-    update deck_exports set status='running', started_at=now(), attempts=attempts+1
+    update deck_exports set status='running', started_at=now(), attempts=attempts+1, worker_id=${WORKER_ID}, heartbeat_at=now()
     where id = (select id from deck_exports where status='queued' order by created_at asc limit 1 for update skip locked)
     returning *`;
   if (!row) return false;
+  held.deckExports.add(row.id);
   const dir = mkdtempSync(join(tmpdir(), "cw-deckx-"));
   const t0 = Date.now();
   try {
@@ -2229,15 +2260,20 @@ async function deckExportTick() {
     console.error(`[worker] deck export ${row.id} failed:`, e.message);
     await sql`update deck_exports set status='failed', error=${String(e.message).slice(0, 300)}, finished_at=now() where id=${row.id}`;
   } finally {
+    held.deckExports.delete(row.id);
     rmSync(dir, { recursive: true, force: true });
   }
   return true;
 }
-// Startup sweep (this worker is the only writer of 'running'): re-queue an export a restart interrupted,
+// Lease recovery for exports: re-queue one whose worker died (this worker's own after a restart, or any expired lease),
 // fail it after 3 tries.
-async function reapStaleDeckExports() {
-  const failed = await sql`update deck_exports set status='failed', error='export crashed the worker repeatedly', finished_at=now() where status='running' and attempts >= 3 returning id`;
-  const requeued = await sql`update deck_exports set status='queued' where status='running' returning id`;
+async function reapStaleDeckExports(startup = false) {
+  const lease = `${Math.round(LEASE_MS / 1000)} seconds`;
+  const orphan = startup
+    ? sql`status='running' and (worker_id=${WORKER_ID} or worker_id is null or coalesce(heartbeat_at, started_at) < now() - ${lease}::interval)`
+    : sql`status='running' and coalesce(heartbeat_at, started_at) < now() - ${lease}::interval`;
+  const failed = await sql`update deck_exports set status='failed', error='export crashed the worker repeatedly', finished_at=now() where ${orphan} and attempts >= 3 returning id`;
+  const requeued = await sql`update deck_exports set status='queued', worker_id=null where ${orphan} returning id`;
   if (failed.length || requeued.length) console.log(`[worker] deck exports: re-queued ${requeued.length}, failed ${failed.length} after a restart`);
 }
 
@@ -2265,6 +2301,8 @@ async function tick() {
     await refundPresenterCharge(r.settings);
     await sql`update projects set status='failed', updated_at=now() where id=${r.project_id}`;
     await failBatchItem(r.id).catch(() => {});
+  } finally {
+    held.renders.delete(r.id);
   }
   return true;
 }
@@ -2592,7 +2630,8 @@ async function startBatchItem(b, group) {
     idx++;
   }
   const renderId = randomUUID();
-  await sql`insert into renders (id, project_id, version, aspect, status, watermark) values (${renderId}, ${projectId}, 1, ${s.aspect ?? "9:16"}, 'queued', ${await batchWatermark(b.owner_id)})`;
+  await sql`insert into renders (id, project_id, version, aspect, status, watermark, priority) values (${renderId}, ${projectId}, 1, ${s.aspect ?? "9:16"}, 'queued', ${await batchWatermark(b.owner_id)},
+    coalesce((select case u.plan when 'pro' then 20 when 'plus' then 10 else 0 end from "user" u where u.id = ${b.owner_id}), 0))`;
   await sql`insert into batch_items (id, batch_id, source_name, project_id, render_id, status) values (${randomUUID()}, ${b.id}, ${group.name}, ${projectId}, ${renderId}, 'queued')`;
   await sql`update batch_jobs set last_run_at=now() where id=${b.id}`;
   console.log(`[batch] ${b.name}: queued "${group.name}" (${group.files.length} files) → render ${renderId}`);
@@ -2741,26 +2780,61 @@ async function main() {
     await sql.end();
     return;
   }
-  await reapStaleRenders().catch((e) => console.error("[worker] reap error:", e.message));
-  await reapStaleConversions().catch((e) => console.error("[worker] conversion reap error:", e.message));
-  await reapStaleDeckExports().catch((e) => console.error("[worker] deck export reap error:", e.message));
-  if (process.env.SOCIAL_RENDER_DISABLED !== "1") {
+  console.log(`[worker] id=${WORKER_ID} renders at once=${RENDER_CONCURRENCY} misc jobs=${MISC_JOBS ? "on" : "off"} lease=${LEASE_MS / 1000}s`);
+  await heartbeat();
+  await reapStaleRenders(true).catch((e) => console.error("[worker] reap error:", e.message));
+  await reapStaleConversions(true).catch((e) => console.error("[worker] conversion reap error:", e.message));
+  await reapStaleDeckExports(true).catch((e) => console.error("[worker] deck export reap error:", e.message));
+  if (MISC_JOBS && process.env.SOCIAL_RENDER_DISABLED !== "1") {
     await import("./social-render/job.mjs").then((m) => m.reapSocialRenders(socialRenderIo())).catch((e) => console.error("[worker] social render reap error:", e.message));
   }
-  for (;;) {
-    let worked = false;
-    try {
-      worked = await tick();
-      if (!worked) worked = await deckExportTick(); // WaltzDeck PDF / PPTX (seconds each)
-      if (!worked) worked = await socialTick().catch((e) => { console.error("[worker] social render tick error:", e.message); return false; }); // explainers / Shorts (P5)
-      if (!worked) worked = await convTick(); // 360 reprojection queue
-      if (!worked) worked = await batchTick(); // Auto-Batch: queue the next folder group
-      if (!worked) worked = await durTick(); // lowest priority: fill in missing clip lengths
-    } catch (e) {
-      console.error("[worker] tick error:", e.message);
+  setInterval(() => heartbeat().catch((e) => console.error("[worker] heartbeat error:", e.message)), HEARTBEAT_MS).unref?.();
+  // Recover jobs of workers that died (their leases expire) — checked by every worker, a minute apart.
+  setInterval(() => {
+    reapStaleRenders().catch((e) => console.error("[worker] reap error:", e.message));
+    if (MISC_JOBS) {
+      reapStaleConversions().catch((e) => console.error("[worker] conversion reap error:", e.message));
+      reapStaleDeckExports().catch((e) => console.error("[worker] deck export reap error:", e.message));
     }
-    if (!worked) await new Promise((res) => setTimeout(res, POLL_MS));
-  }
+  }, 60000).unref?.();
+  const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+  // RENDER_CONCURRENCY render lanes, each claiming the next queued render (priority, then age) when free.
+  const renderLane = async (n) => {
+    if (n) await sleep(n * 1500); // stagger the first claims
+    for (;;) {
+      let worked = false;
+      try { worked = await tick(); } catch (e) { console.error(`[worker] render lane ${n} error:`, e.message); }
+      if (!worked) await sleep(POLL_MS);
+    }
+  };
+  // One lane for the quick / background jobs.
+  const miscLane = async () => {
+    for (;;) {
+      let worked = false;
+      try {
+        worked = await deckExportTick(); // WaltzDeck PDF / PPTX (seconds each)
+        if (!worked) worked = await socialTick().catch((e) => { console.error("[worker] social render tick error:", e.message); return false; }); // explainers / Shorts (P5)
+        if (!worked) worked = await convTick(); // 360 reprojection queue
+        if (!worked) worked = await batchTick(); // Auto-Batch: queue the next folder group
+        if (!worked) worked = await durTick(); // lowest priority: fill in missing clip lengths
+      } catch (e) {
+        console.error("[worker] misc lane error:", e.message);
+      }
+      if (!worked) await sleep(POLL_MS);
+    }
+  };
+  await Promise.all([...Array.from({ length: RENDER_CONCURRENCY }, (_, n) => renderLane(n)), ...(MISC_JOBS ? [miscLane()] : [])]);
+}
+
+// Keep this worker's leases fresh and tell the app it's alive (capacity for queue wait estimates).
+async function heartbeat() {
+  const r = [...held.renders], m = [...held.media], d = [...held.deckExports];
+  if (r.length) await sql`update renders set heartbeat_at=now() where id in ${sql(r)} and worker_id=${WORKER_ID}`;
+  if (m.length) await sql`update media set conversion_heartbeat_at=now() where id in ${sql(m)} and conversion_worker=${WORKER_ID}`;
+  if (d.length) await sql`update deck_exports set heartbeat_at=now() where id in ${sql(d)} and worker_id=${WORKER_ID}`;
+  await sql`insert into render_workers (id, host, concurrency, active, started_at, last_seen_at)
+    values (${WORKER_ID}, ${hostname()}, ${RENDER_CONCURRENCY}, ${r.length}, now(), now())
+    on conflict (id) do update set host=excluded.host, concurrency=excluded.concurrency, active=excluded.active, last_seen_at=now()`;
 }
 main().catch((e) => {
   console.error("[worker] fatal:", e);
