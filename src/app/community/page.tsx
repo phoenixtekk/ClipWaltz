@@ -7,12 +7,22 @@ import { getTopLiked, getTopPosters, type LeaderRow } from "@/lib/community";
 import { getChatMessages } from "@/lib/chat";
 import { getAuthUserId } from "@/lib/auth";
 import { CommunityChat } from "@/components/community-chat";
-import { aspectClass } from "@/lib/aspect";
+import { aspectClass, aspectDims } from "@/lib/aspect";
+import { masonry } from "@/lib/masonry";
 import { VideoPreview } from "@/components/video-preview";
 
 export const metadata = {
   title: "Community feed",
   description: "Music videos made with ClipWaltz, shared by the community.",
+};
+
+// Column counts per breakpoint (only one set is displayed; hidden copies never load their previews).
+const FEED_COLS = [[2, "flex sm:hidden"], [3, "hidden sm:flex"]] as const;
+const BOARD_COLS = [[2, "flex sm:hidden"], [3, "hidden sm:flex lg:hidden"], [6, "hidden lg:flex"]] as const;
+/** A card's height relative to its width: the preview's shape plus the caption under it. */
+const cardHeight = (aspect: string, caption: number) => {
+  const { w, h } = aspectDims(aspect);
+  return h / w + caption;
 };
 
 export default async function FeedPage() {
@@ -76,8 +86,13 @@ export default async function FeedPage() {
               </div>
             </div>
             {board.length > 0 ? (
-              <div className="mt-5 grid grid-cols-2 gap-3 border-t border-border/60 pt-5 sm:grid-cols-3 lg:grid-cols-6">
-                {board.map((e, i) => (
+              <div className="mt-5 border-t border-border/60 pt-5">
+                {/* Pinterest-style columns: each tile sits right under the one above — no stretched gaps. */}
+                {BOARD_COLS.map(([n, cls]) => (
+                  <div key={n} className={`${cls} gap-3`}>
+                    {masonry(board.map((e, i) => ({ e, i })), n, ({ e }) => cardHeight(e.aspect, 0.15)).map((col, c) => (
+                      <div key={c} className="flex min-w-0 flex-1 flex-col gap-3">
+                        {col.map(({ e, i }) => (
                   <Link key={e.renderId} href={`/w/${e.renderId}`} className="cw-lift group block">
                     <div
                       className={`relative flex items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-[color:var(--cw-blue)]/25 via-[color:var(--cw-magenta)]/20 to-[color:var(--cw-coral)]/20 ${
@@ -103,6 +118,10 @@ export default async function FeedPage() {
                       </span>
                     </p>
                   </Link>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
                 ))}
               </div>
             ) : (
@@ -127,38 +146,47 @@ export default async function FeedPage() {
                 </Link>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-                {items.map((it) => (
-                  <div key={it.renderId} className="cw-glass cw-lift overflow-hidden rounded-2xl">
-                    <Link href={`/w/${it.renderId}`} className="group block" aria-label={`Watch ${it.title}`}>
-                      <div
-                        className={`relative flex items-center justify-center overflow-hidden bg-gradient-to-br from-[color:var(--cw-blue)]/25 via-[color:var(--cw-magenta)]/20 to-[color:var(--cw-coral)]/20 ${
-                          aspectClass(it.aspect)
-                        }`}
-                      >
-                        <VideoPreview renderId={it.renderId} />
-                        {/* Play badge fades out while the preview plays on hover */}
-                        <div className="pointer-events-none relative flex size-11 items-center justify-center rounded-full bg-white/85 transition-all group-hover:scale-110 group-hover:opacity-0">
-                          <Play className="size-4 translate-x-0.5 fill-slate-900 text-slate-900" />
-                        </div>
+              <>
+                {/* Pinterest-style columns: landscape cards end under their title and the next card follows right below. */}
+                {FEED_COLS.map(([n, cls]) => (
+                  <div key={n} className={`${cls} items-start gap-4`}>
+                    {masonry(items, n, (it) => cardHeight(it.aspect, 0.3)).map((col, c) => (
+                      <div key={c} className="flex min-w-0 flex-1 flex-col gap-4">
+                        {col.map((it) => (
+                          <div key={it.renderId} className="cw-glass cw-lift overflow-hidden rounded-2xl">
+                            <Link href={`/w/${it.renderId}`} className="group block" aria-label={`Watch ${it.title}`}>
+                              <div
+                                className={`relative flex items-center justify-center overflow-hidden bg-gradient-to-br from-[color:var(--cw-blue)]/25 via-[color:var(--cw-magenta)]/20 to-[color:var(--cw-coral)]/20 ${
+                                  aspectClass(it.aspect)
+                                }`}
+                              >
+                                <VideoPreview renderId={it.renderId} />
+                                {/* Play badge fades out while the preview plays on hover */}
+                                <div className="pointer-events-none relative flex size-11 items-center justify-center rounded-full bg-white/85 transition-all group-hover:scale-110 group-hover:opacity-0">
+                                  <Play className="size-4 translate-x-0.5 fill-slate-900 text-slate-900" />
+                                </div>
+                              </div>
+                            </Link>
+                            <div className="flex items-center justify-between gap-2 p-3">
+                              <div className="min-w-0">
+                                <Link href={`/w/${it.renderId}`} className="block truncate text-sm font-medium hover:underline">
+                                  {it.title}
+                                </Link>
+                                <Link href={`/u/${it.creatorId}`} className="cw-subtle block truncate text-xs hover:underline">
+                                  by {it.creator}
+                                </Link>
+                              </div>
+                              <span className="cw-subtle inline-flex shrink-0 items-center gap-1 text-xs">
+                                <Heart className="size-3.5" /> {it.likes}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    </Link>
-                    <div className="flex items-center justify-between gap-2 p-3">
-                      <div className="min-w-0">
-                        <Link href={`/w/${it.renderId}`} className="block truncate text-sm font-medium hover:underline">
-                          {it.title}
-                        </Link>
-                        <Link href={`/u/${it.creatorId}`} className="cw-subtle block truncate text-xs hover:underline">
-                          by {it.creator}
-                        </Link>
-                      </div>
-                      <span className="cw-subtle inline-flex shrink-0 items-center gap-1 text-xs">
-                        <Heart className="size-3.5" /> {it.likes}
-                      </span>
-                    </div>
+                    ))}
                   </div>
                 ))}
-              </div>
+              </>
             )}
           </div>
 
