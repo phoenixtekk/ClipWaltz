@@ -13,6 +13,29 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## AI models — Claude, ChatGPT, DeepSeek, Gemini or the built-in model writes your decks (2026-10-13)
+- **Admin (`/admin/ai` → Writing & planning models):** per provider — on/off, which plans (Free / Plus / Pro) may use it,
+  the model for writing and the model for looking at photos/frames, **ClipWaltz's own key** (tested before it's saved;
+  ClipWaltz pays the vendor) and/or **"Users can add their own key"** (they pay). Shows each provider's last failure /
+  last success and how many users saved a key.
+- **Users (`/account/ai`, user menu → AI models):** choose the model that writes for them — **Built-in (ClipWaltz AI)**
+  (default, self-hosted), a provider *included with your plan* (platform key) or *with your own key*. Own keys are tested
+  before saving, stored encrypted (AES-256-GCM, `TOKEN_ENC_KEY`), shown only as the last 4 characters; optional model
+  override; Test / Delete; last failure shown.
+- **What it drives:** every WaltzDeck AI step in the generation worker — plan, narration, suggested shots, scene rewrite,
+  Edit with AI chat, translate, campaign hooks, import summary and describing photos/clip frames. The job runs under
+  the choice of **the person who started it** (an editor never spends the owner's key; owner as fallback), re-checked per job (plan changes / admin switches apply to the next job). If the outside
+  model fails (bad key, quota, refusal, unreadable reply) the job **finishes on the built-in model** and the error is
+  shown to the user (own key) or admin (platform key).
+- **Guards (security review 2026-10-13):** daily limit per user on ClipWaltz's key (admin setting, default 30 jobs/day
+  UTC, then built-in), key tests capped at 5 per user per 10 min, vendor error text has the key stripped.
+- **Not yet routed (still built-in):** AutoWaltz smart-cut scoring + post text (render worker on the AI box) and the
+  Waltz match photo analysis. **No AI credits are charged** for outside-model writing yet (pricing = owner decision).
+- **Phase B/C (planned):** a connector app for the user's own Ollama / GPU, cloud video models and talking photo.
+- Code: `worker/deck/llm.mjs` (catalog, adapters, `resolveLlm`), `planner.mjs` `llmScope` + `chatJson`, `jobs.mjs`
+  `withUserModel`, `src/lib/llm-actions.ts`, `src/components/{admin-llm,ai-model-settings}.tsx`; migration 0053
+  (`user_ai_keys`, `ai_prefs`) + 0054 (`ai_prefs.platform_day/platform_jobs`); admin settings in `app_settings` `llm_providers` / `llm_provider_status`.
+
 ## Logo reveal shows the whole name; rewrite fixes "cut off" text (2026-10-06)
 - **Bug (owner):** the animated logo reveal drew only the first 24 letters ("Streamlined Intune Repor"). Now the whole name
   shows (up to 80 characters), wrapping between words and shrinking to fit; letter timing scales so long names finish

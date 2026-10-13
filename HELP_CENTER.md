@@ -20,6 +20,20 @@ ships. It will also surface in-app at `/help`.
   exports are all deleted too (it can't be undone — download anything you want to keep first). A photo or
   video you also use in another project stays in that project.
 
+## Choosing the AI that writes for you (AI models)
+- Open the **account menu → AI models**. Pick **Built-in (ClipWaltz AI)** — included in every plan, and your media never
+  leaves ClipWaltz — or, when they're offered on your plan, **Claude**, **ChatGPT**, **DeepSeek** or **Gemini**.
+- **"Included with your plan"** uses ClipWaltz's account with that company. **"With your own key"** uses your account:
+  paste an API key from that company's developer site under **Your own API keys** → **Test & save**. ClipWaltz tests the
+  key first, stores it encrypted, and only ever shows its last 4 characters. That company bills you for what's used.
+- Your choice writes your WaltzDeck plans, scripts and voice lines, Edit with AI, scene rewrites, translations, campaign
+  hooks and imports, and describes your photos and clips. With an outside model, that text and still frames from your
+  photos and clips are sent to that company.
+- **Included with your plan** has a daily limit (shown on the option). After it, the built-in model writes for you until
+  the next day (UTC). Your own key has no ClipWaltz limit.
+- **If it fails** (wrong key, no credit left, the service is down), your video is still made with the built-in model, and
+  the AI models page shows what went wrong. Use **Test** to check your key again, or **Delete** to remove it.
+
 ## Organising your projects (categories)
 - The **Projects** page has a list of **categories** on the left. Click **All projects**, **Uncategorized** or a
   category to show only those videos on the right. The page remembers your choice in its address, so you can bookmark it.

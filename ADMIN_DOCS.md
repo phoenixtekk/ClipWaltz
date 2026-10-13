@@ -168,6 +168,36 @@ www.clipwaltz.com. Verified 2026-09-29 against a local `next build` + `next star
   first failure a job shows `queued` again (error kept); only the last failure sets `failed`. A
   retry atomically marks the old job `retried` (so it can't be retried twice) and creates a new job.
 
+## Outside AI models for writing (2026-10-13)
+`/admin/ai` → **Writing & planning models**. Providers: Claude (`@anthropic-ai/sdk`), ChatGPT (`openai`), DeepSeek and
+Gemini (both via `openai` with fixed base URLs `https://api.deepseek.com` / `https://generativelanguage.googleapis.com/v1beta/openai/`).
+- **Turn one on:** switch **On**, tick plans, optionally change the model names (defaults: `claude-opus-5-5`,
+  `gpt-6-astra`, `deepseek-flash`, `gemini-3.8-flash` — checked against vendor docs 2026-10-13), **Save**. Then either paste
+  ClipWaltz's key → **Test & save** (a tiny real call; nothing is saved if it fails) and/or switch on **Users can add their
+  own key**. A provider is offered only when it's on, has ≥ 1 plan, and has a platform key or allows own keys.
+- **Storage:** settings + encrypted platform keys in `app_settings` key `llm_providers`; last success/failure per provider
+  in `llm_provider_status`; user keys in `user_ai_keys` (encrypted, `key_last4`, `last_error`), choices in `ai_prefs`.
+  Encryption = `src/lib/cloud/crypto.ts` (AES-256-GCM) with **`TOKEN_ENC_KEY`** — the app **and** `clipwaltz-gen-worker`
+  (both load `.env.local` on linuxg1) need it. Rotating `TOKEN_ENC_KEY` makes stored keys unreadable (jobs fall back to the
+  built-in model; users/admin re-enter keys).
+- **Limits:** **Daily limit per user on ClipWaltz's key** (per provider card, default 30 AI jobs/user/day, UTC; counted in
+  `ai_prefs.platform_jobs` / `platform_day` across ClipWaltz keys) — over it the job uses the built-in model (worker log
+  `[llm] <user> reached today's N-job limit …`). Key tests: 5 per user per 10 min per app instance.
+- **Runtime:** `enqueueDeck` (src/lib/queue.ts) stamps each job with the signed-in user who started it (`userId`);
+  `worker/deck/jobs.mjs` `withUserModel` resolves that user's choice (project owner if absent) per job (`resolveLlm`: provider
+  on + plan allowed + key present, else built-in) and runs it in `llmScope`; `planner.mjs` `chatJson` calls the outside
+  model, extracts the JSON (one retry), and on any error logs `[deck] <provider>/<model> failed (…) — using the built-in
+  model`, records the error and finishes the job on Ollama. Worker log line per job: `[deck] job <name> <id> → <provider>/<model> (<own|platform> key)`.
+- **Vendor notes:** Claude streams with `output_config.effort: "medium"` and `fallbacks: "default"` (beta
+  `server-side-fallback-2026-07-01`) on Fable 5.1 / Opus 5.5 / Opus 5 / Sonnet 5.5; OpenAI uses `max_completion_tokens` and
+  JSON mode, no temperature; DeepSeek `max_tokens` + JSON mode; Gemini gets neither (not documented on its OpenAI endpoint).
+- **Billing:** platform-key usage is billed to the vendor accounts whose keys are saved here; no ClipWaltz credits are
+  charged for it yet. User keys bill the user's own vendor account.
+- **Privacy:** brief text, scene text and photo/clip frames are sent to the chosen vendor (the UI says so). Next's dev
+  server logs server-action arguments (incl. pasted keys) — dev only, not `next start`.
+- **Deploy:** `npm ci` on linuxg1 (new deps `@anthropic-ai/sdk`, `openai`) → migrate 0053 + 0054 → build → restart `clipwaltz`
+  **and** `clipwaltz-gen-worker`.
+
 ## Operations page (`/admin/ops`)
 Live BullMQ queue depths (generation / enhance / export; "-1" = Redis unreachable), AISERVER status per GPU,
 music-video render queue, the latest 60 AI jobs with wait/run time and errors (raw error on hover), and
