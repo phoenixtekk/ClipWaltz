@@ -33,6 +33,35 @@ Both carry the bottom-left logo watermark (Free always; paid per the `/admin` sw
   Waltz match photo analysis. **No AI credits are charged** for outside-model writing yet (pricing = owner decision).
 - **Phase C (planned):** cloud video models and talking photo (incl. on the user's GPU through the Connector).
 
+## Cloud video models in Waltz AI — Kling, Runway, MiniMax (Phase C1, 2026-10-13)
+- **Generate tab → Model:** *ClipWaltz AI* (built-in Wan 2.2) or a cloud model offered on the user's plan — **Kling 3.0
+  (720p)**, **Runway Gen-4.5**, **Runway Gen-4 Turbo** (image→video only), **MiniMax H3-Max 480p / 768p**. Each chip shows
+  its price (`3 cr/s`) or *your key*. Lengths and shapes the model can't make are greyed out (e.g. Runway text→video: no
+  1:1; MiniMax: ≥ 5 s); the Quality cards hide (built-in only); Runway shows "Powered by Runway" (Runway's requirement).
+- **Who pays:** the user's own key (saved under Account → AI models → Video models) → **0 credits**, billed by the vendor;
+  otherwise ClipWaltz's key → **credits per second** set by the admin (defaults: Kling 3, Gen-4.5 4, Gen-4 Turbo 2,
+  MiniMax 480p 2 / 768p 3) and a **daily clip cap per user** (default 10). Owner decisions 2026-10-13.
+- **Admin (`/admin/ai` → Video models):** per vendor — on/off, plans, users' own keys allowed, clips per user per day,
+  credits per second per model (with the vendor's $/s and the $/s it earns on Plus/Pro, warning when below cost), offer
+  each model on/off, ClipWaltz's key (free "check" — a lookup of a task that doesn't exist; proves the key is accepted).
+- **Runtime:** cloud clips run on their own queue (`<GENERATION_QUEUE>-cloud`, 4 at a time) so they never hold a GPU slot;
+  **one attempt** (a failed vendor job is never resubmitted — the user sees Retry, credits refunded); poll every 10 s, 30 min
+  limit; Cancel calls Runway's cancel (Kling/MiniMax document none). The clip is stored like any version (watermark rules,
+  versions, Enhance/Export, WaltzDeck fill).
+- **Money guards (security review 2026-10-13):** a clip on ClipWaltz's key **can't be cancelled once it's being sent to the
+  vendor** (else cancel-and-refund would make free clips at ClipWaltz's cost); the daily cap is re-checked inside the
+  per-user credits lock (parallel requests can't overrun it) and counts failed clips that reached the vendor; the worker
+  never flips a cancelled job back to running. Own-key clips can still be cancelled.
+- **Verified on dev** against a local mock that speaks each vendor's documented API (no real keys yet): text→video (Kling,
+  MiniMax, Runway), image→video (Kling raw base64, Runway data URI), ClipWaltz key vs own key (15 vs 0 credits), vendor
+  failure → failed + refunded + not retried, cancel → Runway DELETE, daily cap, admin key check accept/reject.
+  **Not yet verified with real vendor keys** — first real clip per vendor still to do (Kling's base64 image format and
+  Runway Gen-4 Turbo's allowed lengths are undocumented).
+- Code: `worker/video/{catalog,cloud}.mjs`, `generation-worker.mjs` (`runCloud`, `storeResult`, cloud worker),
+  `src/lib/video-providers.ts`, `src/lib/video-provider-actions.ts`, `generation-actions.ts` (`createCloudJob`),
+  `src/components/{admin-video,video-key-settings}.tsx`, Generate panel. No migration (settings in `app_settings`
+  `video_providers`, user keys in `user_ai_keys`).
+
 ## ClipWaltz Connector — AI on the user's own computer (Phase B, 2026-10-13)
 - **What:** `public/connector/clipwaltz-connector.mjs` (downloadable at `/connector/clipwaltz-connector.mjs`, Node 18+, no
   dependencies). `pair` → shows a code + link; the signed-in user **types the code** at **/account/ai/connect**, sees which

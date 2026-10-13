@@ -195,6 +195,19 @@ Gemini (both via `openai` with fixed base URLs `https://api.deepseek.com` / `htt
   charged for it yet. User keys bill the user's own vendor account.
 - **Privacy:** brief text, scene text and photo/clip frames are sent to the chosen vendor (the UI says so). Next's dev
   server logs server-action arguments (incl. pasted keys) — dev only, not `next start`.
+- **Cloud video models (Phase C1, 2026-10-13):** `/admin/ai` → **Video models**. Settings: `app_settings`
+  `video_providers` `{kling|runway|minimax: {enabled, plans, allowOwnKey, platformKeyEnc, platformKeyLast4, dailyLimit,
+  credits{modelId}, disabledModels}}`; user keys in `user_ai_keys` (provider `kling`/`runway`/`minimax`). Vendor APIs:
+  Kling `https://api-singapore.klingai.com` (Bearer API key), Runway `https://api.dev.runwayml.com` (Bearer +
+  `X-Runway-Version: 2024-11-06`), MiniMax `https://api.minimax.io` (Bearer). Worker: queue `<GENERATION_QUEUE>-cloud`,
+  `GEN_CLOUD_CONCURRENCY` (default 4), `GEN_CLOUD_TIMEOUT_MS` (default 30 min); log lines `[gen] <job> → <model> task <id>
+  (<own|platform> key)` and `[gen-cloud] FAILED <job>: <vendor reason>`. The vendor task id is stored in
+  `generation_jobs.request_json.cloud.taskId` (look it up in the vendor console). `VIDEO_BASE_KLING/RUNWAY/MINIMAX` exist
+  **only** to point a dev worker at a local mock — never set them in prod. Runway requires a "Powered by Runway" credit
+  (shown under the picker). Vendor outputs: Kling files deleted after 30 days, Runway URLs expire in 24–48 h, MiniMax URLs
+  are time-limited — the worker copies every clip into MinIO at once. A ClipWaltz-key clip is marked
+  `request_json.cloud.submitting` just before it is sent; from then on Cancel is refused (the vendor may bill it). The
+  daily cap counts queued/running/completed ClipWaltz-key clips plus failed ones that reached the vendor (`cloud.taskId`).
 - **Users' own computers (ClipWaltz Connector, 2026-10-13):** `/admin/ai` → **Users' own computers** (on + plans; stored
   as `llm_providers.connector`). Routes `/api/connector/{pair/start,pair/poll,hello,jobs/next,jobs/:id/result}` are in
   `src/proxy.ts` PUBLIC_PATHS (device-code / bearer-token gated; tokens stored as sha256 in `connectors.token_hash`).

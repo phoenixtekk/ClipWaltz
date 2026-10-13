@@ -24,6 +24,9 @@ import { Worker, Queue } from "bullmq";
 import { WATERMARK_PATH, wmChain, wmBox } from "./watermark.mjs";
 import { composeRemix } from "./remix-compose.mjs";
 import { startDeckWorker, DECK_QUEUE } from "./deck/jobs.mjs";
+import { decryptSecret } from "./deck/llm.mjs";
+import { videoModel, VIDEO_PROVIDERS, VIDEO_SETTINGS_KEY } from "./video/catalog.mjs";
+import { submitCloud, pollCloud, cancelCloud, downloadOutput, videoErrorText } from "./video/cloud.mjs";
 import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand, CopyObjectCommand } from "@aws-sdk/client-s3";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 
@@ -174,6 +177,13 @@ async function processJob(genJobId) {
   console.log(`[gen] ${genJobId} start (${j.job_type}, ${workflow})`);
   await setStatus(genJobId, { status: "preparing", progress: 5, started_at: new Date() });
 
+  const videoBytes = req.cloud ? await runCloud(j, req, genJobId) : await runAiserver(j, req, genJobId, workflow);
+  if (!videoBytes) return; // cancelled
+  await storeResult(j, req, genJobId, videoBytes);
+}
+
+// ─── Built-in model: the AISERVER wrapper (ComfyUI, Wan 2.2) ──────────────────────
+async function runAiserver(j, req, genJobId, workflow) {
   // Resolve + stage the source image (image-to-video).
   let sourceImage = null;
   if (j.job_type === "image_to_video" && req.sourceAssetId) {
@@ -235,12 +245,119 @@ async function processJob(genJobId) {
   }
   if (!out) throw new Error("generation timed out");
 
-  // Pull the output MP4 from the wrapper and store it in MinIO.
+  // Pull the output MP4 from the wrapper.
   await setStatus(genJobId, { status: "uploading_output", progress: 85 });
   const rel = out.subfolder ? `${out.subfolder}/${out.filename}` : out.filename;
   const dl = await fetch(`${AISERVER_URL}/outputs/${rel}`, { headers: aiHeaders });
   if (!dl.ok) throw new Error(`/outputs ${dl.status}`);
-  const videoBytes = Buffer.from(await dl.arrayBuffer());
+  return Buffer.from(await dl.arrayBuffer());
+}
+
+// ─── Cloud video models (Kling / Runway / MiniMax — Phase C1) ──────────────────────
+const CLOUD_POLL_MS = 10_000;
+const CLOUD_TIMEOUT_MS = Number(process.env.GEN_CLOUD_TIMEOUT_MS ?? 30 * 60 * 1000);
+const aspectOf = (w, h) => (!w || !h ? "16:9" : w === h ? "1:1" : w > h ? "16:9" : "9:16");
+
+// The key that pays for this clip, read at run time: ClipWaltz's (admin) or the user's own (AI models page).
+async function cloudKey(j, cloud) {
+  if (cloud.source === "own") {
+    const [k] = await sql`select key_enc from user_ai_keys where user_id = ${j.requested_by} and provider = ${cloud.provider}`;
+    if (!k) throw new Error(`Your ${VIDEO_PROVIDERS[cloud.provider]?.label ?? cloud.provider} key was removed — add it again under AI models`);
+    return decryptSecret(k.key_enc);
+  }
+  const [row] = await sql`select value from app_settings where key = ${VIDEO_SETTINGS_KEY}`;
+  const enc = row?.value?.[cloud.provider]?.platformKeyEnc;
+  if (!enc) throw new Error(`${VIDEO_PROVIDERS[cloud.provider]?.label ?? cloud.provider} isn't set up right now`);
+  return decryptSecret(enc);
+}
+
+// Source photo for a vendor: JPEG/PNG under 4.5 MB (Runway's data-URI limit is 5 MB); anything else is re-encoded.
+async function imageForCloud(key) {
+  const bytes = await getBytes(key);
+  const ext = (key.split(".").pop() || "").toLowerCase();
+  if (bytes.length <= 4.5 * 1024 * 1024 && ["jpg", "jpeg", "png"].includes(ext)) {
+    return { b64: bytes.toString("base64"), mime: ext === "png" ? "image/png" : "image/jpeg" };
+  }
+  const dir = mkdtempSync(join(tmpdir(), "cw-cloudimg-"));
+  try {
+    writeFileSync(join(dir, "in"), bytes);
+    await run("ffmpeg", ["-v", "error", "-y", "-i", join(dir, "in"), "-vf", "scale='min(1920,iw)':-2", "-q:v", "3", join(dir, "out.jpg")]);
+    return { b64: readFileSync(join(dir, "out.jpg")).toString("base64"), mime: "image/jpeg" };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+async function runCloud(j, req, genJobId) {
+  const model = videoModel(req.cloud.model);
+  if (!model) throw new Error(`unknown cloud model ${req.cloud.model}`);
+  const apiKey = await cloudKey(j, req.cloud);
+  let image = null;
+  if (j.job_type === "image_to_video") {
+    const [a] = await sql`select storage_key, converted_key from assets where id = ${req.sourceAssetId}`;
+    if (!a) throw new Error("source asset not found");
+    image = await imageForCloud(a.converted_key ?? a.storage_key);
+  }
+  // Last chance to honour a cancel: from here on a ClipWaltz-key clip can't be cancelled (the app refuses once
+  // cloud.submitting / cloud.taskId is set), because the vendor may bill it.
+  const [marked] = await sql`update generation_jobs set status = 'uploading_to_ai_node', progress = 15,
+      request_json = ${sql.json({ ...req, cloud: { ...req.cloud, submitting: true } })}, updated_at = now()
+    where id = ${genJobId} and status not in ('cancelled', 'retried') returning id`;
+  if (!marked) {
+    console.log("[gen] cancelled before submit", genJobId);
+    return null;
+  }
+  let taskId;
+  try {
+    taskId = await submitCloud(model, apiKey, {
+      task: j.job_type, prompt: j.prompt ?? "", image, aspect: aspectOf(req.width, req.height),
+      durationSec: req.durationSec ?? 5, seed: req.seed ?? null,
+    });
+  } catch (e) {
+    throw new Error(`${model.label}: ${videoErrorText(e, apiKey)}`);
+  }
+  const [running] = await sql`update generation_jobs set request_json = ${sql.json({ ...req, cloud: { ...req.cloud, submitting: true, taskId } })},
+      status = 'generating', progress = 30, updated_at = now()
+    where id = ${genJobId} and status not in ('cancelled', 'retried') returning id`;
+  if (!running) {
+    // Cancelled during the submit (own-key clip — ClipWaltz-key clips can't be cancelled by now): stop it at the vendor.
+    await cancelCloud(model, apiKey, taskId);
+    console.log("[gen] cancelled during submit", genJobId);
+    return null;
+  }
+  console.log(`[gen] ${genJobId} → ${model.id} task ${taskId} (${req.cloud.source} key)`);
+
+  const t0 = Date.now();
+  let url = null;
+  let lastTransient = null;
+  while (Date.now() - t0 < CLOUD_TIMEOUT_MS) {
+    await new Promise((r) => setTimeout(r, CLOUD_POLL_MS));
+    const [cur] = await sql`select status from generation_jobs where id = ${genJobId}`;
+    if (cur?.status === "cancelled" || cur?.status === "retried") {
+      await cancelCloud(model, apiKey, taskId);
+      console.log("[gen] cancelled", genJobId);
+      return null;
+    }
+    let st;
+    try {
+      st = await pollCloud(model, apiKey, taskId);
+    } catch (e) {
+      lastTransient = videoErrorText(e, apiKey);
+      continue; // network hiccup: keep polling until the deadline
+    }
+    if (st.transient) lastTransient = videoErrorText(st.transient, apiKey);
+    if (st.state === "done") { url = st.url; break; }
+    if (st.state === "failed") throw new Error(`${model.label}: ${videoErrorText(st.error, apiKey)}`);
+    const pct = Math.min(80, 30 + Math.round(((Date.now() - t0) / (5 * 60_000)) * 50));
+    await setStatus(genJobId, { progress: pct });
+  }
+  if (!url) throw new Error(`${model.label} didn't finish in ${Math.round(CLOUD_TIMEOUT_MS / 60000)} min${lastTransient ? ` (${lastTransient})` : ""}`);
+  await setStatus(genJobId, { status: "uploading_output", progress: 85 });
+  return downloadOutput(url);
+}
+
+// ─── Store a finished clip (built-in or cloud) as a project version ────────────────
+async function storeResult(j, req, genJobId, videoBytes) {
   if (req.deckBackdrop) {
     await storeDeckBackdrop(j, req, videoBytes);
     await setStatus(genJobId, { status: "completed", progress: 100, completed_at: new Date() });
@@ -359,6 +476,25 @@ worker.on("failed", async (job, err) => {
 });
 worker.on("completed", (job) => console.log(`[gen] queue job ${job.id} completed`));
 console.log(`[gen] ClipWaltz generation worker up (queue=${GENERATION_QUEUE}, aiserver=${AISERVER_URL})`);
+
+// Cloud clips (Phase C1) wait on a vendor, not a GPU: their own queue + concurrency (src/lib/queue.ts
+// CLOUD_GENERATION_QUEUE). One attempt per job (set by the app), so a failure is final and refunds the credits.
+const CLOUD_GENERATION_QUEUE = `${GENERATION_QUEUE}-cloud`;
+const cloudWorker = new Worker(
+  CLOUD_GENERATION_QUEUE,
+  async (job) => { await processJob(job.data.generationJobId); },
+  { connection, concurrency: Number(process.env.GEN_CLOUD_CONCURRENCY ?? 4), lockDuration: 5 * 60 * 1000 },
+);
+cloudWorker.on("failed", async (job, err) => {
+  const id = job?.data?.generationJobId;
+  console.error(`[gen-cloud] FAILED ${id}: ${err?.message}`);
+  if (id) {
+    try {
+      await markAttemptFailed(job, id, err);
+    } catch (e) { console.error("[gen-cloud] status write failed", e); }
+  }
+});
+console.log(`[gen] cloud video worker up (queue=${CLOUD_GENERATION_QUEUE})`);
 
 // ─── Export worker: transcode a generated version to a final deliverable ─────────
 // Short-clip ffmpeg on linuxg1 (ffmpeg already installed; this is not a heavy assembler render).

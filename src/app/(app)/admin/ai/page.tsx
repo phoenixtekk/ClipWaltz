@@ -5,6 +5,8 @@ import { getAiRegistry } from "@/lib/ai-admin-actions";
 import { AdminAi } from "@/components/admin-ai";
 import { getLlmAdmin, getConnectorAdmin } from "@/lib/llm-actions";
 import { AdminConnector } from "@/components/admin-connector";
+import { getVideoAdmin } from "@/lib/video-provider-actions";
+import { AdminVideo } from "@/components/admin-video";
 import { AdminLlm } from "@/components/admin-llm";
 
 export const metadata = { title: "AI models & routing" };
@@ -12,7 +14,8 @@ export const metadata = { title: "AI models & routing" };
 export default async function AdminAiPage() {
   const admin = await getAdminSession();
   if (!admin) redirect("/projects");
-  const [registry, llm, connector] = await Promise.all([getAiRegistry(), getLlmAdmin(), getConnectorAdmin()]);
+  const [registry, llm, connector, video] = await Promise.all([getAiRegistry(), getLlmAdmin(), getConnectorAdmin(), getVideoAdmin()]);
+  if (!video.ok) throw new Error(video.error);
   if (!llm.ok) throw new Error(llm.error);
   if (!connector.ok) throw new Error(connector.error);
 
@@ -29,6 +32,7 @@ export default async function AdminAiPage() {
       </div>
       <AdminLlm providers={llm.data} />
       <AdminConnector c={connector.data} />
+      <AdminVideo providers={video.data} />
       <AdminAi registry={registry} />
     </div>
   );

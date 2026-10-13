@@ -1,5 +1,4 @@
-<!-- session-version: 13 -->
-<!-- pending-session-title: ClipWaltz v13 -->
+<!-- session-version: 14 -->
 
 # ClipWaltz — session handoff
 
@@ -15,7 +14,76 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
-## Working state (2026-10-04, rotation to v13)
+## Working state (2026-10-13, rotation to v14)
+Tree: `07_ClipWaltz_Presenter_Feature_Spec.md` modified (Phase 0 results §9, uncommitted). **3 commits NOT pushed / NOT
+deployed:** `a6c581e`, `543635d` (render scaling) and `edf063d` (Presenter spec). Everything up to `ad4d0cb` is LIVE.
+```
+edf063d docs: Presenter (HeyGen-style avatar videos) design & phased plan
+543635d fix(render): review fixes — leases always released, done-write guarded by lease, ...
+a6c581e feat(render): multi-worker leases, N renders at once, paid-first queue with position/ETA, background worker ...
+ad4d0cb feat(projects): Show on the Community page checkbox in Video properties
+94abc36 feat(community): Pinterest-style columns for the feed and contest board
+```
+- **LIVE since v13:** Projects category rail + Video properties (incl. "Show on the Community page"); cloud storage
+  auto-save (Google Drive, Dropbox, OneDrive — all upload-verified; Box removed by owner) with routing rules (owner
+  rule: Ad + Campaign → Dropbox only) + `/account/storage/analytics`; notifications fixes + Send test push; dashboard
+  2 rows; community video previews + masonry; auth full-page-load fix.
+- **NEXT 1 — deploy render scaling (`a6c581e`+`543635d`, code-reviewed) in THIS order:** stop AI box worker
+  (`ssh ai sudo -n systemctl stop clipwaltz-worker`) → migrate 0052 on prod → deploy app + gen worker (linuxg1,
+  build-gated restart) → AI box worker with `RENDER_CONCURRENCY=3 WORKER_ID=aibox DATABASE_POOL_MAX=6` → `ALTER ROLE
+  clipwaltz CONNECTION LIMIT 45` → pm2 `clipwaltz-bg-worker` (`node --env-file=.env.local node_modules/.bin/tsx
+  scripts/background-worker.ts`) → app to pm2 cluster ×2 → AISERVER worker (prep done: node 22, fonts, aubio,
+  Playwright Chromium `~/.cache/ms-playwright/chromium-1243`, `~/clipwaltz` + `.env.worker`; still needs SSH key +
+  tunnels to linuxg1:5432 and ai:8191, worker code, systemd unit, `RENDER_CONCURRENCY=2 MISC_JOBS=0
+  WORKER_ID=aiserver CHROMIUM_PATH=…`) → parallel-render proof → docs/wiki/server-inventory.
+- **NEXT 2 — Waltz Avatar Phase 1 (awaiting owner go-ahead).** Phase 0 DONE 2026-10-13 (v14) — results + conclusion in
+  `07_…Spec.md` §9: twin path feasible (MuseTalk prepared 0.65× realtime 8.3 GB, Chatterbox 0.53× 3.6 GB, BiRefNet
+  6 fps 1.6 GB); talking photo (EchoMimic v3) does NOT fit 10 GB → Phase 4 needs a larger GPU (size not measured). First Phase 1 task:
+  MuseTalk with MediaPipe landmarks/mask (licence swap, untested). Owner decisions 2026-10-13 (supersede earlier):
+  name **Waltz Avatar**, fictional AI presenters + licensed actors, consent **automatic only** (no admin review).
+  Spike in `~/presenter-spike` on AISERVER (no services; `echomimic_v3/run_spike.py` has CPU-T5 + device patches).
+  Spec mirrored to wiki: https://docs.phoenixtekk.com/en/ClipWaltz/waltz-avatar-spec (verified 200).
+- **AI models Phase A — LIVE 2026-10-13** via deploy branch `deploy/ai-models-20261013` (`4b138ea` = live `ad4d0cb` +
+  `e9bdecc` + migration 0052 *files*): prod DB migrated 0052+0053+0054 (0052 applied early, additive, so drizzle's order
+  check won't skip it later — render-scaling CODE is still NOT deployed); `npm install` (+7 pkgs), build exit 0, `pm2
+  restart clipwaltz clipwaltz-gen-worker`; backup `/tmp/cw-pre-aimodels-src.tgz`. Verified: site 200, /account/ai +
+  /admin/ai → sign-in, Help article live, deck worker up. Not exercised via the prod UI (no prod login) or a real key.
+  When render scaling deploys, skip its "migrate 0052" step (already applied).
+- **Phase C** (`08_ClipWaltz_PhaseC_Video_Plan.md`; owner: Kling + Runway + MiniMax; talking photo on own GPUs only; proposed
+  credit defaults; "I have permission" consent). **C0 done:** EchoMimic v3-Flash fits a 10 GB 3080 (9.4 GB @768x512 ≈112
+  GPU-s/video-s; 6.8 GB @512x384 ≈38) — spike `~/presenter-spike/echomimic_v3/infer_flash_spike.py` + `run_flash_spike.sh`
+  on AISERVER, sample clips in `docs/phase-c/`. **C1 BUILT, NOT DEPLOYED:** cloud video in the Generate tab (see FEATURES);
+  dev-verified end to end against a local vendor mock (scratchpad `mock-vendors.mjs`), security-reviewed (3 money fixes);
+  **no real vendor key tested** (Kling base64 format + Runway Gen-4 Turbo lengths undocumented). Deploy = app + gen worker
+  restart (no migration, no new deps); then admin adds keys on /admin/ai. **Next:** C2 talking photo on AISERVER (resident
+  EchoMimic-Flash service + TTS route linuxg1→AI box), C3 Connector GPU jobs.
+- **ClipWaltz Connector — LIVE 2026-10-13** (deploy branch `deploy/ai-models-20261013` @ `3158dc9` = AI models + Connector on
+  live code): prod migrated 0055 + 0056 (57 rows), build exit 0, restart app + gen worker; backup
+  `/tmp/cw-pre-connector-src.tgz`. Verified: download 200, connector APIs 401/400 without credentials, connect page →
+  sign-in, workers up. Not exercised with a real pairing on prod (no prod login). Admin must switch on "Users' own computers".
+- **ClipWaltz Connector (Phase B) — details (`1d3cd7a`):** user's own computer's Ollama for WaltzDeck writing
+  via `public/connector/clipwaltz-connector.mjs` (Node 18+). Dev-verified end to end (pairing with typed code + device
+  details, text + image jobs via relay, offline fallback, disconnect, rate limits); security-reviewed (6 fixes). Deploy =
+  migrate 0055 + 0056 + build + restart app AND gen worker (no new deps), on top of deploy branch
+  `deploy/ai-models-20261013`. Then admin turns on "Users' own computers" per plan. **Next:** Phase C (cloud video +
+  talking photo; GPU jobs through the Connector), optional single-file binaries (unsigned → OS warnings; owner decision).
+- **AI models (BYO / outside LLMs) Phase A — details (`e9bdecc`, branch `claude/continue-previous-d94e47`):**
+  owner 2026-10-13 asked for admin-enabled outside models (Claude/ChatGPT/DeepSeek/Gemini + user's own Ollama) to help
+  talking photo + quality. Owner answers: use for writing & planning AND video; keys = platform + users' own; local link =
+  connector app; admin control = per provider per plan. Phase A (writing & planning) done: `/admin/ai` section,
+  `/account/ai`, `worker/deck/llm.mjs`, migrations 0053+0054; dev-verified (fake-key 401 paths, fallback to Ollama,
+  error recorded, plan gate, daily cap, test rate limit, owner lookups); security-reviewed (4 findings fixed). **Not tested
+  with a real vendor key** (none available). Deploy = `npm ci` + migrate 0053/0054 + build + restart app AND gen worker.
+  **Next:** Phase B connector app (user's Ollama/GPU behind NAT), Phase C cloud video + talking photo. No credits charged
+  for outside-model writing (owner pricing decision). Dev test login in worktree `.env.development.local` (gitignored).
+- **Owner decisions pending:** add linuxg7's 98 GB unallocated VG space to `minio-lv` (recommended; 2nd virtual disk
+  later); AISERVER reboot to clear the NVIDIA 595.91/595.99 NVML mismatch (CUDA works; nvidia-smi doesn't) +
+  `apt-mark hold` NVIDIA packages.
+- **Lessons this session:** never `open(p,'w').write(f(open(p).read()))` (it emptied ADMIN_DOCS once — restored);
+  client components must not import `@/db` modules (prod build failed → 5-min outage); restart pm2 only if the build
+  exits 0.
+
+## Previous working state (2026-10-04, rotation to v13)
 Tree clean, in sync with origin/main (`44f0ad8`). tsc + lint clean. Everything below is deployed.
 ```
 44f0ad8 docs(handoff): timeline inserts deployed

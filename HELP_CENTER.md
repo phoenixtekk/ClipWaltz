@@ -41,6 +41,18 @@ ships. It will also surface in-app at `/help`.
 - **If it fails** (wrong key, no credit left, the service is down), your video is still made with the built-in model, and
   the AI models page shows what went wrong. Use **Test** to check your key again, or **Delete** to remove it.
 
+## Cloud video models in Waltz AI
+- In **Waltz AI → Model**, pick **ClipWaltz AI** (our own model) or a cloud model offered on your plan — **Kling**,
+  **Runway** or **MiniMax**. Each shows what a second costs in AI credits, or **your key** if you added your own key for
+  that company under **account menu → AI models → Video models** (then ClipWaltz charges no credits; that company bills you).
+- Some models only make certain lengths or shapes — the ones they can't make are greyed out. Runway Gen-4 Turbo only works
+  from a photo.
+- Cloud clips usually take a few minutes. If the company can't make the clip (for example its content rules block it), the
+  clip fails, your credits come back, and **Retry** lets you try again. **Cancel** stops it.
+- There's a daily limit on clips made with ClipWaltz's account; your own key has no ClipWaltz limit.
+- A clip made with ClipWaltz's account can be cancelled only until it's sent to the video company; after that it finishes
+  and its credits are used. Clips made with your own key can be cancelled any time.
+
 ## Organising your projects (categories)
 - The **Projects** page has a list of **categories** on the left. Click **All projects**, **Uncategorized** or a
   category to show only those videos on the right. The page remembers your choice in its address, so you can bookmark it.
