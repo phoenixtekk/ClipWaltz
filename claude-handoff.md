@@ -55,8 +55,8 @@ ad4d0cb feat(projects): Show on the Community page checkbox in Video properties
   on AISERVER, sample clips in `docs/phase-c/`. **C1 LIVE 2026-10-13** (deploy branch `deploy/ai-models-20261013` @ `218a851`; build 0, restart app + gen worker, backup `/tmp/cw-pre-c1-src.tgz`; cloud worker up on `clipwaltz-generation-cloud`; admin still has to add vendor keys on /admin/ai): cloud video in the Generate tab (see FEATURES);
   dev-verified end to end against a local vendor mock (scratchpad `mock-vendors.mjs`), security-reviewed (3 money fixes);
   **no real vendor key tested** (Kling base64 format + Runway Gen-4 Turbo lengths undocumented). Deploy = app + gen worker
-  restart (no migration, no new deps); then admin adds keys on /admin/ai. **Next:** C2 talking photo on AISERVER (resident
-  EchoMimic-Flash service + TTS route linuxg1→AI box), C3 Connector GPU jobs.
+  restart (no migration, no new deps); then admin adds keys on /admin/ai. **Next: build C2** per plan §8 (owner 2026-10-13: 1 credit/s, max 30 s,
+  Kokoro on AISERVER; single-pass limit 6.4 s → chunked rendering), then C3 Connector GPU jobs.
 - **ClipWaltz Connector — LIVE 2026-10-13** (deploy branch `deploy/ai-models-20261013` @ `3158dc9` = AI models + Connector on
   live code): prod migrated 0055 + 0056 (57 rows), build exit 0, restart app + gen worker; backup
   `/tmp/cw-pre-connector-src.tgz`. Verified: download 200, connector APIs 401/400 without credentials, connect page →

@@ -130,8 +130,8 @@ image→video clip on prod takes a median **578 s for ~5.4 s ≈ 107 GPU-s per v
 4. **App:** Waltz AI → **Talking photo**: pick a photo, type the script + voice (or upload audio), confirm "this is me /
    I have their permission" (stored), output labelled AI-generated; job type `talking_photo` on the GPU queue.
 
-**Open for the owner:** price (recommended **1 credit/s**, same as built-in clips — it uses less GPU per second than Wan),
-max length (recommended **30 s** ≈ 20 GPU-minutes), voice route (recommended Kokoro on AISERVER).
+**Owner decisions (2026-10-13):** price **1 credit/s** (same as built-in clips); max length **30 s** for everyone; voice
+from **Kokoro installed on AISERVER** inside the talking service.
 
 ## Appendix — sources (fetched 2026-10-13)
 
