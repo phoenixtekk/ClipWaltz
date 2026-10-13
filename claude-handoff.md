@@ -1,5 +1,5 @@
-<!-- session-version: 13 -->
-<!-- pending-session-title: ClipWaltz v13 -->
+<!-- session-version: 14 -->
+<!-- pending-session-title: ClipWaltz v14 -->
 
 # ClipWaltz — session handoff
 
@@ -15,7 +15,42 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
-## Working state (2026-10-04, rotation to v13)
+## Working state (2026-10-13, rotation to v14)
+Tree: `07_ClipWaltz_Presenter_Feature_Spec.md` modified (Phase 0 results §9, uncommitted). **3 commits NOT pushed / NOT
+deployed:** `a6c581e`, `543635d` (render scaling) and `edf063d` (Presenter spec). Everything up to `ad4d0cb` is LIVE.
+```
+edf063d docs: Presenter (HeyGen-style avatar videos) design & phased plan
+543635d fix(render): review fixes — leases always released, done-write guarded by lease, ...
+a6c581e feat(render): multi-worker leases, N renders at once, paid-first queue with position/ETA, background worker ...
+ad4d0cb feat(projects): Show on the Community page checkbox in Video properties
+94abc36 feat(community): Pinterest-style columns for the feed and contest board
+```
+- **LIVE since v13:** Projects category rail + Video properties (incl. "Show on the Community page"); cloud storage
+  auto-save (Google Drive, Dropbox, OneDrive — all upload-verified; Box removed by owner) with routing rules (owner
+  rule: Ad + Campaign → Dropbox only) + `/account/storage/analytics`; notifications fixes + Send test push; dashboard
+  2 rows; community video previews + masonry; auth full-page-load fix.
+- **NEXT 1 — deploy render scaling (`a6c581e`+`543635d`, code-reviewed) in THIS order:** stop AI box worker
+  (`ssh ai sudo -n systemctl stop clipwaltz-worker`) → migrate 0052 on prod → deploy app + gen worker (linuxg1,
+  build-gated restart) → AI box worker with `RENDER_CONCURRENCY=3 WORKER_ID=aibox DATABASE_POOL_MAX=6` → `ALTER ROLE
+  clipwaltz CONNECTION LIMIT 45` → pm2 `clipwaltz-bg-worker` (`node --env-file=.env.local node_modules/.bin/tsx
+  scripts/background-worker.ts`) → app to pm2 cluster ×2 → AISERVER worker (prep done: node 22, fonts, aubio,
+  Playwright Chromium `~/.cache/ms-playwright/chromium-1243`, `~/clipwaltz` + `.env.worker`; still needs SSH key +
+  tunnels to linuxg1:5432 and ai:8191, worker code, systemd unit, `RENDER_CONCURRENCY=2 MISC_JOBS=0
+  WORKER_ID=aiserver CHROMIUM_PATH=…`) → parallel-render proof → docs/wiki/server-inventory.
+- **NEXT 2 — Waltz Presenter Phase 0 (owner: name "Waltz Presenter", fictional AI presenters + licensed actors):**
+  results in `07_…Spec.md` §9 (MuseTalk prepared presenter 0.65× realtime, 8.3 GB; Chatterbox 0.53× GPU / 4× CPU;
+  BiRefNet 6 fps; licence swaps → MediaPipe). **Unfinished:** EchoMimic v3 talking-photo fit test on 10 GB (T5 on CPU
+  patch in `~/presenter-spike/echomimic_v3/run_spike.py`; last run never progressed — rerun detached and read
+  `/tmp/em-done.txt`). Then commit + wiki-publish the spec, report Phase 0 to owner. Spike lives in `~/presenter-spike`
+  on AISERVER (no services).
+- **Owner decisions pending:** add linuxg7's 98 GB unallocated VG space to `minio-lv` (recommended; 2nd virtual disk
+  later); AISERVER reboot to clear the NVIDIA 595.91/595.99 NVML mismatch (CUDA works; nvidia-smi doesn't) +
+  `apt-mark hold` NVIDIA packages; Presenter consent mode (planning with auto + admin review).
+- **Lessons this session:** never `open(p,'w').write(f(open(p).read()))` (it emptied ADMIN_DOCS once — restored);
+  client components must not import `@/db` modules (prod build failed → 5-min outage); restart pm2 only if the build
+  exits 0.
+
+## Previous working state (2026-10-04, rotation to v13)
 Tree clean, in sync with origin/main (`44f0ad8`). tsc + lint clean. Everything below is deployed.
 ```
 44f0ad8 docs(handoff): timeline inserts deployed

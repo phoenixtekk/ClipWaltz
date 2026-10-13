@@ -1,6 +1,6 @@
 # ClipWaltz — Presenter (AI avatar videos) · Feature design & plan
 
-**Status:** proposal for owner review · 2026-10-13 · working name **Waltz Presenter** (alternatives: WaltzCast, Waltz Avatar)
+**Status:** approved — Phase 0 (spike) in progress · 2026-10-13 · name **Waltz Presenter**
 **Goal:** HeyGen-style videos — a presenter (the user's own "digital twin", or an AI presenter) speaks a script, with
 slides, b-roll, captions, music and brand — built on ClipWaltz's self-hosted stack (no per-minute vendor fees).
 
@@ -108,12 +108,45 @@ Script / goal ─► Planner (Ollama, WaltzDeck) ─► Scene cards (UI) ─► 
 - **Licences drift:** re-check weights licences at every model upgrade; keep a licence table in ADMIN_DOCS.
 - **Misuse / legal exposure:** consent + review + labels + takedown above; legal review before public launch.
 
-## 8. Decisions for the owner
+## 8. Decisions (owner, 2026-10-13)
 
-1. Name: **Waltz Presenter**, WaltzCast or Waltz Avatar?
-2. AI presenters: fictional generated people only (no rights issues), or also hire/licence a few real actors?
-3. Consent check for launch: automatic + admin review (recommended), or automatic only?
-4. Approve **Phase 0 (1-week spike on AISERVER)** to get real speed/quality numbers before building?
+1. Name: **Waltz Presenter**.
+2. AI presenters: **both** fictional generated presenters **and** licensed real actors (actors need signed releases
+   covering AI likeness + voice use, scope, territory and term — per California AB 2602 the uses must be specific).
+3. Consent check for launch: not decided — planning with the recommendation (automatic match + admin review).
+4. **Phase 0 approved** — started 2026-10-13 (results in §9).
+
+## 9. Phase 0 results (AISERVER, 2026-10-13)
+
+Test inputs: MuseTalk's bundled sample presenters (no personal footage) + a Kokoro "am_michael" script. GPU 1 (RTX 3080
+10 GB); memory measured with `torch.cuda.mem_get_info` (nvidia-smi is down — see the note at the end).
+
+| Test | Result |
+|---|---|
+| MuseTalk 1.5, one-shot (prep + lip-sync per video) | 2 × 13.5 s videos in 341 s (~12.7 s per video-second, incl. landmark extraction); **peak 8.3 GB of 9.9 GB** |
+| MuseTalk 1.5, **prepared presenter** (realtime mode) | Prep once ≈ 4.5 min (22 s base clip → **677 MB** cache). Then 13.4 s audio → 14.9 s, **60 s audio → 39.3 s (0.65× realtime)**; ~25 s model load per process (a resident service pays it once) |
+| Chatterbox voice clone (GPU) | 7 s EN audio in 3.7 s, 9 s ES in 5.0 s (~0.53× realtime) after warm-up; **3.6 GB**; PerTh watermark on (needed `setuptools<70` for `pkg_resources`) |
+| Chatterbox (CPU fallback) | ~4× realtime (60 s script ≈ 4 min) |
+| End-to-end translation flow | Cloned voice → Spanish → lip-synced on the prepared presenter: 9 s of video in 9.9 s |
+| GPU co-residency | MuseTalk (8.3 GB) + Chatterbox (3.6 GB) do **not** fit one 10 GB card together, nor alongside a Wan job → one GPU job at a time per card, queued |
+
+**Licence findings (primary sources, see the dependency audit):**
+- Commercial-OK: MuseTalk weights (MIT), sd-vae-ft-mse (MIT), whisper-tiny (Apache-2.0), Chatterbox (MIT), EchoMimic v3 +
+  Wan2.1-Fun-V1.1-1.3B-InP + wav2vec2-base-960h / chinese-wav2vec2-base (Apache/MIT).
+- **Must replace before launch:** BiSeNet face-parsing (trained on CelebAMask-HQ — non-commercial), DWPose landmarks
+  (Apache label but trained on COCO-WholeBody, CC BY-NC — get counsel or replace), S3FD detector weights (no stated
+  licence), EchoMimic's `retina-face` detector (weights likely InsightFace-derived — unverified). **Replacement:
+  Google MediaPipe Face Landmarker / Face Mesh V2 + BlazeFace (Apache-2.0)** for detection, landmarks and the mouth mask.
+- LatentSync SyncNet is **not needed** for MuseTalk inference.
+- Background removal for split layouts: **BiRefNet (MIT)**, MODNet (Apache-2.0), SAM 2 (Apache-2.0, video), MediaPipe
+  Selfie Segmentation (Apache-2.0). Ruled out: BRIA RMBG 1.4/2.0 (non-commercial unless licensed), Robust Video Matting (GPL-3.0).
+
+**Ops note:** Ubuntu unattended-upgrades updated the NVIDIA userspace libraries 595.91 → 595.99 on 2026-10-11 while the
+595.91 kernel module stayed loaded (no reboot since 2026-09-24). CUDA still works for new processes (ComfyUI restarted
+and sees both GPUs); only `nvidia-smi`/NVML fails until a reboot loads the already-installed 595.99 module. Recommend a
+planned reboot and holding NVIDIA packages from unattended upgrades (`apt-mark hold`).
+
+Still running: EchoMimic v3 photo-avatar fit test on 10 GB; BiRefNet/MediaPipe compositing test.
 
 ## Appendix — sources (fetched 2026-10-13)
 
