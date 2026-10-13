@@ -49,6 +49,12 @@ ad4d0cb feat(projects): Show on the Community page checkbox in Video properties
   restart clipwaltz clipwaltz-gen-worker`; backup `/tmp/cw-pre-aimodels-src.tgz`. Verified: site 200, /account/ai +
   /admin/ai → sign-in, Help article live, deck worker up. Not exercised via the prod UI (no prod login) or a real key.
   When render scaling deploys, skip its "migrate 0052" step (already applied).
+- **ClipWaltz Connector (Phase B) — BUILT, NOT DEPLOYED (`1d3cd7a`):** user's own computer's Ollama for WaltzDeck writing
+  via `public/connector/clipwaltz-connector.mjs` (Node 18+). Dev-verified end to end (pairing with typed code + device
+  details, text + image jobs via relay, offline fallback, disconnect, rate limits); security-reviewed (6 fixes). Deploy =
+  migrate 0055 + 0056 + build + restart app AND gen worker (no new deps), on top of deploy branch
+  `deploy/ai-models-20261013`. Then admin turns on "Users' own computers" per plan. **Next:** Phase C (cloud video +
+  talking photo; GPU jobs through the Connector), optional single-file binaries (unsigned → OS warnings; owner decision).
 - **AI models (BYO / outside LLMs) Phase A — details (`e9bdecc`, branch `claude/continue-previous-d94e47`):**
   owner 2026-10-13 asked for admin-enabled outside models (Claude/ChatGPT/DeepSeek/Gemini + user's own Ollama) to help
   talking photo + quality. Owner answers: use for writing & planning AND video; keys = platform + users' own; local link =
