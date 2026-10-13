@@ -52,7 +52,7 @@ ad4d0cb feat(projects): Show on the Community page checkbox in Video properties
 - **Phase C** (`08_ClipWaltz_PhaseC_Video_Plan.md`; owner: Kling + Runway + MiniMax; talking photo on own GPUs only; proposed
   credit defaults; "I have permission" consent). **C0 done:** EchoMimic v3-Flash fits a 10 GB 3080 (9.4 GB @768x512 ≈112
   GPU-s/video-s; 6.8 GB @512x384 ≈38) — spike `~/presenter-spike/echomimic_v3/infer_flash_spike.py` + `run_flash_spike.sh`
-  on AISERVER, sample clips in `docs/phase-c/`. **C1 BUILT, NOT DEPLOYED:** cloud video in the Generate tab (see FEATURES);
+  on AISERVER, sample clips in `docs/phase-c/`. **C1 LIVE 2026-10-13** (deploy branch `deploy/ai-models-20261013` @ `218a851`; build 0, restart app + gen worker, backup `/tmp/cw-pre-c1-src.tgz`; cloud worker up on `clipwaltz-generation-cloud`; admin still has to add vendor keys on /admin/ai): cloud video in the Generate tab (see FEATURES);
   dev-verified end to end against a local vendor mock (scratchpad `mock-vendors.mjs`), security-reviewed (3 money fixes);
   **no real vendor key tested** (Kling base64 format + Runway Gen-4 Turbo lengths undocumented). Deploy = app + gen worker
   restart (no migration, no new deps); then admin adds keys on /admin/ai. **Next:** C2 talking photo on AISERVER (resident
