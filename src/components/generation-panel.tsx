@@ -54,6 +54,7 @@ import {
 } from "@/lib/generation-actions";
 import { recommendSettings, normalizeSettings, type GenerationSettings } from "@/lib/generation-settings";
 import type { AiAvailability, Quality } from "@/lib/ai/routing";
+import { getMyVideoModels, type MyVideoModels } from "@/lib/video-provider-actions";
 import { ScenesPanel } from "@/components/scenes-panel";
 import { RemixPanel } from "@/components/remix-panel";
 import {
@@ -222,6 +223,9 @@ export function GenerationPanel({
   const [qualityKey, setQualityKey] = useState<Quality>("standard");
   // What the routing registry currently allows (null until loaded → everything shown enabled).
   const [avail, setAvail] = useState<AiAvailability | null>(null);
+  // Cloud video models offered to this user (Phase C1); "builtin" = the ClipWaltz model (Wan 2.2 on AISERVER).
+  const [cloudOffers, setCloudOffers] = useState<MyVideoModels["offers"]>([]);
+  const [modelId, setModelId] = useState("builtin");
   const [seed, setSeed] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
@@ -288,6 +292,7 @@ export function GenerationPanel({
   // Which modes / qualities / enhance engines are enabled in the admin registry.
   useEffect(() => {
     getGenerationAvailability().then(unwrap).then(setAvail, () => { /* keep everything enabled */ });
+    getMyVideoModels().then(unwrap).then((v) => setCloudOffers(v.offers), () => { /* built-in only */ });
   }, []);
   // ── Settings snapshot / apply (recent settings, presets, templates, Edit & regenerate) ──
   function currentSettings(): GenerationSettings {
@@ -367,8 +372,16 @@ export function GenerationPanel({
     }, (e) => toast.error((e as Error).message || "Could not load that version's settings."));
   }
 
+  // The picked cloud model, if it can make this kind of clip (else the built-in model is used).
+  const task = mode === "text" ? "text_to_video" : "image_to_video";
+  const cloud = mode !== "remix" ? cloudOffers.find((o) => o.id === modelId && o.tasks.includes(task)) ?? null : null;
+  const cloudAspects = cloud ? (task === "text_to_video" ? cloud.t2vAspects : cloud.i2vAspects) : null;
+  const durationChoices: readonly number[] = cloud ? [3, 5, 8, 10] : DURATIONS;
+  const aspectAvailable = (a: string) => !cloudAspects || cloudAspects.includes(a);
+  const clipCost = cloud ? (cloud.source === "own" ? 0 : Math.max(1, Math.ceil(durationSec * cloud.creditsPerSec))) : generationCost(durationSec, qualityKey);
   const qualityAvailable = (q: Quality) => !avail || (mode === "text" ? avail.textToVideo : avail.imageToVideo)[q];
   const durationAvailable = (d: number) => {
+    if (cloud) return cloud.durations.includes(d);
     const max = avail ? (mode === "text" ? avail.textToVideoMaxSec : avail.imageToVideoMaxSec)?.[qualityKey] : null;
     return max == null || d <= max;
   };
@@ -451,6 +464,10 @@ export function GenerationPanel({
       return;
     }
     const aspect = ASPECTS.find((a) => a.key === aspectKey)!;
+    if (cloud && (!durationAvailable(durationSec) || !aspectAvailable(aspectKey))) {
+      toast.error(`${cloud.label} doesn't make that length or shape — pick one that's enabled.`);
+      return;
+    }
     const seedNum = seed.trim() === "" ? null : Number.parseInt(seed.trim(), 10);
     if (seedNum != null && !Number.isFinite(seedNum)) {
       toast.error("Seed must be a whole number (leave blank for random).");
@@ -474,6 +491,7 @@ export function GenerationPanel({
           durationSec,
           motion: MOTIONS[motionIdx] as Motion,
           seed: seedNum,
+          cloudModel: cloud?.id ?? null,
         }));
         setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null });
       } catch (e) {
@@ -501,8 +519,8 @@ export function GenerationPanel({
     const id = job.id;
     // Optimistically reflect the cancel; the poll will confirm.
     setJob((cur) => (cur ? { ...cur, status: "cancelled" } : cur));
-    cancelGenerationJob(id).then(unwrap).catch(() => {
-      toast.error("Could not cancel the job.");
+    cancelGenerationJob(id).then(unwrap).catch((e) => {
+      toast.error((e as Error)?.message || "Could not cancel the job.");
       void getGenerationJob(id).then(unwrap).then((j) =>
         setJob({ id: j.id, status: j.status, progress: j.progress ?? 0, errorMessage: j.errorMessage ?? null }),
       );
@@ -795,13 +813,30 @@ export function GenerationPanel({
           </div>
         </Field>
 
+        {/* Model (Phase C1): the built-in model or a cloud model offered on this plan */}
+        {cloudOffers.some((o) => o.tasks.includes(task)) && (
+          <Field label="Model" hint="Cloud models are made by other companies; the built-in model runs on ClipWaltz's own GPUs.">
+            <div className="flex flex-wrap gap-2">
+              <Chip active={!cloud} onClick={() => setModelId("builtin")}>
+                ClipWaltz AI
+              </Chip>
+              {cloudOffers.filter((o) => o.tasks.includes(task)).map((o) => (
+                <Chip key={o.id} active={cloud?.id === o.id} onClick={() => setModelId(o.id)}>
+                  {o.label} · {o.source === "own" ? "your key" : `${o.creditsPerSec} cr/s`}
+                </Chip>
+              ))}
+            </div>
+            {cloud?.credit && <p className="mt-1 text-[11px] text-muted-foreground">{cloud.credit}</p>}
+          </Field>
+        )}
+
         {/* Duration + Aspect */}
         <div className="grid gap-5 @lg:grid-cols-2">
           <Field label="Duration">
             <div className="flex gap-2">
-              {DURATIONS.map((d) => (
+              {durationChoices.map((d) => (
                 <Chip key={d} active={durationSec === d} onClick={() => setDurationSec(d)} disabled={!durationAvailable(d)}
-                  title={durationAvailable(d) ? undefined : "Longer than this model supports"}>
+                  title={durationAvailable(d) ? undefined : "This model doesn't make clips of this length"}>
                   {d}s
                 </Chip>
               ))}
@@ -816,9 +851,10 @@ export function GenerationPanel({
                   type="button"
                   onClick={() => setAspectKey(a.key)}
                   aria-pressed={aspectKey === a.key}
-                  title={`${a.label} ${a.key}`}
+                  disabled={!aspectAvailable(a.key)}
+                  title={aspectAvailable(a.key) ? `${a.label} ${a.key}` : `${cloud?.label} doesn't make ${a.key} clips`}
                   className={cn(
-                    "flex flex-1 flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 transition-colors",
+                    "flex flex-1 flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 transition-colors disabled:cursor-not-allowed disabled:opacity-40",
                     aspectKey === a.key
                       ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10"
                       : "border-border hover:border-border/80",
@@ -838,7 +874,8 @@ export function GenerationPanel({
           </Field>
         </div>
 
-        {/* Quality cards → routing rules */}
+        {/* Quality cards → routing rules (built-in model only) */}
+        {!cloud && (
         <Field label="Quality" hint="Preview is a quick draft; High takes about 1.5× longer than Standard.">
           <div className="grid grid-cols-3 gap-2">
             {QUALITIES.map((q) => (
@@ -862,6 +899,8 @@ export function GenerationPanel({
             ))}
           </div>
         </Field>
+
+        )}
 
         {/* Advanced (§10) — collapsed by default */}
         <div className="rounded-xl border border-border">
@@ -919,7 +958,7 @@ export function GenerationPanel({
           <>
           <Button
             onClick={generate}
-            disabled={pending || (mode === "image" ? !sourceAssetId : !prompt.trim()) || notEnough(credits, generationCost(durationSec, qualityKey))}
+            disabled={pending || (mode === "image" ? !sourceAssetId : !prompt.trim()) || notEnough(credits, clipCost)}
             size="lg"
             className="h-14 w-full bg-[image:var(--cw-spectrum)] text-base font-semibold text-white shadow-lg hover:opacity-90"
           >
@@ -933,7 +972,7 @@ export function GenerationPanel({
               </>
             )}
           </Button>
-          <CreditsLine cost={generationCost(durationSec, qualityKey)} balance={credits} className="w-full justify-center" />
+          <CreditsLine cost={clipCost} balance={credits} className="w-full justify-center" />
           </>
         )}
       </section>

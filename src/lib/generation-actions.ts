@@ -4,7 +4,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
-import { enqueueGeneration, enqueueEnhance, generationQueue, enhanceQueue } from "./queue";
+import { enqueueGeneration, enqueueCloudGeneration, enqueueEnhance, generationQueue, cloudGenerationQueue, enhanceQueue } from "./queue";
 import { deleteObject } from "./storage";
 import { userCanAccessProject } from "./workspace";
 import { friendlyJobError } from "./ai/errors";
@@ -16,6 +16,7 @@ import { spendCredits } from "./credits-server";
 import { toResult, type ActionResult } from "./action-result";
 import { BACKDROP_COST, enhanceCost, generationCost, remixCost } from "./credits";
 import { shouldWatermark } from "./watermark";
+import { resolveCloud, assertDailyCap } from "./video-providers";
 
 const PROMPT_MAX = 2000;
 
@@ -105,7 +106,16 @@ export type CreateGenerationInput = {
   userPrompt?: string;
   /** Form settings to remember as this user's "recent settings" (CW-MVP-172). */
   settings?: GenerationSettings;
+  /** A cloud video model (worker/video/catalog.mjs id, e.g. "kling-3.0") instead of the built-in one — Phase C1. */
+  cloudModel?: string | null;
 };
+
+/** The app's three shapes from a width/height pair (cloud models take a ratio, not pixels). */
+function aspectOf(w: unknown, h: unknown): string | null {
+  const W = Number(w), H = Number(h);
+  if (!W || !H) return null;
+  return W === H ? "1:1" : W > H ? "16:9" : "9:16";
+}
 
 /**
  * Create an AI generation job for a project (owner-checked), persist it, and enqueue it to the
@@ -152,6 +162,7 @@ async function createGenerationJobImpl(input: CreateGenerationInput): Promise<st
   if (input.jobType !== "text_to_video" && input.jobType !== "image_to_video") throw new Error("Unsupported job type");
   const quality: Quality = QUALITIES.includes(input.quality as Quality) ? (input.quality as Quality) : "standard";
   const motion = MOTION_PHRASE[input.motion ?? ""] !== undefined ? input.motion! : "balanced";
+  if (input.cloudModel) return createCloudJob(userId, proj.workspaceId ?? null, input, motion);
   const route = await routeOrUserError(input.jobType, quality);
   // CW-MVP-051: only lengths the routed workflow is validated for.
   if (input.durationSec != null && !input.deckBackdrop) {
@@ -203,6 +214,62 @@ async function createGenerationJobImpl(input: CreateGenerationInput): Promise<st
   }));
 
   await enqueueOrRefund(id, () => enqueueGeneration(id, { priority: bullPriority(priority) }));
+  if (input.settings) await rememberRecentSettings(userId, input.settings).catch(() => {});
+  revalidatePath(`/projects/${input.projectId}/edit`);
+  return id;
+}
+
+/**
+ * Waltz AI with a cloud video model (Phase C1): no routing rule; the user's own key (0 credits) or ClipWaltz's key
+ * (admin-set credits per second, daily cap) — see src/lib/video-providers.ts. The worker calls the vendor
+ * (worker/video/cloud.mjs) and stores the clip like any other version.
+ */
+async function createCloudJob(userId: string, workspaceId: string | null, input: CreateGenerationInput, motion: string): Promise<string> {
+  if (input.deckBackdrop) throw new Error("AI backdrops use the built-in model");
+  const durationSec = input.durationSec ?? 5;
+  const aspect = aspectOf(input.width, input.height);
+  const c = await resolveCloud(userId, input.cloudModel!, input.jobType as "text_to_video" | "image_to_video", durationSec, aspect);
+  const priority = await priorityFor(userId);
+  const watermark = await shouldWatermark(userId);
+  const workflow = `cloud:${c.model.id}`;
+  const id = randomUUID();
+  await spendCredits(userId, c.credits, async (tx) => {
+    if (c.source === "platform") await assertDailyCap(tx, userId, c.model.provider);
+    return tx.insert(schema.generationJobs).values({
+    id,
+    credits: c.credits,
+    projectId: input.projectId,
+    sceneId: input.sceneId ?? null,
+    workspaceId,
+    requestedBy: userId,
+    jobType: input.jobType,
+    status: "queued",
+    routingProfile: null,
+    modelName: c.model.id,
+    workflowName: workflow,
+    workflowVersion: null,
+    prompt: withMotion(input.prompt, motion),
+    negativePrompt: input.negativePrompt?.trim() || null,
+    requestJson: {
+      workflow,
+      quality: "standard",
+      cloud: { model: c.model.id, provider: c.model.provider, source: c.source },
+      sourceAssetId: input.sourceAssetId ?? null,
+      width: input.width ?? null,
+      height: input.height ?? null,
+      durationSec,
+      motion,
+      seed: validSeed(input.seed),
+      style: input.style ?? null,
+      camera: input.camera ?? null,
+      userPrompt: input.userPrompt?.slice(0, PROMPT_MAX) ?? null,
+      watermark,
+      ...(input.deckFill ? { deckFill: input.deckFill } : {}),
+    },
+    priority,
+  });
+  });
+  await enqueueOrRefund(id, () => enqueueCloudGeneration(id, { priority: bullPriority(priority) }));
   if (input.settings) await rememberRecentSettings(userId, input.settings).catch(() => {});
   revalidatePath(`/projects/${input.projectId}/edit`);
   return id;
@@ -329,7 +396,15 @@ async function requeueGenerationCopy(
     routingProfile: job.routingProfile, modelName: job.modelName,
     workflowName: job.workflowName, workflowVersion: job.workflowVersion,
   };
-  if (job.jobType === "text_to_video" || job.jobType === "image_to_video") {
+  // A cloud clip stays on its cloud model; key, plan, length and price are checked again now (Phase C1).
+  let cloudCredits: number | null = null;
+  const cloud = requestJson.cloud as { model?: string } | undefined;
+  if ((job.jobType === "text_to_video" || job.jobType === "image_to_video") && cloud?.model) {
+    const c = await resolveCloud(userId, cloud.model, job.jobType, Number(requestJson.durationSec) || 5, aspectOf(requestJson.width, requestJson.height));
+    routing = { routingProfile: null, modelName: c.model.id, workflowName: `cloud:${c.model.id}`, workflowVersion: null };
+    requestJson = { ...requestJson, workflow: `cloud:${c.model.id}`, cloud: { model: c.model.id, provider: c.model.provider, source: c.source } };
+    cloudCredits = c.credits;
+  } else if (job.jobType === "text_to_video" || job.jobType === "image_to_video") {
     const q = requestJson.quality;
     const quality: Quality = QUALITIES.includes(q as Quality) ? (q as Quality) : "standard";
     const route = await routeOrUserError(job.jobType, quality);
@@ -346,9 +421,14 @@ async function requeueGenerationCopy(
   requestJson = { ...requestJson, watermark: await shouldWatermark(userId) };
   // The copy is priced from its own settings — never copied from the original (jobs made before credits existed are
   // stored with 0, which would make every regenerate / retry of them free).
-  const credits = await costOfJob(job.jobType, requestJson);
+  const credits = cloudCredits ?? (await costOfJob(job.jobType, requestJson));
   const id = randomUUID();
-  await spendCredits(userId, credits, (tx) => tx.insert(schema.generationJobs).values({
+  const cloudCap = cloudCredits !== null && (requestJson.cloud as { source?: string; provider?: string }).source === "platform"
+    ? ((requestJson.cloud as { provider: string }).provider as "kling" | "runway" | "minimax")
+    : null;
+  await spendCredits(userId, credits, async (tx) => {
+    if (cloudCap) await assertDailyCap(tx, userId, cloudCap);
+    return tx.insert(schema.generationJobs).values({
     id,
     credits,
     projectId: job.projectId,
@@ -363,8 +443,10 @@ async function requeueGenerationCopy(
     requestJson,
     retryCount,
     priority: job.priority,
-  }));
+  });
+  });
   if (job.jobType === "enhancement" || job.jobType === "montage" || job.jobType === "remix") await enqueueOrRefund(id, () => enqueueEnhance(id, { priority: bullPriority(job.priority) }));
+  else if (cloudCredits !== null) await enqueueOrRefund(id, () => enqueueCloudGeneration(id, { priority: bullPriority(job.priority) }));
   else await enqueueOrRefund(id, () => enqueueGeneration(id, { priority: bullPriority(job.priority) }));
   return id;
 }
@@ -632,6 +714,7 @@ async function cancelGenerationJobImpl(jobId: string): Promise<void> {
       projectId: schema.generationJobs.projectId,
       status: schema.generationJobs.status,
       jobType: schema.generationJobs.jobType,
+      requestJson: schema.generationJobs.requestJson,
       ownerId: schema.projects.ownerId,
     })
     .from(schema.generationJobs)
@@ -639,6 +722,12 @@ async function cancelGenerationJobImpl(jobId: string): Promise<void> {
     .where(eq(schema.generationJobs.id, jobId));
   if (!row || !(await userCanAccessProject(userId, row.projectId, "editor"))) throw new Error("Job not found");
 
+  // A clip on ClipWaltz's key that has been sent to the vendor is being made (and billed) — it can't be cancelled, or a
+  // cancel-and-refund loop would make free clips at ClipWaltz's cost (security review 2026-10-13).
+  const cloud = (row.requestJson as { cloud?: { source?: string; taskId?: string; submitting?: boolean; provider?: string } } | null)?.cloud;
+  if (cloud?.source === "platform" && (cloud.taskId || cloud.submitting)) {
+    throw new Error("This clip has already been sent to the video company and is being made — it can't be cancelled now.");
+  }
   // Only a job that is still running can be cancelled — never overwrite a finished one (CW-MVP-084).
   const [hit] = await db
     .update(schema.generationJobs)
@@ -648,7 +737,9 @@ async function cancelGenerationJobImpl(jobId: string): Promise<void> {
   if (!hit) throw new Error("This job has already finished");
   // Remove it from its BullMQ queue if it hasn't been claimed yet (best-effort). Enhancements and
   // storyboards run on the enhance queue, generations on the generation queue.
-  const queue = row.jobType === "enhancement" || row.jobType === "montage" || row.jobType === "remix" ? enhanceQueue() : generationQueue();
+  const queue = row.jobType === "enhancement" || row.jobType === "montage" || row.jobType === "remix"
+    ? enhanceQueue()
+    : (row.requestJson as { cloud?: unknown } | null)?.cloud ? cloudGenerationQueue() : generationQueue();
   await queue.remove(jobId).catch(() => {});
   revalidatePath(`/projects/${row.projectId}/edit`);
 }

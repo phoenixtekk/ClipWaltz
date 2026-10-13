@@ -1,6 +1,6 @@
 # ClipWaltz — Phase C: outside video models, talking photo & GPU jobs on the user's computer
 
-**Status:** approved 2026-10-13 (decisions in §6) · C0 done (§7) · C1 next · builds on Phase A (outside writing models, live) and Phase B (ClipWaltz
+**Status:** approved 2026-10-13 (decisions in §6) · C0 done (§7) · C1 built + dev-verified with a vendor mock (not deployed, no real keys yet) · C2/C3 next · builds on Phase A (outside writing models, live) and Phase B (ClipWaltz
 Connector, live). Every vendor fact below was checked on 2026-10-13 against the vendor's own docs/pricing pages (links in
 the appendix); anything not confirmed there is marked **unverified**.
 
