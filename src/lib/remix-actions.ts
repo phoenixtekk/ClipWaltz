@@ -76,7 +76,7 @@ export async function listRemixSources(): Promise<RemixSource[]> {
     }),
     ...versions.map((v) => {
       const st = (v.settings ?? {}) as Record<string, unknown>;
-      const kind = v.jobType === "remix" ? "Remix" : v.jobType === "montage" ? "Storyboard" : v.jobType === "enhancement" ? "Enhanced" : "AI clip";
+      const kind = v.jobType === "remix" ? "Remix" : v.jobType === "montage" ? "Storyboard" : v.jobType === "enhancement" ? "Enhanced" : v.jobType === "talking_photo" ? "Talking photo" : "AI clip";
       return {
         kind: "version" as const, id: v.id, projectId: v.projectId, projectTitle: title.get(v.projectId) ?? "Project",
         label: `Waltz AI v${v.versionNumber} · ${kind}`, durationSec: v.durationSec,

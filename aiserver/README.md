@@ -33,6 +33,7 @@ dedicated `/data` mount, never mixed with app code (doc §5).
 | ComfyUI (GPU 0) | `127.0.0.1` | 8188 | **localhost only** — never off-box |
 | ComfyUI (GPU 1) | `127.0.0.1` | 8190 | **localhost only** — never off-box |
 | AISERVER API wrapper | LAN IP `192.168.166.158` | 8189 | LAN (ClipWaltz backend on linuxg1); **not** public |
+| Talking-photo service (GPU 1) | `127.0.0.1` | 8192 | **localhost only** — the wrapper is its only caller |
 
 Nothing here is on the public internet. If external access is ever needed it
 goes through a **Cloudflare Tunnel + Access created by the owner** — do not set
@@ -53,6 +54,10 @@ that up from here. Untouched neighbours on this host: nginx `:80`, Ollama
   never collide in the shared output dir. `/health` lists each backend.
 - `clipwaltz-aiserver-api.service` — runs the FastAPI wrapper via uvicorn,
   `EnvironmentFile=/opt/clipwaltz-ai/config/wrapper.env`, `Requires=comfyui.service`.
+- `clipwaltz-talking.service` — talking photo (Phase C2): EchoMimic v3-Flash + Kokoro in
+  `/opt/clipwaltz-ai/talking` (own py3.11 venv), **GPU 1**, `127.0.0.1:8192`, chunked rendering, one job at a time.
+  The wrapper forwards workflow `echomimic-talking-v1` to it and keeps new ComfyUI jobs off GPU 1 while it works
+  (GPU guard). Setup, knobs and pitfalls: `ADMIN_DOCS.md` → *Talking photo*. Code: `talking/service.py`.
 
 Install: copy the units from `systemd/` to `/etc/systemd/system/`, then
 `sudo systemctl daemon-reload && sudo systemctl enable --now comfyui comfyui-gpu1 clipwaltz-aiserver-api`.

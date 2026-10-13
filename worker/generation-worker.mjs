@@ -182,9 +182,119 @@ async function processJob(genJobId) {
   console.log(`[gen] ${genJobId} start (${j.job_type}, ${workflow})`);
   await setStatus(genJobId, { status: "preparing", progress: 5, started_at: new Date() });
 
-  const videoBytes = req.cloud ? await runCloud(j, req, genJobId) : await runAiserver(j, req, genJobId, workflow);
+  const videoBytes = req.cloud ? await runCloud(j, req, genJobId)
+    : j.job_type === "talking_photo" ? await runTalking(j, req, genJobId)
+    : await runAiserver(j, req, genJobId, workflow);
   if (!videoBytes) return; // cancelled
   await storeResult(j, req, genJobId, videoBytes);
+}
+
+// ─── Talking photo (Phase C2): EchoMimic v3-Flash in AISERVER's clipwaltz-talking service ────────────────────────
+// Photo (+ the user's recording, or a script Kokoro speaks on AISERVER) → a speaking clip at ~320×576, then Real-ESRGAN
+// 2× (ComfyUI), the speech put back (the upscale drops audio) and a visible "AI-generated" label (EU AI Act Art. 50).
+// A 30 s clip is ~8 chunks of ~3.5 min on one 3080, so the running timeout is an hour.
+const TALKING_TIMEOUT_MS = Number(process.env.GEN_TALKING_TIMEOUT_MS ?? 60 * 60 * 1000);
+const LABEL_FONTS = [process.env.AI_LABEL_FONT, "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "C:/Windows/Fonts/arialbd.ttf"].filter(Boolean);
+
+async function runTalking(j, req, genJobId) {
+  const [a] = await sql`select storage_key, converted_key from assets where id = ${req.sourceAssetId}`;
+  if (!a) throw new Error("source photo not found");
+  const image = await stageImage(a.converted_key ?? a.storage_key);
+  let audio = null;
+  if (req.audioKey) {
+    const fd = new FormData();
+    fd.append("file", new Blob([await getBytes(req.audioKey)], { type: "audio/mp4" }), "speech.m4a");
+    const r = await fetch(`${AISERVER_URL}/inputs`, { method: "POST", headers: aiHeaders, body: fd });
+    if (!r.ok) throw new Error(`stage /inputs ${r.status}: ${(await r.text()).slice(0, 300)}`);
+    audio = (await r.json()).filename;
+  }
+  const seed = Number.isSafeInteger(req.seed) ? req.seed : randomInt(0, 2 ** 32);
+  if (seed !== req.seed) await sql`update generation_jobs set request_json = ${sql.json({ ...req, seed })} where id = ${genJobId}`;
+  await setStatus(genJobId, { status: "uploading_to_ai_node", progress: 10 });
+
+  const sub = await fetch(`${AISERVER_URL}/jobs`, {
+    method: "POST", headers: { ...aiHeaders, "content-type": "application/json" },
+    body: JSON.stringify({ workflow: req.workflow ?? "echomimic-talking-v1", inputs: {
+      source_image: image, audio, text: audio ? null : req.script, voice: req.voice ?? "af_heart", speed: req.speed ?? 1,
+      duration: 30, seed, aspect: req.aspect ?? "photo",
+    } }),
+  });
+  if (!sub.ok) throw new Error(`/jobs ${sub.status}: ${(await sub.text()).slice(0, 300)}`);
+  const providerJobId = (await sub.json()).job_id;
+  await setStatus(genJobId, { status: "generating", progress: 15 });
+
+  const clock = providerClock(TALKING_TIMEOUT_MS);
+  let out = null;
+  while (!clock.expired()) {
+    await new Promise((r) => setTimeout(r, POLL_MS));
+    const [cur] = await sql`select status from generation_jobs where id = ${genJobId}`;
+    if (cur?.status === "cancelled" || cur?.status === "retried") {
+      await fetch(`${AISERVER_URL}/jobs/${providerJobId}/cancel`, { method: "POST", headers: aiHeaders }).catch(() => {});
+      console.log("[gen] cancelled", genJobId);
+      return null;
+    }
+    const pr = await fetch(`${AISERVER_URL}/jobs/${providerJobId}`, { headers: aiHeaders });
+    if (!pr.ok) continue;
+    const st = await pr.json();
+    clock.observe(st.status);
+    if (st.status === "completed") { out = st.outputs?.[0] ?? null; break; }
+    if (st.status === "failed") throw new Error(`talking photo failed: ${st.error ?? "unknown"}`);
+    if (typeof st.progress === "number") await setStatus(genJobId, { progress: 15 + Math.round(st.progress * 0.6) });
+  }
+  if (!out) throw new Error("talking photo timed out");
+  const rel = out.subfolder ? `${out.subfolder}/${out.filename}` : out.filename;
+  const dl = await fetch(`${AISERVER_URL}/outputs/${rel}`, { headers: aiHeaders });
+  if (!dl.ok) throw new Error(`/outputs ${dl.status}`);
+  const raw = Buffer.from(await dl.arrayBuffer());
+
+  // 2× Real-ESRGAN; a failed upscale keeps the original size rather than failing a clip the user waited for.
+  await setStatus(genJobId, { status: "uploading_output", progress: 80 });
+  let upscaled = null;
+  try {
+    upscaled = await runAiWorkflow("esrgan-upscale-v1", raw, genJobId);
+  } catch (e) {
+    if (String(e?.message) === "cancelled") return null;
+    console.warn(`[gen] ${genJobId} talking upscale skipped: ${e?.message ?? e}`);
+  }
+  const final = await finishTalking(raw, upscaled, req.aiLabel !== false);
+
+  // Credits: charged up front from the script estimate (or the recording's length); settle to the seconds rendered.
+  const meta = await probeVideo(final).catch(() => ({}));
+  // Refund only: the balance was checked for the up-front amount, so the settle may never raise it.
+  if (meta.duration) {
+    const credits = Math.min(j.credits ?? 0, Math.max(1, Math.ceil(Math.min(30, meta.duration))));
+    await sql`update generation_jobs set credits = ${credits} where id = ${genJobId} and credits > ${credits}`;
+  }
+  return final;
+}
+
+/** Speech from the original render over the (upscaled) picture, plus the "AI-generated" label top-right. */
+async function finishTalking(raw, upscaled, label) {
+  const dir = mkdtempSync(join(tmpdir(), "cw-talk-"));
+  try {
+    const src = join(dir, "raw.mp4"), up = join(dir, "up.mp4"), out = join(dir, "out.mp4");
+    writeFileSync(src, raw);
+    if (upscaled) writeFileSync(up, upscaled);
+    const pic = upscaled ? up : src;
+    const meta = await probeVideo(upscaled ?? raw).catch(() => ({}));
+    const short = Math.min(meta.width || 320, meta.height || 576);
+    const font = LABEL_FONTS.find((f) => existsSync(f));
+    const fs = Math.max(12, Math.round(short * 0.035)), pad = Math.round(short * 0.03);
+    // drawtext's fontfile is a filter option: escape the drive colon of a Windows dev path.
+    // The label is a legal requirement (EU AI Act Art. 50): no font → fail the job (credits refunded), never ship it unlabelled.
+    if (label && !font) throw new Error("no font for the AI-generated label — install fonts-dejavu-core or set AI_LABEL_FONT");
+    const vf = label
+      ? `drawtext=fontfile='${font.replace(/:/g, "\\:")}':text='AI-generated':fontsize=${fs}:fontcolor=white:` +
+        `box=1:boxcolor=black@0.45:boxborderw=${Math.round(fs * 0.4)}:x=w-tw-${pad}:y=${pad},format=yuv420p`
+      : "format=yuv420p";
+    await run("ffmpeg", ["-v", "error", "-y", "-i", pic, "-i", src, "-map", "0:v:0", "-map", "1:a:0?", "-vf", vf,
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-c:a", "copy", "-shortest", "-movflags", "+faststart", out],
+      { maxBuffer: 1 << 26 });
+    return readFileSync(out);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 // ─── Built-in model: the AISERVER wrapper (ComfyUI, Wan 2.2) ──────────────────────

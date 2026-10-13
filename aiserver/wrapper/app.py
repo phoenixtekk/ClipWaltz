@@ -28,6 +28,10 @@ Env (loaded by systemd from /opt/clipwaltz-ai/config/wrapper.env):
   CW_INPUT_DIR         default /data/clipwaltz-ai/input
   CW_LOG_DIR           default /opt/clipwaltz-ai/logs
   CW_DATA_MOUNT        default /data   (for disk_free_gb reporting)
+  CW_TALKING_URL       talking-photo service (aiserver/talking), default http://127.0.0.1:8192
+  CW_TALKING_GPU_BACKEND  the ComfyUI backend sharing the talking service's GPU (default: the
+                       second COMFYUI_URLS entry). No new ComfyUI job goes there while a talking
+                       job is queued or running — EchoMimic + Wan on one 10 GB card run out of memory.
 """
 
 from __future__ import annotations
@@ -68,6 +72,11 @@ LOG_DIR = Path(os.environ.get("CW_LOG_DIR", "/opt/clipwaltz-ai/logs"))
 DATA_MOUNT = os.environ.get("CW_DATA_MOUNT", "/data")
 
 AUDIT_LOG = LOG_DIR / "jobs.jsonl"
+TALKING_URL = os.environ.get("CW_TALKING_URL", "http://127.0.0.1:8192").rstrip("/")
+TALKING_GPU_BACKEND = os.environ.get(
+    "CW_TALKING_GPU_BACKEND", COMFYUI_URLS[1] if len(COMFYUI_URLS) > 1 else ""
+).rstrip("/")
+TALKING = "talking"  # the `backend` of jobs run by the talking-photo service (not ComfyUI)
 
 # Registry of available workflows. Each maps a logical workflow id to a template
 # (ComfyUI API-format graph) and a field mapping. Add entries as workflows land.
@@ -97,6 +106,9 @@ WORKFLOWS: Dict[str, Dict[str, str]] = {
         "template": "seedvr2/restore.api.json",
         "mapping": "seedvr2/restore.map.json",
     },
+    # Talking photo (Phase C2): EchoMimic v3-Flash in the clipwaltz-talking service, not ComfyUI.
+    # source_image = staged photo; audio = staged speech, or text + voice for Kokoro.
+    "echomimic-talking-v1": {"service": TALKING},
 }
 
 app = FastAPI(title="ClipWaltz AISERVER API", version="1.0")
@@ -174,6 +186,17 @@ def _active_on(base: str) -> int:
     return len([j for j in _jobs.values() if j.get("backend") == base and j["status"] in ("queued", "running")])
 
 
+def _comfy_targets(online: List[str]) -> List[str]:
+    """GPU guard (caller holds _jobs_lock): while a talking job is queued/running, keep ComfyUI work
+    off the card it uses. If that card's ComfyUI is the only one online it is used anyway (better than
+    refusing all work; the talking service waits for that ComfyUI's queue to empty before it renders)."""
+    if TALKING_GPU_BACKEND and _active_on(TALKING):
+        others = [b for b in online if b != TALKING_GPU_BACKEND]
+        if others:
+            return others
+    return online
+
+
 # --------------------------------------------------------------------------- #
 # Workflow graph building
 # --------------------------------------------------------------------------- #
@@ -197,6 +220,8 @@ def build_graph(workflow_id: str, inputs: "JobInputs", job_id: str) -> Dict[str,
     if workflow_id not in WORKFLOWS:
         raise HTTPException(status_code=404, detail=f"unknown workflow {workflow_id}")
     wf = WORKFLOWS[workflow_id]
+    if "service" in wf:
+        raise HTTPException(status_code=400, detail=f"{workflow_id} is not a ComfyUI workflow")
     template_path = WORKFLOW_DIR / wf["template"]
     mapping_path = WORKFLOW_DIR / wf["mapping"]
     if not template_path.exists() or not mapping_path.exists():
@@ -371,6 +396,12 @@ class JobInputs(BaseModel):
     # Restoration (seedvr2-restore-v1): target short-side resolution and frames per batch.
     resolution: Optional[int] = Field(default=None, ge=256, le=1080)
     batch_size: Optional[int] = Field(default=None, ge=1, le=33)
+    # Talking photo (echomimic-talking-v1): staged speech file, or a script for Kokoro.
+    audio: Optional[str] = Field(default=None, max_length=200)
+    text: Optional[str] = Field(default=None, max_length=3000)
+    voice: Optional[str] = Field(default=None, max_length=40)
+    speed: Optional[float] = Field(default=None, ge=0.7, le=1.4)
+    aspect: Optional[str] = Field(default=None, max_length=10)
 
 
 class JobRequest(BaseModel):
@@ -391,7 +422,12 @@ def health(_: None = Depends(require_token)) -> Dict[str, Any]:
         for b in backends:
             b["active_jobs"] = _active_on(b["url"])
     online = sum(1 for b in backends if b["online"])
+    try:
+        talking = httpx.get(f"{TALKING_URL}/health", headers=_talk_headers(), timeout=5).json()
+    except Exception as exc:  # noqa: BLE001
+        talking = {"ok": False, "error": str(exc)[:200]}
     return {
+        "talking": talking,
         "status": "healthy" if online == len(backends) else "degraded",
         "comfyui": "online" if online == len(backends) else ("partial" if online else "offline"),
         "backends": backends,
@@ -415,6 +451,8 @@ def models(_: None = Depends(require_token)) -> Dict[str, Any]:
 def create_job(req: JobRequest, _: None = Depends(require_token)) -> Dict[str, Any]:
     job_id = "cw_" + uuid.uuid4().hex[:12]
     client_id = job_id
+    if WORKFLOWS.get(req.workflow, {}).get("service") == TALKING:
+        return create_talking_job(job_id, req)
     graph = build_graph(req.workflow, req.inputs, job_id)
     online = [b for b in COMFYUI_URLS if comfyui_online(b)]
     if not online:
@@ -422,7 +460,7 @@ def create_job(req: JobRequest, _: None = Depends(require_token)) -> Dict[str, A
     # Pick + submit + register under one lock so concurrent requests see each other's load.
     with _dispatch_lock:
         with _jobs_lock:
-            base = min(online, key=_active_on)  # ties → first listed (GPU 0)
+            base = min(_comfy_targets(online), key=_active_on)  # ties → first listed (GPU 0)
         prompt_id = submit_to_comfyui(base, graph, client_id)
         rec = _register_job(job_id, prompt_id, base, req)
     _audit({**rec, "event": "submitted"})
@@ -448,6 +486,83 @@ def _register_job(job_id: str, prompt_id: str, base: str, req: JobRequest) -> Di
     return rec
 
 
+# --------------------------------------------------------------------------- #
+# Talking photo (clipwaltz-talking service, localhost)
+# --------------------------------------------------------------------------- #
+def _talk_headers() -> Dict[str, str]:
+    return {"Authorization": f"Bearer {API_TOKEN}"}
+
+
+def create_talking_job(job_id: str, req: JobRequest) -> Dict[str, Any]:
+    i = req.inputs
+    if not i.source_image:
+        raise HTTPException(status_code=400, detail="source_image (the photo) is required")
+    body = {
+        "job_id": job_id,
+        "image": Path(i.source_image).name,
+        "audio": Path(i.audio).name if i.audio else None,
+        "text": i.text,
+        "voice": i.voice or "af_heart",
+        "speed": i.speed or 1.0,
+        "max_seconds": min(30.0, max(1.0, float(i.duration or 30))),
+        "seed": (i.seed if i.seed is not None else int.from_bytes(os.urandom(4), "big")) % 2**32,
+        "aspect": i.aspect or "photo",
+        "prompt": i.prompt or None,
+    }
+    # Register first (under the dispatch lock) so the GPU guard keeps new ComfyUI work off the card at once.
+    with _dispatch_lock:
+        rec = _register_job(job_id, job_id, TALKING, req)
+    try:
+        r = httpx.post(f"{TALKING_URL}/jobs", json=body, headers=_talk_headers(), timeout=30)
+    except Exception as exc:  # noqa: BLE001
+        _finish_job(job_id, "failed", error=f"talking service unreachable: {exc}")
+        raise HTTPException(status_code=502, detail="talking service unreachable")
+    if r.status_code != 200:
+        _finish_job(job_id, "failed", error=r.text[:500])
+        raise HTTPException(status_code=502 if r.status_code >= 500 else 400, detail=f"talking service: {r.text[:300]}")
+    _audit({**rec, "event": "submitted"})
+    threading.Thread(target=poll_talking, args=(job_id,), daemon=True).start()
+    return {"job_id": job_id, "prompt_id": job_id, "status": "queued"}
+
+
+def poll_talking(job_id: str) -> None:
+    misses = 0
+    while True:
+        time.sleep(3)
+        with _jobs_lock:
+            if _jobs[job_id]["status"] in ("cancelled", "failed", "completed"):
+                return
+        try:
+            r = httpx.get(f"{TALKING_URL}/jobs/{job_id}", headers=_talk_headers(), timeout=10)
+            st = r.json() if r.status_code == 200 else None
+        except Exception:  # noqa: BLE001
+            st = None
+        if st is None:
+            misses += 1
+            if misses > 100:  # ~5 min without an answer (service restarted → the job is gone)
+                _finish_job(job_id, "failed", error="talking service lost the job")
+                return
+            continue
+        misses = 0
+        with _jobs_lock:
+            j = _jobs[job_id]
+            j["progress"] = st.get("progress")
+            j["stage"] = st.get("stage")
+            if st["status"] == "running" and j["status"] == "queued":
+                j["status"] = "running"
+                j["started_at"] = _now()
+        if st["status"] == "completed":
+            rel = st["output"]
+            _finish_job(job_id, "completed", outputs=[{
+                "filename": Path(rel).name, "subfolder": str(Path(rel).parent), "path": str(OUTPUT_DIR / rel),
+                "type": "output", "format": "video/mp4", "duration": st.get("duration"),
+            }])
+            return
+        if st["status"] in ("failed", "cancelled"):
+            _finish_job(job_id, st["status"], error=st.get("error"))
+            return
+
+
 @app.get("/jobs/{job_id}")
 def get_job(job_id: str, _: None = Depends(require_token)) -> Dict[str, Any]:
     with _jobs_lock:
@@ -465,6 +580,13 @@ def cancel_job(job_id: str, _: None = Depends(require_token)) -> Dict[str, Any]:
             raise HTTPException(status_code=404, detail="unknown job")
         prompt_id = j["prompt_id"]
         base = j["backend"]
+    if base == TALKING:
+        try:
+            httpx.post(f"{TALKING_URL}/jobs/{job_id}/cancel", headers=_talk_headers(), timeout=10)
+        except Exception:  # noqa: BLE001
+            pass
+        _finish_job(job_id, "cancelled")
+        return {"job_id": job_id, "status": "cancelled"}
     # Remove from queue if still pending, and interrupt ONLY if it is the running one (/interrupt
     # stops whatever is executing — it must not kill another job's work).
     try:
@@ -495,8 +617,9 @@ async def upload_input(file: UploadFile = File(...), _: None = Depends(require_t
     to pass as `source_image` in a subsequent /jobs call."""
     INPUT_DIR.mkdir(parents=True, exist_ok=True)
     ext = Path(file.filename or "").suffix.lower() or ".png"
-    # images (image-to-video source) + video (enhancement source).
-    if ext not in (".png", ".jpg", ".jpeg", ".webp", ".mp4", ".webm", ".mov"):
+    # images (image-to-video source) + video (enhancement source) + speech (talking photo).
+    if ext not in (".png", ".jpg", ".jpeg", ".webp", ".mp4", ".webm", ".mov",
+                   ".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac"):
         raise HTTPException(status_code=400, detail=f"unsupported input type {ext}")
     name = f"cw_{uuid.uuid4().hex[:16]}{ext}"
     dest = INPUT_DIR / name

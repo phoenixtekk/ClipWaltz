@@ -133,6 +133,19 @@ image→video clip on prod takes a median **578 s for ~5.4 s ≈ 107 GPU-s per v
 **Owner decisions (2026-10-13):** price **1 credit/s** (same as built-in clips); max length **30 s** for everyone; voice
 from **Kokoro installed on AISERVER** inside the talking service.
 
+**C2 built (2026-10-13, dev-verified; prod app not yet deployed):**
+- `clipwaltz-talking` is **live on AISERVER** (127.0.0.1:8192, GPU 1) and the wrapper with `echomimic-talking-v1` + GPU
+  guard is **live** (wrapper idle at restart; backup `/opt/clipwaltz-ai/scripts/app.py.bak-*`).
+- Chunks of 113 frames with 8-frame cross-fade: **peak 7.7 GB**; 5.2 s → 246 s, 18.8 s (5 chunks) → 873 s ≈ **47 GPU-s per
+  video-s** (the 512×384 single-pass figure of 38 did not include the per-chunk prompt encoding, now cached). Seams show
+  no visible jump. Samples: `docs/phase-c/c2-talking-5s.mp4`, `c2-talking-19s-chunked.mp4`, `c2-talking-e2e-v7.mp4`.
+- Two fixes found on the way: diffusers' `maybe_free_model_hooks()` re-hooks the CPU-kept umT5 onto the GPU after every
+  call (chunk 2 ran out of memory) — re-pinned after each call; umT5 prompt encoding (~30–50 s/call on CPU) cached.
+- Real-ESRGAN 2× is wired but **blocked by the NVIDIA driver/library mismatch** (NVENC) until the AISERVER reboot; clips
+  are kept at 320×576 meanwhile.
+- App: Generate tab → Talking photo (script + 15 Kokoro voices, or upload a recording), consent stored, AI label, credits
+  settled to rendered seconds; migration 0057. Details in `FEATURES.md` / `ADMIN_DOCS.md`.
+
 ## Appendix — sources (fetched 2026-10-13)
 
 Video: ai.google.dev/gemini-api/docs/veo · ai.google.dev/gemini-api/docs/pricing · ai.google.dev/gemini-api/terms ·

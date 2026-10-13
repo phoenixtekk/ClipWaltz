@@ -1,5 +1,4 @@
 <!-- session-version: 15 -->
-<!-- pending-session-title: ClipWaltz v15 -->
 
 # ClipWaltz — session handoff
 
@@ -14,6 +13,20 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 `DESIGN_BUILD_PLAN.md` (settled decisions in §7); features in `FEATURES.md`.
 
 ---
+
+## Working state (2026-10-13, v15) — Phase C2 talking photo BUILT
+**Branch `claude/continue-previous-b21cc2`** (worktree `.claude/worktrees/continue-previous-728cde`), C2 committed, not pushed /
+not merged / **prod app NOT deployed**. tsc + eslint clean; dev-verified end to end (see FEATURES → Talking photo).
+- **Already LIVE on AISERVER:** systemd `clipwaltz-talking` (127.0.0.1:8192, GPU 1) + wrapper with `echomimic-talking-v1`
+  and GPU guard (backward compatible; wrapper backup `/opt/clipwaltz-ai/scripts/app.py.bak-20261013-*`).
+- **Deploy (owner go-ahead):** prod migrate **0057** → app + `clipwaltz-gen-worker` on linuxg1 (build-gated restart; no new
+  deps). Talking photo appears for users once deployed (registry rows seeded ON — switch off in `/admin/ai` to hide).
+- **Blocked by owner decision:** AISERVER reboot (NVIDIA 595.91/595.99 mismatch) — besides nvidia-smi it now breaks
+  **NVENC**, so ESRGAN / RIFE fail (prod Enhance "AI upscale"/"smoother motion" too; talking clips stay 320×576).
+- **Next:** C3 (Connector GPU jobs) per `08_…Plan.md`; render-scaling deploy still parked (v14 log).
+- Dev: tunnels `ssh -fN -L 55432:127.0.0.1:5432 -L 6380:127.0.0.1:6379 lacy@linuxg1`; dev worker needs
+  `WATERMARK_PATH=worker/WaterMark.png` on Windows (ffmpeg `movie=` can't take a drive path) + `AISERVER_API_TOKEN` from
+  AISERVER `wrapper.env`; dev test account got a 60-credit grant.
 
 ## Working state (2026-10-13, rotation to v15)
 **Where the work is:** branch `claude/continue-previous-d94e47` (worktree `.claude/worktrees/continue-previous-d94e47`),

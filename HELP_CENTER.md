@@ -53,6 +53,23 @@ ships. It will also surface in-app at `/help`.
 - A clip made with ClipWaltz's account can be cancelled only until it's sent to the video company; after that it finishes
   and its credits are used. Clips made with your own key can be cancelled any time.
 
+## Talking photo — make a photo speak
+1. Open **Waltz AI** in the editor and choose **Talking photo**.
+2. **Pick a photo** from your project. Clear, front-facing portraits work best — one face, eyes and mouth visible.
+3. Choose **what it says**:
+   - **Type a script** (up to 600 characters, about 30 seconds) and pick a **voice** — press **Hear** to listen first.
+     Write the script in the voice's language (English, Spanish, French, Italian or Portuguese). **Pace** makes it a
+     little slower or faster.
+   - or **Upload a recording** (MP3, M4A, WAV, OGG, FLAC; up to 20 MB). Only the first 30 seconds are used.
+4. Pick the **shape** — as the photo, 9:16, 1:1 or 16:9.
+5. Tick **"This is me, or I have this person's permission to make them speak."** Only use your own face or someone who
+   agreed — never a public figure.
+6. Press **Make it talk**. It takes a while — roughly 45–50 seconds of rendering for every second of speech, plus any
+   queue — and the clip appears under **Generated versions**. **Cancel** stops it and gives your credits back.
+
+**Cost:** 1 AI credit per second of speech, up to 30 seconds. For a script we reserve an estimate and then charge only the
+seconds actually made. **Every talking photo carries an "AI-generated" label** in the top-right corner, also in downloads.
+
 ## Organising your projects (categories)
 - The **Projects** page has a list of **categories** on the left. Click **All projects**, **Uncategorized** or a
   category to show only those videos on the right. The page remembers your choice in its address, so you can bookmark it.

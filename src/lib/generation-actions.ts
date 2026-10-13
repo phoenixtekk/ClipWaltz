@@ -17,6 +17,7 @@ import { toResult, type ActionResult } from "./action-result";
 import { BACKDROP_COST, enhanceCost, generationCost, remixCost } from "./credits";
 import { shouldWatermark } from "./watermark";
 import { resolveCloud, assertDailyCap } from "./video-providers";
+import { talkingCost, TALKING_WORKFLOW } from "./talking-photo";
 
 const PROMPT_MAX = 2000;
 
@@ -71,7 +72,7 @@ async function getGenerationAvailabilityImpl() {
   return getAiAvailability();
 }
 
-export type GenerationJobType = "text_to_video" | "image_to_video" | "montage" | "enhancement";
+export type GenerationJobType = "text_to_video" | "image_to_video" | "montage" | "enhancement" | "talking_photo";
 
 export type CreateGenerationInput = {
   projectId: string;
@@ -331,6 +332,7 @@ async function listGenerationVersionsImpl(projectId: string): Promise<Generation
     const mode = r.jobType === "text_to_video" ? "Text → video"
       : r.jobType === "image_to_video" ? "Image → video"
       : r.jobType === "montage" ? "Storyboard"
+      : r.jobType === "talking_photo" ? "Talking photo"
       : r.jobType === "remix" ? `Remix — ${String(((r.request ?? {}) as Record<string, unknown>).summary ?? "AI")}`
       : `Enhanced — ${PRESET_LABEL[String(rq.preset)] ?? ENGINE_LABEL[String(rq.engine)] ?? "Fast"}`;
     return {
@@ -410,6 +412,16 @@ async function requeueGenerationCopy(
     const route = await routeOrUserError(job.jobType, quality);
     routing = { routingProfile: route.ruleId, modelName: route.modelName, workflowName: route.workflow, workflowVersion: route.workflowVersion };
     requestJson = { ...requestJson, workflow: route.workflow, quality, steps: route.steps };
+  } else if (job.jobType === "talking_photo") {
+    const [r] = await db.select({ wf: schema.workflowRegistry.enabled, model: schema.modelRegistry.enabled })
+      .from(schema.workflowRegistry)
+      .innerJoin(schema.modelRegistry, eq(schema.workflowRegistry.modelName, schema.modelRegistry.name))
+      .where(eq(schema.workflowRegistry.id, TALKING_WORKFLOW));
+    if (!r?.wf || !r?.model) throw new Error("Talking photo is switched off right now");
+    // Consent belongs to the person who confirmed it: only they can re-run it (others start a new talking photo).
+    const consent = requestJson.consent as { userId?: string; text?: string } | undefined;
+    if (consent?.userId !== userId) throw new Error("Make a new talking photo to confirm you have permission for this face");
+    requestJson = { ...requestJson, consent: { ...consent, confirmed: true, at: new Date().toISOString(), userId } };
   } else if (job.jobType === "enhancement") {
     // Re-check the registry and use the workflows enabled NOW (never the ones stored on the old
     // job — they may have been switched off, or predate the registry).
@@ -460,6 +472,7 @@ async function costOfJob(jobType: string, req: Record<string, unknown>): Promise
     if (!seconds) seconds = (await routeOrUserError(jobType, (QUALITIES.includes(quality as Quality) ? quality : "standard") as Quality)).durationMax ?? 5;
     return generationCost(seconds, quality);
   }
+  if (jobType === "talking_photo") return talkingCost(Number(req.durationSec) || 30);
   if (jobType === "remix") {
     const secs = (x: unknown) => Number((x as { seconds?: number } | null)?.seconds) || 0;
     const moments = Array.isArray(req.moments) ? (req.moments as unknown[]) : [];

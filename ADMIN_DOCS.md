@@ -180,6 +180,49 @@ www.clipwaltz.com. Verified 2026-09-29 against a local `next build` + `next star
   first failure a job shows `queued` again (error kept); only the last failure sets `failed`. A
   retry atomically marks the old job `retried` (so it can't be retried twice) and creates a new job.
 
+## Talking photo (Phase C2, 2026-10-13)
+
+**On/off:** `/admin/ai` → Models **echomimic-v3** + Workflows **echomimic-talking-v1** (task `talking_photo`, seeded on by
+migration **0057**). Both must be on; with either off the Generate tab hides *Talking photo* and the action/Retry refuse.
+No routing rule (one model). Price and limit are code constants (`src/lib/talking-photo.ts`): 1 credit/s, 30 s max.
+
+**AISERVER service `clipwaltz-talking`** (systemd, user `lacy`, **127.0.0.1:8192 only**, bearer = the wrapper's
+`CW_API_TOKEN` via `EnvironmentFile=/opt/clipwaltz-ai/config/wrapper.env`):
+- Code `/opt/clipwaltz-ai/talking/service.py` (repo `aiserver/talking/service.py`); EchoMimic source
+  `/opt/clipwaltz-ai/talking/echomimic_v3` = `github.com/antgroup/echomimic_v3` @ `7e89489` (unmodified); venv
+  `/opt/clipwaltz-ai/talking/venv` (py 3.11, torch 2.6+cu124, transformers 5.19, kokoro 0.9 + `en_core_web_sm`; built
+  with `uv` from the C0 spike's freeze); weights `/data/clipwaltz-ai/models/echomimic_v3` (28 GB: Wan2.1-Fun-V1.1-1.3B-InP,
+  `emv3/echomimicv3-flash-pro`, chinese-wav2vec2-base); Kokoro weights offline in `/opt/clipwaltz-ai/talking/hf`
+  (`HF_HOME`, `HF_HUB_OFFLINE=1`, copied from the AI box's `/opt/clipwaltz-tts/hf`). `espeak-ng` (apt) for non-English voices.
+- **GPU 1** (`CUDA_VISIBLE_DEVICES=1`), model CPU offload — idle VRAM ≈ 0, peak **7.7 GB** per render; **~40 GB RAM** resident (all weights on the CPU). Models load in
+  ~2 min at start (`GET /health` → `loaded`). One render at a time (internal queue).
+- Env knobs: `TALK_CHUNK_FRAMES` (113), `TALK_OVERLAP` (8), `TALK_SAMPLE_SIZE` (512x384 pixel budget), `TALK_STEPS` (8),
+  `TALK_MAX_SECONDS` (30), `TALK_DEBUG_MEM=1` (log VRAM per chunk), `TALK_GPU_COMFYUI` (ComfyUI on the same card).
+- ⚠️ Do **not** set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments` — it calls NVML, which fails while AISERVER's driver
+  and libraries mismatch.
+- Logs: `journalctl -u clipwaltz-talking` (`[talking] <job> chunk i/n … peak X GB`). Outputs land in
+  `/data/clipwaltz-ai/output/clipwaltz/talking/<job>/` (swept by the hourly cleanup timer).
+
+**Wrapper** (`aiserver/wrapper/app.py`): workflow id `echomimic-talking-v1` is forwarded to the talking service (not
+ComfyUI); `/inputs` also accepts speech files. **GPU guard:** while a talking job is queued/running, new ComfyUI jobs
+are sent only to the other card (`CW_TALKING_GPU_BACKEND`, default the 2nd `COMFYUI_URLS` entry); the service also waits
+for that card's ComfyUI queue to be empty and calls its `/free` before rendering. A wrapper restart forgets in-flight
+talking jobs (the worker then times out → failed + refunded), so restart it only when `/health` shows no active jobs.
+
+**Worker:** `runTalking` stages photo/recording, polls (timeout `GEN_TALKING_TIMEOUT_MS`, default 60 min), runs
+`esrgan-upscale-v1` 2× (skipped with a log line if it fails), puts the speech back, burns the **"AI-generated"** label
+(font: `AI_LABEL_FONT` or DejaVu Sans Bold) and settles `generation_jobs.credits` to the rendered seconds.
+
+**Uploads:** `POST /api/projects/:id/talking-audio` (editor role) → ffmpeg normalises to mono AAC ≤ 30 s → MinIO
+`talking/<projectId>/<uuid>-<ms>ms.m4a` (the length in the key prices the job; only this route writes that prefix).
+Swept with the project on delete.
+
+**Consent record:** `generation_jobs.request_json.consent` = `{confirmed, text, at, userId}`.
+
+**Known issue (2026-10-13):** Real-ESRGAN / RIFE use `h264_nvenc`, which fails ("No capable devices found") while the
+kernel module (595.91.07) and libraries (595.99.02) differ — fixed by the pending AISERVER reboot. Talking clips are
+then kept at 320×576 (9:16).
+
 ## Outside AI models for writing (2026-10-13)
 `/admin/ai` → **Writing & planning models**. Providers: Claude (`@anthropic-ai/sdk`), ChatGPT (`openai`), DeepSeek and
 Gemini (both via `openai` with fixed base URLs `https://api.deepseek.com` / `https://generativelanguage.googleapis.com/v1beta/openai/`).
