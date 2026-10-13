@@ -43,7 +43,13 @@ ad4d0cb feat(projects): Show on the Community page checkbox in Video properties
   name **Waltz Avatar**, fictional AI presenters + licensed actors, consent **automatic only** (no admin review).
   Spike in `~/presenter-spike` on AISERVER (no services; `echomimic_v3/run_spike.py` has CPU-T5 + device patches).
   Spec mirrored to wiki: https://docs.phoenixtekk.com/en/ClipWaltz/waltz-avatar-spec (verified 200).
-- **AI models (BYO / outside LLMs) Phase A — BUILT, NOT DEPLOYED (`e9bdecc`, branch `claude/continue-previous-d94e47`):**
+- **AI models Phase A — LIVE 2026-10-13** via deploy branch `deploy/ai-models-20261013` (`4b138ea` = live `ad4d0cb` +
+  `e9bdecc` + migration 0052 *files*): prod DB migrated 0052+0053+0054 (0052 applied early, additive, so drizzle's order
+  check won't skip it later — render-scaling CODE is still NOT deployed); `npm install` (+7 pkgs), build exit 0, `pm2
+  restart clipwaltz clipwaltz-gen-worker`; backup `/tmp/cw-pre-aimodels-src.tgz`. Verified: site 200, /account/ai +
+  /admin/ai → sign-in, Help article live, deck worker up. Not exercised via the prod UI (no prod login) or a real key.
+  When render scaling deploys, skip its "migrate 0052" step (already applied).
+- **AI models (BYO / outside LLMs) Phase A — details (`e9bdecc`, branch `claude/continue-previous-d94e47`):**
   owner 2026-10-13 asked for admin-enabled outside models (Claude/ChatGPT/DeepSeek/Gemini + user's own Ollama) to help
   talking photo + quality. Owner answers: use for writing & planning AND video; keys = platform + users' own; local link =
   connector app; admin control = per provider per plan. Phase A (writing & planning) done: `/admin/ai` section,
