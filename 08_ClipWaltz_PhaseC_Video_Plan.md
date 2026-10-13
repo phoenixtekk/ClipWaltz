@@ -1,6 +1,6 @@
 # ClipWaltz — Phase C: outside video models, talking photo & GPU jobs on the user's computer
 
-**Status:** approved 2026-10-13 (decisions in §6) · C0 in progress · builds on Phase A (outside writing models, live) and Phase B (ClipWaltz
+**Status:** approved 2026-10-13 (decisions in §6) · C0 done (§7) · C1 next · builds on Phase A (outside writing models, live) and Phase B (ClipWaltz
 Connector, live). Every vendor fact below was checked on 2026-10-13 against the vendor's own docs/pricing pages (links in
 the appendix); anything not confirmed there is marked **unverified**.
 
@@ -93,6 +93,23 @@ Each step: security review, dev-verified end to end, docs + wiki, then deploy on
 4. **Talking photo of other people:** allowed with the user's "this is me / I have their permission" confirmation, stored
    with the job; outputs labelled AI-generated.
 5. **Order:** C0 → C1 → C2 → C3.
+
+## 7. C0 result — EchoMimic v3-Flash on AISERVER (2026-10-13): **fits 10 GB**
+
+One RTX 3080 10 GB (GPU 1), Flash weights (`echomimicv3-flash-pro`, Apache-2.0) on Wan2.1-Fun-V1.1-1.3B-InP, 8 steps,
+TeaCache, umT5 text encoder on the CPU, model CPU offload; 81 frames = 3.24 s at 25 fps; EchoMimic's sample photo + 5 s audio.
+
+| Sample size | Output | Peak VRAM | Diffusion | Run (excl. ~2 min model load) | GPU-s per video-s |
+|---|---|---|---|---|---|
+| 768×512 | 464×832 | **9.39 GB** | 8 × 40.1 s | 364 s | ≈ 112 |
+| 512×384 | 320×576 | **6.82 GB** | 8 × 11.3 s | 122 s | ≈ 38 |
+
+- Frames look realistic (blinks, mouth shapes, stable background and hands); lip-sync accuracy is for the owner to judge
+  from the clips in `docs/phase-c/`.
+- Fixes needed on our stack: the official script ignores its memory-mode flag (loads everything on the GPU); transformers
+  5.x needs a hook to read the audio encoder's layer outputs; `pyloudnorm` missing from requirements.
+- **Implication:** talking photo on AISERVER is feasible for short clips (≤ 10 s ≈ 6–19 GPU-minutes); a resident service
+  avoids the 2-min load; Real-ESRGAN (already on AISERVER) can upscale the 512×384 output. Longer clips → users' GPUs (C3).
 
 ## Appendix — sources (fetched 2026-10-13)
 
