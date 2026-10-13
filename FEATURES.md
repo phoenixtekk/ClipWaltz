@@ -13,6 +13,36 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## Talking photo in Waltz AI — a photo speaks your script (Phase C2, 2026-10-13)
+- **Generate tab → Talking photo** (4th mode, shown while the admin has it on): pick a project photo, then **type a script**
+  (≤ 600 characters, spoken by one of the 15 Kokoro voices — US/UK English, Spanish, French, Italian, Portuguese — with
+  Hear preview and pace 0.8–1.2×) **or upload a recording** (MP3/M4A/WAV/OGG/OPUS/FLAC/WEBM, ≤ 20 MB, first 30 s used).
+  Shape: as the photo, 9:16, 1:1 or 16:9 (centre crop, kept high for portraits). Live estimate of length, credits and
+  render time.
+- **Consent (owner: automatic only):** the user must tick *"This is me, or I have this person's permission to make them
+  speak."* — enforced in the server action and stored with the job (`request_json.consent`: text, time, user).
+- **AI label:** every talking clip gets a visible **"AI-generated"** tag top-right, burned in before the clean master is
+  stored, so downloads/exports keep it (EU AI Act Art. 50). Watermark rules apply as for any Waltz AI clip.
+- **Price:** 1 AI credit per second, max **30 s** for every plan (owner 2026-10-13). Charged up front from the recording's
+  measured length or a conservative script estimate; when the clip is done the job is **settled to the seconds actually
+  rendered** (verified: 9 estimated → 6 charged for a 5.4 s clip). Failed/cancelled → refunded as usual.
+- **How it renders:** EchoMimic v3-Flash (Apache-2.0) on AISERVER GPU 1 in the resident `clipwaltz-talking` service, in
+  overlapping ~4.5 s chunks (one pass tops out at ~6.4 s on 10 GB); peak **7.7 GB**; ≈ **47 s of GPU time per second of
+  speech** (5.2 s → 246 s; 18.8 s → 873 s). Then Real-ESRGAN 2× (320×576 → 640×1152) — **currently skipped** while
+  AISERVER's NVIDIA driver/library mismatch breaks NVENC (clip is kept at native size; fixed by the pending reboot).
+- **Verified on dev (2026-10-13):** script job end to end from the UI (v7, 5.36 s, speech + label + watermark), recording
+  job (v8, 2.92 s, 3 credits), Retry, Cancel mid-render (service stops, job cancelled), server-side guards (no consent,
+  another project's recording, path traversal, missing recording, foreign photo, > 600 chars), upload rejects non-audio
+  (415), GPU guard (while a talking job runs, new ComfyUI jobs go to GPU 0 only), chunk seams (no visible jump).
+- **Security review (2026-10-13), 3 fixes:** the credit settle can only *refund* (never raise past the checked balance)
+  and scripts are priced by length too (no-space text can't be priced as one word); no font → the job fails rather than
+  ship without the AI label; Retry/Regenerate only by the person who confirmed consent (consent time refreshed).
+- Code: `src/lib/talking-{photo,actions}.ts`, `src/app/api/projects/[id]/talking-audio/route.ts`,
+  `src/components/talking-photo-panel.tsx`, Generate panel, `worker/generation-worker.mjs` (`runTalking`,
+  `finishTalking`), `aiserver/talking/service.py`, `aiserver/wrapper/app.py` (`echomimic-talking-v1`, GPU guard),
+  `aiserver/systemd/clipwaltz-talking.service`, migration **0057** (registry rows = admin on/off). Recordings are stored
+  under `talking/<projectId>/` and swept on project delete.
+
 ## AI models — Claude, ChatGPT, DeepSeek, Gemini or the built-in model writes your decks (2026-10-13)
 - **Admin (`/admin/ai` → Writing & planning models):** per provider — on/off, which plans (Free / Plus / Pro) may use it,
   the model for writing and the model for looking at photos/frames, **ClipWaltz's own key** (tested before it's saved;

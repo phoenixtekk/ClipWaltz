@@ -57,6 +57,8 @@ import type { AiAvailability, Quality } from "@/lib/ai/routing";
 import { getMyVideoModels, type MyVideoModels } from "@/lib/video-provider-actions";
 import { ScenesPanel } from "@/components/scenes-panel";
 import { RemixPanel } from "@/components/remix-panel";
+import { TalkingPhotoPanel } from "@/components/talking-photo-panel";
+import { getTalkingAvailable } from "@/lib/talking-actions";
 import {
   createExportJob,
   listExportJobs,
@@ -211,7 +213,12 @@ export function GenerationPanel({
 }) {
   // Create-panel state
   const previewRef = useRef<HTMLVideoElement>(null);
-  const [mode, setMode] = useState<"image" | "text" | "remix">(photos.length ? "image" : "text");
+  const [mode, setMode] = useState<"image" | "text" | "remix" | "talk">(photos.length ? "image" : "text");
+  // Talking photo (Phase C2) shows only while the admin has it switched on (AI registry).
+  const [talkOn, setTalkOn] = useState(false);
+  useEffect(() => {
+    getTalkingAvailable().then((r) => setTalkOn(r.ok && r.data), () => setTalkOn(false));
+  }, []);
   const [sourceAssetId, setSourceAssetId] = useState<string | null>(photos[0]?.id ?? null);
   const [prompt, setPrompt] = useState("");
   const [negativePrompt, setNegativePrompt] = useState("");
@@ -297,7 +304,7 @@ export function GenerationPanel({
   // ── Settings snapshot / apply (recent settings, presets, templates, Edit & regenerate) ──
   function currentSettings(): GenerationSettings {
     return normalizeSettings({
-      mode: mode === "remix" ? "image" : mode, prompt, negativePrompt, style: styleKey, camera: cameraKey, motion: MOTIONS[motionIdx],
+      mode: mode === "remix" || mode === "talk" ? "image" : mode, prompt, negativePrompt, style: styleKey, camera: cameraKey, motion: MOTIONS[motionIdx],
       aspect: aspectKey, duration: durationSec, quality: qualityKey, seed,
     });
   }
@@ -656,7 +663,7 @@ export function GenerationPanel({
 
         {/* Mode: image→video vs text→video */}
         <div className="inline-flex rounded-lg border border-border bg-muted/50 p-0.5 text-sm font-medium">
-          {(["image", "text", "remix"] as const).map((m) => (
+          {(talkOn ? (["image", "text", "talk", "remix"] as const) : (["image", "text", "remix"] as const)).map((m) => (
             <button
               key={m}
               type="button"
@@ -667,12 +674,19 @@ export function GenerationPanel({
                 mode === m ? "bg-[color:var(--cw-violet)] text-white shadow" : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {m === "image" ? "From image" : m === "text" ? "From text" : "Remix a video"}
+              {m === "image" ? "From image" : m === "text" ? "From text" : m === "talk" ? "Talking photo" : "Remix a video"}
             </button>
           ))}
         </div>
 
-        {mode === "remix" ? (
+        {mode === "talk" ? (
+          <TalkingPhotoPanel
+            projectId={projectId}
+            photos={photos}
+            busy={isGenerating}
+            onStarted={(jobId) => setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null })}
+          />
+        ) : mode === "remix" ? (
           <RemixPanel
             projectId={projectId}
             busy={isGenerating}
@@ -954,7 +968,7 @@ export function GenerationPanel({
         ) : null}
         {isGenerating ? (
           <GenerationProgress job={job!} onCancel={cancel} />
-        ) : mode === "remix" ? null : (
+        ) : mode === "remix" || mode === "talk" ? null : (
           <>
           <Button
             onClick={generate}

@@ -400,6 +400,13 @@
       "when": 1791918393769,
       "tag": "0056_connector_origin",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1791928214086,
+      "tag": "0057_talking_photo",
+      "breakpoints": true
     }
   ]
 }

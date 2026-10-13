@@ -13,7 +13,7 @@ import { deleteObject, listObjectKeys } from "./storage";
 
 /** The per-project prefixes every writer uses: uploads, renders, AI versions, exports. */
 export function projectPrefixes(projectId: string): string[] {
-  return ["projects", "renders", "generations", "exports"].map((p) => `${p}/${projectId}/`);
+  return ["projects", "renders", "generations", "exports", "talking"].map((p) => `${p}/${projectId}/`);
 }
 
 export type ProjectStoragePlan = { projectId: string; keys: string[]; mediaIds: string[] };

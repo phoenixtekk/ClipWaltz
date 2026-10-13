@@ -1,6 +1,6 @@
 # ClipWaltz — Phase C: outside video models, talking photo & GPU jobs on the user's computer
 
-**Status:** approved 2026-10-13 (decisions in §6) · C0 done (§7) · C1 built + dev-verified with a vendor mock (not deployed, no real keys yet) · C2/C3 next · builds on Phase A (outside writing models, live) and Phase B (ClipWaltz
+**Status:** approved 2026-10-13 (decisions in §6) · C0 done (§7) · C1 live 2026-10-13 · C2 designed (§8) · C3 next · builds on Phase A (outside writing models, live) and Phase B (ClipWaltz
 Connector, live). Every vendor fact below was checked on 2026-10-13 against the vendor's own docs/pricing pages (links in
 the appendix); anything not confirmed there is marked **unverified**.
 
@@ -110,6 +110,41 @@ TeaCache, umT5 text encoder on the CPU, model CPU offload; 81 frames = 3.24 s at
   5.x needs a hook to read the audio encoder's layer outputs; `pyloudnorm` missing from requirements.
 - **Implication:** talking photo on AISERVER is feasible for short clips (≤ 10 s ≈ 6–19 GPU-minutes); a resident service
   avoids the 2-min load; Real-ESRGAN (already on AISERVER) can upscale the 512×384 output. Longer clips → users' GPUs (C3).
+
+## 8. C2 design — talking photo on AISERVER (2026-10-13)
+
+**Measured (one RTX 3080 10 GB, EchoMimic v3-Flash, 8 steps, 512×384):** 81 frames (3.2 s) 6.8 GB / 122 s; **161 frames
+(6.4 s) 9.05 GB / 324 s**; 249 frames (10 s) **ran out of memory**. The Flash script renders one pass (no chunking), and
+cost grows faster than length — so clips longer than ~6 s need **chunked rendering** (≈ 3 s windows with a short overlap,
+like EchoMimic's non-Flash `partial_video_length` loop) at ≈ 38 GPU-s per video-s. For comparison, a built-in Wan
+image→video clip on prod takes a median **578 s for ~5.4 s ≈ 107 GPU-s per video-s** and costs 1 credit/s.
+
+**Design:**
+1. **AISERVER `clipwaltz-talking` service** (own venv from the spike, `127.0.0.1:8192`, systemd): EchoMimic v3-Flash kept
+   loaded with CPU offload, chunked rendering at 512×384, then Real-ESRGAN 2× (already on AISERVER) → e.g. 640×1152 for 9:16.
+2. **Wrapper** (`aiserver/wrapper/app.py`): new id `echomimic-talking-v1` with a non-ComfyUI branch; audio accepted by
+   `/inputs`; **GPU guard** — a talking job waits until GPU 1's ComfyUI queue is empty and, while it runs, new ComfyUI jobs
+   go to GPU 0 (EchoMimic + Wan on one 10 GB card would run out of memory).
+3. **Voice:** the script is spoken by Kokoro. It runs only on the AI box (localhost); recommended: install Kokoro inside
+   the talking service on AISERVER (same voices, CPU, Apache-2.0) instead of a linuxg1→AI-box tunnel.
+4. **App:** Waltz AI → **Talking photo**: pick a photo, type the script + voice (or upload audio), confirm "this is me /
+   I have their permission" (stored), output labelled AI-generated; job type `talking_photo` on the GPU queue.
+
+**Owner decisions (2026-10-13):** price **1 credit/s** (same as built-in clips); max length **30 s** for everyone; voice
+from **Kokoro installed on AISERVER** inside the talking service.
+
+**C2 built (2026-10-13, dev-verified; prod app not yet deployed):**
+- `clipwaltz-talking` is **live on AISERVER** (127.0.0.1:8192, GPU 1) and the wrapper with `echomimic-talking-v1` + GPU
+  guard is **live** (wrapper idle at restart; backup `/opt/clipwaltz-ai/scripts/app.py.bak-*`).
+- Chunks of 113 frames with 8-frame cross-fade: **peak 7.7 GB**; 5.2 s → 246 s, 18.8 s (5 chunks) → 873 s ≈ **47 GPU-s per
+  video-s** (the 512×384 single-pass figure of 38 did not include the per-chunk prompt encoding, now cached). Seams show
+  no visible jump. Samples: `docs/phase-c/c2-talking-5s.mp4`, `c2-talking-19s-chunked.mp4`, `c2-talking-e2e-v7.mp4`.
+- Two fixes found on the way: diffusers' `maybe_free_model_hooks()` re-hooks the CPU-kept umT5 onto the GPU after every
+  call (chunk 2 ran out of memory) — re-pinned after each call; umT5 prompt encoding (~30–50 s/call on CPU) cached.
+- Real-ESRGAN 2× is wired but **blocked by the NVIDIA driver/library mismatch** (NVENC) until the AISERVER reboot; clips
+  are kept at 320×576 meanwhile.
+- App: Generate tab → Talking photo (script + 15 Kokoro voices, or upload a recording), consent stored, AI label, credits
+  settled to rendered seconds; migration 0057. Details in `FEATURES.md` / `ADMIN_DOCS.md`.
 
 ## Appendix — sources (fetched 2026-10-13)
 

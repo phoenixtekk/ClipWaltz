@@ -1,0 +1,23 @@
+[Unit]
+Description=ClipWaltz talking-photo service (EchoMimic v3-Flash + Kokoro, GPU 1, localhost only)
+After=network-online.target comfyui-gpu1.service
+Wants=network-online.target
+
+[Service]
+User=lacy
+WorkingDirectory=/opt/clipwaltz-ai/talking
+# CW_API_TOKEN, CW_INPUT_DIR, CW_OUTPUT_DIR come from the wrapper's env (the wrapper is the only caller).
+EnvironmentFile=/opt/clipwaltz-ai/config/wrapper.env
+Environment=CUDA_VISIBLE_DEVICES=1
+Environment=HF_HOME=/opt/clipwaltz-ai/talking/hf
+Environment=HF_HUB_OFFLINE=1
+Environment=TALK_GPU_COMFYUI=http://127.0.0.1:8190
+Environment=TALK_CPU_THREADS=8
+ExecStart=/opt/clipwaltz-ai/talking/venv/bin/uvicorn service:app --host 127.0.0.1 --port 8192 --workers 1
+Restart=on-failure
+RestartSec=10
+# Model load is ~2 min (umT5 + Wan 1.3B + EchoMimic weights from disk).
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
