@@ -1,4 +1,5 @@
-<!-- session-version: 14 -->
+<!-- session-version: 15 -->
+<!-- pending-session-title: ClipWaltz v15 -->
 
 # ClipWaltz — session handoff
 
@@ -14,7 +15,32 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
-## Working state (2026-10-13, rotation to v14)
+## Working state (2026-10-13, rotation to v15)
+**Where the work is:** branch `claude/continue-previous-d94e47` (worktree `.claude/worktrees/continue-previous-d94e47`),
+tree clean, tsc + eslint clean, **not merged into `main` and not pushed** (local `main` = `edf063d`). Prod runs deploy
+branch `deploy/ai-models-20261013` @ `218a851` = live `ad4d0cb` + AI models + Connector + C1 (render-scaling code still out).
+```
+ad251be docs(phase-c): C2 owner decisions — 1 credit/s, 30 s max, Kokoro on AISERVER
+cda0896 docs(phase-c): C2 design — talking photo on AISERVER (single-pass limit 6.4 s on 10 GB, chunking, GPU guard, voice)
+feb1d4b docs(handoff): C1 deployed
+a11631f feat(waltz-ai): cloud video models — Kling, Runway, MiniMax (Phase C1)
+3158dc9/1d3cd7a Connector · e9bdecc AI models (writing) · 311fdd7 Waltz Avatar Phase 0
+```
+- **LIVE this session (v14):** outside writing models (Claude/ChatGPT/DeepSeek/Gemini; `/admin/ai` + `/account/ai`);
+  ClipWaltz Connector (user's own Ollama; `/account/ai/connect`); Phase C1 cloud video in Waltz AI (Kling, Runway,
+  MiniMax). Prod migrations 0052–0056 applied. None exercised via the prod UI (no prod login) or with real vendor keys —
+  owner adds keys / switches on per plan in `/admin/ai`.
+- **Decided:** Waltz Avatar name; consent automatic only (+ "I have permission" for talking photos of others); Phase C:
+  Kling/Runway/MiniMax, talking photo on own GPUs only (no vendor), credit defaults, C2 = 1 credit/s, max 30 s, Kokoro on AISERVER.
+- **NEXT — build C2** (talking photo on AISERVER) per `08_ClipWaltz_PhaseC_Video_Plan.md` §8: EchoMimic v3-Flash fits
+  10 GB but one pass tops out at ~6.4 s (161 frames, 9.05 GB) → chunked rendering; resident `clipwaltz-talking` service
+  (+ Kokoro) on AISERVER; wrapper branch `echomimic-talking-v1` + GPU guard vs ComfyUI; Waltz AI "Talking photo" mode.
+  Spike scripts: AISERVER `~/presenter-spike/echomimic_v3/{infer_flash_spike.py,run_flash_spike.sh}`. Then **C3**
+  (Connector GPU jobs). Still parked: render-scaling deploy (see v14 log), owner decisions below.
+- **Owner decisions pending:** linuxg7 spare 98 GB → `minio-lv`; AISERVER reboot (NVIDIA NVML mismatch) + `apt-mark hold`;
+  old uncommitted copies of the spec/handoff in the main checkout (superseded by this branch) — discard?
+
+## Session v14 log (2026-10-13)
 Tree: `07_ClipWaltz_Presenter_Feature_Spec.md` modified (Phase 0 results §9, uncommitted). **3 commits NOT pushed / NOT
 deployed:** `a6c581e`, `543635d` (render scaling) and `edf063d` (Presenter spec). Everything up to `ad4d0cb` is LIVE.
 ```
