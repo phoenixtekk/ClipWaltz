@@ -1,6 +1,6 @@
 # ClipWaltz — Presenter (AI avatar videos) · Feature design & plan
 
-**Status:** proposal for owner review · 2026-10-13 · working name **Waltz Presenter** (alternatives: WaltzCast, Waltz Avatar)
+**Status:** approved — Phase 0 (spike) complete, Phase 1 not started · 2026-10-13 · name **Waltz Avatar**
 **Goal:** HeyGen-style videos — a presenter (the user's own "digital twin", or an AI presenter) speaks a script, with
 slides, b-roll, captions, music and brand — built on ClipWaltz's self-hosted stack (no per-minute vendor fees).
 
@@ -78,8 +78,8 @@ Script / goal ─► Planner (Ollama, WaltzDeck) ─► Scene cards (UI) ─► 
 ## 5. Consent, safety and the law (designed in, not bolted on)
 
 - **Live consent for every twin and every voice clone:** webcam recording, on-screen sentence + one-time code, same
-  person as the footage (automatic face/voice match where a commercial-licence model exists, plus **admin review** for
-  the first release). Stored in `consents`; deleting a presenter deletes its footage, models and voice embedding.
+  person as the footage (automatic face/voice match with a commercial-licence model — **automatic only**, no admin
+  review queue, owner decision 2026-10-13). Stored in `consents`; deleting a presenter deletes its footage, models and voice embedding.
 - **No twins of other people without their own consent clip** (sent to them by link, as HeyGen does); no public
   figures; no deceased people (California AB 1836 requires the estate's consent).
 - **Disclosure:** every presenter video carries machine-readable "AI-generated" metadata and a visible **"AI-generated"
@@ -108,12 +108,51 @@ Script / goal ─► Planner (Ollama, WaltzDeck) ─► Scene cards (UI) ─► 
 - **Licences drift:** re-check weights licences at every model upgrade; keep a licence table in ADMIN_DOCS.
 - **Misuse / legal exposure:** consent + review + labels + takedown above; legal review before public launch.
 
-## 8. Decisions for the owner
+## 8. Decisions (owner, 2026-10-13)
 
-1. Name: **Waltz Presenter**, WaltzCast or Waltz Avatar?
-2. AI presenters: fictional generated people only (no rights issues), or also hire/licence a few real actors?
-3. Consent check for launch: automatic + admin review (recommended), or automatic only?
-4. Approve **Phase 0 (1-week spike on AISERVER)** to get real speed/quality numbers before building?
+1. Name: **Waltz Avatar** (changed from "Waltz Presenter" on 2026-10-13; this doc keeps "presenter" for the on-screen person).
+2. AI presenters: **both** fictional generated presenters **and** licensed real actors (actors need signed releases
+   covering AI likeness + voice use, scope, territory and term — per California AB 2602 the uses must be specific).
+3. Consent check for launch: **automatic only** (face/voice match against the live consent clip; no admin review queue).
+4. **Phase 0 approved** — started 2026-10-13 (results in §9).
+
+## 9. Phase 0 results (AISERVER, 2026-10-13)
+
+Test inputs: MuseTalk's bundled sample presenters (no personal footage) + a Kokoro "am_michael" script. GPU 1 (RTX 3080
+10 GB); memory measured with `torch.cuda.mem_get_info` (nvidia-smi is down — see the note at the end).
+
+| Test | Result |
+|---|---|
+| MuseTalk 1.5, one-shot (prep + lip-sync per video) | 2 × 13.5 s videos in 341 s (~12.7 s per video-second, incl. landmark extraction); **peak 8.3 GB of 9.9 GB** |
+| MuseTalk 1.5, **prepared presenter** (realtime mode) | Prep once ≈ 4.5 min (22 s base clip → **677 MB** cache). Then 13.4 s audio → 14.9 s, **60 s audio → 39.3 s (0.65× realtime)**; ~25 s model load per process (a resident service pays it once) |
+| Chatterbox voice clone (GPU) | 7 s EN audio in 3.7 s, 9 s ES in 5.0 s (~0.53× realtime) after warm-up; **3.6 GB**; PerTh watermark on (needed `setuptools<70` for `pkg_resources`) |
+| Chatterbox (CPU fallback) | ~4× realtime (60 s script ≈ 4 min) |
+| End-to-end translation flow | Cloned voice → Spanish → lip-synced on the prepared presenter: 9 s of video in 9.9 s |
+| BiRefNet matting (split/bubble layouts) | 60 frames 576×768 in 10.1 s = **6.0 fps**, **1.6 GB** peak; clean cut-out, slight fringe on hair/shoulder edges (re-run 2026-10-13) |
+| EchoMimic v3 photo avatar (Wan2.1-Fun 1.3B, 512×512, umT5 encoder moved to CPU) | **Does not fit 10 GB.** 65-frame chunks: crashed 2 s into the first diffusion step (PyTorch allocator NVML assert — the allocator path that runs under memory pressure; NVML is broken until the reboot). 33-frame chunks: one step took **285 s** (20 steps per chunk needed), then `CUDA error: out of memory`. Not usable on these cards |
+| GPU co-residency | MuseTalk (8.3 GB) + Chatterbox (3.6 GB) do **not** fit one 10 GB card together, nor alongside a Wan job → one GPU job at a time per card, queued |
+
+**Licence findings (primary sources, see the dependency audit):**
+- Commercial-OK: MuseTalk weights (MIT), sd-vae-ft-mse (MIT), whisper-tiny (Apache-2.0), Chatterbox (MIT), EchoMimic v3 +
+  Wan2.1-Fun-V1.1-1.3B-InP + wav2vec2-base-960h / chinese-wav2vec2-base (Apache/MIT).
+- **Must replace before launch:** BiSeNet face-parsing (trained on CelebAMask-HQ — non-commercial), DWPose landmarks
+  (Apache label but trained on COCO-WholeBody, CC BY-NC — get counsel or replace), S3FD detector weights (no stated
+  licence), EchoMimic's `retina-face` detector (weights likely InsightFace-derived — unverified). **Replacement:
+  Google MediaPipe Face Landmarker / Face Mesh V2 + BlazeFace (Apache-2.0)** for detection, landmarks and the mouth mask.
+- LatentSync SyncNet is **not needed** for MuseTalk inference.
+- Background removal for split layouts: **BiRefNet (MIT)**, MODNet (Apache-2.0), SAM 2 (Apache-2.0, video), MediaPipe
+  Selfie Segmentation (Apache-2.0). Ruled out: BRIA RMBG 1.4/2.0 (non-commercial unless licensed), Robust Video Matting (GPL-3.0).
+
+**Ops note:** Ubuntu unattended-upgrades updated the NVIDIA userspace libraries 595.91 → 595.99 on 2026-10-11 while the
+595.91 kernel module stayed loaded (no reboot since 2026-09-24). CUDA still works for new processes (ComfyUI restarted
+and sees both GPUs); only `nvidia-smi`/NVML fails until a reboot loads the already-installed 595.99 module. Recommend a
+planned reboot and holding NVIDIA packages from unattended upgrades (`apt-mark hold`).
+
+**Phase 0 conclusion (2026-10-13):**
+- **Phase 1 (Your Avatar / twin) is feasible on AISERVER today:** prepared-presenter MuseTalk at 0.65× realtime (8.3 GB) + Kokoro or Chatterbox voice + BiRefNet compositing (1.6 GB). One lip-sync job per GPU at a time, queued.
+- **Phase 4 (talking photo) is not feasible on 10 GB cards** — EchoMimic v3 ran out of memory even at 512×512/33 frames. InfiniteTalk and FantasyTalking are larger (14B), so they were not run. Phase 4 waits for a GPU with more memory (how much was not measured).
+- **Before launch:** swap the non-commercial face pipeline pieces (BiSeNet, DWPose, S3FD) for MediaPipe (Apache-2.0). MuseTalk with MediaPipe landmarks/mask is **untested**: it's the first Phase 1 task.
+- **Credits basis:** about 0.65 GPU-seconds of lip-sync per video-second, plus about 0.5 for a cloned voice (Kokoro voices run on the CPU).
 
 ## Appendix — sources (fetched 2026-10-13)
 
