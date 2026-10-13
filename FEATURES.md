@@ -31,7 +31,32 @@ Both carry the bottom-left logo watermark (Free always; paid per the `/admin` sw
   UTC, then built-in), key tests capped at 5 per user per 10 min, vendor error text has the key stripped.
 - **Not yet routed (still built-in):** AutoWaltz smart-cut scoring + post text (render worker on the AI box) and the
   Waltz match photo analysis. **No AI credits are charged** for outside-model writing yet (pricing = owner decision).
-- **Phase B/C (planned):** a connector app for the user's own Ollama / GPU, cloud video models and talking photo.
+- **Phase C (planned):** cloud video models and talking photo (incl. on the user's GPU through the Connector).
+
+## ClipWaltz Connector — AI on the user's own computer (Phase B, 2026-10-13)
+- **What:** `public/connector/clipwaltz-connector.mjs` (downloadable at `/connector/clipwaltz-connector.mjs`, Node 18+, no
+  dependencies). `pair` → shows a code + link; the signed-in user **types the code** at **/account/ai/connect**, sees which
+  computer is asking (name, system, Connector version, when, country/IP) and approves it → the program
+  saves a token in `~/.clipwaltz/connector.json`; `node clipwaltz-connector.mjs` then reports its Ollama models and
+  long-polls for jobs. Outbound HTTPS only (works behind any router); accepts only `llm.chat` jobs, only for models
+  installed there, only to the Ollama address set on that computer (`--ollama`).
+- **Users (`/account/ai`):** choice **"Your computer — Ollama via the ClipWaltz Connector"** + **Your computers** (online
+  dot, platform, version, model picker from the reported models, last result / error, Disconnect = token dead at once)
+  + "Connect a computer" steps with the download and a code box.
+- **Admin (`/admin/ai` → Users' own computers):** on/off per plan; shows computers connected / online. Free to ClipWaltz.
+- **Runtime:** `resolveLlm` picks the user's most recent online computer (seen < 90 s) with a model; `connectorRelay`
+  queues a `connector_jobs` row, waits ≤ 45 s for pickup and ≤ 5 min for the answer (the deck queue is shared), then
+  deletes the row; any failure → that job finishes on the built-in model and the error shows on the computer's card.
+- **Guards (security review 2026-10-13):** code never taken from a link + computer details before approval (device-flow
+  phishing, RFC 8628 §5.4); code checks 10 per user per 10 min; replies capped at 64 KB and `extractJson` bounded (a
+  hostile 1 MB reply now fails in ~80 ms instead of stalling the shared worker); one open long-poll per computer, polled
+  every 2 s; token file created owner-only; Ollama options clamped (`num_ctx` ≤ 131072, `num_predict` ≤ 32768).
+- **Verified on dev:** real pairing (type code → details → approve → token), text + image (photo frame) jobs answered by
+  Ollama through the relay, rows deleted, offline fallback after 45 s, a computer seen 2 min ago not offered, Disconnect →
+  the program is refused (exit 1), 11th code check in 10 min refused.
+- Code: `src/lib/connector.ts`, `src/app/api/connector/*`, `src/app/(app)/account/ai/connect`, `src/components/{computer-settings,admin-connector}.tsx`,
+  `worker/deck/llm.mjs` (`CONNECTOR_ID`, `connectorRelay`); migrations 0055 (`connectors`, `connector_pairings`, `connector_jobs`)
+  + 0056 (`connector_pairings.origin`).
 - Code: `worker/deck/llm.mjs` (catalog, adapters, `resolveLlm`), `planner.mjs` `llmScope` + `chatJson`, `jobs.mjs`
   `withUserModel`, `src/lib/llm-actions.ts`, `src/components/{admin-llm,ai-model-settings}.tsx`; migration 0053
   (`user_ai_keys`, `ai_prefs`) + 0054 (`ai_prefs.platform_day/platform_jobs`); admin settings in `app_settings` `llm_providers` / `llm_provider_status`.

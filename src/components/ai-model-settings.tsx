@@ -14,6 +14,7 @@ import {
   type MyAiModels,
 } from "@/lib/llm-actions";
 import { unwrap } from "@/lib/action-result";
+import { ComputerSettings } from "@/components/computer-settings";
 
 const inputCls = "h-9 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-primary";
 type Provider = MyAiModels["providers"][number];
@@ -42,6 +43,7 @@ function Choice({ checked, onSelect, title, detail, disabled }: { checked: boole
       type="button"
       role="radio"
       aria-checked={checked}
+      aria-label={title}
       disabled={disabled}
       onClick={onSelect}
       className={cn(
@@ -123,7 +125,7 @@ export function AiModelSettings({ data }: { data: MyAiModels }) {
   const { pending, run } = useRun();
   const available = data.providers.filter((p) => p.available && (p.platform || p.allowOwnKey));
   const is = (provider: string, source?: string) => data.choice.provider === provider && (!source || data.choice.source === source);
-  const pick = (provider: string, source: "platform" | "own", label: string) => run(() => setMyAiModel(provider, source).then(unwrap), `${label} now writes your scripts`);
+  const pick = (provider: string, source: "platform" | "own" | "computer", label: string) => run(() => setMyAiModel(provider, source).then(unwrap), `${label} now writes your scripts`);
 
   return (
     <div className="space-y-6">
@@ -174,8 +176,21 @@ export function AiModelSettings({ data }: { data: MyAiModels }) {
                 ]
               : []),
           ])}
+          {data.computer.available && (
+            <Choice
+              checked={is("connector")}
+              disabled={pending || !data.computer.computers.some((c) => c.models.length)}
+              onSelect={() => pick("connector", "computer", "Your computer")}
+              title="Your computer — Ollama via the ClipWaltz Connector"
+              detail={
+                data.computer.computers.some((c) => c.models.length)
+                  ? "Free, and your text and photo frames go only to your computer. If it's off, the built-in model writes for you."
+                  : "Connect a computer below first."
+              }
+            />
+          )}
         </div>
-        {!available.length && (
+        {!available.length && !data.computer.available && (
           <p className="text-xs text-muted-foreground">No outside models are offered on your plan yet — the built-in model writes for you.</p>
         )}
       </section>
@@ -194,6 +209,8 @@ export function AiModelSettings({ data }: { data: MyAiModels }) {
           ))}
         </section>
       )}
+
+      {data.computer.available && <ComputerSettings computers={data.computer.computers} />}
     </div>
   );
 }

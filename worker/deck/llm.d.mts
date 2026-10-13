@@ -10,8 +10,9 @@ export function llmText(
   target: LlmTarget,
   prompt: string,
   images?: string[],
-  opts?: { maxTokens?: number; timeoutMs?: number; temperature?: number },
+  opts?: { maxTokens?: number; timeoutMs?: number; temperature?: number; numCtx?: number },
 ): Promise<string>;
 export function testLlm(target: LlmTarget): Promise<number>;
 export function llmErrorText(e: unknown, apiKey?: string): string;
 export const DEFAULT_DAILY_LIMIT: number;
+export const CONNECTOR_ID: "connector";

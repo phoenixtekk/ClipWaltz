@@ -12,7 +12,7 @@
 //   deepseek-flash as image_url data URIs.
 // - Gemini: OpenAI-compatible at https://generativelanguage.googleapis.com/v1beta/openai/, images as data URIs;
 //   its docs list neither a token-limit parameter nor json_object, so neither is sent (the reply's JSON is extracted).
-import { createDecipheriv, createHash } from "node:crypto";
+import { createDecipheriv, createHash, randomUUID } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 
@@ -26,6 +26,8 @@ export const LLM_IDS = Object.keys(LLM_PROVIDERS);
 export const TIERS = ["free", "plus", "pro"];
 /** app_settings key holding the admin's per-provider settings. */
 export const LLM_SETTINGS_KEY = "llm_providers";
+/** The user's own computer through the ClipWaltz Connector (local Ollama). Admin settings: llm_providers.connector. */
+export const CONNECTOR_ID = "connector";
 /** Jobs per user per day (UTC) on ClipWaltz's own key, unless the admin sets another number. */
 export const DEFAULT_DAILY_LIMIT = 30;
 /** Claude models that accept the server-side refusal fallback. */
@@ -49,7 +51,8 @@ const mimeOf = (b64) => (b64.startsWith("iVBOR") ? "image/png" : b64.startsWith(
  * One prompt (+ optional base64 images) → the model's reply text. `target` = { provider, apiKey, model }.
  * Throws on any API error, refusal or empty reply; the caller decides whether to fall back.
  */
-export async function llmText(target, prompt, images = [], { maxTokens = 8000, timeoutMs = 300000, temperature = 0.3 } = {}) {
+export async function llmText(target, prompt, images = [], { maxTokens = 8000, timeoutMs = 300000, temperature = 0.3, numCtx } = {}) {
+  if (target.provider === CONNECTOR_ID) return target.relay(target.model, prompt, images, { maxTokens, timeoutMs, temperature, numCtx });
   const meta = LLM_PROVIDERS[target.provider];
   if (!meta) throw new Error(`Unknown AI provider "${target.provider}"`);
   if (!target.apiKey) throw new Error(`No API key for ${meta.label}`);
@@ -126,10 +129,19 @@ export async function resolveLlm(sql, userId) {
   if (!userId) return null;
   const [pref] = await sql`select writing_provider, source from ai_prefs where user_id = ${userId}`;
   const provider = pref?.writing_provider;
-  if (!provider || !LLM_PROVIDERS[provider]) return null;
+  if (!provider || !(LLM_PROVIDERS[provider] || provider === CONNECTOR_ID)) return null;
   const [row] = await sql`select value from app_settings where key = ${LLM_SETTINGS_KEY}`;
   const cfg = row?.value?.[provider];
   if (!cfg?.enabled || !(cfg.plans ?? []).includes(await tierOf(sql, userId))) return null;
+  if (provider === CONNECTOR_ID) {
+    // The most recently seen online computer, preferring one where the user picked a model.
+    const [c] = await sql`select id, model, models from connectors
+      where user_id = ${userId} and revoked_at is null and last_seen_at > now() - interval '90 seconds'
+      order by (model is not null) desc, last_seen_at desc limit 1`;
+    const model = c?.model || c?.models?.[0];
+    if (!model) return null;
+    return { provider, connectorId: c.id, model, visionModel: model, source: "computer", relay: connectorRelay(sql, c.id) };
+  }
   const meta = LLM_PROVIDERS[provider];
   if (pref.source === "own") {
     if (!cfg.allowOwnKey) return null;
@@ -154,10 +166,41 @@ export async function resolveLlm(sql, userId) {
   return { provider, apiKey: decryptSecret(cfg.platformKeyEnc), model, visionModel: cfg.visionModel || model, source: "platform" };
 }
 
-/** Remember the last failure / success so the user (own key) or admin (platform key) can see it. */
+/**
+ * Sends one prompt to the user's computer: queues a connector_jobs row, waits for the Connector to claim it (45 s) and
+ * answer (the job's own timeout), then deletes the row — its payload can hold photo frames.
+ */
+export function connectorRelay(sql, connectorId) {
+  return async (model, prompt, images, { maxTokens, timeoutMs, temperature, numCtx }) => {
+    // The deck queue runs one job at a time for everyone, so a slow home computer gets at most 5 min per call.
+    timeoutMs = Math.min(timeoutMs || 300_000, 300_000);
+    const id = randomUUID();
+    const payload = { model, prompt, images: images ?? [], options: { temperature, num_predict: maxTokens, ...(numCtx ? { num_ctx: numCtx } : {}) } };
+    await sql`insert into connector_jobs (id, connector_id, kind, payload) values (${id}, ${connectorId}, 'llm.chat', ${sql.json(payload)})`;
+    const t0 = Date.now();
+    try {
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 1000));
+        const [j] = await sql`select status, result, error from connector_jobs where id = ${id}`;
+        if (!j) throw new Error("the job disappeared");
+        if (j.status === "done") return j.result ?? "";
+        if (j.status === "failed") throw new Error(`your computer: ${j.error}`);
+        if (j.status === "queued" && Date.now() - t0 > 45_000) throw new Error("your computer didn't pick up the job (is the Connector running?)");
+        if (Date.now() - t0 > timeoutMs) throw new Error(`your computer didn't answer within ${Math.round(timeoutMs / 1000)} s`);
+      }
+    } finally {
+      await sql`delete from connector_jobs where id = ${id}`.catch(() => {});
+    }
+  };
+}
+
+/** Remember the last failure / success so the user (own key / computer) or admin (platform key) can see it. */
 export async function noteLlmResult(sql, target, error) {
   try {
-    if (target.source === "own" && target.keyId) {
+    if (target.source === "computer" && target.connectorId) {
+      if (error) await sql`update connectors set last_error = ${error}, last_error_at = now() where id = ${target.connectorId}`;
+      else await sql`update connectors set last_used_at = now() where id = ${target.connectorId}`;
+    } else if (target.source === "own" && target.keyId) {
       if (error) await sql`update user_ai_keys set last_error = ${error}, last_error_at = now(), updated_at = now() where id = ${target.keyId}`;
       else await sql`update user_ai_keys set last_used_at = now() where id = ${target.keyId}`;
     } else if (target.source === "platform") {

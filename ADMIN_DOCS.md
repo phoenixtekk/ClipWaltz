@@ -207,6 +207,15 @@ Gemini (both via `openai` with fixed base URLs `https://api.deepseek.com` / `htt
   charged for it yet. User keys bill the user's own vendor account.
 - **Privacy:** brief text, scene text and photo/clip frames are sent to the chosen vendor (the UI says so). Next's dev
   server logs server-action arguments (incl. pasted keys) — dev only, not `next start`.
+- **Users' own computers (ClipWaltz Connector, 2026-10-13):** `/admin/ai` → **Users' own computers** (on + plans; stored
+  as `llm_providers.connector`). Routes `/api/connector/{pair/start,pair/poll,hello,jobs/next,jobs/:id/result}` are in
+  `src/proxy.ts` PUBLIC_PATHS (device-code / bearer-token gated; tokens stored as sha256 in `connectors.token_hash`).
+  `pair/start` is limited to 10 per IP per 10 min (IP from `cf-connecting-ip`); code look-ups/approvals 10 per user per
+  10 min; replies ≤ 64 KB. `jobs/next` long-polls ≤ 25 s (one claim query every 2 s; one open poll per computer per app
+  instance). The approval page never pre-fills the code and shows the pairing's name/system/version/age/origin
+  (`connector_pairings.origin` = `cf-ipcountry · IP`, migration 0056). Relay rows (`connector_jobs`) are deleted by the worker after each answer; pairings expire after 10 min.
+  The program is served from `public/connector/` — bump `VERSION` in it when it changes. Worker log:
+  `[deck] job … → connector/<model> (user's computer)`; a dead computer costs that job ≤ 45 s before the built-in model takes over.
 - **Deploy:** `npm ci` on linuxg1 (new deps `@anthropic-ai/sdk`, `openai`) → migrate 0053 + 0054 → build → restart `clipwaltz`
   **and** `clipwaltz-gen-worker`.
 

@@ -3,7 +3,8 @@ import Link from "next/link";
 import { getAdminSession } from "@/lib/admin";
 import { getAiRegistry } from "@/lib/ai-admin-actions";
 import { AdminAi } from "@/components/admin-ai";
-import { getLlmAdmin } from "@/lib/llm-actions";
+import { getLlmAdmin, getConnectorAdmin } from "@/lib/llm-actions";
+import { AdminConnector } from "@/components/admin-connector";
 import { AdminLlm } from "@/components/admin-llm";
 
 export const metadata = { title: "AI models & routing" };
@@ -11,8 +12,9 @@ export const metadata = { title: "AI models & routing" };
 export default async function AdminAiPage() {
   const admin = await getAdminSession();
   if (!admin) redirect("/projects");
-  const [registry, llm] = await Promise.all([getAiRegistry(), getLlmAdmin()]);
+  const [registry, llm, connector] = await Promise.all([getAiRegistry(), getLlmAdmin(), getConnectorAdmin()]);
   if (!llm.ok) throw new Error(llm.error);
+  if (!connector.ok) throw new Error(connector.error);
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -26,6 +28,7 @@ export default async function AdminAiPage() {
         <Link href="/admin" className="text-sm text-muted-foreground hover:text-foreground">← Admin</Link>
       </div>
       <AdminLlm providers={llm.data} />
+      <AdminConnector c={connector.data} />
       <AdminAi registry={registry} />
     </div>
   );
