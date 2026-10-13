@@ -1,6 +1,6 @@
 # ClipWaltz — Phase C: outside video models, talking photo & GPU jobs on the user's computer
 
-**Status:** approved 2026-10-13 (decisions in §6) · C0 done (§7) · C1 built + dev-verified with a vendor mock (not deployed, no real keys yet) · C2/C3 next · builds on Phase A (outside writing models, live) and Phase B (ClipWaltz
+**Status:** approved 2026-10-13 (decisions in §6) · C0 done (§7) · C1 live 2026-10-13 · C2 designed (§8) · C3 next · builds on Phase A (outside writing models, live) and Phase B (ClipWaltz
 Connector, live). Every vendor fact below was checked on 2026-10-13 against the vendor's own docs/pricing pages (links in
 the appendix); anything not confirmed there is marked **unverified**.
 
@@ -110,6 +110,28 @@ TeaCache, umT5 text encoder on the CPU, model CPU offload; 81 frames = 3.24 s at
   5.x needs a hook to read the audio encoder's layer outputs; `pyloudnorm` missing from requirements.
 - **Implication:** talking photo on AISERVER is feasible for short clips (≤ 10 s ≈ 6–19 GPU-minutes); a resident service
   avoids the 2-min load; Real-ESRGAN (already on AISERVER) can upscale the 512×384 output. Longer clips → users' GPUs (C3).
+
+## 8. C2 design — talking photo on AISERVER (2026-10-13)
+
+**Measured (one RTX 3080 10 GB, EchoMimic v3-Flash, 8 steps, 512×384):** 81 frames (3.2 s) 6.8 GB / 122 s; **161 frames
+(6.4 s) 9.05 GB / 324 s**; 249 frames (10 s) **ran out of memory**. The Flash script renders one pass (no chunking), and
+cost grows faster than length — so clips longer than ~6 s need **chunked rendering** (≈ 3 s windows with a short overlap,
+like EchoMimic's non-Flash `partial_video_length` loop) at ≈ 38 GPU-s per video-s. For comparison, a built-in Wan
+image→video clip on prod takes a median **578 s for ~5.4 s ≈ 107 GPU-s per video-s** and costs 1 credit/s.
+
+**Design:**
+1. **AISERVER `clipwaltz-talking` service** (own venv from the spike, `127.0.0.1:8192`, systemd): EchoMimic v3-Flash kept
+   loaded with CPU offload, chunked rendering at 512×384, then Real-ESRGAN 2× (already on AISERVER) → e.g. 640×1152 for 9:16.
+2. **Wrapper** (`aiserver/wrapper/app.py`): new id `echomimic-talking-v1` with a non-ComfyUI branch; audio accepted by
+   `/inputs`; **GPU guard** — a talking job waits until GPU 1's ComfyUI queue is empty and, while it runs, new ComfyUI jobs
+   go to GPU 0 (EchoMimic + Wan on one 10 GB card would run out of memory).
+3. **Voice:** the script is spoken by Kokoro. It runs only on the AI box (localhost); recommended: install Kokoro inside
+   the talking service on AISERVER (same voices, CPU, Apache-2.0) instead of a linuxg1→AI-box tunnel.
+4. **App:** Waltz AI → **Talking photo**: pick a photo, type the script + voice (or upload audio), confirm "this is me /
+   I have their permission" (stored), output labelled AI-generated; job type `talking_photo` on the GPU queue.
+
+**Open for the owner:** price (recommended **1 credit/s**, same as built-in clips — it uses less GPU per second than Wan),
+max length (recommended **30 s** ≈ 20 GPU-minutes), voice route (recommended Kokoro on AISERVER).
 
 ## Appendix — sources (fetched 2026-10-13)
 
