@@ -42,6 +42,7 @@ ad4d0cb feat(projects): Show on the Community page checkbox in Video properties
   MuseTalk with MediaPipe landmarks/mask (licence swap, untested). Owner decisions 2026-10-13 (supersede earlier):
   name **Waltz Avatar**, fictional AI presenters + licensed actors, consent **automatic only** (no admin review).
   Spike in `~/presenter-spike` on AISERVER (no services; `echomimic_v3/run_spike.py` has CPU-T5 + device patches).
+  Spec mirrored to wiki: https://docs.phoenixtekk.com/en/ClipWaltz/waltz-avatar-spec (verified 200).
 - **Owner decisions pending:** add linuxg7's 98 GB unallocated VG space to `minio-lv` (recommended; 2nd virtual disk
   later); AISERVER reboot to clear the NVIDIA 595.91/595.99 NVML mismatch (CUDA works; nvidia-smi doesn't) +
   `apt-mark hold` NVIDIA packages.
