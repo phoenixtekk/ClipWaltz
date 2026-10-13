@@ -6,6 +6,15 @@
 // Pure functions: no DB, no storage. The caller (generation worker) loads inputs and saves the result.
 
 import { MOTION_LAYOUTS, OVER_MEDIA_LAYOUTS } from "./motion.mjs";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { llmText, llmErrorText } from "./llm.mjs";
+
+/**
+ * The outside model (Claude, ChatGPT, …) the current job should use, set by the generation worker around each job:
+ * llmScope.run({ target, onResult }, fn). Unset = the built-in Ollama model. If the outside model fails, the rest
+ * of the job falls back to the built-in model (the failure is reported through onResult).
+ */
+export const llmScope = new AsyncLocalStorage();
 
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://192.168.166.182:11434";
 // One model for both steps by default: the Ollama box is shared and evicts idle models, so a second
@@ -78,9 +87,12 @@ async function ollama(path, body, timeoutMs) {
 }
 
 /** First balanced {...} block in `text`, parsed. Throws if none parses. */
+// Bounded: at most 200 start positions over at most 200,000 characters, so a hostile or runaway reply (e.g. from a
+// user's own computer through the Connector) can't stall the shared worker — each start rescans to the end.
 export function extractJson(text) {
-  const t = String(text ?? "").replace(/```(?:json)?/gi, "");
-  for (let start = t.indexOf("{"); start !== -1; start = t.indexOf("{", start + 1)) {
+  const t = String(text ?? "").slice(0, 200_000).replace(/```(?:json)?/gi, "");
+  let tries = 0;
+  for (let start = t.indexOf("{"); start !== -1 && tries++ < 200; start = t.indexOf("{", start + 1)) {
     let depth = 0, inStr = false, esc = false;
     for (let i = start; i < t.length; i++) {
       const c = t[i];
@@ -105,9 +117,34 @@ export function extractJson(text) {
 // Budgets: qwen3-vl reasons before it answers even with think:false — a 3,000-token budget ran out mid-thought on a scene
 // rewrite (prod 2026-10-05: "no JSON object in model reply (eval 3000 tok, done: length)", 1 of 2 tries locally).
 export async function chatJson(model, content, images, { temperature = 0.3, numPredict = 8000, numCtx, timeoutMs = 300000 } = {}) {
-  const msg = { role: "user", content: `${content}
+  const prompt = `${content}
 
-Reply with ONLY the JSON object — no markdown, no commentary.`, ...(images?.length ? { images } : {}) };
+Reply with ONLY the JSON object — no markdown, no commentary.`;
+  const scope = llmScope.getStore();
+  if (scope?.target && !scope.failed) {
+    const t = scope.target;
+    const target = { ...t, model: images?.length ? t.visionModel : t.model };
+    try {
+      let lastErr;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const text = await llmText(target, prompt, images ?? [], { maxTokens: numPredict, timeoutMs, temperature, numCtx });
+        try {
+          const data = extractJson(text);
+          scope.onResult?.(null);
+          return { data, raw: { model: `${t.provider}/${target.model}` } };
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      throw lastErr;
+    } catch (e) {
+      scope.failed = true; // don't keep paying for a broken key / model for the rest of this job
+      const why = llmErrorText(e, t.apiKey);
+      console.warn(`[deck] ${t.provider}/${target.model} failed (${why}) — using the built-in model`);
+      scope.onResult?.(why);
+    }
+  }
+  const msg = { role: "user", content: prompt, ...(images?.length ? { images } : {}) };
   let last;
   for (let attempt = 0; attempt < 2; attempt++) {
     const j = await ollama(
@@ -376,7 +413,7 @@ export async function planStoryboard(brief, media, locked = []) {
   // Explainers get real footage: the model often suggests no shot (0 in 3 runs, 2026-10-05) — one focused call fills
   // the gap so every explainer has at least two.
   if (mode === "explainer") await ensureShots({ ...brief, mode }, plan.scenes).catch((e) => console.warn(`[deck] shots: ${e.message}`));
-  plan.stats = { model: TEXT_MODEL, ms: Date.now() - t0, promptTokens: j.prompt_eval_count, outTokens: j.eval_count };
+  plan.stats = { model: j?.model || TEXT_MODEL, ms: Date.now() - t0, promptTokens: j.prompt_eval_count, outTokens: j.eval_count };
   return plan;
 }
 

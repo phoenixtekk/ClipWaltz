@@ -26,6 +26,8 @@ const PUBLIC_PATHS = [
   /^\/api\/internal\/render-ready(?:\/|$)/, // worker callback (shared-secret gated)
   /^\/api\/internal\/retention(?:\/|$)/, // worker-triggered retention (shared-secret gated)
   /^\/api\/oauth\/microsoft\/callback(?:\/|$)/, // OneDrive.js picker redirect (SDK loader)
+  /^\/api\/connector\/(?:pair\/(?:start|poll)|hello|jobs\/next|jobs\/[^/]+\/result)$/, // ClipWaltz Connector (bearer-token / device-code gated)
+  /^\/connector\/[a-z0-9.-]+$/, // Connector program download (public/connector)
 ];
 
 export default function proxy(req: NextRequest) {

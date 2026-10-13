@@ -372,6 +372,34 @@
       "when": 1791420694823,
       "tag": "0052_render_leases",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1791915875713,
+      "tag": "0053_ai_models",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1791916446349,
+      "tag": "0054_ai_daily_limit",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1791917599079,
+      "tag": "0055_connector",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1791918393769,
+      "tag": "0056_connector_origin",
+      "breakpoints": true
     }
   ]
 }

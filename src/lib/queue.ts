@@ -9,6 +9,11 @@ const REDIS_URL = process.env.REDIS_URL ?? "redis://127.0.0.1:6379";
 /** Queue name shared by the app (producer) and the generation worker (consumer). */
 // Overridable for local dev (e.g. GENERATION_QUEUE=clipwaltz-generation-dev) so dev jobs never land on prod's queues.
 export const GENERATION_QUEUE = process.env.GENERATION_QUEUE || "clipwaltz-generation";
+/**
+ * Cloud video clips (Kling / Runway / MiniMax, Phase C1): their own queue so a clip waiting minutes on a vendor never
+ * holds one of the two GPU slots. Named after GENERATION_QUEUE, so a dev override keeps dev jobs off prod's queue.
+ */
+export const CLOUD_GENERATION_QUEUE = `${GENERATION_QUEUE}-cloud`;
 /** Export queue: transcode a chosen generation version to a final deliverable. */
 export const EXPORT_QUEUE = process.env.EXPORT_QUEUE || "clipwaltz-export";
 /** Enhance queue: ffmpeg post-process (interpolate/upscale) a version → a new enhanced version. */
@@ -52,6 +57,24 @@ export async function enqueueGeneration(
       removeOnFail: 5000,
       ...opts,
     },
+  );
+}
+
+let _cloudQueue: Queue<GenerationJobData> | null = null;
+export function cloudGenerationQueue(): Queue<GenerationJobData> {
+  if (!_cloudQueue) _cloudQueue = new Queue<GenerationJobData>(CLOUD_GENERATION_QUEUE, { connection: redis() });
+  return _cloudQueue;
+}
+
+/**
+ * Enqueue a cloud video clip. ONE attempt: a failed vendor job is never auto-resubmitted (it could be billed twice on
+ * ClipWaltz's key) — the user sees Retry, which re-checks the key, plan and price.
+ */
+export async function enqueueCloudGeneration(generationJobId: string, opts: JobsOptions = {}): Promise<void> {
+  await cloudGenerationQueue().add(
+    "generate",
+    { generationJobId },
+    { jobId: generationJobId, attempts: 1, removeOnComplete: 1000, removeOnFail: 5000, ...opts },
   );
 }
 
@@ -123,9 +146,21 @@ export function deckQueue(): Queue {
   return _deckQueue;
 }
 
-/** Enqueue a WaltzDeck job. `jobId` de-duplicates (e.g. one pending plan per project). */
+/**
+ * Enqueue a WaltzDeck job. `jobId` de-duplicates (e.g. one pending plan per project). The signed-in user who started
+ * it is recorded as `userId`: the worker runs the job with that person's AI model choice and keys (AI models), so an
+ * editor never spends the project owner's key.
+ */
 export async function enqueueDeck(job: DeckJob, jobId?: string): Promise<void> {
-  await deckQueue().add(job.name, job.data, {
+  let userId: string | null = "userId" in job.data ? job.data.userId : null;
+  if (!userId) {
+    try {
+      userId = await (await import("./auth")).getAuthUserId();
+    } catch {
+      userId = null; // outside a request (scripts): the worker falls back to the project owner
+    }
+  }
+  await deckQueue().add(job.name, { ...job.data, ...(userId ? { userId } : {}) }, {
     ...(jobId ? { jobId } : {}),
     attempts: 1,
     removeOnComplete: 500,

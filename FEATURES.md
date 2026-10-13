@@ -13,6 +13,83 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## AI models — Claude, ChatGPT, DeepSeek, Gemini or the built-in model writes your decks (2026-10-13)
+- **Admin (`/admin/ai` → Writing & planning models):** per provider — on/off, which plans (Free / Plus / Pro) may use it,
+  the model for writing and the model for looking at photos/frames, **ClipWaltz's own key** (tested before it's saved;
+  ClipWaltz pays the vendor) and/or **"Users can add their own key"** (they pay). Shows each provider's last failure /
+  last success and how many users saved a key.
+- **Users (`/account/ai`, user menu → AI models):** choose the model that writes for them — **Built-in (ClipWaltz AI)**
+  (default, self-hosted), a provider *included with your plan* (platform key) or *with your own key*. Own keys are tested
+  before saving, stored encrypted (AES-256-GCM, `TOKEN_ENC_KEY`), shown only as the last 4 characters; optional model
+  override; Test / Delete; last failure shown.
+- **What it drives:** every WaltzDeck AI step in the generation worker — plan, narration, suggested shots, scene rewrite,
+  Edit with AI chat, translate, campaign hooks, import summary and describing photos/clip frames. The job runs under
+  the choice of **the person who started it** (an editor never spends the owner's key; owner as fallback), re-checked per job (plan changes / admin switches apply to the next job). If the outside
+  model fails (bad key, quota, refusal, unreadable reply) the job **finishes on the built-in model** and the error is
+  shown to the user (own key) or admin (platform key).
+- **Guards (security review 2026-10-13):** daily limit per user on ClipWaltz's key (admin setting, default 30 jobs/day
+  UTC, then built-in), key tests capped at 5 per user per 10 min, vendor error text has the key stripped.
+- **Not yet routed (still built-in):** AutoWaltz smart-cut scoring + post text (render worker on the AI box) and the
+  Waltz match photo analysis. **No AI credits are charged** for outside-model writing yet (pricing = owner decision).
+- **Phase C (planned):** cloud video models and talking photo (incl. on the user's GPU through the Connector).
+
+## Cloud video models in Waltz AI — Kling, Runway, MiniMax (Phase C1, 2026-10-13)
+- **Generate tab → Model:** *ClipWaltz AI* (built-in Wan 2.2) or a cloud model offered on the user's plan — **Kling 3.0
+  (720p)**, **Runway Gen-4.5**, **Runway Gen-4 Turbo** (image→video only), **MiniMax H3-Max 480p / 768p**. Each chip shows
+  its price (`3 cr/s`) or *your key*. Lengths and shapes the model can't make are greyed out (e.g. Runway text→video: no
+  1:1; MiniMax: ≥ 5 s); the Quality cards hide (built-in only); Runway shows "Powered by Runway" (Runway's requirement).
+- **Who pays:** the user's own key (saved under Account → AI models → Video models) → **0 credits**, billed by the vendor;
+  otherwise ClipWaltz's key → **credits per second** set by the admin (defaults: Kling 3, Gen-4.5 4, Gen-4 Turbo 2,
+  MiniMax 480p 2 / 768p 3) and a **daily clip cap per user** (default 10). Owner decisions 2026-10-13.
+- **Admin (`/admin/ai` → Video models):** per vendor — on/off, plans, users' own keys allowed, clips per user per day,
+  credits per second per model (with the vendor's $/s and the $/s it earns on Plus/Pro, warning when below cost), offer
+  each model on/off, ClipWaltz's key (free "check" — a lookup of a task that doesn't exist; proves the key is accepted).
+- **Runtime:** cloud clips run on their own queue (`<GENERATION_QUEUE>-cloud`, 4 at a time) so they never hold a GPU slot;
+  **one attempt** (a failed vendor job is never resubmitted — the user sees Retry, credits refunded); poll every 10 s, 30 min
+  limit; Cancel calls Runway's cancel (Kling/MiniMax document none). The clip is stored like any version (watermark rules,
+  versions, Enhance/Export, WaltzDeck fill).
+- **Money guards (security review 2026-10-13):** a clip on ClipWaltz's key **can't be cancelled once it's being sent to the
+  vendor** (else cancel-and-refund would make free clips at ClipWaltz's cost); the daily cap is re-checked inside the
+  per-user credits lock (parallel requests can't overrun it) and counts failed clips that reached the vendor; the worker
+  never flips a cancelled job back to running. Own-key clips can still be cancelled.
+- **Verified on dev** against a local mock that speaks each vendor's documented API (no real keys yet): text→video (Kling,
+  MiniMax, Runway), image→video (Kling raw base64, Runway data URI), ClipWaltz key vs own key (15 vs 0 credits), vendor
+  failure → failed + refunded + not retried, cancel → Runway DELETE, daily cap, admin key check accept/reject.
+  **Not yet verified with real vendor keys** — first real clip per vendor still to do (Kling's base64 image format and
+  Runway Gen-4 Turbo's allowed lengths are undocumented).
+- Code: `worker/video/{catalog,cloud}.mjs`, `generation-worker.mjs` (`runCloud`, `storeResult`, cloud worker),
+  `src/lib/video-providers.ts`, `src/lib/video-provider-actions.ts`, `generation-actions.ts` (`createCloudJob`),
+  `src/components/{admin-video,video-key-settings}.tsx`, Generate panel. No migration (settings in `app_settings`
+  `video_providers`, user keys in `user_ai_keys`).
+
+## ClipWaltz Connector — AI on the user's own computer (Phase B, 2026-10-13)
+- **What:** `public/connector/clipwaltz-connector.mjs` (downloadable at `/connector/clipwaltz-connector.mjs`, Node 18+, no
+  dependencies). `pair` → shows a code + link; the signed-in user **types the code** at **/account/ai/connect**, sees which
+  computer is asking (name, system, Connector version, when, country/IP) and approves it → the program
+  saves a token in `~/.clipwaltz/connector.json`; `node clipwaltz-connector.mjs` then reports its Ollama models and
+  long-polls for jobs. Outbound HTTPS only (works behind any router); accepts only `llm.chat` jobs, only for models
+  installed there, only to the Ollama address set on that computer (`--ollama`).
+- **Users (`/account/ai`):** choice **"Your computer — Ollama via the ClipWaltz Connector"** + **Your computers** (online
+  dot, platform, version, model picker from the reported models, last result / error, Disconnect = token dead at once)
+  + "Connect a computer" steps with the download and a code box.
+- **Admin (`/admin/ai` → Users' own computers):** on/off per plan; shows computers connected / online. Free to ClipWaltz.
+- **Runtime:** `resolveLlm` picks the user's most recent online computer (seen < 90 s) with a model; `connectorRelay`
+  queues a `connector_jobs` row, waits ≤ 45 s for pickup and ≤ 5 min for the answer (the deck queue is shared), then
+  deletes the row; any failure → that job finishes on the built-in model and the error shows on the computer's card.
+- **Guards (security review 2026-10-13):** code never taken from a link + computer details before approval (device-flow
+  phishing, RFC 8628 §5.4); code checks 10 per user per 10 min; replies capped at 64 KB and `extractJson` bounded (a
+  hostile 1 MB reply now fails in ~80 ms instead of stalling the shared worker); one open long-poll per computer, polled
+  every 2 s; token file created owner-only; Ollama options clamped (`num_ctx` ≤ 131072, `num_predict` ≤ 32768).
+- **Verified on dev:** real pairing (type code → details → approve → token), text + image (photo frame) jobs answered by
+  Ollama through the relay, rows deleted, offline fallback after 45 s, a computer seen 2 min ago not offered, Disconnect →
+  the program is refused (exit 1), 11th code check in 10 min refused.
+- Code: `src/lib/connector.ts`, `src/app/api/connector/*`, `src/app/(app)/account/ai/connect`, `src/components/{computer-settings,admin-connector}.tsx`,
+  `worker/deck/llm.mjs` (`CONNECTOR_ID`, `connectorRelay`); migrations 0055 (`connectors`, `connector_pairings`, `connector_jobs`)
+  + 0056 (`connector_pairings.origin`).
+- Code: `worker/deck/llm.mjs` (catalog, adapters, `resolveLlm`), `planner.mjs` `llmScope` + `chatJson`, `jobs.mjs`
+  `withUserModel`, `src/lib/llm-actions.ts`, `src/components/{admin-llm,ai-model-settings}.tsx`; migration 0053
+  (`user_ai_keys`, `ai_prefs`) + 0054 (`ai_prefs.platform_day/platform_jobs`); admin settings in `app_settings` `llm_providers` / `llm_provider_status`.
+
 ## Logo reveal shows the whole name; rewrite fixes "cut off" text (2026-10-06)
 - **Bug (owner):** the animated logo reveal drew only the first 24 letters ("Streamlined Intune Repor"). Now the whole name
   shows (up to 80 characters), wrapping between words and shrinking to fit; letter timing scales so long names finish

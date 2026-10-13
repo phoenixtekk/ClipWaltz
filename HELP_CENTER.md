@@ -20,6 +20,39 @@ ships. It will also surface in-app at `/help`.
   exports are all deleted too (it can't be undone — download anything you want to keep first). A photo or
   video you also use in another project stays in that project.
 
+## Choosing the AI that writes for you (AI models)
+- Open the **account menu → AI models**. Pick **Built-in (ClipWaltz AI)** — included in every plan, and your media never
+  leaves ClipWaltz — or, when they're offered on your plan, **Claude**, **ChatGPT**, **DeepSeek** or **Gemini**.
+- **"Included with your plan"** uses ClipWaltz's account with that company. **"With your own key"** uses your account:
+  paste an API key from that company's developer site under **Your own API keys** → **Test & save**. ClipWaltz tests the
+  key first, stores it encrypted, and only ever shows its last 4 characters. That company bills you for what's used.
+- Your choice writes your WaltzDeck plans, scripts and voice lines, Edit with AI, scene rewrites, translations, campaign
+  hooks and imports, and describes your photos and clips. With an outside model, that text and still frames from your
+  photos and clips are sent to that company.
+- **Included with your plan** has a daily limit (shown on the option). After it, the built-in model writes for you until
+  the next day (UTC). Your own key has no ClipWaltz limit.
+- **Your own computer (free):** if it's offered on your plan, ClipWaltz can use the AI models on your own computer
+  through **Ollama**. Install Ollama and a model (for example `ollama pull qwen3:8b`) and Node.js 18 or newer, download
+  the **ClipWaltz Connector** from **AI models → Your computers**, run `node clipwaltz-connector.mjs pair`, open the page
+  it shows, **type the code from your screen**, check that the computer shown is yours, and click **Approve this
+  computer**. Never approve a code someone else sent you — that would connect their computer to your account. Then keep it running with
+  `node clipwaltz-connector.mjs` and pick **Your computer** above. Your text and photo frames go only to your computer.
+  If the computer is off or busy, the built-in model writes for you. **Disconnect** removes a computer at once.
+- **If it fails** (wrong key, no credit left, the service is down), your video is still made with the built-in model, and
+  the AI models page shows what went wrong. Use **Test** to check your key again, or **Delete** to remove it.
+
+## Cloud video models in Waltz AI
+- In **Waltz AI → Model**, pick **ClipWaltz AI** (our own model) or a cloud model offered on your plan — **Kling**,
+  **Runway** or **MiniMax**. Each shows what a second costs in AI credits, or **your key** if you added your own key for
+  that company under **account menu → AI models → Video models** (then ClipWaltz charges no credits; that company bills you).
+- Some models only make certain lengths or shapes — the ones they can't make are greyed out. Runway Gen-4 Turbo only works
+  from a photo.
+- Cloud clips usually take a few minutes. If the company can't make the clip (for example its content rules block it), the
+  clip fails, your credits come back, and **Retry** lets you try again. **Cancel** stops it.
+- There's a daily limit on clips made with ClipWaltz's account; your own key has no ClipWaltz limit.
+- A clip made with ClipWaltz's account can be cancelled only until it's sent to the video company; after that it finishes
+  and its credits are used. Clips made with your own key can be cancelled any time.
+
 ## Organising your projects (categories)
 - The **Projects** page has a list of **categories** on the left. Click **All projects**, **Uncategorized** or a
   category to show only those videos on the right. The page remembers your choice in its address, so you can bookmark it.

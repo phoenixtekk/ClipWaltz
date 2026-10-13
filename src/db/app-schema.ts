@@ -617,6 +617,91 @@ export const appSettings = pgTable("app_settings", {
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
 
+// Outside AI models for writing & planning (worker/deck/llm.mjs). Admin settings per provider live in app_settings
+// "llm_providers"; these hold each user's own API keys (AES-GCM, src/lib/cloud/crypto.ts) and their model choice.
+export const userAiKeys = pgTable(
+  "user_ai_keys",
+  {
+    id: text().primaryKey(),
+    userId: text().notNull().references(() => user.id, { onDelete: "cascade" }),
+    provider: text().notNull(), // anthropic | openai | deepseek | gemini
+    keyEnc: text().notNull(),
+    keyLast4: text().notNull(),
+    model: text(), // null = the admin's default model for this provider
+    lastError: text(),
+    lastErrorAt: timestamp({ withTimezone: true }),
+    lastUsedAt: timestamp({ withTimezone: true }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("user_ai_keys_user_provider").on(t.userId, t.provider)],
+);
+
+// ClipWaltz Connector (public/connector/clipwaltz-connector.mjs): a program on the user's own computer that runs AI jobs on
+// their local Ollama. It pairs with a one-time code, then pulls jobs over outbound HTTPS (works behind any router).
+export const connectors = pgTable(
+  "connectors",
+  {
+    id: text().primaryKey(),
+    userId: text().notNull().references(() => user.id, { onDelete: "cascade" }),
+    name: text().notNull(),
+    tokenHash: text().notNull(), // sha256 of the bearer token; the token itself is shown to the program once
+    platform: text(),
+    version: text(),
+    models: jsonb().notNull().default([]), // Ollama models the computer reported (names)
+    model: text(), // the model the user picked for writing on this computer
+    lastSeenAt: timestamp({ withTimezone: true }),
+    lastError: text(),
+    lastErrorAt: timestamp({ withTimezone: true }),
+    lastUsedAt: timestamp({ withTimezone: true }),
+    revokedAt: timestamp({ withTimezone: true }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("connectors_token_hash").on(t.tokenHash), index("connectors_user").on(t.userId)],
+);
+
+export const connectorPairings = pgTable("connector_pairings", {
+  id: text().primaryKey(),
+  deviceCodeHash: text().notNull().unique(),
+  userCode: text().notNull().unique(), // shown to the user, e.g. "KQ7M-4TZP"
+  name: text().notNull(),
+  platform: text(),
+  version: text(),
+  origin: text(), // where the pairing request came from ("US · 203.0.113.7"), shown before the user approves
+  approvedBy: text().references(() => user.id, { onDelete: "cascade" }),
+  connectorId: text(),
+  expiresAt: timestamp({ withTimezone: true }).notNull(),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+// One AI request relayed to a computer; the generation worker inserts it, the connector claims it and posts the result,
+// the worker reads it and deletes the row (payloads can hold photo frames, so nothing is kept).
+export const connectorJobs = pgTable(
+  "connector_jobs",
+  {
+    id: text().primaryKey(),
+    connectorId: text().notNull().references(() => connectors.id, { onDelete: "cascade" }),
+    kind: text().notNull(), // llm.chat
+    payload: jsonb().notNull(),
+    status: text().notNull().default("queued"), // queued | running | done | failed | expired
+    result: text(),
+    error: text(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp({ withTimezone: true }),
+    finishedAt: timestamp({ withTimezone: true }),
+  },
+  (t) => [index("connector_jobs_queue").on(t.connectorId, t.status, t.createdAt)],
+);
+
+export const aiPrefs = pgTable("ai_prefs", {
+  userId: text().primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  writingProvider: text().notNull().default("builtin"), // builtin | anthropic | openai | deepseek | gemini
+  source: text().notNull().default("platform"), // platform (ClipWaltz's key) | own (the user's key)
+  platformDay: text(), // UTC date (YYYY-MM-DD) of platformJobs — daily cap on ClipWaltz's key
+  platformJobs: integer().notNull().default(0),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
 // Saved Generate-tab settings per user. `isRecent` = the auto-saved last-used settings (one row per
 // user, CW-MVP-172); named rows are favourite presets (CW-MVP-173).
 export const generationPresets = pgTable("generation_presets", {
