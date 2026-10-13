@@ -1,6 +1,6 @@
 # ClipWaltz — Phase C: outside video models, talking photo & GPU jobs on the user's computer
 
-**Status:** plan for owner review · 2026-10-13 · builds on Phase A (outside writing models, live) and Phase B (ClipWaltz
+**Status:** approved 2026-10-13 (decisions in §6) · C0 in progress · builds on Phase A (outside writing models, live) and Phase B (ClipWaltz
 Connector, live). Every vendor fact below was checked on 2026-10-13 against the vendor's own docs/pricing pages (links in
 the appendix); anything not confirmed there is marked **unverified**.
 
@@ -82,6 +82,17 @@ Each step: security review, dev-verified end to end, docs + wiki, then deploy on
 4. **Talking photo of other people** — allow with the user's "I have permission" confirmation (recommended, matches your
    automatic-only consent), or own face only.
 5. **Order** — recommended **C0 now** (cheap, may remove the need for a vendor), then C1 → C2 → C3.
+
+## 6. Owner decisions (2026-10-13)
+
+1. **Cloud video:** **Kling, Runway and MiniMax** (C1).
+2. **Talking photo / lip-sync:** **own GPUs only for now** — no vendor. C2 becomes: talking photo on AISERVER if the C0
+   EchoMimic v3-Flash test fits 10 GB, and on users' GPUs through the Connector (C3). HeyGen / Sync not integrated.
+3. **Credits on ClipWaltz's key:** the proposed defaults (Kling 720p 3/s, Runway gen4_turbo 2/s, gen4.5 4/s; MiniMax
+   H3-Max 480P 2/s, 768P 3/s by the same cost rule; own key / own computer 0) — admin-editable.
+4. **Talking photo of other people:** allowed with the user's "this is me / I have their permission" confirmation, stored
+   with the job; outputs labelled AI-generated.
+5. **Order:** C0 → C1 → C2 → C3.
 
 ## Appendix — sources (fetched 2026-10-13)
 
