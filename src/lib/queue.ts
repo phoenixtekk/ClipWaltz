@@ -123,9 +123,21 @@ export function deckQueue(): Queue {
   return _deckQueue;
 }
 
-/** Enqueue a WaltzDeck job. `jobId` de-duplicates (e.g. one pending plan per project). */
+/**
+ * Enqueue a WaltzDeck job. `jobId` de-duplicates (e.g. one pending plan per project). The signed-in user who started
+ * it is recorded as `userId`: the worker runs the job with that person's AI model choice and keys (AI models), so an
+ * editor never spends the project owner's key.
+ */
 export async function enqueueDeck(job: DeckJob, jobId?: string): Promise<void> {
-  await deckQueue().add(job.name, job.data, {
+  let userId: string | null = "userId" in job.data ? job.data.userId : null;
+  if (!userId) {
+    try {
+      userId = await (await import("./auth")).getAuthUserId();
+    } catch {
+      userId = null; // outside a request (scripts): the worker falls back to the project owner
+    }
+  }
+  await deckQueue().add(job.name, { ...job.data, ...(userId ? { userId } : {}) }, {
     ...(jobId ? { jobId } : {}),
     attempts: 1,
     removeOnComplete: 500,

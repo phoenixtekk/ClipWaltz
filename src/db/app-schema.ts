@@ -617,6 +617,35 @@ export const appSettings = pgTable("app_settings", {
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
 
+// Outside AI models for writing & planning (worker/deck/llm.mjs). Admin settings per provider live in app_settings
+// "llm_providers"; these hold each user's own API keys (AES-GCM, src/lib/cloud/crypto.ts) and their model choice.
+export const userAiKeys = pgTable(
+  "user_ai_keys",
+  {
+    id: text().primaryKey(),
+    userId: text().notNull().references(() => user.id, { onDelete: "cascade" }),
+    provider: text().notNull(), // anthropic | openai | deepseek | gemini
+    keyEnc: text().notNull(),
+    keyLast4: text().notNull(),
+    model: text(), // null = the admin's default model for this provider
+    lastError: text(),
+    lastErrorAt: timestamp({ withTimezone: true }),
+    lastUsedAt: timestamp({ withTimezone: true }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("user_ai_keys_user_provider").on(t.userId, t.provider)],
+);
+
+export const aiPrefs = pgTable("ai_prefs", {
+  userId: text().primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  writingProvider: text().notNull().default("builtin"), // builtin | anthropic | openai | deepseek | gemini
+  source: text().notNull().default("platform"), // platform (ClipWaltz's key) | own (the user's key)
+  platformDay: text(), // UTC date (YYYY-MM-DD) of platformJobs — daily cap on ClipWaltz's key
+  platformJobs: integer().notNull().default(0),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
 // Saved Generate-tab settings per user. `isRecent` = the auto-saved last-used settings (one row per
 // user, CW-MVP-172); named rows are favourite presets (CW-MVP-173).
 export const generationPresets = pgTable("generation_presets", {

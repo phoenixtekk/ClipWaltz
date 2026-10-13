@@ -14,7 +14,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import IORedis from "ioredis";
 import { Worker } from "bullmq";
-import { describeMedia, planStoryboard, rewriteScene, writeHooks, translateDeck, editDeck, fixLayout, chatJson, VISION_MODEL, TEXT_MODEL, DESCRIBE_VERSION } from "./planner.mjs";
+import { describeMedia, planStoryboard, rewriteScene, writeHooks, translateDeck, editDeck, fixLayout, chatJson, llmScope, VISION_MODEL, TEXT_MODEL, DESCRIBE_VERSION } from "./planner.mjs";
+import { resolveLlm, noteLlmResult, llmErrorText } from "./llm.mjs";
 import { buildVariant, combinations, variantCode, snapshotLength, MAX_VARIANTS } from "./variants.mjs";
 import { brandFromSite } from "./brand-site.mjs";
 import { parsePptx, parsePdf, fetchPublic, readPage, sceneFromSlide, summarizeBrief, fallbackBrief } from "./importer.mjs";
@@ -569,9 +570,39 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
     }
   }
 
+  // Whose AI settings a job runs under: the user who started it (enqueueDeck adds userId), else the project owner.
+  async function ownerOf(name, d) {
+    if (d.userId) return d.userId;
+    if (d.projectId) return (await sql`select owner_id from projects where id = ${d.projectId}`)[0]?.owner_id;
+    if (d.sceneId) return (await sql`select p.owner_id from deck_scenes s join projects p on p.id = s.project_id where s.id = ${d.sceneId}`)[0]?.owner_id;
+    if (d.assetId) return (await sql`select p.owner_id from assets a join projects p on p.id = a.project_id where a.id = ${d.assetId}`)[0]?.owner_id;
+    if (d.campaignId) return (await sql`select p.owner_id from deck_campaigns c join projects p on p.id = c.project_id where c.id = ${d.campaignId}`)[0]?.owner_id;
+    return null;
+  }
+
+  // Runs one job with the owner's chosen outside model (AI models settings), or the built-in model when none is
+  // chosen / allowed / readable. A failed outside model falls back to the built-in one inside chatJson.
+  async function withUserModel(job, fn) {
+    let target = null;
+    try {
+      target = await resolveLlm(sql, await ownerOf(job.name, job.data ?? {}));
+    } catch (e) {
+      console.warn(`[deck] AI model settings unreadable for job ${job.id} (${llmErrorText(e)}) — using the built-in model`);
+    }
+    if (!target) return fn();
+    console.log(`[deck] job ${job.name} ${job.id} → ${target.provider}/${target.model} (${target.source} key)`);
+    let noted = false;
+    const onResult = (error) => {
+      if (noted && !error) return; // one success write per job is enough
+      noted = true;
+      noteLlmResult(sql, target, error);
+    };
+    return llmScope.run({ target, onResult }, fn);
+  }
+
   const w = new Worker(
     DECK_QUEUE,
-    async (job) => {
+    (job) => withUserModel(job, async () => {
       const d = job.data ?? {};
       if (job.name === "describe") await describe(d.assetId);
       else if (job.name === "plan") await plan(d.projectId);
@@ -582,7 +613,7 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
       else if (job.name === "brand_from_site") await brandSuggest(d.projectId, d.url);
       else if (job.name === "translate") await translate(d.projectId);
       else if (job.name === "chat") await chatEdit(d.projectId);
-    },
+    }),
     // One at a time: the Ollama box is shared, parallel calls only queue there and evict models.
     { connection: new IORedis(redisUrl, { maxRetriesPerRequest: null }), concurrency: 1, lockDuration: 30 * 60 * 1000 },
   );
