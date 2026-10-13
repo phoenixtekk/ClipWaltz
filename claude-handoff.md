@@ -49,7 +49,11 @@ ad4d0cb feat(projects): Show on the Community page checkbox in Video properties
   restart clipwaltz clipwaltz-gen-worker`; backup `/tmp/cw-pre-aimodels-src.tgz`. Verified: site 200, /account/ai +
   /admin/ai → sign-in, Help article live, deck worker up. Not exercised via the prod UI (no prod login) or a real key.
   When render scaling deploys, skip its "migrate 0052" step (already applied).
-- **ClipWaltz Connector (Phase B) — BUILT, NOT DEPLOYED (`1d3cd7a`):** user's own computer's Ollama for WaltzDeck writing
+- **ClipWaltz Connector — LIVE 2026-10-13** (deploy branch `deploy/ai-models-20261013` @ `3158dc9` = AI models + Connector on
+  live code): prod migrated 0055 + 0056 (57 rows), build exit 0, restart app + gen worker; backup
+  `/tmp/cw-pre-connector-src.tgz`. Verified: download 200, connector APIs 401/400 without credentials, connect page →
+  sign-in, workers up. Not exercised with a real pairing on prod (no prod login). Admin must switch on "Users' own computers".
+- **ClipWaltz Connector (Phase B) — details (`1d3cd7a`):** user's own computer's Ollama for WaltzDeck writing
   via `public/connector/clipwaltz-connector.mjs` (Node 18+). Dev-verified end to end (pairing with typed code + device
   details, text + image jobs via relay, offline fallback, disconnect, rate limits); security-reviewed (6 fixes). Deploy =
   migrate 0055 + 0056 + build + restart app AND gen worker (no new deps), on top of deploy branch
