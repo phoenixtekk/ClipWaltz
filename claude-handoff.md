@@ -43,6 +43,15 @@ ad4d0cb feat(projects): Show on the Community page checkbox in Video properties
   name **Waltz Avatar**, fictional AI presenters + licensed actors, consent **automatic only** (no admin review).
   Spike in `~/presenter-spike` on AISERVER (no services; `echomimic_v3/run_spike.py` has CPU-T5 + device patches).
   Spec mirrored to wiki: https://docs.phoenixtekk.com/en/ClipWaltz/waltz-avatar-spec (verified 200).
+- **AI models (BYO / outside LLMs) Phase A — BUILT, NOT DEPLOYED (`e9bdecc`, branch `claude/continue-previous-d94e47`):**
+  owner 2026-10-13 asked for admin-enabled outside models (Claude/ChatGPT/DeepSeek/Gemini + user's own Ollama) to help
+  talking photo + quality. Owner answers: use for writing & planning AND video; keys = platform + users' own; local link =
+  connector app; admin control = per provider per plan. Phase A (writing & planning) done: `/admin/ai` section,
+  `/account/ai`, `worker/deck/llm.mjs`, migrations 0053+0054; dev-verified (fake-key 401 paths, fallback to Ollama,
+  error recorded, plan gate, daily cap, test rate limit, owner lookups); security-reviewed (4 findings fixed). **Not tested
+  with a real vendor key** (none available). Deploy = `npm ci` + migrate 0053/0054 + build + restart app AND gen worker.
+  **Next:** Phase B connector app (user's Ollama/GPU behind NAT), Phase C cloud video + talking photo. No credits charged
+  for outside-model writing (owner pricing decision). Dev test login in worktree `.env.development.local` (gitignored).
 - **Owner decisions pending:** add linuxg7's 98 GB unallocated VG space to `minio-lv` (recommended; 2nd virtual disk
   later); AISERVER reboot to clear the NVIDIA 595.91/595.99 NVML mismatch (CUDA works; nvidia-smi doesn't) +
   `apt-mark hold` NVIDIA packages.
