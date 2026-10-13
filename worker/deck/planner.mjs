@@ -87,9 +87,12 @@ async function ollama(path, body, timeoutMs) {
 }
 
 /** First balanced {...} block in `text`, parsed. Throws if none parses. */
+// Bounded: at most 200 start positions over at most 200,000 characters, so a hostile or runaway reply (e.g. from a
+// user's own computer through the Connector) can't stall the shared worker — each start rescans to the end.
 export function extractJson(text) {
-  const t = String(text ?? "").replace(/```(?:json)?/gi, "");
-  for (let start = t.indexOf("{"); start !== -1; start = t.indexOf("{", start + 1)) {
+  const t = String(text ?? "").slice(0, 200_000).replace(/```(?:json)?/gi, "");
+  let tries = 0;
+  for (let start = t.indexOf("{"); start !== -1 && tries++ < 200; start = t.indexOf("{", start + 1)) {
     let depth = 0, inStr = false, esc = false;
     for (let i = start; i < t.length; i++) {
       const c = t[i];
@@ -124,7 +127,7 @@ Reply with ONLY the JSON object — no markdown, no commentary.`;
     try {
       let lastErr;
       for (let attempt = 0; attempt < 2; attempt++) {
-        const text = await llmText(target, prompt, images ?? [], { maxTokens: numPredict, timeoutMs, temperature });
+        const text = await llmText(target, prompt, images ?? [], { maxTokens: numPredict, timeoutMs, temperature, numCtx });
         try {
           const data = extractJson(text);
           scope.onResult?.(null);

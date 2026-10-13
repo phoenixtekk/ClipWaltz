@@ -588,7 +588,7 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
       console.warn(`[deck] AI model settings unreadable for job ${job.id} (${llmErrorText(e)}) — using the built-in model`);
     }
     if (!target) return fn();
-    console.log(`[deck] job ${job.name} ${job.id} → ${target.provider}/${target.model} (${target.source} key)`);
+    console.log(`[deck] job ${job.name} ${job.id} → ${target.provider}/${target.model} (${target.source === "computer" ? "user's computer" : `${target.source} key`})`);
     let noted = false;
     const onResult = (error) => {
       if (noted && !error) return; // one success write per job is enough

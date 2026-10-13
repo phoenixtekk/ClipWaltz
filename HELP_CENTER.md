@@ -31,6 +31,13 @@ ships. It will also surface in-app at `/help`.
   photos and clips are sent to that company.
 - **Included with your plan** has a daily limit (shown on the option). After it, the built-in model writes for you until
   the next day (UTC). Your own key has no ClipWaltz limit.
+- **Your own computer (free):** if it's offered on your plan, ClipWaltz can use the AI models on your own computer
+  through **Ollama**. Install Ollama and a model (for example `ollama pull qwen3:8b`) and Node.js 18 or newer, download
+  the **ClipWaltz Connector** from **AI models → Your computers**, run `node clipwaltz-connector.mjs pair`, open the page
+  it shows, **type the code from your screen**, check that the computer shown is yours, and click **Approve this
+  computer**. Never approve a code someone else sent you — that would connect their computer to your account. Then keep it running with
+  `node clipwaltz-connector.mjs` and pick **Your computer** above. Your text and photo frames go only to your computer.
+  If the computer is off or busy, the built-in model writes for you. **Disconnect** removes a computer at once.
 - **If it fails** (wrong key, no credit left, the service is down), your video is still made with the built-in model, and
   the AI models page shows what went wrong. Use **Test** to check your key again, or **Delete** to remove it.
 

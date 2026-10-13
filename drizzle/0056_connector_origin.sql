@@ -1,0 +1,1 @@
+ALTER TABLE "connector_pairings" ADD COLUMN "origin" text;
