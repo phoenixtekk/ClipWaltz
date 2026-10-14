@@ -13,7 +13,7 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
-## Video on your own GPU — ClipWaltz Connector 0.2 (Phase C3, 2026-10-14, dev-verified, not deployed)
+## Video on your own GPU — ClipWaltz Connector 0.2 (Phase C3, LIVE 2026-10-14)
 - **What:** users with an NVIDIA GPU make Waltz AI clips on their own computer for **0 credits**: **image → video**
   (Wan 2.2 TI2V-5B) and **talking photo** (EchoMimic v3 Flash, our own node pack). Same Connector program as writing on
   your computer; jobs go out as `connector_jobs` kind `comfy.run`, the Connector runs one of **two templates written in the

@@ -146,7 +146,7 @@ from **Kokoro installed on AISERVER** inside the talking service.
 - App: Generate tab → Talking photo (script + 15 Kokoro voices, or upload a recording), consent stored, AI label, credits
   settled to rendered seconds; migration 0057. Details in `FEATURES.md` / `ADMIN_DOCS.md`.
 
-## 9. C3 — video on the user's own GPU (built 2026-10-14, dev-verified, not deployed)
+## 9. C3 — video on the user's own GPU (built 2026-10-14, LIVE on prod 2026-10-14)
 
 **Done-when met:** a talking photo rendered on a user's own GPU end to end — the owner's workstation (Windows, RTX 3080
 10 GB, ComfyUI portable 0.40.0) as the "user's computer", paired to the dev app: 4.7 s clip in 61 s, 11.2 s in 175 s
@@ -172,7 +172,7 @@ spilled to RAM).
 pinned model downloads with sha256/git-blob checks + `weights_only=True`; `Object.hasOwn` for input names; orphan
 upload deleted; Connector accepts only UUID job ids and caps downloads while reading.
 
-**Not done / next:** deploy (migration 0058, app + gen worker, AISERVER wrapper/service already live); hosting the node
+**Deployed 2026-10-14** (deploy branch `deploy/c3-20261014`, migration 0058). **Not done / next:** hosting the node
 pack on GitHub (today a zip from clipwaltz.com); InfiniteTalk/24 GB template; talking-photo upscale for computer jobs.
 
 ## Appendix — sources (fetched 2026-10-13)
