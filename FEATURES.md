@@ -13,6 +13,34 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## Video on your own GPU — ClipWaltz Connector 0.2 (Phase C3, 2026-10-14, dev-verified, not deployed)
+- **What:** users with an NVIDIA GPU make Waltz AI clips on their own computer for **0 credits**: **image → video**
+  (Wan 2.2 TI2V-5B) and **talking photo** (EchoMimic v3 Flash, our own node pack). Same Connector program as writing on
+  your computer; jobs go out as `connector_jobs` kind `comfy.run`, the Connector runs one of **two templates written in the
+  program** on the user's local **ComfyUI** (the server only sends checked values + the job's photo/speech, never nodes or
+  code), and uploads the MP4 back.
+- **UI:** Waltz AI → From image → Model chip **"Your computer · <name> · free"**; Talking photo → **Render on: ClipWaltz /
+  Your computer** (quality picker hidden, free). Only computers that are online and report the template as ready appear.
+  **AI models → Your computers** shows each computer's GPU and "Image → video / Talking photo — ready" or what's missing,
+  plus setup steps (ComfyUI, the 3 Wan files, the node pack).
+- **ComfyUI-ClipWaltz node pack** (`comfyui-clipwaltz/`, served as `/connector/comfyui-clipwaltz.zip`): one node,
+  *ClipWaltz Talking Photo*, built from the AISERVER service's code (EchoMimic v3 @ 7e89489 vendored, Apache-2.0). The
+  fixed prompt's umT5 embeddings ship in the pack, so the 11 GB text encoder isn't needed (~12 GB of models via
+  `download_models.py`). Chosen by the owner 2026-10-14 because the public EchoMimic pack fails on a fresh ComfyUI
+  (mediapipe on Python 3.13, missing `.dist` module, unlisted `librosa` — upstream issue #168). Its `models` input reads
+  `ready` only when every file exists, which the Connector checks.
+- **Speech:** a typed script is spoken by Kokoro on AISERVER (wrapper `POST /tts`, CPU) and handed to the computer; an
+  uploaded recording is used as is. Label "AI-generated" + watermark as for any talking photo; no upscale (native size).
+- **Server routes (token-gated, only the computer running the job):** `GET …/jobs/:id/input/:name`,
+  `POST …/jobs/:id/output` (MP4 only, ≤ 50 MB), `POST …/jobs/:id/progress` (heartbeat; answers `cancelled`), `hello`
+  stores `gpu` + `comfy` (migration **0058**). Temporary objects (`connector/…`, `connector-in/…`) and job rows are
+  deleted when the job ends.
+- **Verified on dev (2026-10-14) on a Windows RTX 3080 10 GB, ComfyUI portable 0.40.0:** talking photo 4.7 s clip in
+  61 s and 11.2 s in 175 s (3 chunks, smooth seams, label + watermark), 0 credits; Cancel mid-render stops ComfyUI and the
+  job; retry stays on the computer; no temp objects left; progress from ComfyUI's step counter. Image → video: 5.0 s at 1280×736 / 24 fps in 616 s (v14), 0 credits. A Cancel mid-render no longer slows the next job (233 → 26 s/step after the node frees the card). Security review: 6 fixes (see ADMIN_DOCS).
+- **Fixed on the way:** the Connector's time limit (now ≥ 60 min — a home GPU is slow) and a full VAE decode that
+  overflowed a 10 GB desktop card (Windows spilled to RAM, 20+ min) → tiled decode.
+
 ## Talking photo in Waltz AI — a photo speaks your script (Phase C2, LIVE 2026-10-14)
 - **Generate tab → Talking photo** (4th mode, shown while the admin has it on): pick a project photo, then **type a script**
   (≤ 600 characters, spoken by one of the 15 Kokoro voices — US/UK English, Spanish, French, Italian, Portuguese — with

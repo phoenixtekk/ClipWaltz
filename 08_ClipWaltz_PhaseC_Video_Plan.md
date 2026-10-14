@@ -146,6 +146,35 @@ from **Kokoro installed on AISERVER** inside the talking service.
 - App: Generate tab → Talking photo (script + 15 Kokoro voices, or upload a recording), consent stored, AI label, credits
   settled to rendered seconds; migration 0057. Details in `FEATURES.md` / `ADMIN_DOCS.md`.
 
+## 9. C3 — video on the user's own GPU (built 2026-10-14, dev-verified, not deployed)
+
+**Done-when met:** a talking photo rendered on a user's own GPU end to end — the owner's workstation (Windows, RTX 3080
+10 GB, ComfyUI portable 0.40.0) as the "user's computer", paired to the dev app: 4.7 s clip in 61 s, 11.2 s in 175 s
+(3 chunks), stored as a version with label + watermark, 0 credits. Image → video (Wan 2.2 5B) also runs there.
+
+**Decisions on the way (owner 2026-10-14):**
+- The public EchoMimic node pack (smthemex/ComfyUI_EchoMimic) fails on a fresh ComfyUI — mediapipe on Python 3.13 has
+  no legacy API, a missing `.dist` module, `librosa` not listed (upstream issue #168, unanswered). → **Our own node pack
+  "ComfyUI-ClipWaltz"** built from the AISERVER service code (`comfyui-clipwaltz/`, `/connector/comfyui-clipwaltz.zip`).
+- InfiniteTalk (24 GB) not done — no 24 GB card to test on.
+
+**Design as built:** Connector 0.2 detects ComfyUI + GPU (`/system_stats`, `/object_info`) and reports per template
+ready/missing; two templates written in the Connector (`wan-i2v-v1`, `clipwaltz-talking-v1`); files in via token-gated
+`input/:name`, video out via `output` (MP4, ≤ 50 MB), progress/cancel via `progress`; typed scripts spoken by Kokoro on
+AISERVER (`/tts`); jobs on their own queue (`-computer`), max 2 active per user, max 5 computers per user.
+
+**Measured on the 10 GB desktop card:** talking ≈ 13–16 s of GPU per second of speech (precomputed prompt embeddings,
+no 11 GB text encoder; 4.7 s in 61 s, 11.2 s in 175 s) — vs AISERVER's 47, measured before its prompt cache; image → video sampling
+26 s/step (20 steps), and the full-frame VAE decode had to become tiled (full decode overflowed the card → Windows
+spilled to RAM).
+
+**Security review (2026-10-14), 6 fixes:** own queue + per-user caps (a computer job held a cloud-clip slot for hours);
+pinned model downloads with sha256/git-blob checks + `weights_only=True`; `Object.hasOwn` for input names; orphan
+upload deleted; Connector accepts only UUID job ids and caps downloads while reading.
+
+**Not done / next:** deploy (migration 0058, app + gen worker, AISERVER wrapper/service already live); hosting the node
+pack on GitHub (today a zip from clipwaltz.com); InfiniteTalk/24 GB template; talking-photo upscale for computer jobs.
+
 ## Appendix — sources (fetched 2026-10-13)
 
 Video: ai.google.dev/gemini-api/docs/veo · ai.google.dev/gemini-api/docs/pricing · ai.google.dev/gemini-api/terms ·

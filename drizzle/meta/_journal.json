@@ -407,6 +407,13 @@
       "when": 1791928214086,
       "tag": "0057_talking_photo",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1791994970578,
+      "tag": "0058_connector_gpu",
+      "breakpoints": true
     }
   ]
 }

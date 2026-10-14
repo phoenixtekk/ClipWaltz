@@ -4,7 +4,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
-import { enqueueGeneration, enqueueCloudGeneration, enqueueEnhance, generationQueue, cloudGenerationQueue, enhanceQueue } from "./queue";
+import { enqueueGeneration, enqueueCloudGeneration, enqueueComputerGeneration, enqueueEnhance, generationQueue, cloudGenerationQueue, computerGenerationQueue, enhanceQueue } from "./queue";
 import { deleteObject } from "./storage";
 import { userCanAccessProject } from "./workspace";
 import { friendlyJobError } from "./ai/errors";
@@ -18,6 +18,7 @@ import { BACKDROP_COST, enhanceCost, generationCost, remixCost } from "./credits
 import { shouldWatermark } from "./watermark";
 import { resolveCloud, assertDailyCap } from "./video-providers";
 import { talkingCost, talkingQualityOf, TALKING_WORKFLOW } from "./talking-photo";
+import { COMPUTER_TEMPLATES, computerFor } from "./computer-gpu";
 
 const PROMPT_MAX = 2000;
 
@@ -109,6 +110,8 @@ export type CreateGenerationInput = {
   settings?: GenerationSettings;
   /** A cloud video model (worker/video/catalog.mjs id, e.g. "kling-3.0") instead of the built-in one — Phase C1. */
   cloudModel?: string | null;
+  /** The user's own computer (Connector v0.2, local ComfyUI, Wan 2.2 5B image→video) — Phase C3, 0 credits. */
+  computerId?: string | null;
 };
 
 /** The app's three shapes from a width/height pair (cloud models take a ratio, not pixels). */
@@ -164,6 +167,7 @@ async function createGenerationJobImpl(input: CreateGenerationInput): Promise<st
   const quality: Quality = QUALITIES.includes(input.quality as Quality) ? (input.quality as Quality) : "standard";
   const motion = MOTION_PHRASE[input.motion ?? ""] !== undefined ? input.motion! : "balanced";
   if (input.cloudModel) return createCloudJob(userId, proj.workspaceId ?? null, input, motion);
+  if (input.computerId) return createComputerJob(userId, proj.workspaceId ?? null, input, motion);
   const route = await routeOrUserError(input.jobType, quality);
   // CW-MVP-051: only lengths the routed workflow is validated for.
   if (input.durationSec != null && !input.deckBackdrop) {
@@ -271,6 +275,57 @@ async function createCloudJob(userId: string, workspaceId: string | null, input:
   });
   });
   await enqueueOrRefund(id, () => enqueueCloudGeneration(id, { priority: bullPriority(priority) }));
+  if (input.settings) await rememberRecentSettings(userId, input.settings).catch(() => {});
+  revalidatePath(`/projects/${input.projectId}/edit`);
+  return id;
+}
+
+/**
+ * Waltz AI on the user's own computer (Phase C3): image→video with the Connector's Wan 2.2 5B template on their ComfyUI.
+ * 0 credits; one attempt on its own queue (it holds no ClipWaltz GPU). The worker runs it via runComputer.
+ */
+async function createComputerJob(userId: string, workspaceId: string | null, input: CreateGenerationInput, motion: string): Promise<string> {
+  if (input.deckBackdrop) throw new Error("AI backdrops use the built-in model");
+  if (input.jobType !== "image_to_video") throw new Error("Your computer makes clips from a photo — pick From image");
+  const c = await computerFor(userId, input.computerId!, COMPUTER_TEMPLATES.i2v);
+  const durationSec = Math.min(6, Math.max(1, input.durationSec ?? 5));
+  const priority = await priorityFor(userId);
+  const watermark = await shouldWatermark(userId);
+  const id = randomUUID();
+  await db.insert(schema.generationJobs).values({
+    id,
+    credits: 0,
+    projectId: input.projectId,
+    sceneId: input.sceneId ?? null,
+    workspaceId,
+    requestedBy: userId,
+    jobType: input.jobType,
+    status: "queued",
+    routingProfile: null,
+    modelName: "wan",
+    workflowName: `computer:${COMPUTER_TEMPLATES.i2v}`,
+    workflowVersion: null,
+    prompt: withMotion(input.prompt, motion),
+    negativePrompt: input.negativePrompt?.trim() || null,
+    requestJson: {
+      workflow: `computer:${COMPUTER_TEMPLATES.i2v}`,
+      quality: "standard",
+      computer: { connectorId: c.id, template: COMPUTER_TEMPLATES.i2v, name: c.name },
+      sourceAssetId: input.sourceAssetId ?? null,
+      width: input.width ?? null,
+      height: input.height ?? null,
+      durationSec,
+      motion,
+      seed: validSeed(input.seed),
+      style: input.style ?? null,
+      camera: input.camera ?? null,
+      userPrompt: input.userPrompt?.slice(0, PROMPT_MAX) ?? null,
+      watermark,
+      ...(input.deckFill ? { deckFill: input.deckFill } : {}),
+    },
+    priority,
+  });
+  await enqueueOrRefund(id, () => enqueueComputerGeneration(id, { priority: bullPriority(priority) }));
   if (input.settings) await rememberRecentSettings(userId, input.settings).catch(() => {});
   revalidatePath(`/projects/${input.projectId}/edit`);
   return id;
@@ -401,7 +456,20 @@ async function requeueGenerationCopy(
   // A cloud clip stays on its cloud model; key, plan, length and price are checked again now (Phase C1).
   let cloudCredits: number | null = null;
   const cloud = requestJson.cloud as { model?: string } | undefined;
-  if ((job.jobType === "text_to_video" || job.jobType === "image_to_video") && cloud?.model) {
+  const computer = requestJson.computer as { connectorId?: string; template?: string } | undefined;
+  if (computer?.connectorId) {
+    const tpl = job.jobType === "talking_photo" ? COMPUTER_TEMPLATES.talking : COMPUTER_TEMPLATES.i2v;
+    const c = await computerFor(userId, computer.connectorId, tpl);
+    requestJson = { ...requestJson, computer: { connectorId: c.id, template: tpl, name: c.name } };
+    cloudCredits = 0;
+  }
+  if (computer?.connectorId) {
+    if (job.jobType === "talking_photo") {
+      const consent = requestJson.consent as { userId?: string } | undefined;
+      if (consent?.userId !== userId) throw new Error("Make a new talking photo to confirm you have permission for this face");
+      requestJson = { ...requestJson, consent: { ...consent, confirmed: true, at: new Date().toISOString(), userId } };
+    }
+  } else if ((job.jobType === "text_to_video" || job.jobType === "image_to_video") && cloud?.model) {
     const c = await resolveCloud(userId, cloud.model, job.jobType, Number(requestJson.durationSec) || 5, aspectOf(requestJson.width, requestJson.height));
     routing = { routingProfile: null, modelName: c.model.id, workflowName: `cloud:${c.model.id}`, workflowVersion: null };
     requestJson = { ...requestJson, workflow: `cloud:${c.model.id}`, cloud: { model: c.model.id, provider: c.model.provider, source: c.source } };
@@ -438,7 +506,7 @@ async function requeueGenerationCopy(
   // stored with 0, which would make every regenerate / retry of them free).
   const credits = cloudCredits ?? (await costOfJob(job.jobType, requestJson));
   const id = randomUUID();
-  const cloudCap = cloudCredits !== null && (requestJson.cloud as { source?: string; provider?: string }).source === "platform"
+  const cloudCap = cloudCredits !== null && (requestJson.cloud as { source?: string; provider?: string } | undefined)?.source === "platform"
     ? ((requestJson.cloud as { provider: string }).provider as "kling" | "runway" | "minimax")
     : null;
   await spendCredits(userId, credits, async (tx) => {
@@ -461,6 +529,7 @@ async function requeueGenerationCopy(
   });
   });
   if (job.jobType === "enhancement" || job.jobType === "montage" || job.jobType === "remix") await enqueueOrRefund(id, () => enqueueEnhance(id, { priority: bullPriority(job.priority) }));
+  else if (computer?.connectorId) await enqueueOrRefund(id, () => enqueueComputerGeneration(id, { priority: bullPriority(job.priority) }));
   else if (cloudCredits !== null) await enqueueOrRefund(id, () => enqueueCloudGeneration(id, { priority: bullPriority(job.priority) }));
   else await enqueueOrRefund(id, () => enqueueGeneration(id, { priority: bullPriority(job.priority) }));
   return id;
@@ -755,6 +824,7 @@ async function cancelGenerationJobImpl(jobId: string): Promise<void> {
   // storyboards run on the enhance queue, generations on the generation queue.
   const queue = row.jobType === "enhancement" || row.jobType === "montage" || row.jobType === "remix"
     ? enhanceQueue()
+    : (row.requestJson as { computer?: unknown } | null)?.computer ? computerGenerationQueue()
     : (row.requestJson as { cloud?: unknown } | null)?.cloud ? cloudGenerationQueue() : generationQueue();
   await queue.remove(jobId).catch(() => {});
   revalidatePath(`/projects/${row.projectId}/edit`);

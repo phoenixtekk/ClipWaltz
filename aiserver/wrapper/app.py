@@ -49,7 +49,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -561,6 +561,25 @@ def poll_talking(job_id: str) -> None:
         if st["status"] in ("failed", "cancelled"):
             _finish_job(job_id, st["status"], error=st.get("error"))
             return
+
+
+class TtsRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=3000)
+    voice: str = Field("af_heart", max_length=40)
+    speed: float = Field(1.0, ge=0.7, le=1.4)
+    max_seconds: float = Field(30.0, gt=0, le=30.0)
+
+
+@app.post("/tts")
+def tts(req: TtsRequest, _: None = Depends(require_token)) -> Response:
+    """Kokoro speech (WAV) from the talking service — for talking photos rendered on a user's own computer."""
+    try:
+        r = httpx.post(f"{TALKING_URL}/tts", json=req.model_dump(), headers=_talk_headers(), timeout=180)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"talking service unreachable: {exc}")
+    if r.status_code != 200:
+        raise HTTPException(status_code=502 if r.status_code >= 500 else 400, detail=f"tts: {r.text[:300]}")
+    return Response(content=r.content, media_type="audio/wav")
 
 
 @app.get("/jobs/{job_id}")

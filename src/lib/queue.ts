@@ -78,6 +78,22 @@ export async function enqueueCloudGeneration(generationJobId: string, opts: Jobs
   );
 }
 
+/** Video on the user's own computer (Phase C3): waits on their GPU, so its own queue — never a cloud-clip slot. */
+export const COMPUTER_GENERATION_QUEUE = `${GENERATION_QUEUE}-computer`;
+let _computerQueue: Queue<GenerationJobData> | null = null;
+export function computerGenerationQueue(): Queue<GenerationJobData> {
+  if (!_computerQueue) _computerQueue = new Queue<GenerationJobData>(COMPUTER_GENERATION_QUEUE, { connection: redis() });
+  return _computerQueue;
+}
+/** One attempt (a home computer that failed would fail again; the user sees Retry). */
+export async function enqueueComputerGeneration(generationJobId: string, opts: JobsOptions = {}): Promise<void> {
+  await computerGenerationQueue().add(
+    "generate",
+    { generationJobId },
+    { jobId: generationJobId, attempts: 1, removeOnComplete: 1000, removeOnFail: 5000, ...opts },
+  );
+}
+
 let _exportQueue: Queue<ExportJobData> | null = null;
 export function exportQueue(): Queue<ExportJobData> {
   if (!_exportQueue) {

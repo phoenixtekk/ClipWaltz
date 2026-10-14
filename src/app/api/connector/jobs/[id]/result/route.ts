@@ -15,6 +15,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const body = (await req.json().catch(() => ({}))) as { ok?: unknown; text?: unknown; error?: unknown };
   const ok = body.ok === true && typeof body.text === "string";
   if (ok && (body.text as string).length > MAX_TEXT) return Response.json({ error: "reply too large" }, { status: 413 });
+  // A GPU job (comfy.run) only counts as done once its video was uploaded (POST …/output).
+  const [cur] = await db
+    .select({ kind: schema.connectorJobs.kind, outputKey: schema.connectorJobs.outputKey })
+    .from(schema.connectorJobs)
+    .where(and(eq(schema.connectorJobs.id, id), eq(schema.connectorJobs.connectorId, c.id)));
+  if (ok && cur?.kind === "comfy.run" && !cur.outputKey) return Response.json({ error: "upload the video first" }, { status: 409 });
   const [row] = await db
     .update(schema.connectorJobs)
     .set(

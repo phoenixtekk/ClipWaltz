@@ -183,6 +183,7 @@ async function processJob(genJobId) {
   await setStatus(genJobId, { status: "preparing", progress: 5, started_at: new Date() });
 
   const videoBytes = req.cloud ? await runCloud(j, req, genJobId)
+    : req.computer ? await runComputer(j, req, genJobId)
     : j.job_type === "talking_photo" ? await runTalking(j, req, genJobId)
     : await runAiserver(j, req, genJobId, workflow);
   if (!videoBytes) return; // cancelled
@@ -196,6 +197,114 @@ async function processJob(genJobId) {
 const TALKING_TIMEOUT_MS = Number(process.env.GEN_TALKING_TIMEOUT_MS ?? 60 * 60 * 1000);
 const LABEL_FONTS = [process.env.AI_LABEL_FONT, "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
   "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "C:/Windows/Fonts/arialbd.ttf"].filter(Boolean);
+
+// ─── The user's own computer (Phase C3): ClipWaltz Connector v0.2 + local ComfyUI ───────────────────────────────
+// The job goes out as a connector_jobs row (kind comfy.run): the template id + checked values in `payload`, the photo /
+// speech as MinIO keys in `inputs` (the Connector downloads them by name, never sees the keys). The Connector uploads the
+// video (connector_jobs.output_key); this copies it into the project like any version and removes the temporaries.
+// 0 credits. No AISERVER GPU is used — a typed script is spoken by Kokoro on AISERVER (CPU, a few seconds).
+const COMPUTER_CLAIM_MS = 3 * 60_000; // the Connector long-polls every ≤ 25 s; longer means it isn't running
+const COMPUTER_SILENT_MS = 5 * 60_000; // a running job reports progress every 15 s
+const COMPUTER_TIMEOUT_MS = Number(process.env.GEN_COMPUTER_TIMEOUT_MS ?? 3 * 60 * 60 * 1000);
+// Talking sizes on a home GPU (multiples of 16): the pixel budget ClipWaltz's own service renders (512×384 → 320×576,
+// 7.7 GB peak on a headless 3080), with 97-frame chunks for headroom on a card that also drives a desktop.
+const TALK_SIZES = { "9:16": [320, 576], "1:1": [448, 448], "16:9": [576, 320] };
+
+async function runComputer(j, req, genJobId) {
+  const { connectorId, template } = req.computer;
+  const tmp = `connector-in/${genJobId}`;
+  const inputs = {};
+  const [a] = await sql`select storage_key, converted_key, width, height from assets where id = ${req.sourceAssetId}`;
+  if (!a) throw new Error("source photo not found");
+  const photoKey = a.converted_key ?? a.storage_key;
+  const ext = (photoKey.split(".").pop() || "").toLowerCase();
+  inputs.photo = { key: photoKey, mime: ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg" };
+  const seed = Number.isSafeInteger(req.seed) ? req.seed : randomInt(0, 2 ** 32);
+  if (seed !== req.seed) await sql`update generation_jobs set request_json = ${sql.json({ ...req, seed })} where id = ${genJobId}`;
+
+  let payload, expectSec;
+  if (template === "clipwaltz-talking-v1") {
+    let speechSec;
+    if (req.audioKey) {
+      inputs.speech = { key: req.audioKey, mime: "audio/mp4" };
+      speechSec = Number(/-(\d+)ms\.m4a$/.exec(req.audioKey)?.[1] ?? 0) / 1000;
+    } else {
+      // Kokoro on AISERVER (the user's computer has no TTS); the WAV goes to MinIO for the Connector to fetch.
+      const r = await fetch(`${AISERVER_URL}/tts`, {
+        method: "POST", headers: { ...aiHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ text: req.script, voice: req.voice ?? "af_heart", speed: req.speed ?? 1, max_seconds: 30 }),
+      });
+      if (!r.ok) throw new Error(`voice: ${r.status} ${(await r.text()).slice(0, 200)}`);
+      const wav = Buffer.from(await r.arrayBuffer());
+      await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: `${tmp}/speech.wav`, Body: wav, ContentType: "audio/wav" }));
+      inputs.speech = { key: `${tmp}/speech.wav`, mime: "audio/wav" };
+      speechSec = estimateWavSeconds(wav);
+    }
+    const aspect = req.aspect && TALK_SIZES[req.aspect] ? req.aspect
+      : a.width && a.height ? (Math.abs(a.width / a.height - 1) < 0.15 ? "1:1" : a.width > a.height ? "16:9" : "9:16") : "9:16";
+    const [width, height] = TALK_SIZES[aspect];
+    payload = { template, inputs: { width, height, seed, chunkFrames: 97, maxSeconds: Math.min(30, Math.max(1, Math.ceil(speechSec + 0.5))) } };
+    expectSec = Math.round(speechSec * 60); // a 10 GB card: roughly a minute per second of speech
+  } else if (template === "wan-i2v-v1") {
+    const w = Math.round((req.width ?? 704) / 32) * 32, h = Math.round((req.height ?? 480) / 32) * 32;
+    payload = { template, inputs: { prompt: j.prompt ?? "", negativePrompt: j.negative_prompt ?? "", width: w, height: h, length: framesForSeconds(req.durationSec ?? 5), seed, steps: req.steps ?? 20 } };
+    expectSec = 900; // 5 s at 704×480 on a desktop RTX 3080: sampling alone took 14 min (2026-10-14)
+  } else {
+    throw new Error(`unknown computer template ${template}`);
+  }
+  payload.expectSec = expectSec;
+
+  const cid = randomUUID();
+  await sql`insert into connector_jobs (id, connector_id, kind, payload, inputs) values (${cid}, ${connectorId}, 'comfy.run', ${sql.json(payload)}, ${sql.json(inputs)})`;
+  await setStatus(genJobId, { status: "uploading_to_ai_node", progress: 10 });
+  console.log(`[gen] ${genJobId} → computer ${connectorId.slice(0, 8)} (${template})`);
+  const t0 = Date.now();
+  let outputKey = null;
+  try {
+    for (;;) {
+      await new Promise((r) => setTimeout(r, POLL_MS));
+      const [cur] = await sql`select status from generation_jobs where id = ${genJobId}`;
+      if (cur?.status === "cancelled" || cur?.status === "retried") {
+        // The Connector learns it from its next progress call (the row is no longer "running") and stops ComfyUI.
+        await sql`update connector_jobs set status = 'expired', finished_at = now() where id = ${cid} and status in ('queued', 'running')`;
+        console.log("[gen] cancelled", genJobId);
+        return null;
+      }
+      const [cj] = await sql`select cj.status, cj.progress, cj.error, cj.output_key, cj.started_at, c.last_seen_at
+        from connector_jobs cj join connectors c on c.id = cj.connector_id where cj.id = ${cid}`;
+      if (!cj) throw new Error("the job for your computer disappeared");
+      if (cj.status === "done") { outputKey = cj.output_key; break; }
+      if (cj.status === "failed") throw new Error(`your computer: ${cj.error ?? "failed"}`);
+      if (cj.status === "queued" && Date.now() - t0 > COMPUTER_CLAIM_MS) throw new Error("your computer didn't pick up the job — is the ClipWaltz Connector running?");
+      if (cj.status === "running" && cj.last_seen_at && Date.now() - new Date(cj.last_seen_at).getTime() > COMPUTER_SILENT_MS) {
+        throw new Error("lost contact with your computer");
+      }
+      if (Date.now() - t0 > COMPUTER_TIMEOUT_MS) throw new Error("your computer took too long");
+      if (cj.status === "running") await setStatus(genJobId, { status: "generating", progress: 15 + Math.round((cj.progress ?? 0) * 0.65) });
+    }
+    if (!outputKey) throw new Error("your computer finished without a video");
+    await setStatus(genJobId, { status: "uploading_output", progress: 85 });
+    const bytes = await getBytes(outputKey);
+    await sql`update connectors set last_used_at = now(), last_error = null where id = ${connectorId}`;
+    return j.job_type === "talking_photo" ? finishTalking(bytes, null, req.aiLabel !== false) : bytes;
+  } catch (e) {
+    await sql`update connectors set last_error = ${String(e?.message ?? e).slice(0, 300)}, last_error_at = now() where id = ${connectorId}`.catch(() => {});
+    await sql`update connector_jobs set status = 'expired', finished_at = now() where id = ${cid} and status in ('queued', 'running')`.catch(() => {});
+    throw e;
+  } finally {
+    // Nothing kept: the job row, its uploaded video and the speech we made.
+    const [row] = await sql`delete from connector_jobs where id = ${cid} returning output_key`.catch(() => []);
+    for (const key of [row?.output_key, inputs.speech?.key?.startsWith(tmp) ? inputs.speech.key : null].filter(Boolean)) {
+      await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key })).catch(() => {});
+    }
+  }
+}
+
+/** Seconds of a PCM WAV from its header (fallback when ffprobe can't read it). */
+function estimateWavSeconds(wav) {
+  const rate = wav.readUInt32LE(28); // byte rate
+  return rate ? (wav.length - 44) / rate : 5;
+}
 
 async function runTalking(j, req, genJobId) {
   const [a] = await sql`select storage_key, converted_key from assets where id = ${req.sourceAssetId}`;
@@ -625,6 +734,20 @@ cloudWorker.on("failed", async (job, err) => {
   }
 });
 console.log(`[gen] cloud video worker up (queue=${CLOUD_GENERATION_QUEUE})`);
+
+// Video on users' own computers (Phase C3): a job only polls Postgres while their GPU works (minutes to hours), so it
+// has its own queue — it must never hold one of the 4 cloud-clip slots. The app caps active jobs per user (2).
+const COMPUTER_GENERATION_QUEUE = `${GENERATION_QUEUE}-computer`;
+const computerWorker = new Worker(
+  COMPUTER_GENERATION_QUEUE,
+  async (job) => { await processJob(job.data.generationJobId); },
+  { connection, concurrency: Number(process.env.GEN_COMPUTER_CONCURRENCY ?? 20), lockDuration: 5 * 60 * 1000 },
+);
+computerWorker.on("failed", async (job, err) => {
+  console.error(`[gen] computer job ${job?.id} failed:`, err?.message ?? err);
+  if (job?.data?.generationJobId) await markAttemptFailed(job, job.data.generationJobId, err).catch(() => {});
+});
+console.log(`[gen] computer video worker up (queue=${COMPUTER_GENERATION_QUEUE})`);
 
 // ─── Export worker: transcode a generated version to a final deliverable ─────────
 // Short-clip ffmpeg on linuxg1 (ffmpeg already installed; this is not a heavy assembler render).

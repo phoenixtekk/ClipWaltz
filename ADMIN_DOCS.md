@@ -180,6 +180,37 @@ www.clipwaltz.com. Verified 2026-09-29 against a local `next build` + `next star
   first failure a job shows `queued` again (error kept); only the last failure sets `failed`. A
   retry atomically marks the old job `retried` (so it can't be retried twice) and creates a new job.
 
+## Video on users' own GPUs — Connector 0.2 (Phase C3, 2026-10-14)
+
+**On/off:** the same switch as writing on users' computers — `/admin/ai` → **Users' own computers** (enabled + plans,
+`app_settings.llm_providers.connector`). Checked when a job is created and again on Retry/Regenerate. Always 0 credits.
+
+**Flow:** app (`createComputerJob` / `createTalkingPhoto` with `computerId`) → generation job with
+`request_json.computer = { connectorId, template, name }` on the **cloud queue** (`<GENERATION_QUEUE>-cloud`, one
+attempt, no ClipWaltz GPU slot) → worker `runComputer`: inserts `connector_jobs` (`kind = comfy.run`, `payload` =
+template id + values, `inputs` = `{ name: { key, mime } }` server-only) → the Connector claims it, downloads inputs, runs
+the template on local ComfyUI, uploads the MP4 (`connector/<connectorId>/<jobId>.mp4`), posts `result` → worker copies
+it into the project (talking: AI label), deletes the row + temp objects.
+- Timeouts: unclaimed 3 min ("is the Connector running?"), no progress ping 5 min ("lost contact"), total
+  `GEN_COMPUTER_TIMEOUT_MS` (3 h). Cancel → row `expired` → the Connector's next progress ping gets `cancelled` and it
+  interrupts only its own ComfyUI prompt.
+- Templates (in `public/connector/clipwaltz-connector.mjs`; ids must match `src/lib/computer-gpu.ts`):
+  `wan-i2v-v1` (core nodes, Wan 2.2 TI2V-5B fp8, tiled VAE decode) and `clipwaltz-talking-v1` (our node pack).
+  The Connector reports per template `ready` or what's `missing` (node types, model files, < 8 GB VRAM) in `hello` →
+  `connectors.comfy`; `connectors.gpu` from ComfyUI `/system_stats`.
+- Speech for talking jobs: AISERVER wrapper `POST /tts` (Kokoro in `clipwaltz-talking`, CPU), stored at
+  `connector-in/<genJobId>/speech.wav` for the job's duration.
+- **Node pack:** source `comfyui-clipwaltz/`; after any change run `python scripts/build-comfyui-pack.py` →
+  `public/connector/comfyui-clipwaltz.zip` (deterministic). Precomputed prompt embeddings
+  (`prompt_embeds.safetensors`) were made with the service's umT5 (prompt "A person is speaking." + the negative prompt) —
+  regenerate them if either text changes.
+- **Limits (security review 2026-10-14):** own queue `<GENERATION_QUEUE>-computer` (`GEN_COMPUTER_CONCURRENCY`,
+  default 20 — jobs only poll Postgres), at most **2 active computer jobs per user** and **5 computers per user**; the
+  node pack's `download_models.py` pins Hugging Face commits and checks sha256 / git-blob hashes; vendored `torch.load`
+  uses `weights_only=True`; the Connector accepts only UUID job ids and caps downloads while reading.
+- Test machine used for C3: the owner's workstation, `G:\ClipWaltz-test-comfy` (ComfyUI portable 0.40.0, RTX 3080),
+  Connector config in `G:\ClipWaltz-test-comfy\connector-home` (paired to the **dev** app only).
+
 ## Talking photo (Phase C2, 2026-10-13)
 
 **On/off:** `/admin/ai` → Models **echomimic-v3** + Workflows **echomimic-talking-v1** (task `talking_photo`, seeded on by

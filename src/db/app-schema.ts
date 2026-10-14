@@ -649,6 +649,8 @@ export const connectors = pgTable(
     platform: text(),
     version: text(),
     models: jsonb().notNull().default([]), // Ollama models the computer reported (names)
+    gpu: jsonb(), // Connector v0.2: { name, vramMb, driver } of the computer's NVIDIA GPU (null = none / not reported)
+    comfy: jsonb(), // Connector v0.2: { ok, version, error, ready: [template ids it can run], missing: { templateId: [...] } }
     model: text(), // the model the user picked for writing on this computer
     lastSeenAt: timestamp({ withTimezone: true }),
     lastError: text(),
@@ -681,8 +683,11 @@ export const connectorJobs = pgTable(
   {
     id: text().primaryKey(),
     connectorId: text().notNull().references(() => connectors.id, { onDelete: "cascade" }),
-    kind: text().notNull(), // llm.chat
-    payload: jsonb().notNull(),
+    kind: text().notNull(), // llm.chat | comfy.run (v0.2: a template shipped in the Connector, typed inputs only)
+    payload: jsonb().notNull(), // sent to the computer as-is
+    inputs: jsonb(), // comfy.run: { name: storageKey } — server-only; the computer downloads them by name
+    outputKey: text(), // comfy.run: MinIO key of the uploaded result
+    progress: integer(), // comfy.run: 0–100 reported by the computer
     status: text().notNull().default("queued"), // queued | running | done | failed | expired
     result: text(),
     error: text(),
