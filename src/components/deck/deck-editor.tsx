@@ -30,7 +30,7 @@ import { DeckChatPanel } from "./deck-chat";
 import { EditableTitle } from "@/components/studio/editable-title";
 import { unwrap } from "@/lib/action-result";
 import { listPresenters } from "@/lib/presenter-actions";
-import { PRESENTER_LAYOUTS, PRESENTER_SECONDS_PER_CREDIT, type PresenterView } from "@/lib/presenters";
+import { CLONE_PREFIX, PRESENTER_LAYOUTS, PRESENTER_SECONDS_PER_CREDIT, isCloneVoice, type PresenterView } from "@/lib/presenters";
 import { CampaignPanel } from "./campaign-panel";
 import { AudioMix } from "./audio-mix";
 import { pickMove } from "@/lib/deck/camera";
@@ -369,7 +369,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
             </div>
             <p className="text-[11px] text-muted-foreground">{CAMERA_MODES.find((m) => m.key === (brief.camera?.mode ?? "off"))?.desc} Text always stays steady.</p>
           </Fold>
-          <Fold title="Voiceover" value={(brief.voice?.mode ?? "off") === "off" ? "Off" : `${VOICES.find((v) => v.id === brief.voice?.voiceId)?.label.split(" — ")[0] ?? "On"} · ${(brief.voice?.speed ?? 1).toFixed(2)}×`}>
+          <Fold title="Voiceover" value={(brief.voice?.mode ?? "off") === "off" ? "Off" : isCloneVoice(brief.voice?.voiceId) ? "Your own voice" : `${VOICES.find((v) => v.id === brief.voice?.voiceId)?.label.split(" — ")[0] ?? "On"} · ${(brief.voice?.speed ?? 1).toFixed(2)}×`}>
             <VoiceControls brief={brief} canEdit={canEdit} onChange={(patch) => saveBriefNow(patch)} />
             <PresenterControls projectId={projectId} brief={brief} canEdit={canEdit} onChange={(patch) => saveBriefNow(patch)} onScenes={refresh} />
           </Fold>
@@ -703,6 +703,12 @@ function VoiceControls({ brief, canEdit, onChange }: { brief: DeckBrief; canEdit
   const captions = brief.captions?.enabled ?? true;
   const [speed, setSpeed] = useState(v.speed);
   const audio = useRef<HTMLAudioElement | null>(null);
+  // Waltz Avatar: the user's presenters whose own voice is ready (narration in "your own voice").
+  const [clones, setClones] = useState<PresenterView[]>([]);
+  useEffect(() => {
+    void listPresenters().then((r) => r.ok && setClones(r.data.filter((p) => p.voiceStatus === "ready")));
+  }, []);
+  const clone = isCloneVoice(v.voiceId);
   const preview = () => {
     const a = audio.current;
     if (!a) return;
@@ -729,12 +735,26 @@ function VoiceControls({ brief, canEdit, onChange }: { brief: DeckBrief; canEdit
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <select value={v.voiceId} disabled={!canEdit} onChange={(e) => onChange({ voice: { ...v, voiceId: e.target.value } })} className={cn(field, "h-8 max-w-[240px] text-xs")} aria-label="Voice">
-              {VOICES.filter((o) => o.lang === (brief.language ?? "en")).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              {clones.length || clone ? (
+                <optgroup label="Your own voice">
+                  {clones.map((p) => <option key={p.id} value={`${CLONE_PREFIX}${p.id}`}>My voice — {p.name}</option>)}
+                  {clone && !clones.some((p) => `${CLONE_PREFIX}${p.id}` === v.voiceId) ? <option value={v.voiceId}>Cloned voice</option> : null}
+                </optgroup>
+              ) : null}
+              <optgroup label="ClipWaltz voices">
+                {VOICES.filter((o) => o.lang === (brief.language ?? "en")).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </optgroup>
             </select>
-            <Button type="button" size="sm" variant="secondary" onClick={preview}><Play className="size-3.5" /> Hear it</Button>
+            {!clone ? <Button type="button" size="sm" variant="secondary" onClick={preview}><Play className="size-3.5" /> Hear it</Button> : null}
             <audio ref={audio} preload="none" />
           </div>
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          {clone ? (
+            <p className="text-[11px] text-muted-foreground">
+              Spoken in your own cloned voice (any of the five languages). 1 AI credit per {PRESENTER_SECONDS_PER_CREDIT} s of new lines;
+              unchanged lines are reused free. <Link href="/avatars" className="underline">Manage your voice</Link>
+            </p>
+          ) : null}
+          <label className={cn("flex items-center gap-2 text-xs text-muted-foreground", clone && "hidden")}>
             Speed {speed.toFixed(2)}×
             <input type="range" min={0.8} max={1.25} step={0.05} value={speed} disabled={!canEdit}
               onChange={(e) => setSpeed(Number(e.target.value))}

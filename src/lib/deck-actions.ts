@@ -3,7 +3,7 @@
 // generation worker (worker/deck/jobs.mjs) via the deck queue; the editor polls getDeck().
 import { randomInt, randomUUID } from "crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
-import { isPresenterLayout } from "./presenters";
+import { CLONE_PREFIX, isCloneVoice, isPresenterLayout } from "./presenters";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
@@ -178,7 +178,12 @@ async function saveBriefImpl(projectId: string, input: Partial<DeckBrief>): Prom
     voice: input.voice !== undefined
       ? {
           mode: ["off", "auto", "manual"].includes(input.voice?.mode ?? "") ? input.voice!.mode : "off",
-          voiceId: VOICES.some((v) => v.id === input.voice?.voiceId) ? input.voice!.voiceId : "af_heart",
+          voiceId: VOICES.some((v) => v.id === input.voice?.voiceId) ? input.voice!.voiceId
+            // Waltz Avatar cloned voice: kept as is when unchanged (collaborators can keep editing); a new one must be the
+            // saver's own, ready voice.
+            : isCloneVoice(input.voice?.voiceId)
+              ? input.voice!.voiceId === cur.voice?.voiceId ? input.voice!.voiceId : await checkCloneVoice(userId, input.voice!.voiceId)
+              : "af_heart",
           speed: Math.max(0.8, Math.min(1.25, Number(input.voice?.speed) || 1)),
         }
       : cur.voice ?? defaultBrief().voice,
@@ -199,7 +204,8 @@ async function saveBriefImpl(projectId: string, input: Partial<DeckBrief>): Prom
       : await checkPresenter(userId, input.presenter?.id ?? null),
   };
   // A voice must speak the brief's language: switching language picks that language's first voice.
-  if (next.voice && next.language && VOICES.find((v) => v.id === next.voice!.voiceId)?.lang !== next.language) {
+  // (A cloned voice speaks every narration language — it keeps its id.)
+  if (next.voice && next.language && !isCloneVoice(next.voice.voiceId) && VOICES.find((v) => v.id === next.voice!.voiceId)?.lang !== next.language) {
     next.voice = { ...next.voice, voiceId: defaultVoiceFor(next.language) };
   }
   // Presentations are slides: switching a vertical project to Presentation makes it 16:9 (the aspect can
@@ -314,6 +320,16 @@ async function checkPresenter(userId: string, id: string | null): Promise<{ id: 
   if (!p) throw new Error("Presenter not found");
   if (p.status !== "ready") throw new Error("That presenter isn't ready yet");
   return { id: p.id, name: p.name };
+}
+
+/** Waltz Avatar Phase 2: a cloned voice the user may narrate a deck with — their own presenter's, ready. */
+async function checkCloneVoice(userId: string, voiceId: string): Promise<string> {
+  const id = voiceId.slice(CLONE_PREFIX.length);
+  const [p] = await db.select({ voiceStatus: schema.presenters.voiceStatus }).from(schema.presenters)
+    .where(and(eq(schema.presenters.id, id), eq(schema.presenters.userId, userId)));
+  if (!p) throw new Error("That voice isn't yours");
+  if (p.voiceStatus !== "ready") throw new Error("That cloned voice isn't ready yet");
+  return voiceId;
 }
 
 /** Waltz Avatar: put the presenter on every scene that has a voice line (layout = `layout`), or take it off them all. */

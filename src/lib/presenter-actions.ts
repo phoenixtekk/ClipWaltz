@@ -1,6 +1,6 @@
 "use server";
 import { randomInt, randomUUID } from "crypto";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
@@ -9,7 +9,7 @@ import { enqueuePresenter } from "./queue";
 import { purgePrefix } from "./storage";
 import { VOICES } from "./deck/types";
 import {
-  MAX_PRESENTERS, MAX_PRESENTER_SUBMITS_PER_DAY, consentStatement, type PresenterStatus, type PresenterView,
+  MAX_PRESENTERS, MAX_PRESENTER_SUBMITS_PER_DAY, consentStatement, voiceConsentStatement, type PresenterStatus, type PresenterView,
 } from "./presenters";
 
 // Waltz Avatar — Your Presenter (Phase 1). Flow: startPresenter (a draft with a one-time code) → the browser uploads the
@@ -25,6 +25,7 @@ function view(p: Row): PresenterView {
     thumbUrl: p.thumbKey ? `/api/presenters/${p.id}/thumb?v=${p.readyAt?.getTime() ?? 0}` : null,
     createdAt: p.createdAt.toISOString(), readyAt: p.readyAt?.toISOString() ?? null,
     meta: (p.meta ?? null) as PresenterView["meta"],
+    voiceStatus: p.voiceStatus as PresenterView["voiceStatus"], voiceHasConsent: !!p.voiceConsentKey, voiceError: p.voiceError,
   };
 }
 
@@ -111,6 +112,75 @@ export async function submitPresenter(id: string): Promise<ActionResult<Presente
     }
     revalidatePath("/avatars");
     return view(row);
+  });
+}
+
+/** Phase 2 — clone my voice: a new voice consent code (and the sentence to read). Only for a ready presenter. */
+export async function startVoice(id: string): Promise<ActionResult<string>> {
+  return toResult(async () => {
+    const userId = await requireUserId();
+    const p = await own(userId, id);
+    if (p.status !== "ready") throw new Error("Finish the presenter first");
+    if (p.voiceStatus === "queued") throw new Error("Your voice is being checked — wait a moment");
+    const code = newCode();
+    if (p.voiceConsentKey) await purgePrefix(p.voiceConsentKey).catch(() => {});
+    await db.update(schema.presenters).set({ voiceStatus: "draft", voiceConsentCode: code, voiceConsentKey: null, voiceError: null, updatedAt: new Date() })
+      .where(eq(schema.presenters.id, id));
+    revalidatePath("/avatars");
+    return voiceConsentStatement(p.name, code);
+  });
+}
+
+/** The voice consent sentence for a voice being set up. */
+export async function getVoiceStatement(id: string): Promise<ActionResult<string | null>> {
+  return toResult(async () => {
+    const userId = await requireUserId();
+    const p = await own(userId, id);
+    return p.voiceConsentCode ? voiceConsentStatement(p.name, p.voiceConsentCode) : null;
+  });
+}
+
+/** Queue the voice consent check (AISERVER) → the cloned voice is ready. */
+export async function submitVoice(id: string): Promise<ActionResult<PresenterView>> {
+  return toResult(async () => {
+    const userId = await requireUserId();
+    const p = await own(userId, id);
+    if (p.status !== "ready") throw new Error("Finish the presenter first");
+    if (p.voiceStatus !== "draft" && p.voiceStatus !== "failed") throw new Error("Your voice is already being checked");
+    if (!p.voiceConsentKey || !p.voiceConsentCode) throw new Error("Record the voice consent first");
+    const since = new Date(Date.now() - 24 * 3600_000);
+    const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.presenterConsents)
+      .where(and(eq(schema.presenterConsents.userId, userId), gte(schema.presenterConsents.createdAt, since)));
+    if (n >= MAX_PRESENTER_SUBMITS_PER_DAY) throw new Error("That's a lot of attempts today — try again tomorrow");
+    await db.insert(schema.presenterConsents).values({
+      id: randomUUID(), userId, presenterId: p.id, kind: "voice", subjectName: p.name,
+      statement: voiceConsentStatement(p.name, p.voiceConsentCode), code: p.voiceConsentCode,
+    });
+    const [row] = await db.update(schema.presenters).set({ voiceStatus: "queued", voiceError: null, updatedAt: new Date() })
+      .where(and(eq(schema.presenters.id, id), inArray(schema.presenters.voiceStatus, ["draft", "failed"]))).returning();
+    if (!row) throw new Error("Your voice is already being checked");
+    try {
+      await enqueuePresenter({ presenterId: id, action: "voice" });
+    } catch {
+      await db.update(schema.presenters).set({ voiceStatus: "failed", voiceError: "Couldn't reach the AI queue — try again" }).where(eq(schema.presenters.id, id));
+      throw new Error("Couldn't reach the AI queue — try again in a moment");
+    }
+    revalidatePath("/avatars");
+    return view(row);
+  });
+}
+
+/** Stop using the cloned voice: the reference clip and voice consent clip are purged. */
+export async function removeVoice(id: string): Promise<ActionResult<void>> {
+  return toResult(async () => {
+    const userId = await requireUserId();
+    const p = await own(userId, id);
+    if (p.voiceStatus === "queued") throw new Error("Wait until the check is done");
+    for (const k of [p.voiceRefKey, p.voiceConsentKey]) if (k) await purgePrefix(k).catch(() => {});
+    await purgePrefix(`presenters/${userId}/${id}/voice/`).catch(() => {}); // cached lines in this voice
+    await db.update(schema.presenters).set({ voiceStatus: "none", voiceConsentCode: null, voiceConsentKey: null, voiceRefKey: null, voiceError: null, updatedAt: new Date() })
+      .where(eq(schema.presenters.id, id));
+    revalidatePath("/avatars");
   });
 }
 

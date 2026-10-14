@@ -22,6 +22,8 @@ Bound to 127.0.0.1 only; the wrapper (the box's only network surface) is the sol
 Waltz Avatar presenters (presenter.py, consent.py) share this service's queue and GPU guard:
   POST /presenter/jobs {job_id, kind: prepare, presenter_id, video, consent_clip?, consent_code?}
        → consent check (code + face + voice match), then the presenter cache; result {frames, consent{...}}
+  POST /presenter/jobs {job_id, kind: consent, presenter_id, video, consent_clip, consent_code, consent_statement}
+       → the consent check only (Phase 2 voice clones: the voice consent against the footage); result {consent}
   POST /presenter/jobs {job_id, kind: lipsync, presenter_id, audio | text+voice+speed} → MP4 (error "not_prepared"
        when this box has no cache for the presenter: the caller re-sends a prepare with the footage)
   DELETE /presenter/{presenter_id}  — removes the cache (footage frames, latents, masks)
@@ -442,6 +444,14 @@ def run_presenter(job: Dict[str, Any]) -> None:
     _set(job_id, status="running", stage="waiting for the GPU", progress=2)
     wait_for_gpu(job_id)
     try:
+        if job["kind"] == "consent":
+            import consent as C
+
+            _set(job_id, stage="checking consent", progress=10)
+            chk = C.verify(INPUT_DIR / job["consent_clip"], INPUT_DIR / job["video"], job["consent_code"], job.get("consent_statement") or "")
+            _set(job_id, status="completed" if chk["ok"] else "failed", stage="done", progress=100, result={"consent": chk},
+                 error=None if chk["ok"] else chk["reason"])
+            return
         if job["kind"] == "prepare":
             footage = INPUT_DIR / job["video"]
             result: Dict[str, Any] = {}
@@ -490,7 +500,7 @@ def worker_loop() -> None:
             job = dict(_jobs[job_id])
         if job.get("cancel"):
             continue
-        presenter_job = job.get("kind") in ("prepare", "lipsync")
+        presenter_job = job.get("kind") in ("prepare", "lipsync", "consent")
         while not presenter_job and not M and _load_error is None:
             time.sleep(2)
         try:
@@ -622,7 +632,7 @@ def cancel(job_id: str, _: None = Depends(require_token)) -> Dict[str, Any]:
 
 class PresenterJobIn(BaseModel):
     job_id: str = Field(pattern=r"^cw_[a-f0-9]{12}$")
-    kind: str = Field(pattern=r"^(prepare|lipsync)$")
+    kind: str = Field(pattern=r"^(prepare|lipsync|consent)$")
     presenter_id: str = Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
     video: Optional[str] = Field(default=None, max_length=200)
     consent_clip: Optional[str] = Field(default=None, max_length=200)
@@ -636,9 +646,11 @@ class PresenterJobIn(BaseModel):
 
 @app.post("/presenter/jobs")
 def create_presenter(req: PresenterJobIn, _: None = Depends(require_token)) -> Dict[str, Any]:
-    if req.kind == "prepare":
+    if req.kind in ("prepare", "consent"):
         if not req.video:
             raise HTTPException(400, "send the presenter footage (video)")
+        if req.kind == "consent" and not (req.consent_clip and req.consent_code and req.consent_statement):
+            raise HTTPException(400, "send the consent clip, its code and sentence")
         if bool(req.consent_clip) != bool(req.consent_code) or bool(req.consent_clip) != bool(req.consent_statement):
             raise HTTPException(400, "send the consent clip together with its code and sentence")
     elif not req.audio and not (req.text or "").strip():

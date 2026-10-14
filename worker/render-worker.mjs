@@ -28,6 +28,7 @@ import { S3Client, GetObjectCommand, PutObjectCommand, CreateMultipartUploadComm
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { MOTION_LAYOUTS } from "./deck/motion.mjs";
+import { synthCloneScenes } from "./deck/clone-voice.mjs";
 import { isPresenterLayout, narrationRequest, presenterClip, presenterFootage, presenterRect, slideRect, labelFont, aiLabel, presenterCredits } from "./deck/presenter.mjs";
 
 const run = promisify(execFile);
@@ -1452,8 +1453,14 @@ async function deckTimeline(scenes, assets, beats, beatSync, srcDurs, voiceCfg, 
   // Voiceover (phase 2): narrate first — a scene is never shorter than its spoken line (+ a breath). A video
   // shorter than its narration holds its last frame (tpad in deckSegments).
   if (voiceCfg?.mode && voiceCfg.mode !== "off" && slots.some((s) => String(s.scene.voice ?? "").trim())) {
-    const { synthScenes } = await import("./deck/voice.mjs");
-    await synthScenes(slots, { voiceId: voiceCfg.voiceId, speed: voiceCfg.speed, pronunciations: voiceCfg.pronunciations }, dir);
+    if (deck.cloneVoice) {
+      // Waltz Avatar: the presenter's own cloned voice (AISERVER), cached per line; new seconds are charged.
+      const io = { download, upload: uploadFile, exists: objectExists, alive: async (id) => (await sql`select 1 from presenters where id = ${id}`).length > 0 };
+      deck.cloneSeconds = await synthCloneScenes(slots, { presenter: deck.cloneVoice, language: deck.language, pronunciations: voiceCfg.pronunciations ?? [] }, dir, io);
+    } else {
+      const { synthScenes } = await import("./deck/voice.mjs");
+      await synthScenes(slots, { voiceId: voiceCfg.voiceId, speed: voiceCfg.speed, pronunciations: voiceCfg.pronunciations }, dir);
+    }
     for (const s of slots) if (s.voice) { s.minDur = s.voice.dur + 0.35; s.dur = Math.max(s.dur, s.minDur); }
   }
   // Waltz Avatar: each voiced presenter scene gets its narration lip-synced onto the presenter (MinIO-cached by the WAV),
@@ -2004,7 +2011,7 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
 
 // Everything a render needs from the DB (read-only): the project, its ready assets, the music bed,
 // length, aspect and style. Shared by processRender and the --wmtest diagnostic.
-async function loadRenderInputs(projectId, aspectOverride, deckVariant = null, presenterSnap = null) {
+async function loadRenderInputs(projectId, aspectOverride, deckVariant = null, presenterSnap = null, voiceSnap = null) {
   const [project] = await sql`select * from projects where id = ${projectId}`;
   const assets = await sql`
     select * from assets
@@ -2092,6 +2099,21 @@ async function loadRenderInputs(projectId, aspectOverride, deckVariant = null, p
       if (pr.status !== "ready" || !pr.footage_key) throw new Error("The presenter isn't ready yet — wait until it shows Ready, then render again");
       style.deck.presenter = pr;
     }
+    // Waltz Avatar Phase 2: narration in a presenter's cloned voice — only the lines priced at Render HD (voiceSnap), by the
+    // voice's owner (checked then). A changed line, or a pack / older render without the snapshot, fails the render.
+    const vid = String(brief.voice?.voiceId ?? "");
+    if (brief.voice?.mode && brief.voice.mode !== "off" && vid.startsWith("clone:")) {
+      if (!voiceSnap?.id || voiceSnap.id !== vid.slice(6)) throw new Error("Narration in your own voice can only be rendered with Render HD (not in campaign packs yet)");
+      const snap = new Map((voiceSnap.scenes ?? []).map((x) => [x.id, String(x.voice ?? "").trim()]));
+      for (const sc of scenes.filter((x) => String(x.voice ?? "").trim())) {
+        if (snap.get(sc.id) !== String(sc.voice ?? "").trim()) throw new Error("The voice lines changed after you pressed Render — render again");
+      }
+      const [cv] = await sql`select id, user_id, voice_ref_key, voice_status from presenters where id = ${voiceSnap.id}`;
+      if (!cv) throw new Error("That cloned voice was deleted — pick another voice under Voiceover");
+      if (cv.voice_status !== "ready" || !cv.voice_ref_key) throw new Error("That cloned voice isn't ready — pick another voice under Voiceover");
+      style.deck.cloneVoice = cv;
+      style.deck.language = brief.language ?? "en";
+    }
     style.titleText = null; // scenes carry their own text
     style.originalAudio = false;
     style.maxFootage = false;
@@ -2105,7 +2127,7 @@ async function loadRenderInputs(projectId, aspectOverride, deckVariant = null, p
 
 async function processRender(r) {
   const started = Date.now();
-  const { project, assets, music, lengthSec, aspect, style } = await loadRenderInputs(r.project_id, r.aspect, r.settings?.deckVariant ?? null, r.settings?.presenter ?? null);
+  const { project, assets, music, lengthSec, aspect, style } = await loadRenderInputs(r.project_id, r.aspect, r.settings?.deckVariant ?? null, r.settings?.presenter ?? null, r.settings?.voiceClone ?? null);
 
   const dir = mkdtempSync(join(tmpdir(), "cw-render-"));
   try {
@@ -2116,7 +2138,7 @@ async function processRender(r) {
     const outFile = await assemble(dir, assets, music ?? null, r.watermark, lengthSec, aspect, style);
     // Waltz Avatar: the presenter credits were charged up front from the scripts; settle down to the lip-synced seconds.
     if (r.settings?.presenterChargeId && style.deck) {
-      const credits = presenterCredits(style.deck.presenterSeconds ?? 0);
+      const credits = presenterCredits((style.deck.presenterSeconds ?? 0) + (style.deck.cloneSeconds ?? 0));
       await sql`update generation_jobs set credits = ${credits}, updated_at = now() where id = ${r.settings.presenterChargeId} and credits > ${credits}`.catch(() => {});
     }
     const key = `renders/${r.project_id}/${r.id}.mp4`;

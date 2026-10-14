@@ -798,6 +798,7 @@ async function processPresenter({ presenterId, action }) {
     console.log(`[presenter] ${presenterId} cache delete → ${r.status}`);
     return;
   }
+  if (action === "voice") return processVoice(presenterId);
   const [p] = await sql`select * from presenters where id = ${presenterId}`;
   if (!p || p.status !== "queued") return;
   await sql`update presenters set status = 'preparing', updated_at = now() where id = ${presenterId}`;
@@ -848,6 +849,46 @@ async function processPresenter({ presenterId, action }) {
     console.log(`[presenter] ${presenterId} ready (${meta.frames} frames, consent voice ${chk?.voice_score})`);
   } catch (e) {
     await sql`update presenters set status = 'failed', error = ${"Something went wrong building the presenter — try again"}, updated_at = now() where id = ${presenterId}`;
+    throw e;
+  }
+}
+
+// Phase 2 — the presenter's own cloned voice: the voice consent clip is checked against the footage (code, sentence, face,
+// voice match — presenter-consent-v1), then ~12 s of the footage's speech becomes the reference the voice service clones.
+async function processVoice(presenterId) {
+  const [p] = await sql`select * from presenters where id = ${presenterId}`;
+  if (!p || p.status !== "ready" || p.voice_status !== "queued") return;
+  const [consent] = await sql`select id, statement from presenter_consents where presenter_id = ${presenterId} and kind = 'voice' order by created_at desc limit 1`;
+  if (!consent) throw new Error("no voice consent record");
+  try {
+    const video = await stageFile(p.footage_key, "footage.mp4", "video/mp4");
+    const clip = await stageFile(p.voice_consent_key, "consent.mp4", "video/mp4");
+    const st = await runPresenterJob("presenter-consent-v1", {
+      presenter_id: presenterId, video, consent_clip: clip, consent_code: p.voice_consent_code, consent_statement: consent.statement,
+    });
+    const chk = st.result?.consent ?? null;
+    if (chk) await sql`update presenter_consents set verified = ${!!chk.ok}, result = ${sql.json(chk)}, verified_at = ${chk.ok ? new Date() : null} where id = ${consent.id}`;
+    if (st.status !== "completed" || !chk?.ok) {
+      const reason = chk && !chk.ok ? chk.reason : "We couldn't check your voice — try again in a few minutes";
+      await sql`update presenters set voice_status = 'failed', voice_error = ${reason}, updated_at = now() where id = ${presenterId}`;
+      console.log(`[presenter] ${presenterId} voice failed: ${reason}`);
+      return;
+    }
+    // Reference: 12 s of the footage's speech, from 1 s in (past any start-up silence), mono 24 kHz.
+    const dir = mkdtempSync(join(tmpdir(), "cw-vref-"));
+    const refKey = `presenters/${p.user_id}/${presenterId}/voice-ref.wav`;
+    try {
+      writeFileSync(join(dir, "f.mp4"), await getBytes(p.footage_key));
+      await run("ffmpeg", ["-v", "error", "-y", "-ss", "1", "-t", "12", "-i", join(dir, "f.mp4"), "-vn", "-ac", "1", "-ar", "24000", join(dir, "ref.wav")]);
+      await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: refKey, Body: readFileSync(join(dir, "ref.wav")), ContentType: "audio/wav" }));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    const done = await sql`update presenters set voice_status = 'ready', voice_ref_key = ${refKey}, voice_error = null, voice_consent_code = null, updated_at = now()
+      where id = ${presenterId} and voice_status = 'queued' and voice_consent_key = ${p.voice_consent_key} returning id`;
+    console.log(`[presenter] ${presenterId} voice ${done.length ? "ready" : "changed meanwhile — not marked ready"} (voice match ${chk.voice_score})`);
+  } catch (e) {
+    await sql`update presenters set voice_status = 'failed', voice_error = ${"Something went wrong checking your voice — try again"}, updated_at = now() where id = ${presenterId}`;
     throw e;
   }
 }

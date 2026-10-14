@@ -1,18 +1,20 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
-import { AlertTriangle, Camera, CheckCircle2, Circle, Loader2, Plus, ShieldCheck, Square, Trash2, Upload, UserRound } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, Circle, Loader2, Mic, Plus, ShieldCheck, Square, Trash2, Upload, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { unwrap } from "@/lib/action-result";
 import {
-  deletePresenter, getConsentStatement, listPresenters, restartConsent, startPresenter, submitPresenter, updatePresenter,
+  deletePresenter, getConsentStatement, getVoiceStatement, listPresenters, removeVoice, restartConsent, startPresenter, startVoice, submitPresenter,
+  submitVoice, updatePresenter,
 } from "@/lib/presenter-actions";
 import { CONSENT_MAX_SECONDS, FOOTAGE_MAX_BYTES, FOOTAGE_MIN_SECONDS, MAX_PRESENTERS, type PresenterView } from "@/lib/presenters";
 import { VOICES } from "@/lib/deck/types";
 
 const inputCls = "h-9 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-primary";
 const busyStatus = (s: string) => s === "queued" || s === "preparing";
+const busyPresenter = (p: PresenterView) => busyStatus(p.status) || p.voiceStatus === "queued";
 
 /** Waltz Avatar → presenters: list + the setup wizard (name → footage → live consent clip → build). */
 export function AvatarsManager({ initial }: { initial: PresenterView[] }) {
@@ -27,7 +29,7 @@ export function AvatarsManager({ initial }: { initial: PresenterView[] }) {
   }, []);
   // While one is being built, check every 5 s.
   useEffect(() => {
-    if (!items.some((p) => busyStatus(p.status))) return;
+    if (!items.some(busyPresenter)) return;
     const t = setInterval(() => void refresh(), 5000);
     return () => clearInterval(t);
   }, [items, refresh]);
@@ -127,6 +129,7 @@ function PresenterCard({ p, open, onOpen, onChanged, onDeleted }: {
         </Button>
       </div>
       {setup && open ? <SetupSteps p={p} onChanged={onChanged} /> : null}
+      {p.status === "ready" ? <VoiceSection p={p} onChanged={onChanged} /> : null}
     </div>
   );
 }
@@ -237,12 +240,64 @@ function FootageInput({ id, has, onDone }: { id: string; has: boolean; onDone: (
   );
 }
 
-function ConsentRecorder({ id, has, onDone }: { id: string; has: boolean; onDone: () => Promise<void> }) {
+/** Phase 2 — the presenter's own cloned voice: its own live consent (a voice sentence + code), checked against the video. */
+function VoiceSection({ p, onChanged }: { p: PresenterView; onChanged: () => Promise<void> }) {
+  const [statement, setStatement] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  useEffect(() => {
+    if (p.voiceStatus === "draft") void getVoiceStatement(p.id).then((r) => r.ok && setStatement(r.data));
+  }, [p.id, p.voiceStatus]);
+  const act = (fn: () => Promise<void>) => start(async () => {
+    try {
+      await fn();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  });
+  return (
+    <div className="space-y-2 border-t border-border p-3">
+      <h3 className="flex items-center gap-2 text-sm font-semibold"><Mic className="size-4" /> Your own voice</h3>
+      {p.voiceStatus === "none" ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="flex-1 text-xs text-muted-foreground">Narrate your WaltzDeck videos in your own voice — in English, Spanish, French, Italian or Portuguese.</p>
+          <Button size="sm" variant="secondary" disabled={pending} onClick={() => act(async () => { setStatement(unwrap(await startVoice(p.id))); await onChanged(); })}>Use my own voice</Button>
+        </div>
+      ) : p.voiceStatus === "ready" ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="flex flex-1 items-center gap-1.5 text-xs text-muted-foreground">
+            <CheckCircle2 className="size-3.5 text-emerald-600" /> Ready — pick <b className="font-medium text-foreground">My voice — {p.name}</b> under a deck&apos;s Voiceover.
+          </p>
+          <Button size="sm" variant="ghost" disabled={pending}
+            onClick={() => confirm("Stop using your cloned voice? Its recordings and saved lines are removed.") && act(async () => { unwrap(await removeVoice(p.id)); await onChanged(); })}>Remove my voice</Button>
+        </div>
+      ) : p.voiceStatus === "queued" ? (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" /> Checking your voice…</p>
+      ) : p.voiceStatus === "failed" ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="flex flex-1 items-start gap-1 text-xs text-red-600 dark:text-red-400"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" /> {p.voiceError}</p>
+          <Button size="sm" variant="secondary" disabled={pending} onClick={() => act(async () => { setStatement(unwrap(await startVoice(p.id))); await onChanged(); })}>Get a new code</Button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">Record yourself reading this sentence, live, with your face in view. We check that it&apos;s the same voice as your video.</p>
+          {statement ? <blockquote className="rounded-lg border-l-4 border-[color:var(--cw-violet)] bg-muted/40 p-3 text-base font-medium">{statement}</blockquote> : null}
+          <ConsentRecorder id={p.id} has={p.voiceHasConsent} onDone={onChanged} path="voice-consent" />
+          <Button size="sm" disabled={pending || !p.voiceHasConsent}
+            onClick={() => act(async () => { unwrap(await submitVoice(p.id)); toast.success("Checking your voice — about a minute"); await onChanged(); })}>
+            <CheckCircle2 className="size-4" /> Check my voice
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConsentRecorder({ id, has, onDone, path = "consent" }: { id: string; has: boolean; onDone: () => Promise<void>; path?: string }) {
   const [busy, setBusy] = useState(false);
   const send = async (blob: Blob) => {
     setBusy(true);
     try {
-      await uploadWithProgress(`/api/presenters/${id}/consent`, blob, () => {});
+      await uploadWithProgress(`/api/presenters/${id}/${path}`, blob, () => {});
       toast.success("Consent recording saved");
       await onDone();
     } catch (e) {

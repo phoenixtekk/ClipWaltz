@@ -54,6 +54,15 @@ async function runJob(workflow, inputs) {
  * what the narration was made from ({ text, voiceId, speed, pronunciations }).
  * io: { download(key, file), upload(key, file, type), exists(key) }.
  */
+/** Shared with clone-voice.mjs: stage a file on AISERVER, run a wrapper job to the end, download one of its outputs. */
+export { stage as aiStage, runJob as aiRunJob };
+export async function aiDownload(o, file) {
+  const rel = o?.subfolder ? `${o.subfolder}/${o.filename}` : o?.filename;
+  const dl = await fetch(`${AISERVER_URL}/outputs/${rel}`, { headers: AI_HEADERS });
+  if (!dl.ok) throw new Error(`AISERVER /outputs ${dl.status}`);
+  writeFileSync(file, Buffer.from(await dl.arrayBuffer()));
+}
+
 /** MinIO key prefix of a cached clip (+ .mp4 / .wav / .json). Also used by the app to price a render (render-actions). */
 export function clipCacheBase(presenter, request) {
   const hash = createHash("sha256").update(ENGINE).update(presenter.id).update(JSON.stringify(request)).digest("hex").slice(0, 32);

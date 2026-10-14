@@ -10,12 +10,13 @@ import { deleteObject } from "./storage";
 import { track } from "./analytics";
 import type { RenderSettings, RenderCheckpoint, CheckWarning } from "./render";
 import { toResult } from "./action-result";
-import { isPresenterLayout, presenterCredits } from "./presenters";
+import { CLONE_PREFIX, isCloneVoice, isPresenterLayout, presenterCredits } from "./presenters";
 import { estimateScriptSeconds } from "./talking-photo";
 import { spendCredits } from "./credits-server";
 import type { DeckBrief } from "./deck/types";
 import { headObject } from "./storage";
 import { clipCacheBase, narrationRequest } from "../../worker/deck/presenter.mjs";
+import { voiceCacheBase, voiceLineRequest } from "../../worker/deck/clone-voice.mjs";
 
 /** Delete a saved render (the DB row + its MinIO object), editor-checked. */
 async function deleteRenderImpl(renderId: string): Promise<void> {
@@ -76,15 +77,26 @@ async function createRenderImpl(projectId: string, opts: { cloudTargets?: string
     if (!scenes) throw new Error("Plan the video first — there are no scenes to render yet.");
   } else if (!count) throw new Error("Add at least one clip before rendering");
 
-  // Waltz Avatar: presenter scenes cost AI credits for the lip-synced seconds (estimated from the narration now; the
-  // worker settles down to what was rendered, or refunds it all if the render fails). Only the presenter's owner renders it.
+  // Waltz Avatar: presenter scenes (lip-sync) and a cloned voice (narration in the presenter's own voice) cost AI credits
+  // for their NEW seconds — lines already made (same words, voice, speed, pronunciations) are reused for free. Estimated
+  // now; the worker settles down to what it made, or refunds it all if the render fails. Only the presenter's owner
+  // renders either, and the worker makes only the snapshot taken here (renders.settings.presenter / .voiceClone).
   let presenterChargeId: string | undefined;
   let presenterSnap: RenderSettings["presenter"];
+  let voiceSnap: RenderSettings["voiceClone"];
   if (proj.kind === "deck") {
     const brief = ((proj.deck ?? {}) as { brief?: DeckBrief }).brief;
     const scs = await db.select({ id: schema.deckScenes.id, layout: schema.deckScenes.layout, voice: schema.deckScenes.voice })
       .from(schema.deckScenes).where(eq(schema.deckScenes.projectId, projectId));
+    const voiceOn = !!brief?.voice?.mode && brief.voice.mode !== "off";
     const ps = scs.filter((s) => isPresenterLayout(s.layout));
+    const cloneId = voiceOn && isCloneVoice(brief?.voice?.voiceId) ? brief!.voice!.voiceId.slice(CLONE_PREFIX.length) : null;
+    let pron: unknown = [];
+    if ((ps.length || cloneId) && proj.brandKitId) {
+      const [bk] = await db.select({ p: schema.brandKits.pronunciationsJson }).from(schema.brandKits).where(eq(schema.brandKits.id, proj.brandKitId));
+      pron = bk?.p ?? [];
+    }
+    let seconds = 0;
     if (ps.length) {
       const pid = brief?.presenter?.id;
       if (!pid) throw new Error("This video has presenter scenes — pick your presenter under Voiceover first");
@@ -94,14 +106,6 @@ async function createRenderImpl(projectId: string, opts: { cloudTargets?: string
       if (pr.userId !== userId) throw new Error("Only the person whose presenter this is can render it");
       if (pr.status !== "ready") throw new Error("The presenter isn't ready yet");
       presenterSnap = { id: pid, scenes: ps.map((s) => ({ id: s.id, layout: s.layout, voice: s.voice })) };
-      const voiceOn = !!brief?.voice?.mode && brief.voice.mode !== "off";
-      // Lines already lip-synced (same words, voice, speed, pronunciations) are reused for free — only new ones count.
-      let pron: unknown = [];
-      if (proj.brandKitId) {
-        const [bk] = await db.select({ p: schema.brandKits.pronunciationsJson }).from(schema.brandKits).where(eq(schema.brandKits.id, proj.brandKitId));
-        pron = bk?.p ?? [];
-      }
-      let seconds = 0;
       if (voiceOn) {
         for (const s of ps) {
           if (!s.voice?.trim()) continue;
@@ -110,16 +114,30 @@ async function createRenderImpl(projectId: string, opts: { cloudTargets?: string
           if (!cached) seconds += estimateScriptSeconds(s.voice, brief?.voice?.speed ?? 1);
         }
       }
-      const credits = presenterCredits(seconds);
-      if (credits > 0) {
-        presenterChargeId = randomUUID();
-        const chargeId = presenterChargeId;
-        await spendCredits(userId, credits, (tx) => tx.insert(schema.generationJobs).values({
-          id: chargeId, projectId, workspaceId: proj.workspaceId ?? null, requestedBy: userId, credits,
-          jobType: "presenter_render", status: "completed", progress: 100, modelName: "musetalk-1.5", workflowName: "presenter-lipsync-v1",
-          requestJson: { presenterRender: { presenterId: pid, seconds: Math.round(seconds * 10) / 10 } },
-        }));
+    }
+    if (cloneId) {
+      const [pr] = await db.select({ userId: schema.presenters.userId, voiceStatus: schema.presenters.voiceStatus })
+        .from(schema.presenters).where(eq(schema.presenters.id, cloneId));
+      if (!pr) throw new Error("That cloned voice was deleted — pick another voice under Voiceover");
+      if (pr.userId !== userId) throw new Error("Only the person whose voice this is can render with it");
+      if (pr.voiceStatus !== "ready") throw new Error("That cloned voice isn't ready — pick another voice under Voiceover");
+      const voiced = scs.filter((s) => s.voice?.trim());
+      voiceSnap = { id: cloneId, scenes: voiced.map((s) => ({ id: s.id, voice: s.voice })) };
+      for (const s of voiced) {
+        const base = voiceCacheBase({ id: cloneId, user_id: userId }, voiceLineRequest(s.voice, brief?.language ?? "en", pron));
+        const cached = await headObject(`${base}.wav`).then(() => true, () => false);
+        if (!cached) seconds += estimateScriptSeconds(s.voice!, 1);
       }
+    }
+    const credits = presenterCredits(seconds);
+    if (credits > 0) {
+      presenterChargeId = randomUUID();
+      const chargeId = presenterChargeId;
+      await spendCredits(userId, credits, (tx) => tx.insert(schema.generationJobs).values({
+        id: chargeId, projectId, workspaceId: proj.workspaceId ?? null, requestedBy: userId, credits,
+        jobType: "presenter_render", status: "completed", progress: 100, modelName: "musetalk-1.5", workflowName: "presenter-lipsync-v1",
+        requestJson: { presenterRender: { presenterId: presenterSnap?.id ?? null, cloneVoiceId: cloneId, seconds: Math.round(seconds * 10) / 10 } },
+      }));
     }
   }
 
@@ -140,7 +158,7 @@ async function createRenderImpl(projectId: string, opts: { cloudTargets?: string
       aspect: proj.aspect,
       status: "queued",
       watermark,
-      settings: { ...snapshotSettings(proj, count), ...(presenterChargeId ? { presenterChargeId } : {}), ...(presenterSnap ? { presenter: presenterSnap } : {}) },
+      settings: { ...snapshotSettings(proj, count), ...(presenterChargeId ? { presenterChargeId } : {}), ...(presenterSnap ? { presenter: presenterSnap } : {}), ...(voiceSnap ? { voiceClone: voiceSnap } : {}) },
       // Saves go to the project owner's storage, so only the owner's pick is kept.
       cloudTargets: Array.isArray(opts.cloudTargets) && proj.ownerId === userId ? cleanTargets(opts.cloudTargets) : null,
     });

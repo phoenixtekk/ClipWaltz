@@ -421,6 +421,13 @@
       "when": 1792011833469,
       "tag": "0059_waltz_avatar",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1792014527431,
+      "tag": "0060_presenter_voice",
+      "breakpoints": true
     }
   ]
 }

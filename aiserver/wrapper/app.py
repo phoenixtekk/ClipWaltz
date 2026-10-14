@@ -77,6 +77,13 @@ TALKING_GPU_BACKEND = os.environ.get(
     "CW_TALKING_GPU_BACKEND", COMFYUI_URLS[1] if len(COMFYUI_URLS) > 1 else ""
 ).rstrip("/")
 TALKING = "talking"  # the `backend` of jobs run by the talking-photo service (not ComfyUI)
+# Waltz Avatar cloned voices (aiserver/voice, Chatterbox) — on GPU 0, beside ComfyUI #1.
+VOICE_URL = os.environ.get("CW_VOICE_URL", "http://127.0.0.1:8195").rstrip("/")
+VOICE_GPU_BACKEND = os.environ.get("CW_VOICE_GPU_BACKEND", COMFYUI_URLS[0] if COMFYUI_URLS else "").rstrip("/")
+VOICE = "voice"
+# Non-ComfyUI services: backend name -> (URL, the ComfyUI sharing its card). The GPU guard keeps new ComfyUI work off a
+# card while that service has a job queued or running.
+SERVICES = {TALKING: (TALKING_URL, TALKING_GPU_BACKEND), VOICE: (VOICE_URL, VOICE_GPU_BACKEND)}
 
 # Registry of available workflows. Each maps a logical workflow id to a template
 # (ComfyUI API-format graph) and a field mapping. Add entries as workflows land.
@@ -112,6 +119,9 @@ WORKFLOWS: Dict[str, Dict[str, str]] = {
     # Waltz Avatar presenters (MuseTalk 1.5 + MediaPipe) in the same service: consent check + cache, then lip-sync.
     "presenter-prepare-v1": {"service": TALKING, "kind": "prepare"},
     "presenter-lipsync-v1": {"service": TALKING, "kind": "lipsync"},
+    "presenter-consent-v1": {"service": TALKING, "kind": "consent"},
+    # Waltz Avatar Phase 2: lines in a presenter's cloned voice (+ word timings), clipwaltz-voice service.
+    "voice-clone-tts-v1": {"service": VOICE},
 }
 
 app = FastAPI(title="ClipWaltz AISERVER API", version="1.0")
@@ -190,14 +200,12 @@ def _active_on(base: str) -> int:
 
 
 def _comfy_targets(online: List[str]) -> List[str]:
-    """GPU guard (caller holds _jobs_lock): while a talking job is queued/running, keep ComfyUI work
-    off the card it uses. If that card's ComfyUI is the only one online it is used anyway (better than
-    refusing all work; the talking service waits for that ComfyUI's queue to empty before it renders)."""
-    if TALKING_GPU_BACKEND and _active_on(TALKING):
-        others = [b for b in online if b != TALKING_GPU_BACKEND]
-        if others:
-            return others
-    return online
+    """GPU guard (caller holds _jobs_lock): while a service job (talking photo / presenter, cloned voice) is queued or
+    running, keep ComfyUI work off the card it uses. If every online ComfyUI shares a busy card, they are used anyway
+    (better than refusing all work; each service waits for its card's ComfyUI queue to empty before it runs)."""
+    held = {gpu for svc, (_, gpu) in SERVICES.items() if gpu and _active_on(svc)}
+    free = [b for b in online if b not in held]
+    return free or online
 
 
 # --------------------------------------------------------------------------- #
@@ -411,6 +419,9 @@ class JobInputs(BaseModel):
     consent_clip: Optional[str] = Field(default=None, max_length=200)
     consent_code: Optional[str] = Field(default=None, pattern=r"^[0-9]{4,8}$")
     consent_statement: Optional[str] = Field(default=None, max_length=400)
+    # Cloned voice (voice-clone-tts-v1): `audio` = the staged reference clip; the lines to speak and their language.
+    lines: Optional[List[str]] = Field(default=None, max_length=60)
+    language: Optional[str] = Field(default=None, pattern=r"^[a-z]{2}$")
 
 
 class JobRequest(BaseModel):
@@ -462,6 +473,8 @@ def create_job(req: JobRequest, _: None = Depends(require_token)) -> Dict[str, A
     client_id = job_id
     if WORKFLOWS.get(req.workflow, {}).get("service") == TALKING:
         return create_talking_job(job_id, req)
+    if WORKFLOWS.get(req.workflow, {}).get("service") == VOICE:
+        return create_voice_job(job_id, req)
     graph = build_graph(req.workflow, req.inputs, job_id)
     online = [b for b in COMFYUI_URLS if comfyui_online(b)]
     if not online:
@@ -535,24 +548,34 @@ def create_talking_job(job_id: str, req: JobRequest) -> Dict[str, Any]:
     return _submit_talking(job_id, req, "/jobs", body)
 
 
-def _submit_talking(job_id: str, req: JobRequest, path: str, body: Dict[str, Any]) -> Dict[str, Any]:
+def _submit_talking(job_id: str, req: JobRequest, path: str, body: Dict[str, Any], svc: str = TALKING) -> Dict[str, Any]:
+    url = SERVICES[svc][0]
     # Register first (under the dispatch lock) so the GPU guard keeps new ComfyUI work off the card at once.
     with _dispatch_lock:
-        rec = _register_job(job_id, job_id, TALKING, req)
+        rec = _register_job(job_id, job_id, svc, req)
     try:
-        r = httpx.post(f"{TALKING_URL}{path}", json=body, headers=_talk_headers(), timeout=30)
+        r = httpx.post(f"{url}{path}", json=body, headers=_talk_headers(), timeout=30)
     except Exception as exc:  # noqa: BLE001
-        _finish_job(job_id, "failed", error=f"talking service unreachable: {exc}")
-        raise HTTPException(status_code=502, detail="talking service unreachable")
+        _finish_job(job_id, "failed", error=f"{svc} service unreachable: {exc}")
+        raise HTTPException(status_code=502, detail=f"{svc} service unreachable")
     if r.status_code != 200:
         _finish_job(job_id, "failed", error=r.text[:500])
-        raise HTTPException(status_code=502 if r.status_code >= 500 else 400, detail=f"talking service: {r.text[:300]}")
+        raise HTTPException(status_code=502 if r.status_code >= 500 else 400, detail=f"{svc} service: {r.text[:300]}")
     _audit({**rec, "event": "submitted"})
-    threading.Thread(target=poll_talking, args=(job_id,), daemon=True).start()
+    threading.Thread(target=poll_talking, args=(job_id, svc), daemon=True).start()
     return {"job_id": job_id, "prompt_id": job_id, "status": "queued"}
 
 
-def poll_talking(job_id: str) -> None:
+def create_voice_job(job_id: str, req: JobRequest) -> Dict[str, Any]:
+    i = req.inputs
+    if not i.audio or not i.lines:
+        raise HTTPException(status_code=400, detail="send the voice reference (audio) and the lines")
+    body = {"job_id": job_id, "ref": Path(i.audio).name, "language": i.language or "en", "lines": i.lines}
+    return _submit_talking(job_id, req, "/jobs", body, VOICE)
+
+
+def poll_talking(job_id: str, svc: str = TALKING) -> None:
+    url = SERVICES[svc][0]
     misses = 0
     while True:
         time.sleep(3)
@@ -560,14 +583,14 @@ def poll_talking(job_id: str) -> None:
             if _jobs[job_id]["status"] in ("cancelled", "failed", "completed"):
                 return
         try:
-            r = httpx.get(f"{TALKING_URL}/jobs/{job_id}", headers=_talk_headers(), timeout=10)
+            r = httpx.get(f"{url}/jobs/{job_id}", headers=_talk_headers(), timeout=10)
             st = r.json() if r.status_code == 200 else None
         except Exception:  # noqa: BLE001
             st = None
         if st is None:
             misses += 1
             if misses > 100:  # ~5 min without an answer (service restarted → the job is gone)
-                _finish_job(job_id, "failed", error="talking service lost the job")
+                _finish_job(job_id, "failed", error=f"{svc} service lost the job")
                 return
             continue
         misses = 0
@@ -580,6 +603,13 @@ def poll_talking(job_id: str) -> None:
             if st["status"] == "running" and j["status"] == "queued":
                 j["status"] = "running"
                 j["started_at"] = _now()
+        if st["status"] == "completed" and st.get("files"):
+            # Cloned voice: the manifest (line lengths + word timings) first, then one WAV per line.
+            rels = [st["output"], *st["files"]]
+            _finish_job(job_id, "completed", outputs=[{
+                "filename": Path(rel).name, "subfolder": str(Path(rel).parent), "path": str(OUTPUT_DIR / rel), "type": "output",
+            } for rel in rels])
+            return
         if st["status"] == "completed" and not st.get("output"):
             _finish_job(job_id, "completed", outputs=[])  # presenter prepare: nothing to download
             return
@@ -631,9 +661,9 @@ def cancel_job(job_id: str, _: None = Depends(require_token)) -> Dict[str, Any]:
             raise HTTPException(status_code=404, detail="unknown job")
         prompt_id = j["prompt_id"]
         base = j["backend"]
-    if base == TALKING:
+    if base in SERVICES:
         try:
-            httpx.post(f"{TALKING_URL}/jobs/{job_id}/cancel", headers=_talk_headers(), timeout=10)
+            httpx.post(f"{SERVICES[base][0]}/jobs/{job_id}/cancel", headers=_talk_headers(), timeout=10)
         except Exception:  # noqa: BLE001
             pass
         _finish_job(job_id, "cancelled")

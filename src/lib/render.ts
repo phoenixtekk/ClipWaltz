@@ -35,6 +35,8 @@ export type RenderSettings = {
   presenterChargeId?: string;
   /** Waltz Avatar: what was checked and priced when Render was pressed — the worker lip-syncs only this. */
   presenter?: { id: string; scenes: { id: string; layout: string; voice: string | null }[] };
+  /** Waltz Avatar Phase 2: the cloned voice (presenter id) and every voiced scene's line, as priced at Render HD. */
+  voiceClone?: { id: string; scenes: { id: string; voice: string | null }[] };
 };
 
 export type CheckLevel = "red" | "yellow" | "info";

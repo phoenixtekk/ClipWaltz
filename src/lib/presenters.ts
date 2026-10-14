@@ -31,11 +31,24 @@ export type PresenterView = {
   createdAt: string;
   readyAt: string | null;
   meta: { frames?: number; width?: number; height?: number } | null;
+  /** Phase 2: the presenter's own cloned voice. */
+  voiceStatus: "none" | "draft" | "queued" | "ready" | "failed";
+  voiceHasConsent: boolean;
+  voiceError: string | null;
 };
+
+/** Deck voice id for a presenter's cloned voice (brief.voice.voiceId). */
+export const CLONE_PREFIX = "clone:";
+export const isCloneVoice = (id: string | null | undefined) => !!id && id.startsWith(CLONE_PREFIX);
 
 /** The sentence read aloud on camera for the consent clip. The code's digits are spaced so they're read one by one. */
 export function consentStatement(name: string, code: string): string {
   return `I, ${name.trim() || "the person on this video"}, agree that ClipWaltz may create an AI presenter of me. My code is ${code.split("").join(" ")}.`;
+}
+
+/** The sentence for the voice consent clip (Phase 2 cloned voice). */
+export function voiceConsentStatement(name: string, code: string): string {
+  return `I, ${name.trim() || "the person on this video"}, agree that ClipWaltz may clone my voice. My code is ${code.split("").join(" ")}.`;
 }
 
 /** Credits for `seconds` of presenter video (all presenter scenes of one render together). */

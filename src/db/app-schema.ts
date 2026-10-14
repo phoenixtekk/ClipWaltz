@@ -708,6 +708,13 @@ export const presenters = pgTable(
     voice: text().notNull().default("af_heart"), // default Kokoro voice for this presenter
     meta: jsonb(), // { frames, width, height, missing } from the prepare step
     error: text(),
+    // Phase 2 — the presenter's own cloned voice (Chatterbox on AISERVER, aiserver/voice): its own live consent (a voice
+    // sentence + code, checked against the footage's voice), then a reference clip cut from the footage.
+    voiceStatus: text().notNull().default("none"), // none | draft | queued | ready | failed
+    voiceConsentCode: text(),
+    voiceConsentKey: text(), // MinIO: presenters/<userId>/<id>/voice-consent-<uuid>.mp4
+    voiceRefKey: text(), // MinIO: presenters/<userId>/<id>/voice-ref.wav (≈ 12 s of the footage's speech)
+    voiceError: text(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     readyAt: timestamp({ withTimezone: true }),
