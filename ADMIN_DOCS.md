@@ -225,7 +225,8 @@ Swept with the project on delete.
 
 **NVENC dependency:** Real-ESRGAN / RIFE encode with `h264_nvenc`, which fails ("No capable devices found") whenever the
 NVIDIA kernel module and libraries differ (happened 595.91 vs 595.99 until the 2026-10-14 reboot). Talking clips then stay
-at their native size; after any driver update, reboot AISERVER and check `nvidia-smi`.
+at their native size. Since 2026-10-14 all NVIDIA `*-595*` packages are **`apt-mark hold`** on AISERVER; to update the driver:
+`apt-mark unhold` → upgrade → **reboot** → check `nvidia-smi` and one ESRGAN job → hold again.
 
 ## Outside AI models for writing (2026-10-13)
 `/admin/ai` → **Writing & planning models**. Providers: Claude (`@anthropic-ai/sdk`), ChatGPT (`openai`), DeepSeek and
