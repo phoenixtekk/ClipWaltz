@@ -2201,7 +2201,7 @@ async function claimOne() {
 // Fail them (+ their projects) so the UI shows "try again". (A multi-worker deployment would need
 // a per-render heartbeat/lease instead of a blanket startup sweep.)
 async function reapStaleRenders() {
-  const rows = await sql`update renders set status='failed', error_message='worker restarted mid-render (orphan reaped)' where status='rendering' returning id, project_id`;
+  const rows = await sql`update renders set status='failed', error_message='worker restarted mid-render (orphan reaped)' where status='rendering' returning id, project_id, settings`;
   if (rows.length === 0) return;
   for (const row of rows) {
     await sql`update projects set status='failed', updated_at=now() where id=${row.project_id}`.catch(() => {});
