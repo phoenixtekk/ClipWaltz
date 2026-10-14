@@ -73,6 +73,23 @@ restore for more natural skin and eyes and takes about twice as long.
 **Cost:** 1 or 2 AI credits per second of speech (Standard / High), up to 30 seconds. For a script we reserve an estimate and then charge only the
 seconds actually made. **Every talking photo carries an "AI-generated" label** in the top-right corner, also in downloads.
 
+## Make videos on your own computer (free)
+If your computer has an NVIDIA graphics card (8 GB or more; 10 GB recommended), ClipWaltz can make Waltz AI clips on it
+at no AI-credit cost — image → video and talking photos.
+
+1. Connect the computer first (account menu → **AI models → Your computers → Connect a computer**).
+2. Install **ComfyUI** (Windows: the portable NVIDIA download) and start it once.
+3. For **image → video**, download three files from Hugging Face (Comfy-Org/Wan_2.2_ComfyUI_Repackaged) into ComfyUI's
+   models folder: `wan2.2_ti2v_5B_fp16.safetensors` (diffusion_models), `umt5_xxl_fp8_e4m3fn_scaled.safetensors`
+   (text_encoders) and `wan2.2_vae.safetensors` (vae).
+4. For **talking photos**, download the **ClipWaltz node pack** from the same page, unzip it into ComfyUI's
+   `custom_nodes` folder and run the two commands in its README (install, then download the models — about 12 GB).
+5. Restart ComfyUI and the ClipWaltz Connector. **Your computers** now shows what your computer can make.
+
+Then pick **Your computer** as the model (From image) or under **Render on** (Talking photo). Keep ComfyUI and the
+Connector running until the clip is done — a home graphics card can take several minutes (on a 10 GB card a 5-second clip from a photo
+took about 10 minutes; an 11-second talking photo about 3 minutes). **Cancel** stops it on your computer.
+
 ## Organising your projects (categories)
 - The **Projects** page has a list of **categories** on the left. Click **All projects**, **Uncategorized** or a
   category to show only those videos on the right. The page remembers your choice in its address, so you can bookmark it.

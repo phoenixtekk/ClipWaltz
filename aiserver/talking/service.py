@@ -17,6 +17,7 @@ Bound to 127.0.0.1 only; the wrapper (the box's only network surface) is the sol
   POST /jobs {job_id, image, audio?|text, voice, speed, max_seconds, seed, aspect} -> {"status": "queued"}
   GET  /jobs/{id} -> {status, stage, progress, output, duration, error}
   POST /jobs/{id}/cancel     GET /health     GET /voices
+  POST /tts {text, voice, speed} -> audio/wav (Kokoro only; speech for talking photos rendered on a user's computer)
 """
 from __future__ import annotations
 
@@ -35,7 +36,7 @@ import httpx
 import numpy as np
 import soundfile as sf
 import torch
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -179,6 +180,7 @@ def load_models() -> None:
 
 
 _kokoro: Dict[str, Any] = {}
+_tts_lock = threading.Lock()  # the render thread and /tts share the Kokoro pipelines
 
 
 def tts(text: str, voice: str, speed: float, wav_path: Path) -> float:
@@ -187,8 +189,9 @@ def tts(text: str, voice: str, speed: float, wav_path: Path) -> float:
     if lang not in _kokoro:
         _kokoro[lang] = KPipeline(lang_code=lang, repo_id="hexgrad/Kokoro-82M", device="cpu")
     parts = []
-    for r in _kokoro[lang](text, voice=voice, speed=speed):
-        parts.append(r.audio.numpy() if hasattr(r.audio, "numpy") else np.asarray(r.audio))
+    with _tts_lock:
+        for r in _kokoro[lang](text, voice=voice, speed=speed):
+            parts.append(r.audio.numpy() if hasattr(r.audio, "numpy") else np.asarray(r.audio))
     if not parts:
         raise ValueError("nothing to say")
     wav = np.concatenate(parts)
@@ -487,6 +490,28 @@ def health(_: None = Depends(require_token)) -> Dict[str, Any]:
 @app.get("/voices")
 def voices(_: None = Depends(require_token)) -> Dict[str, Any]:
     return {"voices": sorted(VOICES)}
+
+
+class TtsIn(BaseModel):
+    text: str = Field(min_length=1, max_length=3000)
+    voice: str = "af_heart"
+    speed: float = Field(1.0, ge=0.7, le=1.4)
+    max_seconds: float = Field(MAX_SECONDS, gt=0, le=MAX_SECONDS)
+
+
+@app.post("/tts")
+def speak(req: TtsIn, _: None = Depends(require_token)) -> Response:
+    if req.voice not in VOICES:
+        raise HTTPException(400, f"unknown voice {req.voice}")
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        raw, out = Path(d) / "raw.wav", Path(d) / "out.wav"
+        try:
+            tts(req.text, req.voice, req.speed, raw)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+        _run(["ffmpeg", "-v", "error", "-y", "-i", str(raw), "-t", str(req.max_seconds), "-ac", "1", "-ar", "24000", str(out)])
+        return Response(content=out.read_bytes(), media_type="audio/wav")
 
 
 @app.post("/jobs")

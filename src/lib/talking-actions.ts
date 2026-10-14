@@ -5,7 +5,8 @@ import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
 import { userCanAccessProject } from "./workspace";
-import { enqueueGeneration } from "./queue";
+import { enqueueGeneration, enqueueComputerGeneration } from "./queue";
+import { COMPUTER_TEMPLATES, computerFor, computersAllowed, listGpuComputers, type GpuComputer } from "./computer-gpu";
 import { getEffectiveTier } from "./tier";
 import { spendCredits } from "./credits-server";
 import { shouldWatermark } from "./watermark";
@@ -32,8 +33,10 @@ export type TalkingPhotoInput = {
   speed?: number;
   audioKey?: string;
   aspect?: TalkingAspect;
-  /** standard = Real-ESRGAN 2× (1 credit/s); high = SeedVR2 restore (2 credits/s). */
+  /** standard = Real-ESRGAN 2× (1 credit/s); high = SeedVR2 restore (2 credits/s). Ignored on the user's computer. */
   quality?: TalkingQuality;
+  /** Render on the user's own computer (Connector v0.2 + local ComfyUI) — 0 credits. */
+  computerId?: string | null;
   consent: boolean;
 };
 
@@ -58,7 +61,8 @@ async function createTalkingPhotoImpl(input: TalkingPhotoInput): Promise<string>
     .where(and(eq(schema.assets.id, input.sourceAssetId), eq(schema.assets.projectId, input.projectId)));
   if (!photo || photo.kind !== "photo") throw new Error("Pick a photo from this project");
 
-  const quality = talkingQualityOf(input.quality);
+  const computer = input.computerId ? await computerFor(userId, input.computerId, COMPUTER_TEMPLATES.talking) : null;
+  const quality = computer ? "standard" : talkingQualityOf(input.quality);
   if (quality === "high" && !(await resolveEnhanceWorkflow("restore"))) throw new Error("High quality is switched off right now — try Standard");
   const aspect: TalkingAspect = TALKING_ASPECTS.some((a) => a.key === input.aspect) ? input.aspect! : "photo";
   let seconds: number;
@@ -80,7 +84,7 @@ async function createTalkingPhotoImpl(input: TalkingPhotoInput): Promise<string>
     speech = { script, voice, speed };
   }
 
-  const credits = talkingCost(seconds, quality);
+  const credits = computer ? 0 : talkingCost(seconds, quality);
   const priority = (await getEffectiveTier(userId)) === "free" ? 0 : 10;
   const watermark = await shouldWatermark(userId);
   const id = randomUUID();
@@ -103,6 +107,7 @@ async function createTalkingPhotoImpl(input: TalkingPhotoInput): Promise<string>
       ...speech,
       aspect,
       quality,
+      ...(computer ? { computer: { connectorId: computer.id, template: COMPUTER_TEMPLATES.talking, name: computer.name } } : {}),
       durationSec: Math.round(seconds * 10) / 10,
       seed: null,
       watermark,
@@ -112,7 +117,9 @@ async function createTalkingPhotoImpl(input: TalkingPhotoInput): Promise<string>
     priority,
   }));
   try {
-    await enqueueGeneration(id, { priority: priority >= 10 ? 1 : 5 });
+    // A computer job holds no ClipWaltz GPU slot: its own queue (one attempt).
+    if (computer) await enqueueComputerGeneration(id, { priority: priority >= 10 ? 1 : 5 });
+    else await enqueueGeneration(id, { priority: priority >= 10 ? 1 : 5 });
   } catch (e) {
     console.error(`[talking] enqueue ${id} failed:`, (e as Error).message);
     await db.update(schema.generationJobs).set({ status: "failed", errorMessage: "Couldn't reach the AI queue", failedAt: new Date(), updatedAt: new Date() })
@@ -125,6 +132,15 @@ async function createTalkingPhotoImpl(input: TalkingPhotoInput): Promise<string>
 
 export async function createTalkingPhoto(input: TalkingPhotoInput): Promise<ActionResult<string>> {
   return toResult(() => createTalkingPhotoImpl(input));
+}
+
+/** The user's computers for video (Connector v0.2), and whether their plan allows using them. */
+export async function getMyGpuComputers(): Promise<ActionResult<{ allowed: boolean; computers: GpuComputer[] }>> {
+  return toResult(async () => {
+    const userId = await requireUserId();
+    const allowed = await computersAllowed(userId);
+    return { allowed, computers: allowed ? await listGpuComputers(userId) : [] };
+  });
 }
 
 export async function getTalkingAvailable(): Promise<ActionResult<{ enabled: boolean; high: boolean }>> {

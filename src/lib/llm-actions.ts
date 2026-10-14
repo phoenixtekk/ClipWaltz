@@ -71,6 +71,9 @@ export type MyComputer = {
   lastError: string | null;
   lastErrorAt: string | null;
   lastUsedAt: string | null;
+  /** Connector v0.2: the GPU and what its local ComfyUI can render (template id → label in the UI). */
+  gpu: { name: string; vramMb: number } | null;
+  video: { ok: boolean; error: string | null; ready: string[]; missing: Record<string, string[]> } | null;
 };
 
 export type MyAiModels = {
@@ -287,6 +290,8 @@ async function getMyAiModelsImpl(): Promise<MyAiModels> {
     lastError: c.lastError,
     lastErrorAt: c.lastErrorAt?.toISOString() ?? null,
     lastUsedAt: c.lastUsedAt?.toISOString() ?? null,
+    gpu: (c.gpu ?? null) as MyComputer["gpu"],
+    video: (c.comfy ?? null) as MyComputer["video"],
   }));
   if (pref?.writingProvider === CONNECTOR_ID) {
     const online = computers.filter((c) => c.online && (c.model || c.models.length));
@@ -414,6 +419,9 @@ async function lookupPairingImpl(code: string): Promise<PendingComputer> {
 async function approvePairingImpl(code: string): Promise<{ name: string }> {
   const userId = await requireUserId();
   const p = await pendingPairing(userId, code);
+  const mine = await db.select({ id: schema.connectors.id }).from(schema.connectors)
+    .where(and(eq(schema.connectors.userId, userId), isNull(schema.connectors.revokedAt)));
+  if (mine.length >= 5) throw new Error("You can connect up to 5 computers — disconnect one first.");
   const [done] = await db
     .update(schema.connectorPairings)
     .set({ approvedBy: userId })

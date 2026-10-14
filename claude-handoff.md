@@ -23,6 +23,12 @@ backup `linuxg1:/tmp/cw-pre-c2-src.tgz`. Verified: site 200, workers up, registr
 - **Already LIVE on AISERVER:** systemd `clipwaltz-talking` (127.0.0.1:8192, GPU 1) + wrapper with `echomimic-talking-v1`
   and GPU guard (backward compatible; wrapper backup `/opt/clipwaltz-ai/scripts/app.py.bak-20261013-*`).
 - **Owner 2026-10-14:** talking photo quality tiers — Standard (ESRGAN, 1 cr/s) + High (SeedVR2, 2 cr/s); LIVE (see FEATURES).
+- **C3 BUILT 2026-10-14 (dev-verified, NOT deployed, needs owner go-ahead):** video on users' own GPUs via Connector 0.2 +
+  local ComfyUI — image→video (Wan 2.2 5B) and talking photo via **our own node pack** `comfyui-clipwaltz/` (owner chose it:
+  the public EchoMimic pack is broken on fresh installs). Proven on the owner's workstation (`G:\ClipWaltz-test-comfy`, RTX
+  3080, paired to DEV only). Security-reviewed (6 fixes). Deploy = prod migrate **0058** + app/gen-worker overlay on
+  `deploy/c2-20261014` (AISERVER `/tts` already live). See `08_…Plan.md` §9 + ADMIN_DOCS "Video on users' own GPUs".
+- **AISERVER NVIDIA 595 packages held** (2026-10-14, owner).
 - **Next:** C3 (Connector GPU jobs) per `08_…Plan.md`; render-scaling deploy still parked (v14 log).
 - Dev: tunnels `ssh -fN -L 55432:127.0.0.1:5432 -L 6380:127.0.0.1:6379 lacy@linuxg1`; dev worker needs
   `WATERMARK_PATH=worker/WaterMark.png` on Windows (ffmpeg `movie=` can't take a drive path) + `AISERVER_API_TOKEN` from

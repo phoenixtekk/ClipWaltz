@@ -9,6 +9,7 @@ import { unwrap } from "@/lib/action-result";
 import type { AssetSummary } from "@/lib/assets";
 import { VOICES } from "@/lib/deck/types";
 import { createTalkingPhoto } from "@/lib/talking-actions";
+import type { GpuComputer } from "@/lib/computer-gpu";
 import {
   TALKING_ASPECTS, TALKING_CONSENT_TEXT, TALKING_MAX_SECONDS, TALKING_QUALITY, TALKING_SCRIPT_MAX,
   estimateScriptSeconds, talkingCost, type TalkingAspect, type TalkingQuality,
@@ -24,6 +25,7 @@ export function TalkingPhotoPanel({
   projectId,
   photos,
   highAvailable,
+  computers,
   busy,
   onStarted,
 }: {
@@ -31,6 +33,8 @@ export function TalkingPhotoPanel({
   photos: AssetSummary[];
   /** SeedVR2 restore enabled in the AI registry. */
   highAvailable: boolean;
+  /** The user's online computers whose ComfyUI can render talking photos (Connector v0.2). */
+  computers: GpuComputer[];
   busy: boolean;
   onStarted: (jobId: string) => void;
 }) {
@@ -43,6 +47,7 @@ export function TalkingPhotoPanel({
   const [uploading, setUploading] = useState(false);
   const [aspect, setAspect] = useState<TalkingAspect>("9:16");
   const [quality, setQuality] = useState<TalkingQuality>("standard");
+  const [where, setWhere] = useState<string>("clipwaltz"); // "clipwaltz" or a connector id
   const [consent, setConsent] = useState(false);
   const [playing, setPlaying] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -51,8 +56,9 @@ export function TalkingPhotoPanel({
   const credits = useCredits(busy);
 
   const seconds = source === "audio" ? recording?.seconds ?? 0 : estimateScriptSeconds(script, speed);
+  const pc = computers.find((c) => c.id === where) ?? null;
   const q: TalkingQuality = quality === "high" && !highAvailable ? "standard" : quality;
-  const cost = seconds > 0 ? talkingCost(seconds, q) : 0;
+  const cost = pc ? 0 : seconds > 0 ? talkingCost(seconds, q) : 0;
   const renderSecPerSec = TALKING_QUALITY[q].renderSecPerSec;
   const ready = !!photoId && consent && (source === "audio" ? !!recording : !!script.trim());
 
@@ -88,7 +94,7 @@ export function TalkingPhotoPanel({
     start(async () => {
       try {
         const jobId = unwrap(await createTalkingPhoto({
-          projectId, sourceAssetId: photoId, aspect, consent, quality: q,
+          projectId, sourceAssetId: photoId, aspect, consent, quality: q, computerId: pc?.id ?? null,
           ...(source === "audio" ? { audioKey: recording?.key } : { script, voice, speed }),
         }));
         toast.success("Talking photo started — it'll appear under Generated versions");
@@ -202,7 +208,22 @@ export function TalkingPhotoPanel({
         </div>
       </Section>
 
-      <Section label="Quality">
+      {computers.length > 0 && (
+        <Section label="Render on">
+          <div className="flex flex-wrap gap-1.5">
+            {[{ id: "clipwaltz", label: "ClipWaltz", sub: "uses AI credits" }, ...computers.map((c) => ({ id: c.id, label: `Your computer · ${c.name}`, sub: c.gpu ? `${c.gpu.name} · free` : "free" }))].map((o) => (
+              <button key={o.id} type="button" aria-pressed={where === o.id} onClick={() => setWhere(o.id)}
+                className={cn("rounded-lg border px-2.5 py-1.5 text-left text-xs",
+                  where === o.id ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10" : "border-border hover:border-foreground/30")}>
+                <span className="block font-medium">{o.label}</span>
+                <span className="block text-muted-foreground">{o.sub}</span>
+              </button>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {!pc && <Section label="Quality">
         <div className="grid grid-cols-2 gap-1.5">
           {(Object.keys(TALKING_QUALITY) as TalkingQuality[]).map((k) => {
             const off = k === "high" && !highAvailable;
@@ -216,7 +237,7 @@ export function TalkingPhotoPanel({
             );
           })}
         </div>
-      </Section>
+      </Section>}
 
       <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/30 p-3 text-sm">
         <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 size-4 accent-[color:var(--cw-violet)]" />
@@ -230,7 +251,9 @@ export function TalkingPhotoPanel({
         className="h-14 w-full bg-[image:var(--cw-spectrum)] text-base font-semibold text-white shadow-lg hover:opacity-90">
         {pending ? <><Loader2 className="size-5 animate-spin" /> Starting…</> : <><Sparkles className="size-5" /> Make it talk</>}
       </Button>
-      {cost > 0 ? (
+      {pc ? (
+        <p className="text-center text-[11px] text-muted-foreground">Free — rendered on {pc.name}. Keep the ClipWaltz Connector and ComfyUI running until it&apos;s done.</p>
+      ) : cost > 0 ? (
         <CreditsLine cost={cost} balance={credits} className="w-full justify-center" />
       ) : (
         <p className="text-center text-[11px] text-muted-foreground">
@@ -238,8 +261,8 @@ export function TalkingPhotoPanel({
         </p>
       )}
       <p className="text-center text-[11px] text-muted-foreground">
-        Takes a while — about {renderSecPerSec} seconds of rendering per second of speech
-        {seconds > 0 ? ` (≈ ${Math.max(1, Math.round((seconds * renderSecPerSec) / 60))} min for this one)` : ""}, plus any queue.
+        {pc ? "How long it takes depends on your GPU — roughly a minute per second of speech on a 10 GB card." : <>Takes a while — about {renderSecPerSec} seconds of rendering per second of speech
+        {seconds > 0 ? ` (≈ ${Math.max(1, Math.round((seconds * renderSecPerSec) / 60))} min for this one)` : ""}, plus any queue.</>}
       </p>
     </div>
   );

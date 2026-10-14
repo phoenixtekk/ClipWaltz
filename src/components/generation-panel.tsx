@@ -58,7 +58,8 @@ import { getMyVideoModels, type MyVideoModels } from "@/lib/video-provider-actio
 import { ScenesPanel } from "@/components/scenes-panel";
 import { RemixPanel } from "@/components/remix-panel";
 import { TalkingPhotoPanel } from "@/components/talking-photo-panel";
-import { getTalkingAvailable } from "@/lib/talking-actions";
+import { getMyGpuComputers, getTalkingAvailable } from "@/lib/talking-actions";
+import type { GpuComputer } from "@/lib/computer-gpu";
 import {
   createExportJob,
   listExportJobs,
@@ -237,6 +238,8 @@ export function GenerationPanel({
   // Cloud video models offered to this user (Phase C1); "builtin" = the ClipWaltz model (Wan 2.2 on AISERVER).
   const [cloudOffers, setCloudOffers] = useState<MyVideoModels["offers"]>([]);
   const [modelId, setModelId] = useState("builtin");
+  // The user's own computers (Connector v0.2 + local ComfyUI, Phase C3); a model chip is "pc:<connectorId>".
+  const [computers, setComputers] = useState<GpuComputer[]>([]);
   const [seed, setSeed] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
@@ -304,6 +307,7 @@ export function GenerationPanel({
   useEffect(() => {
     getGenerationAvailability().then(unwrap).then(setAvail, () => { /* keep everything enabled */ });
     getMyVideoModels().then(unwrap).then((v) => setCloudOffers(v.offers), () => { /* built-in only */ });
+    getMyGpuComputers().then(unwrap).then((v) => setComputers(v.computers), () => { /* none */ });
   }, []);
   // ── Settings snapshot / apply (recent settings, presets, templates, Edit & regenerate) ──
   function currentSettings(): GenerationSettings {
@@ -386,13 +390,16 @@ export function GenerationPanel({
   // The picked cloud model, if it can make this kind of clip (else the built-in model is used).
   const task = mode === "text" ? "text_to_video" : "image_to_video";
   const cloud = mode !== "remix" ? cloudOffers.find((o) => o.id === modelId && o.tasks.includes(task)) ?? null : null;
+  const pcOffers = mode === "image" ? computers.filter((c) => c.online && c.ready.includes("wan-i2v-v1")) : [];
+  const pc = pcOffers.find((c) => `pc:${c.id}` === modelId) ?? null;
   const cloudAspects = cloud ? (task === "text_to_video" ? cloud.t2vAspects : cloud.i2vAspects) : null;
   const durationChoices: readonly number[] = cloud ? [3, 5, 8, 10] : DURATIONS;
   const aspectAvailable = (a: string) => !cloudAspects || cloudAspects.includes(a);
-  const clipCost = cloud ? (cloud.source === "own" ? 0 : Math.max(1, Math.ceil(durationSec * cloud.creditsPerSec))) : generationCost(durationSec, qualityKey);
+  const clipCost = pc ? 0 : cloud ? (cloud.source === "own" ? 0 : Math.max(1, Math.ceil(durationSec * cloud.creditsPerSec))) : generationCost(durationSec, qualityKey);
   const qualityAvailable = (q: Quality) => !avail || (mode === "text" ? avail.textToVideo : avail.imageToVideo)[q];
   const durationAvailable = (d: number) => {
     if (cloud) return cloud.durations.includes(d);
+    if (pc) return d <= 6; // Wan 2.2 5B on a home GPU: up to 6 s
     const max = avail ? (mode === "text" ? avail.textToVideoMaxSec : avail.imageToVideoMaxSec)?.[qualityKey] : null;
     return max == null || d <= max;
   };
@@ -503,6 +510,7 @@ export function GenerationPanel({
           motion: MOTIONS[motionIdx] as Motion,
           seed: seedNum,
           cloudModel: cloud?.id ?? null,
+          computerId: pc?.id ?? null,
         }));
         setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null });
       } catch (e) {
@@ -688,6 +696,7 @@ export function GenerationPanel({
             projectId={projectId}
             photos={photos}
             highAvailable={talkHigh}
+            computers={computers.filter((c) => c.online && c.ready.includes("clipwaltz-talking-v1"))}
             busy={isGenerating}
             onStarted={(jobId) => setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null })}
           />
@@ -833,12 +842,17 @@ export function GenerationPanel({
         </Field>
 
         {/* Model (Phase C1): the built-in model or a cloud model offered on this plan */}
-        {cloudOffers.some((o) => o.tasks.includes(task)) && (
-          <Field label="Model" hint="Cloud models are made by other companies; the built-in model runs on ClipWaltz's own GPUs.">
+        {(cloudOffers.some((o) => o.tasks.includes(task)) || pcOffers.length > 0) && (
+          <Field label="Model" hint="Cloud models are made by other companies; the built-in model runs on ClipWaltz's own GPUs; your computer runs it on your own GPU for free.">
             <div className="flex flex-wrap gap-2">
-              <Chip active={!cloud} onClick={() => setModelId("builtin")}>
+              <Chip active={!cloud && !pc} onClick={() => setModelId("builtin")}>
                 ClipWaltz AI
               </Chip>
+              {pcOffers.map((c) => (
+                <Chip key={c.id} active={pc?.id === c.id} onClick={() => setModelId(`pc:${c.id}`)} title={c.gpu ? `${c.gpu.name}, ${Math.round(c.gpu.vramMb / 1024)} GB` : undefined}>
+                  Your computer · {c.name} · free
+                </Chip>
+              ))}
               {cloudOffers.filter((o) => o.tasks.includes(task)).map((o) => (
                 <Chip key={o.id} active={cloud?.id === o.id} onClick={() => setModelId(o.id)}>
                   {o.label} · {o.source === "own" ? "your key" : `${o.creditsPerSec} cr/s`}
