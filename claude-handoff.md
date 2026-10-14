@@ -24,6 +24,7 @@ backup `linuxg1:/tmp/cw-pre-c2-src.tgz`. Verified: site 200, workers up, registr
 - **Already LIVE on AISERVER:** systemd `clipwaltz-talking` (127.0.0.1:8192, GPU 1) + wrapper with `echomimic-talking-v1`
   and GPU guard (backward compatible; wrapper backup `/opt/clipwaltz-ai/scripts/app.py.bak-20261013-*`).
 - **Owner 2026-10-14:** talking photo quality tiers — Standard (ESRGAN, 1 cr/s) + High (SeedVR2, 2 cr/s); LIVE (see FEATURES).
+- **Node pack on GitHub (owner 2026-10-14):** public https://github.com/phoenixtekk/ComfyUI-ClipWaltz (Apache-2.0, `main` @ `85e0fbe`); prod now `deploy/c3-20261014` @ `c7a5d87` (setup link → GitHub; app-only restart; backup `/tmp/cw-pre-ghpack-src.tgz`). Monorepo `comfyui-clipwaltz/` stays the source — sync steps in ADMIN_DOCS.
 - **C3 LIVE 2026-10-14:** prod = **`deploy/c3-20261014` @ `ed829e9`** (= `fe338ec` + NVIDIA-hold docs + C3); migrate 0058
   (58→59), 50-file overlay, build 0, restart app + gen worker (computer queue up); backup `linuxg1:/tmp/cw-pre-c3-src.tgz`.
   Verified: site 200, connector routes 401 without token, Connector 0.2 + pack zip served, columns present. Not exercised
