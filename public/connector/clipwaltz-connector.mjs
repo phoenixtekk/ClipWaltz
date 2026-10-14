@@ -123,7 +123,7 @@ const TEMPLATES = {
       };
     },
   },
-  // Talking photo: ClipWaltz's own node pack "ComfyUI-ClipWaltz" (www.clipwaltz.com/connector/comfyui-clipwaltz.zip,
+  // Talking photo: ClipWaltz's own node pack "ComfyUI-ClipWaltz" (github.com/phoenixtekk/ComfyUI-ClipWaltz,
   // EchoMimic v3 Flash, Apache-2.0) — the same engine and settings as ClipWaltz's GPUs; long clips in overlapping chunks
   // so 30 s fits a 10 GB card. Its "models" input lists only "ready" once every model file is installed.
   "clipwaltz-talking-v1": {

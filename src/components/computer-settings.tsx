@@ -227,11 +227,16 @@ export function ComputerSettings({ computers }: { computers: MyComputer[] }) {
             <span className={code}>wan2.2_vae.safetensors</span> in models/vae (all from Hugging Face, Comfy-Org/Wan_2.2_ComfyUI_Repackaged).
           </li>
           <li>
-            Talking photo:{" "}
+            Talking photo: install the{" "}
+            <a className="underline" href="https://github.com/phoenixtekk/ComfyUI-ClipWaltz" target="_blank" rel="noreferrer">
+              ClipWaltz node pack
+            </a>{" "}
+            — in ComfyUI/custom_nodes run{" "}
+            <span className={code}>git clone https://github.com/phoenixtekk/ComfyUI-ClipWaltz comfyui-clipwaltz</span> (no git?{" "}
             <a className="inline-flex items-center gap-1 underline" href="/connector/comfyui-clipwaltz.zip" download>
-              <Download className="size-3.5" /> download the ClipWaltz node pack
+              <Download className="size-3.5" /> zip
             </a>
-            , unzip it into ComfyUI/custom_nodes and follow its README (two commands: install, then download the models).
+            ), then follow its README (two commands: install, then download the models).
           </li>
           <li>Restart ComfyUI, then the Connector — this page shows what your computer can make.</li>
         </ol>

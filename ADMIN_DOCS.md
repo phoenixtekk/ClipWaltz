@@ -188,8 +188,11 @@ it into the project (talking: AI label), deletes the row + temp objects.
   `connectors.comfy`; `connectors.gpu` from ComfyUI `/system_stats`.
 - Speech for talking jobs: AISERVER wrapper `POST /tts` (Kokoro in `clipwaltz-talking`, CPU), stored at
   `connector-in/<genJobId>/speech.wav` for the job's duration.
-- **Node pack:** source `comfyui-clipwaltz/`; after any change run `python scripts/build-comfyui-pack.py` →
-  `public/connector/comfyui-clipwaltz.zip` (deterministic). Precomputed prompt embeddings
+- **Node pack:** source of truth `comfyui-clipwaltz/` in this repo; published to the **public GitHub repo
+  https://github.com/phoenixtekk/ComfyUI-ClipWaltz** (owner decision 2026-10-14; Apache-2.0, `main`) and as the zip
+  fallback. After any change: (1) `python scripts/build-comfyui-pack.py` → `public/connector/comfyui-clipwaltz.zip`
+  (deterministic, ships with the next app deploy); (2) copy the folder into a clone of the GitHub repo (keep its
+  `.gitignore`), commit and push — users update with `git pull`. Precomputed prompt embeddings
   (`prompt_embeds.safetensors`) were made with the service's umT5 (prompt "A person is speaking." + the negative prompt) —
   regenerate them if either text changes.
 - **Limits (security review 2026-10-14):** own queue `<GENERATION_QUEUE>-computer` (`GEN_COMPUTER_CONCURRENCY`,
