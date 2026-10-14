@@ -67,7 +67,10 @@ ships. It will also surface in-app at `/help`.
 6. Press **Make it talk**. It takes a while — roughly 45–50 seconds of rendering for every second of speech, plus any
    queue — and the clip appears under **Generated versions**. **Cancel** stops it and gives your credits back.
 
-**Cost:** 1 AI credit per second of speech, up to 30 seconds. For a script we reserve an estimate and then charge only the
+**Quality:** **Standard** (1 AI credit per second) sharpens the video; **High** (2 AI credits per second) uses an AI
+restore for more natural skin and eyes and takes about twice as long.
+
+**Cost:** 1 or 2 AI credits per second of speech (Standard / High), up to 30 seconds. For a script we reserve an estimate and then charge only the
 seconds actually made. **Every talking photo carries an "AI-generated" label** in the top-right corner, also in downloads.
 
 ## Organising your projects (categories)

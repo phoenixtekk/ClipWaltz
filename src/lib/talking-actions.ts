@@ -11,10 +11,11 @@ import { spendCredits } from "./credits-server";
 import { shouldWatermark } from "./watermark";
 import { toResult, type ActionResult } from "./action-result";
 import { headObject } from "./storage";
+import { resolveEnhanceWorkflow } from "./ai/routing";
 import { VOICES } from "./deck/types";
 import {
   TALKING_ASPECTS, TALKING_CONSENT_TEXT, TALKING_WORKFLOW, TALKING_MAX_SECONDS, TALKING_SCRIPT_MAX,
-  estimateScriptSeconds, talkingCost, type TalkingAspect,
+  estimateScriptSeconds, talkingCost, talkingQualityOf, type TalkingAspect, type TalkingQuality,
 } from "./talking-photo";
 
 // Waltz AI → Talking photo (Phase C2). A `talking_photo` job on the GPU queue: the worker stages the photo (and the
@@ -31,6 +32,8 @@ export type TalkingPhotoInput = {
   speed?: number;
   audioKey?: string;
   aspect?: TalkingAspect;
+  /** standard = Real-ESRGAN 2× (1 credit/s); high = SeedVR2 restore (2 credits/s). */
+  quality?: TalkingQuality;
   consent: boolean;
 };
 
@@ -55,6 +58,8 @@ async function createTalkingPhotoImpl(input: TalkingPhotoInput): Promise<string>
     .where(and(eq(schema.assets.id, input.sourceAssetId), eq(schema.assets.projectId, input.projectId)));
   if (!photo || photo.kind !== "photo") throw new Error("Pick a photo from this project");
 
+  const quality = talkingQualityOf(input.quality);
+  if (quality === "high" && !(await resolveEnhanceWorkflow("restore"))) throw new Error("High quality is switched off right now — try Standard");
   const aspect: TalkingAspect = TALKING_ASPECTS.some((a) => a.key === input.aspect) ? input.aspect! : "photo";
   let seconds: number;
   let speech: Record<string, unknown>;
@@ -75,7 +80,7 @@ async function createTalkingPhotoImpl(input: TalkingPhotoInput): Promise<string>
     speech = { script, voice, speed };
   }
 
-  const credits = talkingCost(seconds);
+  const credits = talkingCost(seconds, quality);
   const priority = (await getEffectiveTier(userId)) === "free" ? 0 : 10;
   const watermark = await shouldWatermark(userId);
   const id = randomUUID();
@@ -97,6 +102,7 @@ async function createTalkingPhotoImpl(input: TalkingPhotoInput): Promise<string>
       sourceAssetId: photo.id,
       ...speech,
       aspect,
+      quality,
       durationSec: Math.round(seconds * 10) / 10,
       seed: null,
       watermark,
@@ -121,9 +127,10 @@ export async function createTalkingPhoto(input: TalkingPhotoInput): Promise<Acti
   return toResult(() => createTalkingPhotoImpl(input));
 }
 
-export async function getTalkingAvailable(): Promise<ActionResult<boolean>> {
+export async function getTalkingAvailable(): Promise<ActionResult<{ enabled: boolean; high: boolean }>> {
   return toResult(async () => {
     await requireUserId();
-    return talkingEnabled();
+    const [enabled, restore] = await Promise.all([talkingEnabled(), resolveEnhanceWorkflow("restore")]);
+    return { enabled, high: enabled && !!restore };
   });
 }

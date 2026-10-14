@@ -7,8 +7,15 @@ export const TALKING_WORKFLOW = "echomimic-talking-v1"; // AISERVER wrapper work
 /** Owner decision 2026-10-13: the same price as built-in clips, 1 credit per second, and at most 30 s for everyone. */
 export const TALKING_MAX_SECONDS = 30;
 export const TALKING_CREDITS_PER_SECOND = 1;
-/** Render time per second of speech on one RTX 3080 (5.2 s clip: 246 s, measured 2026-10-13). Shown as an estimate. */
-export const TALKING_RENDER_SEC_PER_SEC = 47;
+/** Owner decision 2026-10-14: Standard = render + Real-ESRGAN 2× (1 credit/s); High = render + SeedVR2 restore (2 credits/s). */
+export type TalkingQuality = "standard" | "high";
+export const TALKING_QUALITY: Record<TalkingQuality, { label: string; perSecond: number; renderSecPerSec: number; hint: string }> = {
+  // Seconds of GPU work per second of speech on one RTX 3080, measured 2026-10-14 on a 5.36 s clip: 219 s render +
+  // 30 s ESRGAN (standard) / + 206 s SeedVR2 (high).
+  standard: { label: "Standard", perSecond: 1, renderSecPerSec: 47, hint: "Sharp 2× upscale" },
+  high: { label: "High", perSecond: 2, renderSecPerSec: 80, hint: "AI restore — more natural skin and eyes, slower" },
+};
+export const talkingQualityOf = (q: unknown): TalkingQuality => (q === "high" ? "high" : "standard");
 export const TALKING_SCRIPT_MAX = 600; // characters; ~30 s of speech at a normal pace
 export const TALKING_AUDIO_MAX_BYTES = 20 * 1024 * 1024;
 export const TALKING_CONSENT_TEXT = "This is me, or I have this person's permission to make them speak.";
@@ -28,8 +35,8 @@ export function estimateScriptSeconds(script: string, speed = 1): number {
 
 /** Credits charged up front for `seconds` of speech (capped at the 30 s limit). When the clip is done the worker lowers
  *  it to the length actually rendered — never raises it (the balance was only checked for the up-front amount). */
-export const talkingCost = (seconds: number) =>
-  Math.max(1, Math.ceil(Math.min(TALKING_MAX_SECONDS, seconds) * TALKING_CREDITS_PER_SECOND));
+export const talkingCost = (seconds: number, quality: TalkingQuality = "standard") =>
+  Math.max(1, Math.ceil(Math.min(TALKING_MAX_SECONDS, seconds)) * TALKING_QUALITY[quality].perSecond);
 
 export type TalkingAspect = "photo" | "9:16" | "16:9" | "1:1";
 export const TALKING_ASPECTS: { key: TalkingAspect; label: string }[] = [

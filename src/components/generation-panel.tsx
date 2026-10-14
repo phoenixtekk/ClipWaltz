@@ -216,8 +216,12 @@ export function GenerationPanel({
   const [mode, setMode] = useState<"image" | "text" | "remix" | "talk">(photos.length ? "image" : "text");
   // Talking photo (Phase C2) shows only while the admin has it switched on (AI registry).
   const [talkOn, setTalkOn] = useState(false);
+  const [talkHigh, setTalkHigh] = useState(false);
   useEffect(() => {
-    getTalkingAvailable().then((r) => setTalkOn(r.ok && r.data), () => setTalkOn(false));
+    getTalkingAvailable().then((r) => {
+      setTalkOn(r.ok && r.data.enabled);
+      setTalkHigh(r.ok && r.data.high);
+    }, () => setTalkOn(false));
   }, []);
   const [sourceAssetId, setSourceAssetId] = useState<string | null>(photos[0]?.id ?? null);
   const [prompt, setPrompt] = useState("");
@@ -683,6 +687,7 @@ export function GenerationPanel({
           <TalkingPhotoPanel
             projectId={projectId}
             photos={photos}
+            highAvailable={talkHigh}
             busy={isGenerating}
             onStarted={(jobId) => setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null })}
           />

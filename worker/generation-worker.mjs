@@ -248,14 +248,29 @@ async function runTalking(j, req, genJobId) {
   if (!dl.ok) throw new Error(`/outputs ${dl.status}`);
   const raw = Buffer.from(await dl.arrayBuffer());
 
-  // 2× Real-ESRGAN; a failed upscale keeps the original size rather than failing a clip the user waited for.
+  // Standard: Real-ESRGAN 2×. High (owner 2026-10-14, 2 credits/s): SeedVR2 restore — more natural skin and eyes.
+  // A failed High restore falls back to ESRGAN and is charged as Standard; a failed upscale keeps the native size
+  // rather than failing a clip the user waited for.
   await setStatus(genJobId, { status: "uploading_output", progress: 80 });
   let upscaled = null;
-  try {
-    upscaled = await runAiWorkflow("esrgan-upscale-v1", raw, genJobId);
-  } catch (e) {
-    if (String(e?.message) === "cancelled") return null;
-    console.warn(`[gen] ${genJobId} talking upscale skipped: ${e?.message ?? e}`);
+  let rate = req.quality === "high" ? 2 : 1;
+  if (rate === 2) {
+    try {
+      const info = await probeVideo(raw);
+      upscaled = await runAiWorkflow("seedvr2-restore-v1", raw, genJobId, { extraInputs: restoreParams(info), timeoutMs: RESTORE_TIMEOUT_MS });
+    } catch (e) {
+      if (String(e?.message) === "cancelled") return null;
+      console.warn(`[gen] ${genJobId} talking restore failed, using the standard upscale: ${e?.message ?? e}`);
+      rate = 1;
+    }
+  }
+  if (!upscaled) {
+    try {
+      upscaled = await runAiWorkflow("esrgan-upscale-v1", raw, genJobId);
+    } catch (e) {
+      if (String(e?.message) === "cancelled") return null;
+      console.warn(`[gen] ${genJobId} talking upscale skipped: ${e?.message ?? e}`);
+    }
   }
   const final = await finishTalking(raw, upscaled, req.aiLabel !== false);
 
@@ -263,7 +278,7 @@ async function runTalking(j, req, genJobId) {
   const meta = await probeVideo(final).catch(() => ({}));
   // Refund only: the balance was checked for the up-front amount, so the settle may never raise it.
   if (meta.duration) {
-    const credits = Math.min(j.credits ?? 0, Math.max(1, Math.ceil(Math.min(30, meta.duration))));
+    const credits = Math.min(j.credits ?? 0, Math.max(1, Math.ceil(Math.min(30, meta.duration)) * rate));
     await sql`update generation_jobs set credits = ${credits} where id = ${genJobId} and credits > ${credits}`;
   }
   return final;

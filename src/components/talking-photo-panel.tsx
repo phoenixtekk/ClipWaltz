@@ -10,8 +10,8 @@ import type { AssetSummary } from "@/lib/assets";
 import { VOICES } from "@/lib/deck/types";
 import { createTalkingPhoto } from "@/lib/talking-actions";
 import {
-  TALKING_ASPECTS, TALKING_CONSENT_TEXT, TALKING_MAX_SECONDS, TALKING_RENDER_SEC_PER_SEC, TALKING_SCRIPT_MAX,
-  estimateScriptSeconds, talkingCost, type TalkingAspect,
+  TALKING_ASPECTS, TALKING_CONSENT_TEXT, TALKING_MAX_SECONDS, TALKING_QUALITY, TALKING_SCRIPT_MAX,
+  estimateScriptSeconds, talkingCost, type TalkingAspect, type TalkingQuality,
 } from "@/lib/talking-photo";
 
 // Waltz AI → Talking photo (Phase C2): pick a photo, type what it should say (a Kokoro voice speaks it) or upload a
@@ -23,11 +23,14 @@ type Recording = { key: string; seconds: number; name: string };
 export function TalkingPhotoPanel({
   projectId,
   photos,
+  highAvailable,
   busy,
   onStarted,
 }: {
   projectId: string;
   photos: AssetSummary[];
+  /** SeedVR2 restore enabled in the AI registry. */
+  highAvailable: boolean;
   busy: boolean;
   onStarted: (jobId: string) => void;
 }) {
@@ -39,6 +42,7 @@ export function TalkingPhotoPanel({
   const [recording, setRecording] = useState<Recording | null>(null);
   const [uploading, setUploading] = useState(false);
   const [aspect, setAspect] = useState<TalkingAspect>("9:16");
+  const [quality, setQuality] = useState<TalkingQuality>("standard");
   const [consent, setConsent] = useState(false);
   const [playing, setPlaying] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -47,7 +51,9 @@ export function TalkingPhotoPanel({
   const credits = useCredits(busy);
 
   const seconds = source === "audio" ? recording?.seconds ?? 0 : estimateScriptSeconds(script, speed);
-  const cost = seconds > 0 ? talkingCost(seconds) : 0;
+  const q: TalkingQuality = quality === "high" && !highAvailable ? "standard" : quality;
+  const cost = seconds > 0 ? talkingCost(seconds, q) : 0;
+  const renderSecPerSec = TALKING_QUALITY[q].renderSecPerSec;
   const ready = !!photoId && consent && (source === "audio" ? !!recording : !!script.trim());
 
   function preview(id: string) {
@@ -82,7 +88,7 @@ export function TalkingPhotoPanel({
     start(async () => {
       try {
         const jobId = unwrap(await createTalkingPhoto({
-          projectId, sourceAssetId: photoId, aspect, consent,
+          projectId, sourceAssetId: photoId, aspect, consent, quality: q,
           ...(source === "audio" ? { audioKey: recording?.key } : { script, voice, speed }),
         }));
         toast.success("Talking photo started — it'll appear under Generated versions");
@@ -196,6 +202,22 @@ export function TalkingPhotoPanel({
         </div>
       </Section>
 
+      <Section label="Quality">
+        <div className="grid grid-cols-2 gap-1.5">
+          {(Object.keys(TALKING_QUALITY) as TalkingQuality[]).map((k) => {
+            const off = k === "high" && !highAvailable;
+            return (
+              <button key={k} type="button" aria-pressed={q === k} disabled={off} onClick={() => setQuality(k)}
+                className={cn("rounded-lg border px-2.5 py-2 text-left text-xs transition-colors disabled:opacity-50",
+                  q === k ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10" : "border-border hover:border-foreground/30")}>
+                <span className="block font-medium">{TALKING_QUALITY[k].label} · {TALKING_QUALITY[k].perSecond} cr/s</span>
+                <span className="block text-muted-foreground">{off ? "Temporarily unavailable" : TALKING_QUALITY[k].hint}</span>
+              </button>
+            );
+          })}
+        </div>
+      </Section>
+
       <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/30 p-3 text-sm">
         <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 size-4 accent-[color:var(--cw-violet)]" />
         <span>
@@ -211,11 +233,13 @@ export function TalkingPhotoPanel({
       {cost > 0 ? (
         <CreditsLine cost={cost} balance={credits} className="w-full justify-center" />
       ) : (
-        <p className="text-center text-[11px] text-muted-foreground">1 AI credit per second of speech, up to {TALKING_MAX_SECONDS} s.</p>
+        <p className="text-center text-[11px] text-muted-foreground">
+          {TALKING_QUALITY[q].perSecond} AI credit{TALKING_QUALITY[q].perSecond === 1 ? "" : "s"} per second of speech, up to {TALKING_MAX_SECONDS} s.
+        </p>
       )}
       <p className="text-center text-[11px] text-muted-foreground">
-        Takes a while — about {TALKING_RENDER_SEC_PER_SEC} seconds of rendering per second of speech
-        {seconds > 0 ? ` (≈ ${Math.max(1, Math.round((seconds * TALKING_RENDER_SEC_PER_SEC) / 60))} min for this one)` : ""}, plus any queue.
+        Takes a while — about {renderSecPerSec} seconds of rendering per second of speech
+        {seconds > 0 ? ` (≈ ${Math.max(1, Math.round((seconds * renderSecPerSec) / 60))} min for this one)` : ""}, plus any queue.
       </p>
     </div>
   );
