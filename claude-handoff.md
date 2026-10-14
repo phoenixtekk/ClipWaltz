@@ -1,4 +1,4 @@
-<!-- session-version: 15 -->
+<!-- session-version: 16 -->
 
 # ClipWaltz — session handoff
 
@@ -14,7 +14,27 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
-## Working state (2026-10-14, v15) — Phase C2 talking photo LIVE on prod
+## Working state (2026-10-14, rotation to v16)
+**Branch `claude/continue-previous-b21cc2`** (worktree `.claude/worktrees/continue-previous-728cde`), tree clean @ `b6c4774`,
+tsc + eslint clean, **not pushed / not merged into `main`**. **Prod = `deploy/c3-20261014` @ `c7a5d87`** (render-scaling code
+still out). All of Phase C (C1 cloud video, C2 talking photo + quality tiers, C3 own-GPU video) is LIVE.
+```
+b6c4774 docs(handoff): node pack on GitHub; prod tip c7a5d87
+e392ac2 feat(connector): node pack hosted on GitHub (phoenixtekk/ComfyUI-ClipWaltz); LICENSE; git-clone setup steps
+99e2c63 docs: C3 deployed to prod
+184f4fb feat(connector): video on the user's own GPU — Connector 0.2 + ComfyUI (Phase C3)
+82cfc06 docs(aiserver): NVIDIA 595 packages held after the reboot
+```
+- **Shipped in v15:** C2 talking photo (AISERVER `clipwaltz-talking`, chunked EchoMimic v3 Flash, consent, AI label, credits
+  settle down) · quality tiers Standard (ESRGAN 1 cr/s) / High (SeedVR2 2 cr/s) · C3 Connector 0.2 + local ComfyUI (Wan i2v +
+  our node pack, 0 credits, own `-computer` queue, caps) · node pack public at github.com/phoenixtekk/ComfyUI-ClipWaltz ·
+  AISERVER rebooted by owner + NVIDIA 595 packages `apt-mark hold`. All security-reviewed; details in v15 log below.
+- **Not verified on prod:** any talking photo / own-GPU clip through the prod UI (no prod login); test PC is paired to DEV.
+- **Next (ask owner):** merge/push this branch to `main`; render-scaling deploy (parked, v14 log); Waltz Avatar Phase 1
+  (awaiting go-ahead); optional InfiniteTalk 24 GB template; open decisions: linuxg7 98 GB → `minio-lv`, discard old copies
+  in the main checkout.
+
+## Session v15 log (2026-10-14) — Phase C2 + C3 shipped
 **Branch `claude/continue-previous-b21cc2`** (worktree `.claude/worktrees/continue-previous-728cde`), not pushed / not merged.
 **Prod = deploy branch `deploy/c2-20261014` @ `fe338ec`** (= `218a851` + C2 + quality tiers; render-scaling code still out).
 Quality tiers deployed 2026-10-14 (6 files, build 0, restart app + gen worker; backup `linuxg1:/tmp/cw-pre-c2q-src.tgz`). C2 deployed
@@ -34,7 +54,6 @@ backup `linuxg1:/tmp/cw-pre-c2-src.tgz`. Verified: site 200, workers up, registr
   3080, paired to DEV only). Security-reviewed (6 fixes). Deploy = prod migrate **0058** + app/gen-worker overlay on
   `deploy/c2-20261014` (AISERVER `/tts` already live). See `08_…Plan.md` §9 + ADMIN_DOCS "Video on users' own GPUs".
 - **AISERVER NVIDIA 595 packages held** (2026-10-14, owner).
-- **Next:** C3 (Connector GPU jobs) per `08_…Plan.md`; render-scaling deploy still parked (v14 log).
 - Dev: tunnels `ssh -fN -L 55432:127.0.0.1:5432 -L 6380:127.0.0.1:6379 lacy@linuxg1`; dev worker needs
   `WATERMARK_PATH=worker/WaterMark.png` on Windows (ffmpeg `movie=` can't take a drive path) + `AISERVER_API_TOKEN` from
   AISERVER `wrapper.env`; dev test account got a 60-credit grant.
