@@ -22,8 +22,7 @@ backup `linuxg1:/tmp/cw-pre-c2-src.tgz`. Verified: site 200, workers up, registr
 (no prod login). **AISERVER rebooted by owner 2026-10-14** → driver 595.99.02 matched, NVENC/ESRGAN work again.
 - **Already LIVE on AISERVER:** systemd `clipwaltz-talking` (127.0.0.1:8192, GPU 1) + wrapper with `echomimic-talking-v1`
   and GPU guard (backward compatible; wrapper backup `/opt/clipwaltz-ai/scripts/app.py.bak-20261013-*`).
-- **Owner 2026-10-14:** quality OK, wants it better → quality comparison in progress (standard vs 768×512 "high" vs
-  SeedVR2 restore); service now accepts `quality` per job (not yet used by the app).
+- **Owner 2026-10-14:** talking photo quality tiers — Standard (ESRGAN, 1 cr/s) + High (SeedVR2, 2 cr/s); LIVE (see FEATURES).
 - **Next:** C3 (Connector GPU jobs) per `08_…Plan.md`; render-scaling deploy still parked (v14 log).
 - Dev: tunnels `ssh -fN -L 55432:127.0.0.1:5432 -L 6380:127.0.0.1:6379 lacy@linuxg1`; dev worker needs
   `WATERMARK_PATH=worker/WaterMark.png` on Windows (ffmpeg `movie=` can't take a drive path) + `AISERVER_API_TOKEN` from

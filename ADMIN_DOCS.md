@@ -172,7 +172,11 @@ www.clipwaltz.com. Verified 2026-09-29 against a local `next build` + `next star
 
 **On/off:** `/admin/ai` → Models **echomimic-v3** + Workflows **echomimic-talking-v1** (task `talking_photo`, seeded on by
 migration **0057**). Both must be on; with either off the Generate tab hides *Talking photo* and the action/Retry refuse.
-No routing rule (one model). Price and limit are code constants (`src/lib/talking-photo.ts`): 1 credit/s, 30 s max.
+No routing rule (one model). Price and limit are code constants (`src/lib/talking-photo.ts` → `TALKING_QUALITY`):
+Standard 1 credit/s (ESRGAN 2×), High 2 credits/s (SeedVR2 restore), 30 s max. **High** needs the restore workflow
+(`seedvr2-restore-v1` + model `seedvr2`) on — switching it off greys High out and refuses High jobs/retries. A failed
+restore falls back to ESRGAN and settles at the Standard rate. The talking service also accepts `quality: "high"`
+(768×512 render, 81-frame chunks, 9.2 GB peak) — not used by the app (owner chose SeedVR2 instead, 2026-10-14).
 
 **AISERVER service `clipwaltz-talking`** (systemd, user `lacy`, **127.0.0.1:8192 only**, bearer = the wrapper's
 `CW_API_TOKEN` via `EnvironmentFile=/opt/clipwaltz-ai/config/wrapper.env`):

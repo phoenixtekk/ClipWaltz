@@ -17,7 +17,7 @@ import { toResult, type ActionResult } from "./action-result";
 import { BACKDROP_COST, enhanceCost, generationCost, remixCost } from "./credits";
 import { shouldWatermark } from "./watermark";
 import { resolveCloud, assertDailyCap } from "./video-providers";
-import { talkingCost, TALKING_WORKFLOW } from "./talking-photo";
+import { talkingCost, talkingQualityOf, TALKING_WORKFLOW } from "./talking-photo";
 
 const PROMPT_MAX = 2000;
 
@@ -421,6 +421,9 @@ async function requeueGenerationCopy(
     // Consent belongs to the person who confirmed it: only they can re-run it (others start a new talking photo).
     const consent = requestJson.consent as { userId?: string; text?: string } | undefined;
     if (consent?.userId !== userId) throw new Error("Make a new talking photo to confirm you have permission for this face");
+    if (talkingQualityOf(requestJson.quality) === "high" && !(await resolveEnhanceWorkflow("restore"))) {
+      throw new Error("High quality is switched off right now — make it again in Standard");
+    }
     requestJson = { ...requestJson, consent: { ...consent, confirmed: true, at: new Date().toISOString(), userId } };
   } else if (job.jobType === "enhancement") {
     // Re-check the registry and use the workflows enabled NOW (never the ones stored on the old
@@ -472,7 +475,7 @@ async function costOfJob(jobType: string, req: Record<string, unknown>): Promise
     if (!seconds) seconds = (await routeOrUserError(jobType, (QUALITIES.includes(quality as Quality) ? quality : "standard") as Quality)).durationMax ?? 5;
     return generationCost(seconds, quality);
   }
-  if (jobType === "talking_photo") return talkingCost(Number(req.durationSec) || 30);
+  if (jobType === "talking_photo") return talkingCost(Number(req.durationSec) || 30, talkingQualityOf(req.quality));
   if (jobType === "remix") {
     const secs = (x: unknown) => Number((x as { seconds?: number } | null)?.seconds) || 0;
     const moments = Array.isArray(req.moments) ? (req.moments as unknown[]) : [];

@@ -23,7 +23,13 @@ Both carry the bottom-left logo watermark (Free always; paid per the `/admin` sw
   speak."* — enforced in the server action and stored with the job (`request_json.consent`: text, time, user).
 - **AI label:** every talking clip gets a visible **"AI-generated"** tag top-right, burned in before the clean master is
   stored, so downloads/exports keep it (EU AI Act Art. 50). Watermark rules apply as for any Waltz AI clip.
-- **Price:** 1 AI credit per second, max **30 s** for every plan (owner 2026-10-13). Charged up front from the recording's
+- **Quality (owner 2026-10-14):** **Standard** — render + Real-ESRGAN 2×, **1 credit/s**; **High** — render + **SeedVR2
+  restore** (more natural skin and eyes), **2 credits/s**, about 80 s of GPU per second of speech vs 47. High shows as
+  unavailable when the SeedVR2 workflow is off; if the restore fails the clip gets the Standard upscale and is charged as
+  Standard. Chosen from a side-by-side test (`docs/phase-c/c2-quality-compare.mp4`); a larger 768×512 render was the
+  third option (9.2 GB peak, 2.2× slower) and was not chosen. Verified on dev: High 2.6 s clip → 640×1152, 10 credits
+  reserved → 6 charged.
+- **Price:** credits per second as above, max **30 s** for every plan (owner 2026-10-13). Charged up front from the recording's
   measured length or a conservative script estimate; when the clip is done the job is **settled to the seconds actually
   rendered** (verified: 9 estimated → 6 charged for a 5.4 s clip). Failed/cancelled → refunded as usual.
 - **How it renders:** EchoMimic v3-Flash (Apache-2.0) on AISERVER GPU 1 in the resident `clipwaltz-talking` service, in
