@@ -44,6 +44,26 @@ async function adminRow(id: string): Promise<Row> {
   return p;
 }
 
+/** Queue a presenter job for a row already set to "queued"; if the queue can't be reached, mark it failed so an admin can
+ * retry or delete it (a row left "queued" would be stuck: every action refuses queued rows). */
+async function queueOrFail(id: string, action: "portraits" | "ai_build" | "library_prepare"): Promise<void> {
+  try {
+    await enqueuePresenter({ presenterId: id, action });
+  } catch (e) {
+    console.error(`[presenter-library] enqueue ${action} ${id} failed:`, (e as Error).message);
+    await db.update(schema.presenters).set({ status: "failed", error: "Couldn't reach the job queue — try again", updatedAt: new Date() })
+      .where(eq(schema.presenters.id, id)).catch(() => {});
+    throw new Error("Couldn't reach the job queue — try again in a moment");
+  }
+}
+
+/** Atomically move a row from one of `from` to "queued" (a double-click or two admins start one job, not two). */
+async function claim(id: string, from: string[], set: Partial<Row> = {}): Promise<boolean> {
+  const r = await db.update(schema.presenters).set({ ...set, status: "queued", error: null, updatedAt: new Date() })
+    .where(and(eq(schema.presenters.id, id), inArray(schema.presenters.status, from))).returning({ id: schema.presenters.id });
+  return r.length > 0;
+}
+
 const cleanName = (s: string) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
 const voiceOf = (v?: string) => (VOICES.some((x) => x.id === v) ? v! : "af_heart");
 
@@ -76,7 +96,7 @@ export async function adminCreateAiPresenter(input: { name: string; description:
     const [p] = await db.insert(schema.presenters).values({
       id: randomUUID(), userId: s.user.id, name, kind: "ai", description, voice: voiceOf(input.voice), status: "queued",
     }).returning();
-    await enqueuePresenter({ presenterId: p.id, action: "portraits" });
+    await queueOrFail(p.id, "portraits");
     revalidatePath("/admin/avatars");
     return libView(p, true);
   });
@@ -88,9 +108,9 @@ export async function adminMoreFaces(id: string): Promise<ActionResult<void>> {
     await requireAdmin();
     const p = await adminRow(id);
     if (p.kind !== "ai" || !["draft", "failed"].includes(p.status)) throw new Error("This presenter is already being built");
+    if (!(await claim(id, ["draft", "failed"], { portraitKeys: null }))) throw new Error("This presenter is already being built");
     for (const k of (p.portraitKeys as string[] | null) ?? []) await purgePrefix(k).catch(() => {});
-    await db.update(schema.presenters).set({ status: "queued", portraitKeys: null, error: null, updatedAt: new Date() }).where(eq(schema.presenters.id, id));
-    await enqueuePresenter({ presenterId: id, action: "portraits" });
+    await queueOrFail(id, "portraits");
     revalidatePath("/admin/avatars");
   });
 }
@@ -102,9 +122,8 @@ export async function adminPickFace(id: string, n: number): Promise<ActionResult
     const p = await adminRow(id);
     const keys = (p.portraitKeys as string[] | null) ?? [];
     if (p.kind !== "ai" || p.status !== "draft" || !keys[n]) throw new Error("Pick one of the faces shown");
-    await db.update(schema.presenters).set({ thumbKey: keys[n], status: "queued", error: null, updatedAt: new Date() })
-      .where(and(eq(schema.presenters.id, id), eq(schema.presenters.status, "draft")));
-    await enqueuePresenter({ presenterId: id, action: "ai_build" });
+    if (!(await claim(id, ["draft"], { thumbKey: keys[n] }))) throw new Error("This presenter is already being built");
+    await queueOrFail(id, "ai_build");
     revalidatePath("/admin/avatars");
   });
 }
@@ -134,8 +153,8 @@ export async function adminBuildActor(id: string): Promise<ActionResult<void>> {
     if (p.kind !== "actor" || !["draft", "failed"].includes(p.status)) throw new Error("This presenter is already being built");
     if (!p.footageKey) throw new Error("Upload the actor's footage first");
     if (!p.releaseRef) throw new Error("The release reference is missing");
-    await db.update(schema.presenters).set({ status: "queued", error: null, updatedAt: new Date() }).where(eq(schema.presenters.id, id));
-    await enqueuePresenter({ presenterId: id, action: "library_prepare" });
+    if (!(await claim(id, ["draft", "failed"]))) throw new Error("This presenter is already being built");
+    await queueOrFail(id, "library_prepare");
     revalidatePath("/admin/avatars");
   });
 }
@@ -157,7 +176,9 @@ export async function adminDeleteLibraryPresenter(id: string): Promise<ActionRes
   return toResult(async () => {
     await requireAdmin();
     const p = await adminRow(id);
-    if (p.status === "queued" || p.status === "preparing") throw new Error("Wait until it's ready (or failed), then delete it");
+    // A job that's been queued/building for over 2 hours is stuck (the longest build is ~20 min) — let it be deleted.
+    const stuck = Date.now() - p.updatedAt.getTime() > 2 * 3600_000;
+    if ((p.status === "queued" || p.status === "preparing") && !stuck) throw new Error("Wait until it's ready (or failed), then delete it");
     await purgePrefix(`presenters/${p.userId}/${id}/`);
     await db.delete(schema.presenters).where(eq(schema.presenters.id, id));
     await enqueuePresenter({ presenterId: id, action: "delete" }).catch(() => {});

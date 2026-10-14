@@ -446,8 +446,21 @@ def run_presenter(job: Dict[str, Any]) -> None:
     job_id, pid = job["job_id"], job["presenter_id"]
     cache = PRESENTERS / pid
     t0 = time.time()
-    _set(job_id, status="running", stage="waiting for the GPU", progress=2)
-    wait_for_gpu(job_id)
+    _set(job_id, status="running", stage="starting", progress=2)
+
+    def prog(base: int, span: int):
+        """Progress callback that also stops the job when it's cancelled (the wrapper stops counting a cancelled job
+        for the GPU guard at once, so it must not keep running on the card)."""
+        def cb(f: float) -> None:
+            if _cancelled(job_id):
+                raise Cancelled()
+            _set(job_id, progress=base + int(f * span))
+        return cb
+
+    def gpu() -> None:
+        _set(job_id, stage="waiting for the GPU")
+        wait_for_gpu(job_id)
+
     try:
         if job["kind"] == "match":
             import consent as C
@@ -463,10 +476,11 @@ def run_presenter(job: Dict[str, Any]) -> None:
             out_dir.mkdir(parents=True, exist_ok=True)
             out = out_dir / "dubbed.mp4"
             try:
+                gpu()
                 _set(job_id, stage="reading the video", progress=5)
-                P.prepare(INPUT_DIR / job["video"], dub_cache, DUB_MAX_SECONDS, lambda f: _set(job_id, progress=5 + int(f * 45)))
+                P.prepare(INPUT_DIR / job["video"], dub_cache, DUB_MAX_SECONDS, prog(5, 45))
                 _set(job_id, stage="lip-sync", progress=50)
-                dur = P.lipsync(dub_cache, INPUT_DIR / job["audio"], out, lambda f: _set(job_id, progress=50 + int(f * 48)), loop=False)
+                dur = P.lipsync(dub_cache, INPUT_DIR / job["audio"], out, prog(50, 48), loop=False)
             finally:
                 import shutil
 
@@ -495,8 +509,16 @@ def run_presenter(job: Dict[str, Any]) -> None:
                 if not chk["ok"]:
                     _set(job_id, status="failed", stage="consent", error=chk["reason"], result=result)
                     return
+            gpu()
             _set(job_id, stage="preparing the presenter", progress=10)
-            stats = P.prepare(footage, cache, PRESENTER_MAX_SECONDS, lambda f: _set(job_id, progress=10 + int(f * 88)))
+            try:
+                stats = P.prepare(footage, cache, PRESENTER_MAX_SECONDS, prog(10, 88))
+            except BaseException:
+                if not (cache / "meta.json").exists():  # a half-built cache (frames of the user's face) is not kept
+                    import shutil
+
+                    shutil.rmtree(cache, ignore_errors=True)
+                raise
             _set(job_id, status="completed", stage="done", progress=100, result={**result, **stats}, render_s=round(time.time() - t0, 1))
             return
         if not (cache / "meta.json").exists():
@@ -510,9 +532,10 @@ def run_presenter(job: Dict[str, Any]) -> None:
             _set(job_id, stage="voice", progress=5)
             speech = out_dir / "speech.wav"
             tts(job["text"], job["voice"], job["speed"], speech)
+        gpu()
         _set(job_id, stage="lip-sync", progress=10)
         out = out_dir / "presenter.mp4"
-        dur = P.lipsync(cache, speech, out, lambda f: _set(job_id, progress=10 + int(f * 88)))
+        dur = P.lipsync(cache, speech, out, prog(10, 88))
         _set(job_id, status="completed", stage="done", progress=100, duration=round(dur, 2),
              output=f"clipwaltz/presenter/{job_id}/{out.name}", render_s=round(time.time() - t0, 1),
              peak_gb=round(torch.cuda.max_memory_reserved() / 1e9, 2))

@@ -698,6 +698,18 @@ def _safe_under(base: Path, rel: str) -> Path:
     return target
 
 
+@app.delete("/inputs/{name}")
+def delete_input(name: str, _: None = Depends(require_token)) -> Dict[str, Any]:
+    """Remove a staged input as soon as its job is done (Waltz Avatar inputs are a user's face and voice — they should
+    not wait for the 6-hour cleanup). Only names this wrapper generated are accepted."""
+    import re
+
+    if not re.fullmatch(r"cw_[a-f0-9]{16}\.[a-z0-9]{2,4}", name):
+        raise HTTPException(status_code=400, detail="invalid name")
+    (INPUT_DIR / name).unlink(missing_ok=True)
+    return {"deleted": name}
+
+
 @app.post("/inputs")
 async def upload_input(file: UploadFile = File(...), _: None = Depends(require_token)) -> Dict[str, Any]:
     """Stage a source image into CW_INPUT_DIR (for image-to-video). Returns the staged filename

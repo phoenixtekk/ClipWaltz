@@ -57,7 +57,13 @@ export async function createPresenterVideo(input: {
     const projectId = unwrap(await createProject("surprise", aspect, undefined, { title, deckMode: aspect === "16:9" ? "presentation" : "ad" }));
 
     const ownVoice = p.userId === userId && p.kind === "twin" && p.voiceStatus === "ready";
+    const sceneSec = (line: string) => Math.round(Math.max(2, estimateScriptSeconds(line, 1) + 0.4) * 10) / 10;
+    // The brief's target length = the script's length (else it keeps the mode default, e.g. 90 s for a 15 s script),
+    // within the editor slider's range.
+    const total = lines.reduce((n, l) => n + sceneSec(l), 0);
+    const lengthSec = Math.min(aspect === "16:9" ? 180 : 60, Math.max(6, Math.ceil(total)));
     const patch: Partial<DeckBrief> = {
+      lengthSec,
       prompt: script.slice(0, 2000),
       voice: { mode: "manual", voiceId: ownVoice ? `${CLONE_PREFIX}${p.id}` : p.voice, speed: 1 },
       captions: { enabled: true },
@@ -73,7 +79,7 @@ export async function createPresenterVideo(input: {
       id: randomUUID(), projectId, orderIndex: i,
       role: i === 0 ? "hook" : i === lines.length - 1 ? "cta" : "content",
       layout: style.layout,
-      durationSec: Math.round(Math.max(2, estimateScriptSeconds(line, 1) + 0.4) * 10) / 10,
+      durationSec: sceneSec(line),
       textMode: style.text ? "manual" : "none",
       text: style.text ? { headline: titleOf(line) } : null,
       voice: line.slice(0, 400),

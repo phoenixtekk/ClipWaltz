@@ -678,7 +678,7 @@ export function GenerationPanel({
         </div>
 
         {/* Mode: image→video vs text→video */}
-        <div className="inline-flex rounded-lg border border-border bg-muted/50 p-0.5 text-sm font-medium">
+        <div className="inline-flex max-w-full flex-wrap rounded-lg border border-border bg-muted/50 p-0.5 text-sm font-medium">
           {(talkOn ? (["image", "text", "talk", "remix", "translate"] as const) : (["image", "text", "remix", "translate"] as const)).map((m) => (
             <button
               key={m}

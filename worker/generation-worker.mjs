@@ -16,11 +16,12 @@ import { promisify } from "node:util";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Agent as HttpAgent } from "node:http";
 import { Agent as HttpsAgent } from "node:https";
 import postgres from "postgres";
 import IORedis from "ioredis";
-import { Worker, Queue } from "bullmq";
+import { Worker, Queue, UnrecoverableError } from "bullmq";
 import { WATERMARK_PATH, wmChain, wmBox } from "./watermark.mjs";
 import { composeRemix } from "./remix-compose.mjs";
 import { startDeckWorker, DECK_QUEUE } from "./deck/jobs.mjs";
@@ -140,7 +141,8 @@ async function setStatus(id, fields) {
 // (which shows the user a Retry button); earlier ones put it back to "queued" for the auto-retry.
 // Never overwrite cancelled/retried — the user already acted on it.
 async function markAttemptFailed(job, id, err) {
-  const final = (job?.attemptsMade ?? 1) >= (job?.opts?.attempts ?? 1);
+  // An UnrecoverableError (a final answer such as "not the same person") is never retried, whatever attempts are left.
+  const final = err?.name === "UnrecoverableError" || (job?.attemptsMade ?? 1) >= (job?.opts?.attempts ?? 1);
   const msg = String(err?.message ?? err).slice(0, 1000);
   if (final) {
     await sql`update generation_jobs set status = 'failed', error_message = ${msg}, failed_at = now(), updated_at = now()
@@ -216,9 +218,17 @@ async function runTranslatePrep(j, req, genJobId) {
     const up = await fetch(`${AISERVER_URL}/inputs`, { method: "POST", headers: aiHeaders, body: fd });
     if (!up.ok) throw new Error(`stage /inputs ${up.status}`);
     await setStatus(genJobId, { status: "generating", progress: 20 });
-    const st = await runPresenterJob("voice-transcribe-v1", { audio: (await up.json()).filename }, 20 * 60_000);
+    const staged = (await up.json()).filename;
+    let st;
+    try {
+      st = await runPresenterJob("voice-transcribe-v1", { audio: staged }, 20 * 60_000, genJobId);
+    } finally {
+      await unstage(staged);
+    }
+    if (await wasCancelled(genJobId)) return;
     const tr = st.result ?? {};
-    if (st.status !== "completed" || !String(tr.text ?? "").trim()) throw new Error("We couldn't hear any speech in that video");
+    if (st.status !== "completed") throw new Error(`transcription failed — ${st.error ?? st.status}`);
+    if (!String(tr.text ?? "").trim()) throw new UnrecoverableError("We couldn't hear any speech in that video");
     await setStatus(genJobId, { progress: 70 });
     const target = LANG_NAMES[req.lang] ?? "English";
     const out = await chatJson(TEXT_MODEL,
@@ -230,7 +240,7 @@ async function runTranslatePrep(j, req, genJobId) {
     if (!translation) throw new Error("The translation came back empty — try again");
     const prep = { source: String(tr.text), sourceLang: tr.language ?? null, translation, seconds: Number(tr.seconds) || null };
     await sql`update generation_jobs set request_json = ${sql.json({ ...req, prep })}, status = 'completed', progress = 100,
-      completed_at = now(), updated_at = now() where id = ${genJobId}`;
+      completed_at = now(), updated_at = now() where id = ${genJobId} and status not in ('cancelled', 'retried')`;
     console.log(`[gen] ${genJobId} translate prep → ${req.lang}: ${prep.source.length} → ${translation.length} chars`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -239,25 +249,30 @@ async function runTranslatePrep(j, req, genJobId) {
 
 async function runTranslateVideo(j, req, genJobId) {
   const [p] = await sql`select id, footage_key, voice_ref_key, voice_status, status from presenters where id = ${req.presenterId}`;
-  if (!p || p.status !== "ready" || p.voice_status !== "ready") throw new Error("your presenter or its voice isn't ready any more");
+  if (!p || p.status !== "ready" || p.voice_status !== "ready") throw new UnrecoverableError("your presenter or its voice isn't ready any more");
   const dir = mkdtempSync(join(tmpdir(), "cw-tvid-"));
+  const staged = []; // every file put on AISERVER for this job (the user's face + voice) — removed when the job ends
+  const stage = async (...a) => { const n = await stageFile(...a); staged.push(n); return n; };
   try {
     const src = join(dir, "v.mp4");
     writeFileSync(src, await assetVideoBytes(req.sourceAssetId));
     // 1. Same person as the consented presenter? (voice match + a visible face)
     await setStatus(genJobId, { status: "uploading_to_ai_node", progress: 8 });
-    const video = await stageFile(null, "video.mp4", "video/mp4", readFileSync(src));
-    const footage = await stageFile(p.footage_key, "footage.mp4", "video/mp4");
-    const m = await runPresenterJob("presenter-match-v1", { presenter_id: p.id, video, audio: footage });
-    if (m.status !== "completed") throw new Error(m.result?.match?.reason ?? "We couldn't check that this is a video of you");
+    const video = await stage(null, "video.mp4", "video/mp4", readFileSync(src));
+    const footage = await stage(p.footage_key, "footage.mp4", "video/mp4");
+    const m = await runPresenterJob("presenter-match-v1", { presenter_id: p.id, video, audio: footage }, PRESENTER_TIMEOUT_MS, genJobId);
+    if (await wasCancelled(genJobId)) return null;
+    if (m.status !== "completed") {
+      if (m.result?.match?.reason) throw new UnrecoverableError(m.result.match.reason); // a verdict, not a glitch
+      throw new Error(`We couldn't check that this is a video of you — ${m.error ?? m.status}`);
+    }
     // 2. The translation in the user's cloned voice, one line per sentence group (≤ 600 chars).
     await setStatus(genJobId, { status: "generating", progress: 20 });
-    const lines = (String(req.text).match(/[^.!?。]+[.!?。]*\s*/g) ?? [String(req.text)]).map((s) => s.trim()).filter(Boolean)
-      .reduce((acc, s) => { const last = acc[acc.length - 1]; if (last && (last + " " + s).length <= 400) acc[acc.length - 1] = `${last} ${s}`; else acc.push(s.slice(0, 600)); return acc; }, [])
-      .slice(0, 60);
+    const lines = speechLines(String(req.text));
     writeFileSync(join(dir, "ref.wav"), await getBytes(p.voice_ref_key));
-    const ref = await stageFile(null, "ref.wav", "audio/wav", readFileSync(join(dir, "ref.wav")));
-    const v = await runPresenterJob("voice-clone-tts-v1", { audio: ref, lines, language: req.lang }, 60 * 60_000);
+    const ref = await stage(null, "ref.wav", "audio/wav", readFileSync(join(dir, "ref.wav")));
+    const v = await runPresenterJob("voice-clone-tts-v1", { audio: ref, lines, language: req.lang }, 60 * 60_000, genJobId);
+    if (await wasCancelled(genJobId)) return null;
     if (v.status !== "completed") throw new Error(`your cloned voice failed — ${v.error ?? v.status}`);
     const [, ...wavs] = v.outputs ?? [];
     const list = [];
@@ -276,8 +291,9 @@ async function runTranslateVideo(j, req, genJobId) {
     await run("ffmpeg", ["-v", "error", "-y", "-i", join(dir, "speech.wav"), "-af", `atempo=${tempo.toFixed(4)}`, join(dir, "fit.wav")]);
     // 4. The video's own frames lip-synced to the new speech (a temporary presenter cache on AISERVER, deleted after).
     await setStatus(genJobId, { progress: 45 });
-    const audio = await stageFile(null, "speech.wav", "audio/wav", readFileSync(join(dir, "fit.wav")));
-    const d = await runPresenterJob("presenter-dub-v1", { presenter_id: randomUUID(), video, audio }, 90 * 60_000);
+    const audio = await stage(null, "speech.wav", "audio/wav", readFileSync(join(dir, "fit.wav")));
+    const d = await runPresenterJob("presenter-dub-v1", { presenter_id: randomUUID(), video, audio }, 90 * 60_000, genJobId);
+    if (await wasCancelled(genJobId)) return null;
     if (d.status !== "completed") throw new Error(`lip-sync failed — ${d.error ?? d.status}`);
     const dubbed = await aiOutput(d.outputs[0]);
     await setStatus(genJobId, { status: "uploading_output", progress: 85 });
@@ -288,10 +304,40 @@ async function runTranslateVideo(j, req, genJobId) {
       const credits = Math.max(1, Math.ceil((Math.min(180, meta.duration) * 2) / 10));
       await sql`update generation_jobs set credits = ${credits} where id = ${genJobId} and credits > ${credits}`;
     }
+    if (await wasCancelled(genJobId)) return null;
     return final;
   } finally {
     rmSync(dir, { recursive: true, force: true });
+    for (const n of staged) await unstage(n);
   }
+}
+
+/** The translation as lines for the cloned voice: sentences grouped up to ~400 characters; a longer sentence is split at
+ *  word boundaries (never cut off). */
+function speechLines(text) {
+  const MAX = 400;
+  const pieces = [];
+  for (const sent of (text.match(/[^.!?。]+[.!?。]*\s*/g) ?? [text]).map((s) => s.trim()).filter(Boolean)) {
+    let rest = sent;
+    while (rest.length > MAX) {
+      let cut = Math.max(rest.lastIndexOf(", ", MAX), rest.lastIndexOf(" ", MAX));
+      if (cut <= 0) cut = MAX;
+      pieces.push(rest.slice(0, cut + 1).trim());
+      rest = rest.slice(cut + 1).trim();
+    }
+    if (rest) pieces.push(rest);
+  }
+  return pieces.reduce((acc, s) => {
+    const last = acc[acc.length - 1];
+    if (last && (last + " " + s).length <= MAX) acc[acc.length - 1] = `${last} ${s}`;
+    else acc.push(s);
+    return acc;
+  }, []);
+}
+
+/** Remove a staged input from AISERVER now instead of leaving it for the 6-hour cleanup. */
+async function unstage(name) {
+  await fetch(`${AISERVER_URL}/inputs/${encodeURIComponent(name)}`, { method: "DELETE", headers: aiHeaders }).catch(() => {});
 }
 
 // ─── Talking photo (Phase C2): EchoMimic v3-Flash in AISERVER's clipwaltz-talking service ────────────────────────
@@ -739,7 +785,9 @@ async function storeResult(j, req, genJobId, videoBytes) {
     settings: { ...req, width: meta.width || null, height: meta.height || null, fps: meta.fps ?? null },
   });
   if (req.deckFill?.sceneId) await deckFillScene(j, req.deckFill.sceneId, { key: clean_key ?? outputKey, versionNumber, meta, bytes: videoBytes.length });
-  await setStatus(genJobId, { status: "completed", progress: 100, completed_at: new Date() });
+  // Never flip a job the user cancelled meanwhile to completed (a cancelled job's credits are refunded).
+  await sql`update generation_jobs set status = 'completed', progress = 100, completed_at = now(), updated_at = now()
+    where id = ${genJobId} and status not in ('cancelled', 'retried')`;
   console.log(`[gen] ${genJobId} done → ${outputKey} (v${versionNumber}, ${videoBytes.length} bytes)`);
 }
 
@@ -874,16 +922,24 @@ console.log(`[gen] computer video worker up (queue=${COMPUTER_GENERATION_QUEUE})
 const PRESENTER_QUEUE = `${GENERATION_QUEUE}-presenter`;
 const PRESENTER_TIMEOUT_MS = 30 * 60_000;
 
+// Files staged on AISERVER during one presenter-queue job (footage, consent clips, voice references — a user's face and
+// voice): removed when that job ends rather than left for the 6-hour cleanup. Per job, as the queue runs two at once.
+const stagedFiles = new AsyncLocalStorage();
+
 async function stageFile(key, name, type, bytes = null) {
   const fd = new FormData();
   fd.append("file", new Blob([bytes ?? await getBytes(key)], { type }), name);
   const r = await fetch(`${AISERVER_URL}/inputs`, { method: "POST", headers: aiHeaders, body: fd });
   if (!r.ok) throw new Error(`stage /inputs ${r.status}: ${(await r.text()).slice(0, 300)}`);
-  return (await r.json()).filename;
+  const filename = (await r.json()).filename;
+  stagedFiles.getStore()?.push(filename);
+  return filename;
 }
 
 /** Submit a presenter-* job to the wrapper and wait for it. → the wrapper's final job record. */
-async function runPresenterJob(workflow, inputs, timeoutMs = PRESENTER_TIMEOUT_MS) {
+/** `genJobId` (a generation job, e.g. a translation): when the user cancels it, the AISERVER job is cancelled too so the
+ *  GPU stops at once (the app's cancel only marks the row). */
+async function runPresenterJob(workflow, inputs, timeoutMs = PRESENTER_TIMEOUT_MS, genJobId = null) {
   const sub = await fetch(`${AISERVER_URL}/jobs`, {
     method: "POST", headers: { ...aiHeaders, "content-type": "application/json" }, body: JSON.stringify({ workflow, inputs }),
   });
@@ -896,6 +952,10 @@ async function runPresenterJob(workflow, inputs, timeoutMs = PRESENTER_TIMEOUT_M
     if (!r.ok) continue;
     const st = await r.json();
     if (st.status === "completed" || st.status === "failed" || st.status === "cancelled") return st;
+    if (genJobId && await wasCancelled(genJobId)) {
+      await fetch(`${AISERVER_URL}/jobs/${id}/cancel`, { method: "POST", headers: aiHeaders }).catch(() => {});
+      return { status: "cancelled" };
+    }
   }
   await fetch(`${AISERVER_URL}/jobs/${id}/cancel`, { method: "POST", headers: aiHeaders }).catch(() => {});
   throw new Error(`${workflow} timed out`);
@@ -1077,8 +1137,11 @@ async function prepareLibrary(p, thumb) {
     try {
       writeFileSync(join(dir, "f.mp4"), await getBytes(p.footage_key));
       await run("ffmpeg", ["-v", "error", "-y", "-ss", "1", "-i", join(dir, "f.mp4"), "-frames:v", "1", "-vf", "scale=-2:480", "-q:v", "3", join(dir, "t.jpg")]);
-      thumbKey = `presenters/${p.user_id}/${p.id}/thumb.jpg`;
-      await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: thumbKey, Body: readFileSync(join(dir, "t.jpg")), ContentType: "image/jpeg" }));
+      const key = `presenters/${p.user_id}/${p.id}/thumb.jpg`;
+      await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: readFileSync(join(dir, "t.jpg")), ContentType: "image/jpeg" }));
+      thumbKey = key;
+    } catch (e) {
+      console.error(`[presenter] library ${p.id} thumbnail failed (presenter still built):`, e?.message ?? e);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1131,7 +1194,14 @@ async function processVoice(presenterId) {
 
 const presenterWorker = new Worker(
   PRESENTER_QUEUE,
-  async (job) => { await processPresenter(job.data); },
+  async (job) => {
+    const staged = [];
+    try {
+      await stagedFiles.run(staged, () => processPresenter(job.data));
+    } finally {
+      for (const n of staged) await unstage(n);
+    }
+  },
   { connection, concurrency: 2, lockDuration: 5 * 60 * 1000 },
 );
 presenterWorker.on("failed", (job, err) => console.error(`[presenter] ${job?.data?.presenterId} ${job?.data?.action} failed:`, err?.message ?? err));

@@ -30,7 +30,20 @@ async function stage(file, name, type) {
   return (await r.json()).filename;
 }
 
+/** Run a wrapper job; the staged inputs it was given (narration, a voice reference — possibly the user's own voice) are
+ *  removed from AISERVER when it ends instead of waiting for the 6-hour cleanup. */
 async function runJob(workflow, inputs) {
+  const staged = Object.values(inputs ?? {}).filter((v) => typeof v === "string" && /^cw_[a-f0-9]{16}\.[a-z0-9]{2,4}$/.test(v));
+  try {
+    return await runJobInner(workflow, inputs);
+  } finally {
+    for (const n of staged) {
+      await fetch(`${AISERVER_URL}/inputs/${encodeURIComponent(n)}`, { method: "DELETE", headers: AI_HEADERS }).catch(() => {});
+    }
+  }
+}
+
+async function runJobInner(workflow, inputs) {
   const sub = await fetch(`${AISERVER_URL}/jobs`, {
     method: "POST", headers: { ...AI_HEADERS, "content-type": "application/json" }, body: JSON.stringify({ workflow, inputs }),
   });

@@ -42,6 +42,17 @@ Both carry the bottom-left logo watermark (Free always; paid per the `/admin` sw
   reference voice 0.79 (EN) / 0.58 (ES) vs 0.05 for another voice; deck rendered in the cloned voice in 77 s (render audio vs
   footage voice 0.79). AI faces: 3 portraits in ~1 min.
 
+- **Reviewed + dev-tested 2026-10-14 (this session took over the build):** two code reviews (app; AISERVER + worker),
+  every finding fixed, then run end to end on dev (dev wrapper/services on AISERVER, see ADMIN_DOCS): licensed actor
+  (create → footage → build → publish), the actor in a user's "Make a video" deck → HD render (lip-synced beside the slide,
+  captions, AI label), and **Translate a video → a translated version (first full success; 4 credits)**. Fixes: a translation
+  can't be retried / regenerated (it skipped the price + identity check); cancelling a translation stops the GPU at once and
+  never stores or charges (was: kept running, flipped back to completed); "not the same person" / "no speech" are final (no
+  second GPU run); staged footage / consent clips / voice / speech are deleted from AISERVER when each job ends; long
+  sentences are split, never cut; free transcriptions capped at 2 at once + 20 a day; library build / face buttons are
+  double-click safe and never stuck "queued"; any admin can upload an actor's footage; "Translated — <language>" label;
+  the "Make a video" deck length matches the script; the Waltz AI mode row wraps.
+
 ## Waltz Avatar — Your Presenter (Phase 1, built 2026-10-14 · dev-verified · not deployed yet)
 - **What:** a user records themself once; then any WaltzDeck voice line is spoken **by them** — their own footage,
   lip-synced by **MuseTalk 1.5** on AISERVER. Spec: `07_ClipWaltz_Presenter_Feature_Spec.md`.

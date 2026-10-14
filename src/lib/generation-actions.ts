@@ -1,4 +1,5 @@
 "use server";
+import { LANGUAGES } from "./deck/types";
 import { randomUUID } from "crypto";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -388,6 +389,7 @@ async function listGenerationVersionsImpl(projectId: string): Promise<Generation
       : r.jobType === "image_to_video" ? "Image → video"
       : r.jobType === "montage" ? "Storyboard"
       : r.jobType === "talking_photo" ? "Talking photo"
+      : r.jobType === "translate_video" ? `Translated — ${LANGUAGES.find((l) => l.code === rq.lang)?.name ?? String(rq.lang ?? "")}`
       : r.jobType === "remix" ? `Remix — ${String(((r.request ?? {}) as Record<string, unknown>).summary ?? "AI")}`
       : `Enhanced — ${PRESET_LABEL[String(rq.preset)] ?? ENGINE_LABEL[String(rq.engine)] ?? "Fast"}`;
     return {
@@ -449,6 +451,11 @@ async function requeueGenerationCopy(
   requestJson: Record<string, unknown>,
   retryCount = 0,
 ): Promise<string> {
+  // Translations speak in the requester's own cloned voice and are priced + identity-checked only in translate-actions —
+  // a copy here would skip both (free, and usable by another editor of a shared project).
+  if (job.jobType === "translate_video" || job.jobType === "translate_prep") {
+    throw new Error("Start a new translation from Waltz AI → Translate");
+  }
   let routing = {
     routingProfile: job.routingProfile, modelName: job.modelName,
     workflowName: job.workflowName, workflowVersion: job.workflowVersion,

@@ -84,6 +84,7 @@ function NewAi({ onDone }: { onDone: () => Promise<void> }) {
 function NewActor({ onDone }: { onDone: () => Promise<void> }) {
   const [name, setName] = useState("");
   const [releaseRef, setReleaseRef] = useState("");
+  const [description, setDescription] = useState("");
   const [voice, setVoice] = useState("af_heart");
   const [pending, start] = useTransition();
   return (
@@ -92,13 +93,15 @@ function NewActor({ onDone }: { onDone: () => Promise<void> }) {
       <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="Presenter name" className={cn(inputCls, "w-full")} />
       <input value={releaseRef} onChange={(e) => setReleaseRef(e.target.value)} maxLength={200} placeholder="Signed release reference (e.g. contract no. / file)"
         className={cn(inputCls, "w-full")} />
+      <input value={description} onChange={(e) => setDescription(e.target.value)} maxLength={300} placeholder="Short description (optional)"
+        className={cn(inputCls, "w-full")} />
       <div className="flex flex-wrap items-center gap-2">
         <VoiceSelect value={voice} onChange={setVoice} />
         <Button size="sm" disabled={pending || !name.trim() || !releaseRef.trim()}
           onClick={() => start(async () => {
             try {
-              unwrap(await adminCreateActor({ name, releaseRef, voice }));
-              setName(""); setReleaseRef("");
+              unwrap(await adminCreateActor({ name, releaseRef, description, voice }));
+              setName(""); setReleaseRef(""); setDescription("");
               toast.success("Created — now upload the actor's footage");
               await onDone();
             } catch (e) { toast.error((e as Error).message); }
@@ -148,7 +151,7 @@ function LibraryCard({ p, onChanged }: { p: LibraryPresenter; onChanged: () => P
             <span className="text-[11px] text-muted-foreground">{p.status}{busy(p.status) ? "…" : ""}</span>
             {p.library ? <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] text-emerald-700 dark:text-emerald-300">Published</span> : null}
           </div>
-          <p className="truncate text-xs text-muted-foreground">{p.kind === "actor" ? `Release: ${p.releaseRef}` : p.description}</p>
+          <p className="truncate text-xs text-muted-foreground">{p.kind === "actor" ? `Release: ${p.releaseRef}${p.description ? ` · ${p.description}` : ""}` : p.description}</p>
           {p.error ? <p className="flex items-center gap-1 text-xs text-red-600"><AlertTriangle className="size-3.5" /> {p.error}</p> : null}
         </div>
         {p.status === "ready" ? (

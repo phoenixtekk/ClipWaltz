@@ -108,6 +108,8 @@ presenter at any time (bin icon on its card) — its video, consent recording an
 - **Translate a video of yourself:** Waltz AI → **Translate**. Pick a video of you talking (up to 3 minutes), your presenter
   and the language, press **Transcribe & translate** (free), check or edit the translation, then **Make the translated
   video** (2 AI credits per 10 seconds). You need your own voice set up first; we check the video's voice matches yours.
+  You can transcribe 2 videos at a time and 20 a day. Cancelling a translation stops it straight away — no credits are used
+  and no version is made. To translate again, start a new translation (an old one can't be retried).
 
 ## Make videos on your own computer (free)
 If your computer has an NVIDIA graphics card (8 GB or more; 10 GB recommended), ClipWaltz can make Waltz AI clips on it

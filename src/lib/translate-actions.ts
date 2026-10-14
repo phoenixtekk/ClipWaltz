@@ -1,6 +1,6 @@
 "use server";
 import { randomUUID } from "crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
@@ -31,6 +31,10 @@ export type TranslationPrep = {
   sourceAssetId: string;
 };
 
+// The free step still runs Whisper + the LLM on AISERVER: at most PREP_ACTIVE at once and PREP_PER_DAY a day per user.
+const PREP_ACTIVE = 2;
+const PREP_PER_DAY = 20;
+
 async function ownVoicePresenter(userId: string, id: string) {
   const [p] = await db.select().from(schema.presenters)
     .where(and(eq(schema.presenters.id, id), eq(schema.presenters.userId, userId), eq(schema.presenters.kind, "twin")));
@@ -50,14 +54,27 @@ export async function prepareTranslation(input: { projectId: string; assetId: st
       .from(schema.assets).innerJoin(schema.projects, eq(schema.projects.id, schema.assets.projectId))
       .where(and(eq(schema.assets.id, input.assetId), eq(schema.assets.projectId, input.projectId)));
     if (!a || a.kind !== "video") throw new Error("Pick a video from this project");
-    if ((a.durationSec ?? 0) > TRANSLATE_MAX_SECONDS + 1) throw new Error(`Videos up to ${TRANSLATE_MAX_SECONDS / 60} minutes can be translated — trim it first`);
+    if (!a.durationSec) throw new Error("We couldn't read this video's length — upload it again");
+    if (a.durationSec > TRANSLATE_MAX_SECONDS + 1) throw new Error(`Videos up to ${TRANSLATE_MAX_SECONDS / 60} minutes can be translated — trim it first`);
+    const mine = and(eq(schema.generationJobs.requestedBy, userId), eq(schema.generationJobs.jobType, "translate_prep"));
+    const [{ active }] = await db.select({ active: sql<number>`count(*)::int` }).from(schema.generationJobs)
+      .where(and(mine, inArray(schema.generationJobs.status, ["queued", "running"])));
+    if (active >= PREP_ACTIVE) throw new Error("Wait for your other translations to finish transcribing");
+    const [{ today }] = await db.select({ today: sql<number>`count(*)::int` }).from(schema.generationJobs)
+      .where(and(mine, gt(schema.generationJobs.createdAt, new Date(Date.now() - 24 * 3600_000))));
+    if (today >= PREP_PER_DAY) throw new Error(`You can transcribe ${PREP_PER_DAY} videos a day — try again tomorrow`);
     const id = randomUUID();
     await db.insert(schema.generationJobs).values({
       id, projectId: input.projectId, workspaceId: a.workspaceId ?? null, requestedBy: userId, jobType: "translate_prep", status: "queued",
       credits: 0, modelName: "whisper-small", workflowName: "voice-transcribe-v1",
       requestJson: { sourceAssetId: a.id, presenterId: input.presenterId, lang: input.lang },
     });
-    await enqueueGeneration(id, { priority: 1 });
+    try {
+      await enqueueGeneration(id, { priority: 1 });
+    } catch {
+      await db.update(schema.generationJobs).set({ status: "failed", errorMessage: "Couldn't reach the AI queue", failedAt: new Date() }).where(eq(schema.generationJobs.id, id));
+      throw new Error("Couldn't reach the AI queue — try again in a moment");
+    }
     return id;
   });
 }

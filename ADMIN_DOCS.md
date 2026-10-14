@@ -233,6 +233,19 @@ for the translation.
 AI base footage: `echomimic-talking-v1` (standard) + `esrgan-upscale-v1`, ~15–20 GPU-minutes. Actors: footage via
 `POST /api/presenters/<id>/footage` from the admin page, then build (no consent clip — the release reference is required).
 
+**Dev stack (AISERVER, beside the live services — never instead of them):** `aiserver/scripts/dev-avatar-stack.sh
+start|stop|status` runs the talking service (`~/presenter-dev`, venv-full, :8193, GPU 1), the voice service (:8196, GPU 0)
+and a wrapper (:8194) with inputs/outputs/logs in `/tmp/cwdev` and presenter caches in `/tmp/presenters-dev`. Local
+workers: `ssh -fN -L 8194:127.0.0.1:8194 aiserver`, then `--env-file=.env.aiserver.local` (gitignored:
+`AISERVER_API_URL=http://127.0.0.1:8194` + `AISERVER_API_TOKEN` from AISERVER `wrapper.env`). **Without it the dev worker
+talks to the PRODUCTION wrapper.** Render worker on Windows also needs `CHROMIUM_PATH` (Playwright's chrome.exe).
+Dev sign-outs every few minutes: another local app using Better Auth on another localhost port shares the
+`better-auth.session_token` cookie (cookies ignore the port) — sign in again, or stop the other dev server.
+**Biometric hygiene (2026-10-14):** the wrapper has `DELETE /inputs/<name>` (only `cw_<16 hex>.<ext>` names); the
+generation worker and the render worker delete every input they staged when the job ends; `cleanup.sh` also removes
+`presenters/dub-*` and half-built presenter caches (no `meta.json`) older than 2 h. **Cancel:** a user's cancel of a
+translation is forwarded to the wrapper job; the talking service checks for it every 25 frames / each lip-sync batch.
+
 ## InfiniteTalk template — Connector 0.3 (2026-10-14)
 Template `infinitetalk-v1` in `public/connector/clipwaltz-connector.mjs` (id also in `src/lib/computer-gpu.ts`
 `COMPUTER_TEMPLATES.talkingHq` / `TALKING_ENGINES`). Core ComfyUI nodes only; needs ComfyUI ≥ 0.40

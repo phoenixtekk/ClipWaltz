@@ -18,6 +18,15 @@ done
 for d in temp temp-gpu1 cache; do
   [ -d "$DATA/$d" ] && find "$DATA/$d" -type f -mmin "+$TMP_KEEP_MIN" -delete 2>/dev/null || true
 done
+# Waltz Avatar: a translation's temporary lip-sync cache (presenters/dub-<job>) and a presenter cache whose build never
+# finished (no meta.json) hold frames of a user's face — never keep them past the temp window (normally the service
+# deletes them itself; this covers a killed or restarted service).
+if [ -d "$DATA/presenters" ]; then
+  find "$DATA/presenters" -mindepth 1 -maxdepth 1 -type d -name 'dub-*' -mmin "+$TMP_KEEP_MIN" -exec rm -rf {} + 2>/dev/null || true
+  for c in "$DATA"/presenters/*/; do
+    [ -d "$c" ] && [ ! -f "$c/meta.json" ] && [ -n "$(find "$c" -maxdepth 0 -mmin "+$TMP_KEEP_MIN")" ] && rm -rf "$c"
+  done
+fi
 # prune now-empty per-job subdirs
 find "$DATA/output" "$DATA/input" -mindepth 1 -type d -empty -delete 2>/dev/null || true
 

@@ -1876,7 +1876,8 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
     if (cf) parts.push(cf);
     const lf = lightFilter(style.lightFx);
     if (lf) parts.push(lf);
-    if (style.deck?.captionsFile) parts.push(`ass=filename='${fwd(style.deck.captionsFile)}'`);
+    // ':' escaped as in the AI-label drawtext — a Windows drive path (dev) otherwise breaks the filtergraph; no-op on Linux.
+    if (style.deck?.captionsFile) parts.push(`ass=filename='${fwd(style.deck.captionsFile).replace(/:/g, "\\:")}'`);
     if (useTitle && titleT) {
       const fs = Math.round(H * 0.055);
       parts.push(
