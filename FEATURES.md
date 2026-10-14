@@ -13,7 +13,7 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
-## Talking photo in Waltz AI — a photo speaks your script (Phase C2, 2026-10-13)
+## Talking photo in Waltz AI — a photo speaks your script (Phase C2, LIVE 2026-10-14)
 - **Generate tab → Talking photo** (4th mode, shown while the admin has it on): pick a project photo, then **type a script**
   (≤ 600 characters, spoken by one of the 15 Kokoro voices — US/UK English, Spanish, French, Italian, Portuguese — with
   Hear preview and pace 0.8–1.2×) **or upload a recording** (MP3/M4A/WAV/OGG/OPUS/FLAC/WEBM, ≤ 20 MB, first 30 s used).
@@ -28,8 +28,8 @@ Both carry the bottom-left logo watermark (Free always; paid per the `/admin` sw
   rendered** (verified: 9 estimated → 6 charged for a 5.4 s clip). Failed/cancelled → refunded as usual.
 - **How it renders:** EchoMimic v3-Flash (Apache-2.0) on AISERVER GPU 1 in the resident `clipwaltz-talking` service, in
   overlapping ~4.5 s chunks (one pass tops out at ~6.4 s on 10 GB); peak **7.7 GB**; ≈ **47 s of GPU time per second of
-  speech** (5.2 s → 246 s; 18.8 s → 873 s). Then Real-ESRGAN 2× (320×576 → 640×1152) — **currently skipped** while
-  AISERVER's NVIDIA driver/library mismatch breaks NVENC (clip is kept at native size; fixed by the pending reboot).
+  speech** (5.2 s → 246 s; 18.8 s → 873 s). Then Real-ESRGAN 2× (320×576 → 640×1152; working again since the
+  2026-10-14 AISERVER reboot — if it fails the clip is kept at native size).
 - **Verified on dev (2026-10-13):** script job end to end from the UI (v7, 5.36 s, speech + label + watermark), recording
   job (v8, 2.92 s, 3 credits), Retry, Cancel mid-render (service stops, job cancelled), server-side guards (no consent,
   another project's recording, path traversal, missing recording, foreign photo, > 600 chars), upload rejects non-audio
