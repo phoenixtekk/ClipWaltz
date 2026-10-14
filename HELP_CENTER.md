@@ -82,8 +82,10 @@ at no AI-credit cost — image → video and talking photos.
 3. For **image → video**, download three files from Hugging Face (Comfy-Org/Wan_2.2_ComfyUI_Repackaged) into ComfyUI's
    models folder: `wan2.2_ti2v_5B_fp16.safetensors` (diffusion_models), `umt5_xxl_fp8_e4m3fn_scaled.safetensors`
    (text_encoders) and `wan2.2_vae.safetensors` (vae).
-4. For **talking photos**, download the **ClipWaltz node pack** from the same page, unzip it into ComfyUI's
-   `custom_nodes` folder and run the two commands in its README (install, then download the models — about 12 GB).
+4. For **talking photos**, install the **ClipWaltz node pack** (github.com/phoenixtekk/ComfyUI-ClipWaltz): in ComfyUI's
+   `custom_nodes` folder run `git clone https://github.com/phoenixtekk/ComfyUI-ClipWaltz comfyui-clipwaltz` (or download
+   the zip from the same page and unzip it there), then run the two commands in its README (install, then download the
+   models — about 12 GB). Update it later with `git pull` in that folder.
 5. Restart ComfyUI and the ClipWaltz Connector. **Your computers** now shows what your computer can make.
 
 Then pick **Your computer** as the model (From image) or under **Render on** (Talking photo). Keep ComfyUI and the

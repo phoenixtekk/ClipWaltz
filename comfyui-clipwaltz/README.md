@@ -8,13 +8,16 @@ runs on its own GPUs.
 
 ## Install (Windows portable)
 
-1. Unzip this folder to `ComfyUI\custom_nodes\comfyui-clipwaltz`.
+1. In `ComfyUI\custom_nodes`, run `git clone https://github.com/phoenixtekk/ComfyUI-ClipWaltz comfyui-clipwaltz`
+   (no git? download the zip from www.clipwaltz.com/connector/comfyui-clipwaltz.zip and unzip it there).
 2. In the ComfyUI_windows_portable folder, run:
    ```
    python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\comfyui-clipwaltz\requirements.txt
    python_embeded\python.exe ComfyUI\custom_nodes\comfyui-clipwaltz\download_models.py
    ```
 3. Restart ComfyUI. Start the ClipWaltz Connector — it reports "Talking photo … ready".
+
+Update later with `git pull` in `custom_nodes\comfyui-clipwaltz`, then restart ComfyUI.
 
 Other installs: same steps with the Python that runs ComfyUI.
 
@@ -26,7 +29,7 @@ and the 11 GB text encoder is not needed.
 
 ## Licences
 
-- This pack: Apache-2.0 (© ClipWaltz).
+- This pack: Apache-2.0 (see `LICENSE`).
 - `cwtalk/` — EchoMimic v3 source (github.com/antgroup/echomimic_v3 @ `7e89489`), Apache-2.0, see `cwtalk/LICENSE.txt`.
   Changes: imports made package-relative; the pipeline takes its dtype from the transformer and accepts a list of
   precomputed prompt embeddings (no text encoder loaded).
