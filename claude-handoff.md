@@ -16,7 +16,8 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ## Working state (2026-10-14, v15) — Phase C2 talking photo LIVE on prod
 **Branch `claude/continue-previous-b21cc2`** (worktree `.claude/worktrees/continue-previous-728cde`), not pushed / not merged.
-**Prod = deploy branch `deploy/c2-20261014` @ `fbf630e`** (= `218a851` + C2; render-scaling code still out). Deployed
+**Prod = deploy branch `deploy/c2-20261014` @ `fe338ec`** (= `218a851` + C2 + quality tiers; render-scaling code still out).
+Quality tiers deployed 2026-10-14 (6 files, build 0, restart app + gen worker; backup `linuxg1:/tmp/cw-pre-c2q-src.tgz`). C2 deployed
 2026-10-14: prod migrate 0057 (57→58), overlay of 21 files, build exit 0, `pm2 restart clipwaltz clipwaltz-gen-worker`;
 backup `linuxg1:/tmp/cw-pre-c2-src.tgz`. Verified: site 200, workers up, registry rows on. Not exercised via the prod UI
 (no prod login). **AISERVER rebooted by owner 2026-10-14** → driver 595.99.02 matched, NVENC/ESRGAN work again.
