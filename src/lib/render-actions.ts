@@ -10,6 +10,12 @@ import { deleteObject } from "./storage";
 import { track } from "./analytics";
 import type { RenderSettings, RenderCheckpoint, CheckWarning } from "./render";
 import { toResult } from "./action-result";
+import { isPresenterLayout, presenterCredits } from "./presenters";
+import { estimateScriptSeconds } from "./talking-photo";
+import { spendCredits } from "./credits-server";
+import type { DeckBrief } from "./deck/types";
+import { headObject } from "./storage";
+import { clipCacheBase, narrationRequest } from "../../worker/deck/presenter.mjs";
 
 /** Delete a saved render (the DB row + its MinIO object), editor-checked. */
 async function deleteRenderImpl(renderId: string): Promise<void> {
@@ -70,6 +76,53 @@ async function createRenderImpl(projectId: string, opts: { cloudTargets?: string
     if (!scenes) throw new Error("Plan the video first — there are no scenes to render yet.");
   } else if (!count) throw new Error("Add at least one clip before rendering");
 
+  // Waltz Avatar: presenter scenes cost AI credits for the lip-synced seconds (estimated from the narration now; the
+  // worker settles down to what was rendered, or refunds it all if the render fails). Only the presenter's owner renders it.
+  let presenterChargeId: string | undefined;
+  let presenterSnap: RenderSettings["presenter"];
+  if (proj.kind === "deck") {
+    const brief = ((proj.deck ?? {}) as { brief?: DeckBrief }).brief;
+    const scs = await db.select({ id: schema.deckScenes.id, layout: schema.deckScenes.layout, voice: schema.deckScenes.voice })
+      .from(schema.deckScenes).where(eq(schema.deckScenes.projectId, projectId));
+    const ps = scs.filter((s) => isPresenterLayout(s.layout));
+    if (ps.length) {
+      const pid = brief?.presenter?.id;
+      if (!pid) throw new Error("This video has presenter scenes — pick your presenter under Voiceover first");
+      const [pr] = await db.select({ status: schema.presenters.status, userId: schema.presenters.userId })
+        .from(schema.presenters).where(eq(schema.presenters.id, pid));
+      if (!pr) throw new Error("The presenter was deleted — pick another under Voiceover");
+      if (pr.userId !== userId) throw new Error("Only the person whose presenter this is can render it");
+      if (pr.status !== "ready") throw new Error("The presenter isn't ready yet");
+      presenterSnap = { id: pid, scenes: ps.map((s) => ({ id: s.id, layout: s.layout, voice: s.voice })) };
+      const voiceOn = !!brief?.voice?.mode && brief.voice.mode !== "off";
+      // Lines already lip-synced (same words, voice, speed, pronunciations) are reused for free — only new ones count.
+      let pron: unknown = [];
+      if (proj.brandKitId) {
+        const [bk] = await db.select({ p: schema.brandKits.pronunciationsJson }).from(schema.brandKits).where(eq(schema.brandKits.id, proj.brandKitId));
+        pron = bk?.p ?? [];
+      }
+      let seconds = 0;
+      if (voiceOn) {
+        for (const s of ps) {
+          if (!s.voice?.trim()) continue;
+          const base = clipCacheBase({ id: pid, user_id: userId }, narrationRequest(s.voice, brief?.voice, pron));
+          const cached = await headObject(`${base}.mp4`).then(() => true, () => false);
+          if (!cached) seconds += estimateScriptSeconds(s.voice, brief?.voice?.speed ?? 1);
+        }
+      }
+      const credits = presenterCredits(seconds);
+      if (credits > 0) {
+        presenterChargeId = randomUUID();
+        const chargeId = presenterChargeId;
+        await spendCredits(userId, credits, (tx) => tx.insert(schema.generationJobs).values({
+          id: chargeId, projectId, workspaceId: proj.workspaceId ?? null, requestedBy: userId, credits,
+          jobType: "presenter_render", status: "completed", progress: 100, modelName: "musetalk-1.5", workflowName: "presenter-lipsync-v1",
+          requestJson: { presenterRender: { presenterId: pid, seconds: Math.round(seconds * 10) / 10 } },
+        }));
+      }
+    }
+  }
+
   const { shouldWatermark } = await import("./watermark");
   const watermark = await shouldWatermark(userId); // every plan by default; admin can exempt paid plans
 
@@ -79,17 +132,24 @@ async function createRenderImpl(projectId: string, opts: { cloudTargets?: string
     .where(eq(schema.renders.projectId, projectId));
 
   const id = randomUUID();
-  await db.insert(schema.renders).values({
-    id,
-    projectId,
-    version: (maxv ?? 0) + 1,
-    aspect: proj.aspect,
-    status: "queued",
-    watermark,
-    settings: snapshotSettings(proj, count),
-    // Saves go to the project owner's storage, so only the owner's pick is kept.
-    cloudTargets: Array.isArray(opts.cloudTargets) && proj.ownerId === userId ? cleanTargets(opts.cloudTargets) : null,
-  });
+  try {
+    await db.insert(schema.renders).values({
+      id,
+      projectId,
+      version: (maxv ?? 0) + 1,
+      aspect: proj.aspect,
+      status: "queued",
+      watermark,
+      settings: { ...snapshotSettings(proj, count), ...(presenterChargeId ? { presenterChargeId } : {}), ...(presenterSnap ? { presenter: presenterSnap } : {}) },
+      // Saves go to the project owner's storage, so only the owner's pick is kept.
+      cloudTargets: Array.isArray(opts.cloudTargets) && proj.ownerId === userId ? cleanTargets(opts.cloudTargets) : null,
+    });
+  } catch (e) {
+    if (presenterChargeId) {
+      await db.update(schema.generationJobs).set({ status: "failed", updatedAt: new Date() }).where(eq(schema.generationJobs.id, presenterChargeId)).catch(() => {});
+    }
+    throw e;
+  }
   await db
     .update(schema.projects)
     .set({ status: "rendering", updatedAt: new Date() })

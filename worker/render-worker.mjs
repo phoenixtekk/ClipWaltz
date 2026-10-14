@@ -28,6 +28,7 @@ import { S3Client, GetObjectCommand, PutObjectCommand, CreateMultipartUploadComm
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { MOTION_LAYOUTS } from "./deck/motion.mjs";
+import { isPresenterLayout, narrationRequest, presenterClip, presenterFootage, presenterRect, slideRect, labelFont, aiLabel, presenterCredits } from "./deck/presenter.mjs";
 
 const run = promisify(execFile);
 const ONCE = process.argv.includes("--once");
@@ -172,6 +173,16 @@ async function download(key, file) {
 // old `Body: readFileSync(file)` failed on long 360 conversions ("File size (5570655991) is greater
 // than 2 GiB"). Small files: one PutObject; large: S3 multipart in 64 MB parts read from disk.
 const UPLOAD_PART = 64 * 1024 * 1024;
+async function objectExists(key) {
+  const { HeadObjectCommand } = await import("@aws-sdk/client-s3");
+  try {
+    await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function uploadFile(key, file, contentType) {
   const size = statSync(file).size;
   if (size <= UPLOAD_PART) {
@@ -1423,7 +1434,7 @@ async function crossfadeChunks(dir, segments, durations, T, chunkSize = XFADE_CH
 // use the scene's in-point when set, else the most active stretch (motion only — the planner already
 // chose the clip, and vision ranking would add minutes on the shared Ollama box). With beat sync, scene
 // boundaries move to the nearest beat within ±0.35 s (never below 0.8 s a scene).
-async function deckTimeline(scenes, assets, beats, beatSync, srcDurs, voiceCfg, dir) {
+async function deckTimeline(scenes, assets, beats, beatSync, srcDurs, voiceCfg, dir, deck = {}) {
   const byId = new Map(assets.map((a) => [a.id, a]));
   const slots = [];
   for (const sc of scenes) {
@@ -1444,6 +1455,25 @@ async function deckTimeline(scenes, assets, beats, beatSync, srcDurs, voiceCfg, 
     const { synthScenes } = await import("./deck/voice.mjs");
     await synthScenes(slots, { voiceId: voiceCfg.voiceId, speed: voiceCfg.speed, pronunciations: voiceCfg.pronunciations }, dir);
     for (const s of slots) if (s.voice) { s.minDur = s.voice.dur + 0.35; s.dur = Math.max(s.dur, s.minDur); }
+  }
+  // Waltz Avatar: each voiced presenter scene gets its narration lip-synced onto the presenter (MinIO-cached by the WAV),
+  // an unvoiced one shows the presenter's own footage. Seconds of lip-sync are totalled for the credit settle.
+  if (deck.presenter) {
+    const io = { download, upload: uploadFile, exists: objectExists, alive: async (id) => (await sql`select 1 from presenters where id = ${id}`).length > 0 };
+    deck.presenterSeconds = 0;
+    for (const [n, s] of slots.entries()) {
+      if (!isPresenterLayout(s.scene.layout)) continue;
+      if (s.voice?.file) {
+        const clip = await presenterClip(deck.presenter, s.voice, narrationRequest(s.scene.voice, voiceCfg, voiceCfg.pronunciations), dir, io, n);
+        s.presenterFile = clip.file;
+        s.minDur = s.voice.dur + 0.35; // a cache hit brings its own narration (same line, a hair different in length)
+        s.dur = Math.max(s.dur, s.minDur);
+        if (!clip.cached) deck.presenterSeconds += s.voice.dur; // cached lines were paid for when first made
+      } else {
+        s.presenterFile = await presenterFootage(deck.presenter, dir, io);
+        s.presenterSilent = true;
+      }
+    }
   }
   let musicOffset = 0;
   if (beatSync && beats.length > 4 && slots.length > 1) {
@@ -1472,7 +1502,7 @@ async function deckSegments(dir, slots, W, H, style, segments, durations, waterm
   const cover = `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,fps=30`;
   const zoomedOut = (sl) => !!sl.asset && Number(sl.scene.frame?.zoom) < 1;
   const isMotion = (sl) => MOTION_LAYOUTS.includes(sl.scene.layout); // animated scenes (worker/deck/motion.mjs)
-  const needsText = slots.some((s) => hasDeckText(s.scene) || !s.asset || zoomedOut(s) || isMotion(s));
+  const needsText = slots.some((s) => hasDeckText(s.scene) || !s.asset || zoomedOut(s) || isMotion(s) || !!s.presenterFile);
   const tr = needsText ? await (await import("./deck/text-layer.mjs")).createTextRenderer() : null;
   // Watermark logo box (same geometry as the logo overlay: 15.4 % of the short side, 3 % padding, 438×278
   // PNG) — text layouts stay above it so the logo never covers a word.
@@ -1536,6 +1566,12 @@ async function deckSegments(dir, slots, W, H, style, segments, durations, waterm
       const seg = join(dir, `seg${i}.mp4`);
       const enc = ["-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-t", dur.toFixed(3), seg];
       const text = hasDeckText(scene) ? scene.text : null;
+      if (slots[i].presenterFile) {
+        await presenterSegment({ slot: slots[i], i, dir, W, H, dur, offset, text, brand, safeBottom, tr, bdm, backdropOf, enc });
+        segments.push(seg);
+        durations.push(await probe(seg));
+        continue;
+      }
       const backdrop = !a || zoomedOut(slots[i]) ? await backdropOf(scene) : null;
       let layer = null;
       if (isMotion(slots[i])) {
@@ -1616,6 +1652,74 @@ async function deckSegments(dir, slots, W, H, style, segments, durations, waterm
 }
 const hasDeckText = (sc) => sc.text_mode !== "none" && !!(sc.text?.headline || sc.text?.sub || sc.text?.bullets?.length);
 
+// Waltz Avatar scene (worker/deck/presenter.mjs): the lip-synced presenter clip full screen (text as a caption bar),
+// beside the slide (split), or as a round bubble over the slide. The slide is the scene's media, else its backdrop, with
+// the scene's text. Every presenter scene carries the visible "AI-generated" label (EU AI Act Art. 50).
+async function presenterSegment({ slot, i, dir, W, H, dur, offset, text, brand, safeBottom, tr, bdm, backdropOf, enc }) {
+  const { scene, asset: a, presenterFile, presenterSilent } = slot;
+  const L = scene.layout;
+  const pr = presenterRect(L, W, H), sr = slideRect(L, W, H);
+  const font = labelFont();
+  const d = dur.toFixed(3);
+  // The presenter, cropped to its box with the face kept in view (a little above centre).
+  const pChain = `scale=${pr.w}:${pr.h}:force_original_aspect_ratio=increase,crop=${pr.w}:${pr.h}:(iw-${pr.w})/2:(ih-${pr.h})*0.22,setsar=1,fps=30,` +
+    `tpad=stop_mode=clone:stop_duration=${d}`;
+  const inputs = [...(presenterSilent ? ["-stream_loop", "-1"] : []), "-t", d, "-i", presenterFile];
+  if (L === "presenter-full") {
+    let layer = null;
+    if (text) {
+      const ld = join(dir, `txt${i}`);
+      mkdirSync(ld, { recursive: true });
+      layer = await tr.renderScene({ layout: "lower-third", text, W, H, brand, card: false, safeBottom, backdrop: null, bare: false }, ld);
+    }
+    await ffmpeg([...inputs, ...(layer ? ["-framerate", "30", "-i", layer.pattern] : []), "-filter_complex",
+      `[0:v]${pChain}[p]` + (layer ? `;[p][1:v]overlay=0:0:eof_action=repeat:format=auto[p2]` : ";[p]null[p2]") +
+      `;[p2]${aiLabel(font, 0, 0, W, H)},format=yuv420p[v]`, "-map", "[v]", ...enc]);
+    return;
+  }
+  // Slide part: the scene's media (cover), else its backdrop; text on top, sized to the slide part.
+  const parts = [...inputs];
+  let n = 1;
+  let slideIn;
+  if (a) {
+    parts.push(...(a.kind === "video" ? ["-ss", offset.toFixed(3), "-t", d, "-i", a._src] : ["-loop", "1", "-t", d, "-i", a._src]));
+    slideIn = `[${n}:v]${vfRotate(a.rotation)}scale=${sr.w}:${sr.h}:force_original_aspect_ratio=increase,crop=${sr.w}:${sr.h},setsar=1,fps=30` +
+      (a.kind === "video" ? `,tpad=stop_mode=clone:stop_duration=${d}` : "") + "[s0]";
+  } else {
+    const bg = join(dir, `bg${i}.png`);
+    await tr.renderBackdrop({ backdrop: await backdropOf(scene), brand, W: sr.w, H: sr.h, zone: bdm.textZone("slide", { card: true, wide: sr.w >= sr.h }) }, bg);
+    parts.push("-loop", "1", "-t", d, "-i", bg);
+    slideIn = `[${n}:v]scale=${sr.w}:${sr.h},setsar=1,fps=30[s0]`;
+  }
+  n++;
+  let textIn = ";[s0]null[s]";
+  if (text) {
+    const ld = join(dir, `txt${i}`);
+    mkdirSync(ld, { recursive: true });
+    const layer = await tr.renderScene({ layout: a ? "lower-third" : "slide", text, W: sr.w, H: sr.h, brand, card: !a, safeBottom, backdrop: null, bare: !a }, ld);
+    parts.push("-framerate", "30", "-i", layer.pattern);
+    textIn = `;[s0][${n}:v]overlay=0:0:eof_action=repeat:format=auto[s]`;
+    n++;
+  }
+  let pIn = `;[0:v]${pChain}[p]`;
+  if (pr.round) {
+    // Round bubble: a circle mask (a rounded square with radius = half) and a thin white ring.
+    const mask = join(dir, `bubble${i}.png`);
+    await tr.renderMask(pr.w, pr.h, Math.floor(pr.w / 2), mask);
+    parts.push("-loop", "1", "-t", d, "-i", mask);
+    const ring = Math.max(2, Math.round(pr.w * 0.02));
+    pIn = `;[${n}:v]split[mk1][mk2];[0:v]${pChain},format=rgba[pc];[mk1]scale=${pr.w}:${pr.h},format=gray[pk];[pc][pk]alphamerge[p0]` +
+      `;color=white@0.9:s=${pr.w + 2 * ring}x${pr.h + 2 * ring}:r=30:d=${d},format=rgba[rg];[mk2]scale=${pr.w + 2 * ring}:${pr.h + 2 * ring},format=gray[rk];[rg][rk]alphamerge[ring]`;
+    n++;
+  }
+  const canvas = `color=black:s=${W}x${H}:r=30:d=${d}[c]`;
+  const place = pr.round
+    ? `;[c][s]overlay=${sr.x}:${sr.y}[c1];[c1][ring]overlay=${pr.x - Math.max(2, Math.round(pr.w * 0.02))}:${pr.y - Math.max(2, Math.round(pr.w * 0.02))}[c2];[c2][p0]overlay=${pr.x}:${pr.y}:format=auto[c3]`
+    : `;[c][s]overlay=${sr.x}:${sr.y}[c1];[c1][p]overlay=${pr.x}:${pr.y}[c3]`;
+  const label = pr.round ? aiLabel(font, 0, 0, W, H) : aiLabel(font, pr.x, pr.y, pr.w, pr.h);
+  await ffmpeg([...parts, "-filter_complex", `${canvas};${slideIn}${textIn}${pIn}${place};[c3]${label},format=yuv420p[v]`, "-map", "[v]", ...enc]);
+}
+
 // Size of a clip as the render sees it (file rotation flag applied by ffmpeg, then the user rotation): decode one frame
 // and read the PNG header — exact whatever the container metadata says.
 async function uprightSize(a, at = 0) {
@@ -1661,7 +1765,7 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
   }
 
   const { slots, musicOffset } = style.deck
-    ? await deckTimeline(style.deck.scenes, assets, beats, style.beatSync, srcDurs, { ...style.deck.voice, pronunciations: style.deck.brand?.pronunciations }, dir)
+    ? await deckTimeline(style.deck.scenes, assets, beats, style.beatSync, srcDurs, { ...style.deck.voice, pronunciations: style.deck.brand?.pronunciations }, dir, style.deck)
     : await buildTimeline(
     assets,
     beats,
@@ -1900,7 +2004,7 @@ async function assemble(dir, assets, music, watermark, lengthSec, aspect, style)
 
 // Everything a render needs from the DB (read-only): the project, its ready assets, the music bed,
 // length, aspect and style. Shared by processRender and the --wmtest diagnostic.
-async function loadRenderInputs(projectId, aspectOverride, deckVariant = null) {
+async function loadRenderInputs(projectId, aspectOverride, deckVariant = null, presenterSnap = null) {
   const [project] = await sql`select * from projects where id = ${projectId}`;
   const assets = await sql`
     select * from assets
@@ -1967,6 +2071,27 @@ async function loadRenderInputs(projectId, aspectOverride, deckVariant = null) {
       camera: brief.camera?.mode ?? "off",
       backdrop: brief.backdrop ?? null, backdrops: project.deck?.backdrops ?? [],
     };
+    // Waltz Avatar: the deck's presenter (brief.presenter.id) — must be ready. Scenes using a presenter layout without one
+    // fail the render with a clear message rather than silently dropping the presenter.
+    // Only what was checked and paid for when Render was pressed (renders.settings.presenter = the presenter + each
+    // presenter scene's layout and line) is lip-synced: a scene put on the presenter, or a line edited, after that fails
+    // the render instead of being made for free or by someone who isn't the presenter's owner (review 2026-10-14).
+    // Campaign packs carry no such snapshot, so they can't include presenter scenes.
+    if (scenes.some((sc) => isPresenterLayout(sc.layout))) {
+      if (!presenterSnap?.id) throw new Error("Presenter scenes can only be rendered with Render HD (not in campaign packs yet)");
+      const snap = new Map((presenterSnap.scenes ?? []).map((x) => [x.id, x]));
+      for (const sc of scenes.filter((x) => isPresenterLayout(x.layout))) {
+        const x = snap.get(sc.id);
+        if (!x || x.layout !== sc.layout || String(x.voice ?? "").trim() !== String(sc.voice ?? "").trim()) {
+          throw new Error("The presenter scenes changed after you pressed Render — render again");
+        }
+      }
+      const pid = presenterSnap.id;
+      const [pr] = await sql`select id, user_id, footage_key, status from presenters where id = ${pid}`;
+      if (!pr) throw new Error("This video's presenter was deleted — pick another one under Voiceover");
+      if (pr.status !== "ready" || !pr.footage_key) throw new Error("The presenter isn't ready yet — wait until it shows Ready, then render again");
+      style.deck.presenter = pr;
+    }
     style.titleText = null; // scenes carry their own text
     style.originalAudio = false;
     style.maxFootage = false;
@@ -1980,7 +2105,7 @@ async function loadRenderInputs(projectId, aspectOverride, deckVariant = null) {
 
 async function processRender(r) {
   const started = Date.now();
-  const { project, assets, music, lengthSec, aspect, style } = await loadRenderInputs(r.project_id, r.aspect, r.settings?.deckVariant ?? null);
+  const { project, assets, music, lengthSec, aspect, style } = await loadRenderInputs(r.project_id, r.aspect, r.settings?.deckVariant ?? null, r.settings?.presenter ?? null);
 
   const dir = mkdtempSync(join(tmpdir(), "cw-render-"));
   try {
@@ -1989,6 +2114,11 @@ async function processRender(r) {
         `${style.transition}${style.smartCut ? " +smart" : ""}${style.beatSync ? " +beat" : ""}${style.waltzToMusic ? " +waltz" : ""} ${style.styleFilter}`,
     );
     const outFile = await assemble(dir, assets, music ?? null, r.watermark, lengthSec, aspect, style);
+    // Waltz Avatar: the presenter credits were charged up front from the scripts; settle down to the lip-synced seconds.
+    if (r.settings?.presenterChargeId && style.deck) {
+      const credits = presenterCredits(style.deck.presenterSeconds ?? 0);
+      await sql`update generation_jobs set credits = ${credits}, updated_at = now() where id = ${r.settings.presenterChargeId} and credits > ${credits}`.catch(() => {});
+    }
     const key = `renders/${r.project_id}/${r.id}.mp4`;
     await uploadFile(key, outFile, "video/mp4");
     // Ready-to-post description (best-effort) when the project opted in. Generated BEFORE marking
@@ -2027,6 +2157,12 @@ async function processRender(r) {
   }
 }
 
+/** A failed render gives its presenter credits back (the charge row stops counting once it's 'failed'). */
+async function refundPresenterCharge(settings) {
+  const id = settings?.presenterChargeId;
+  if (id) await sql`update generation_jobs set status = 'failed', updated_at = now() where id = ${id} and job_type = 'presenter_render'`.catch(() => {});
+}
+
 async function claimOne() {
   const rows = await sql`
     update renders set status='rendering', started_at=now()
@@ -2046,6 +2182,7 @@ async function reapStaleRenders() {
   if (rows.length === 0) return;
   for (const row of rows) {
     await sql`update projects set status='failed', updated_at=now() where id=${row.project_id}`.catch(() => {});
+    await refundPresenterCharge(row.settings);
   }
   console.log(`[worker] reaped ${rows.length} orphaned render(s) stuck in 'rendering': ${rows.map((r) => r.id).join(", ")}`);
 }
@@ -2092,6 +2229,7 @@ async function tick() {
     // Beta metrics: failed renders cost time too, and the reason drives the reliability view.
     const secs = Math.round((Date.now() - t0) / 100) / 10;
     await sql`update renders set status='failed', cpu_seconds=${secs}, error_message=${String(e?.message ?? e).slice(0, 500)}, completed_at=now() where id=${r.id}`;
+    await refundPresenterCharge(r.settings);
     await sql`update projects set status='failed', updated_at=now() where id=${r.project_id}`;
     await failBatchItem(r.id).catch(() => {});
   }

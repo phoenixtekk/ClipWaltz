@@ -7,7 +7,8 @@
 //   node clipwaltz-connector.mjs unpair    forget the connection on this computer (also remove it in ClipWaltz → AI models)
 //
 // Options: --server https://www.clipwaltz.com   --ollama http://127.0.0.1:11434   --comfy http://127.0.0.1:8188
-//          --name "My PC"
+//          --name "My PC"   --allow-low-vram (offer templates needing more GPU memory than this card has: they run
+//          much slower, borrowing system RAM — at least 64 GB recommended)
 //
 // What it does, and doesn't: it only makes outbound HTTPS requests to ClipWaltz (no ports opened, works behind any
 // router) and accepts two kinds of jobs:
@@ -19,7 +20,7 @@ import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, chmodSync }
 import { homedir, hostname, platform, arch } from "node:os";
 import { join } from "node:path";
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 const CONFIG_DIR = join(homedir(), ".clipwaltz");
 const CONFIG = join(CONFIG_DIR, "connector.json");
 const MAX_PROMPT = 400_000;
@@ -58,6 +59,7 @@ const cfg = loadConfig();
 const SERVER = (flag("server") || cfg.server || "https://www.clipwaltz.com").replace(/\/+$/, "");
 const OLLAMA = (flag("ollama") || cfg.ollama || "http://127.0.0.1:11434").replace(/\/+$/, "");
 const COMFY = (flag("comfy") || cfg.comfy || "http://127.0.0.1:8188").replace(/\/+$/, "");
+const ALLOW_LOW_VRAM = args.includes("--allow-low-vram") || cfg.allowLowVram === true;
 
 const authHeaders = () => ({
   "user-agent": `clipwaltz-connector/${VERSION}`,
@@ -152,6 +154,75 @@ const TEMPLATES = {
       };
     },
   },
+  // Talking photo, higher quality: InfiniteTalk (MeiGen-AI, Apache-2.0) on Wan 2.1 I2V 14B, with ComfyUI's own nodes (no
+  // node pack). 6 steps with the lightx2v distill LoRA. Clips longer than one 81-frame window (3.2 s) are extended window
+  // by window: each new window continues from the last 9 frames made so far (ComfyUI's "previous_frames"), and those 9
+  // repeated frames are trimmed so the picture stays in sync with the speech. 24 GB class card.
+  "infinitetalk-v1": {
+    label: "Talking photo, high quality (InfiniteTalk)",
+    minVramMb: 20000,
+    needs: {
+      nodes: ["UNETLoader", "LoraLoaderModelOnly", "ModelPatchLoader", "AudioEncoderLoader", "AudioEncoderEncode", "CLIPLoader", "CLIPTextEncode", "ConditioningZeroOut", "VAELoader", "LoadImage", "LoadAudio", "WanInfiniteTalkToVideo", "KSamplerSelect", "RandomNoise", "CFGGuider", "BasicScheduler", "SamplerCustomAdvanced", "VAEDecodeTiled", "ImageFromBatch", "BatchImagesNode", "CreateVideo", "SaveVideo"],
+      models: [
+        ["UNETLoader", "unet_name", "wan2.1_i2v_480p_14B_fp8_scaled.safetensors"],
+        ["LoraLoaderModelOnly", "lora_name", "Wan21_I2V_14B_lightx2v_cfg_step_distill_lora_rank64.safetensors"],
+        ["ModelPatchLoader", "name", "wan2.1_infiniteTalk_single_fp16.safetensors"],
+        ["AudioEncoderLoader", "audio_encoder_name", "wav2vec2-chinese-base_fp16.safetensors"],
+        ["CLIPLoader", "clip_name", "umt5_xxl_fp8_e4m3fn_scaled.safetensors"],
+        ["VAELoader", "vae_name", "wan_2.1_vae.safetensors"],
+      ],
+    },
+    files: ["photo", "speech"],
+    build(v, f) {
+      const width = int(v.width, 256, 1024, "width"), height = int(v.height, 256, 1024, "height");
+      if (width % 16 || height % 16) throw new Error("bad size");
+      const frames = int(v.frames, 25, 751, "frames"); // 25 fps, up to 30 s
+      const seed = int(v.seed, 0, 2 ** 32 - 1, "seed");
+      const WINDOW = 81, MOTION = 9;
+      const windows = 1 + Math.ceil(Math.max(0, frames - WINDOW) / (WINDOW - MOTION));
+      const g = {
+        1: { class_type: "UNETLoader", inputs: { unet_name: "wan2.1_i2v_480p_14B_fp8_scaled.safetensors", weight_dtype: "default" } },
+        2: { class_type: "LoraLoaderModelOnly", inputs: { model: ["1", 0], lora_name: "Wan21_I2V_14B_lightx2v_cfg_step_distill_lora_rank64.safetensors", strength_model: 1 } },
+        3: { class_type: "ModelPatchLoader", inputs: { name: "wan2.1_infiniteTalk_single_fp16.safetensors" } },
+        4: { class_type: "AudioEncoderLoader", inputs: { audio_encoder_name: "wav2vec2-chinese-base_fp16.safetensors" } },
+        5: { class_type: "LoadAudio", inputs: { audio: f.speech } },
+        6: { class_type: "AudioEncoderEncode", inputs: { audio_encoder: ["4", 0], audio: ["5", 0] } },
+        7: { class_type: "CLIPLoader", inputs: { clip_name: "umt5_xxl_fp8_e4m3fn_scaled.safetensors", type: "wan", device: "default" } },
+        8: { class_type: "CLIPTextEncode", inputs: { clip: ["7", 0], text: text(v.prompt ?? "A person is talking to the camera, natural expressions.", 500, "prompt") } },
+        9: { class_type: "ConditioningZeroOut", inputs: { conditioning: ["8", 0] } },
+        10: { class_type: "VAELoader", inputs: { vae_name: "wan_2.1_vae.safetensors" } },
+        11: { class_type: "LoadImage", inputs: { image: f.photo } },
+        12: { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } },
+      };
+      let framesSoFar = null; // node id of all frames made so far
+      for (let k = 0; k < windows; k++) {
+        const b = 100 + k * 10;
+        g[b] = {
+          class_type: "WanInfiniteTalkToVideo",
+          inputs: {
+            mode: "single_speaker", model: ["2", 0], model_patch: ["3", 0], positive: ["8", 0], negative: ["9", 0], vae: ["10", 0],
+            width, height, length: WINDOW, start_image: ["11", 0], audio_encoder_output_1: ["6", 0], motion_frame_count: MOTION, audio_scale: 1,
+            ...(framesSoFar ? { previous_frames: [framesSoFar, 0] } : {}),
+          },
+        };
+        g[b + 1] = { class_type: "RandomNoise", inputs: { noise_seed: (seed + k) % 2 ** 32 } };
+        g[b + 2] = { class_type: "CFGGuider", inputs: { model: [String(b), 0], positive: [String(b), 1], negative: [String(b), 2], cfg: 1 } };
+        g[b + 3] = { class_type: "BasicScheduler", inputs: { model: [String(b), 0], scheduler: "normal", steps: 6, denoise: 1 } };
+        g[b + 4] = { class_type: "SamplerCustomAdvanced", inputs: { noise: [String(b + 1), 0], guider: [String(b + 2), 0], sampler: ["12", 0], sigmas: [String(b + 3), 0], latent_image: [String(b), 3] } };
+        g[b + 5] = { class_type: "VAEDecodeTiled", inputs: { samples: [String(b + 4), 0], vae: ["10", 0], tile_size: 512, overlap: 64, temporal_size: 64, temporal_overlap: 8 } };
+        if (!framesSoFar) framesSoFar = String(b + 5);
+        else {
+          g[b + 6] = { class_type: "ImageFromBatch", inputs: { image: [String(b + 5), 0], batch_index: MOTION, length: 4096 } };
+          g[b + 7] = { class_type: "BatchImagesNode", inputs: { "images.image0": [framesSoFar, 0], "images.image1": [String(b + 6), 0] } };
+          framesSoFar = String(b + 7);
+        }
+      }
+      g[20] = { class_type: "ImageFromBatch", inputs: { image: [framesSoFar, 0], batch_index: 0, length: frames } };
+      g[21] = { class_type: "CreateVideo", inputs: { images: ["20", 0], audio: ["5", 0], fps: 25 } };
+      g[22] = { class_type: "SaveVideo", inputs: { filename_prefix: "clipwaltz/infinitetalk", format: "mp4", codec: "h264", video: ["21", 0] } };
+      return g;
+    },
+  },
 };
 
 async function comfy(path, { method = "GET", body, form, timeoutMs = 30_000 } = {}) {
@@ -177,11 +248,13 @@ async function comfyStatus() {
       const miss = [];
       for (const n of t.needs.nodes) if (!info[n]) miss.push(`node ${n}`);
       for (const [node, input, file] of t.needs.models) {
-        const opts = info[node]?.input?.required?.[input]?.[0];
+        // A loader's file list: [[...files]] (classic nodes) or ["COMBO", { options: [...] }] (ComfyUI's newer node API).
+        const spec = info[node]?.input?.required?.[input];
+        const opts = Array.isArray(spec?.[0]) ? spec[0] : spec?.[1]?.options;
         if (info[node] && !(Array.isArray(opts) && opts.includes(file))) miss.push(`model ${file}`);
       }
       if (!gpu) miss.push("an NVIDIA GPU");
-      else if (gpu.vramMb < t.minVramMb) miss.push(`${Math.round(t.minVramMb / 1024)} GB of GPU memory`);
+      else if (gpu.vramMb < t.minVramMb && !ALLOW_LOW_VRAM) miss.push(`${Math.round(t.minVramMb / 1024)} GB of GPU memory`);
       if (miss.length) missing[id] = miss;
       else ready.push(id);
     }

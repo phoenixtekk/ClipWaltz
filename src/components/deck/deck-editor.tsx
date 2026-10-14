@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import {
   Sparkles, Upload, Loader2, Lock, Unlock, Trash2, Plus, ArrowUp, ArrowDown, Wand2, Play, Pause, RotateCcw, Info, ImageIcon, Mic, Captions,
   FileUp, Globe, Presentation, FileText, FileDown, Download, Crop, Music, Palette, Megaphone, Clapperboard, ChevronRight, SkipBack, SkipForward,
-  Copy, Film, Type, ListChecks, Shuffle, CheckCircle2,
+  Copy, Film, Type, ListChecks, Shuffle, CheckCircle2, UserRound,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub,
@@ -22,13 +22,15 @@ import {
 } from "@/lib/deck/types";
 import {
   getDeck, saveBrief, setAssetNote, describeAsset, requestPlan, updateScene, rewriteSceneText, reorderScenes, deleteScene,
-  requestDeckExport, importFromUrl, fillScene, translateDeck, getBriefHistory, removeBriefHistory, setDeckBackdrop, setDeckMotion, insertScene,
+  requestDeckExport, importFromUrl, fillScene, translateDeck, getBriefHistory, removeBriefHistory, setDeckBackdrop, setDeckMotion, insertScene, setPresenterScenes,
   type DeckData, type DeckAsset, type ScenePatch, type NewScene,
 } from "@/lib/deck-actions";
 import { PresentView } from "./present-view";
 import { DeckChatPanel } from "./deck-chat";
 import { EditableTitle } from "@/components/studio/editable-title";
 import { unwrap } from "@/lib/action-result";
+import { listPresenters } from "@/lib/presenter-actions";
+import { PRESENTER_LAYOUTS, PRESENTER_SECONDS_PER_CREDIT, type PresenterView } from "@/lib/presenters";
 import { CampaignPanel } from "./campaign-panel";
 import { AudioMix } from "./audio-mix";
 import { pickMove } from "@/lib/deck/camera";
@@ -369,6 +371,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
           </Fold>
           <Fold title="Voiceover" value={(brief.voice?.mode ?? "off") === "off" ? "Off" : `${VOICES.find((v) => v.id === brief.voice?.voiceId)?.label.split(" — ")[0] ?? "On"} · ${(brief.voice?.speed ?? 1).toFixed(2)}×`}>
             <VoiceControls brief={brief} canEdit={canEdit} onChange={(patch) => saveBriefNow(patch)} />
+            <PresenterControls projectId={projectId} brief={brief} canEdit={canEdit} onChange={(patch) => saveBriefNow(patch)} onScenes={refresh} />
           </Fold>
         </div>
       </StudioPanel>
@@ -747,6 +750,61 @@ function VoiceControls({ brief, canEdit, onChange }: { brief: DeckBrief; canEdit
           </p>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** Waltz Avatar: which of the user's ready presenters speaks the presenter scenes, and a one-click "put it on every
+ *  voiced scene" (or take it off). Presenter scenes are set per scene with the layout picker. */
+function PresenterControls({ projectId, brief, canEdit, onChange, onScenes }: {
+  projectId: string; brief: DeckBrief; canEdit: boolean; onChange: (p: Partial<DeckBrief>) => void; onScenes: () => Promise<void> | void;
+}) {
+  const [list, setList] = useState<PresenterView[] | null>(null);
+  const [layout, setLayout] = useState<string>("presenter-bubble");
+  const [pending, start] = useTransition();
+  useEffect(() => {
+    void listPresenters().then((r) => setList(r.ok ? r.data.filter((p) => p.status === "ready") : []));
+  }, []);
+  const voiceOn = (brief.voice?.mode ?? "off") !== "off";
+  const cur = brief.presenter?.id ?? "";
+  const apply = (l: string | null) => start(async () => {
+    try {
+      const n = unwrap(await setPresenterScenes(projectId, l));
+      toast.success(l ? `Presenter on ${n} voiced scene${n === 1 ? "" : "s"}` : `Presenter taken off ${n} scene${n === 1 ? "" : "s"}`);
+      await onScenes();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  });
+  return (
+    <div className="space-y-2 border-t border-border pt-3">
+      <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><UserRound className="size-3.5" /> Presenter (Waltz Avatar)</span>
+      {list === null ? <Loader2 className="size-4 animate-spin text-muted-foreground" /> : list.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          No presenter yet. <Link href="/avatars" className="underline">Create yours</Link> — record yourself once, then your scripts are spoken by you.
+        </p>
+      ) : (
+        <>
+          <select value={cur} disabled={!canEdit} aria-label="Presenter" className={cn(field, "h-8 max-w-[240px] text-xs")}
+            onChange={(e) => onChange({ presenter: e.target.value ? { id: e.target.value } : null })}>
+            <option value="">No presenter</option>
+            {list.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          {cur ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <select value={layout} disabled={!canEdit || pending} aria-label="Presenter layout" className={cn(field, "h-8 text-xs")} onChange={(e) => setLayout(e.target.value)}>
+                {PRESENTER_LAYOUTS.map((l) => <option key={l.key} value={l.key}>{l.label.replace("Presenter: ", "")}</option>)}
+              </select>
+              <Button type="button" size="sm" variant="secondary" disabled={!canEdit || pending || !voiceOn} onClick={() => apply(layout)}>On every voiced scene</Button>
+              <Button type="button" size="sm" variant="ghost" disabled={!canEdit || pending} onClick={() => apply(null)}>Take it off</Button>
+            </div>
+          ) : null}
+          <p className="text-[11px] text-muted-foreground">
+            {voiceOn ? `Your presenter speaks each presenter scene's voice line, lip-synced. 1 AI credit per ${PRESENTER_SECONDS_PER_CREDIT} s of presenter speech; re-renders of unchanged lines are free.` : "Turn the voiceover on — the presenter speaks the voice lines."}
+            {" "}Labelled “AI-generated”.
+          </p>
+        </>
+      )}
     </div>
   );
 }

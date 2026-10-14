@@ -6,7 +6,7 @@ import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
 import { userCanAccessProject } from "./workspace";
 import { enqueueGeneration, enqueueComputerGeneration } from "./queue";
-import { COMPUTER_TEMPLATES, computerFor, computersAllowed, listGpuComputers, type GpuComputer } from "./computer-gpu";
+import { TALKING_ENGINES, type TalkingEngine, computerFor, computersAllowed, listGpuComputers, type GpuComputer } from "./computer-gpu";
 import { getEffectiveTier } from "./tier";
 import { spendCredits } from "./credits-server";
 import { shouldWatermark } from "./watermark";
@@ -37,6 +37,8 @@ export type TalkingPhotoInput = {
   quality?: TalkingQuality;
   /** Render on the user's own computer (Connector v0.2 + local ComfyUI) — 0 credits. */
   computerId?: string | null;
+  /** On the user's computer: clipwaltz (EchoMimic v3 Flash, 8 GB+) or infinitetalk (24 GB class, higher quality). */
+  computerEngine?: TalkingEngine;
   consent: boolean;
 };
 
@@ -61,7 +63,9 @@ async function createTalkingPhotoImpl(input: TalkingPhotoInput): Promise<string>
     .where(and(eq(schema.assets.id, input.sourceAssetId), eq(schema.assets.projectId, input.projectId)));
   if (!photo || photo.kind !== "photo") throw new Error("Pick a photo from this project");
 
-  const computer = input.computerId ? await computerFor(userId, input.computerId, COMPUTER_TEMPLATES.talking) : null;
+  const engine: TalkingEngine = input.computerEngine === "infinitetalk" ? "infinitetalk" : "clipwaltz";
+  const template = TALKING_ENGINES[engine];
+  const computer = input.computerId ? await computerFor(userId, input.computerId, template) : null;
   const quality = computer ? "standard" : talkingQualityOf(input.quality);
   if (quality === "high" && !(await resolveEnhanceWorkflow("restore"))) throw new Error("High quality is switched off right now — try Standard");
   const aspect: TalkingAspect = TALKING_ASPECTS.some((a) => a.key === input.aspect) ? input.aspect! : "photo";
@@ -97,7 +101,7 @@ async function createTalkingPhotoImpl(input: TalkingPhotoInput): Promise<string>
     jobType: "talking_photo",
     status: "queued",
     routingProfile: null,
-    modelName: "echomimic-v3",
+    modelName: computer && engine === "infinitetalk" ? "infinitetalk" : "echomimic-v3",
     workflowName: TALKING_WORKFLOW,
     workflowVersion: "v1",
     prompt: null,
@@ -107,7 +111,7 @@ async function createTalkingPhotoImpl(input: TalkingPhotoInput): Promise<string>
       ...speech,
       aspect,
       quality,
-      ...(computer ? { computer: { connectorId: computer.id, template: COMPUTER_TEMPLATES.talking, name: computer.name } } : {}),
+      ...(computer ? { computer: { connectorId: computer.id, template, name: computer.name } } : {}),
       durationSec: Math.round(seconds * 10) / 10,
       seed: null,
       watermark,

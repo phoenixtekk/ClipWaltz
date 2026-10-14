@@ -96,7 +96,7 @@ export function ApproveCode() {
 }
 
 // Template ids → names (public/connector/clipwaltz-connector.mjs TEMPLATES).
-const VIDEO_LABELS: Record<string, string> = { "wan-i2v-v1": "Image → video", "clipwaltz-talking-v1": "Talking photo" };
+const VIDEO_LABELS: Record<string, string> = { "wan-i2v-v1": "Image → video", "clipwaltz-talking-v1": "Talking photo", "infinitetalk-v1": "Talking photo, high quality (24 GB)" };
 
 /** Connector v0.2: GPU + which videos this computer's ComfyUI can make, or what's missing. */
 function VideoStatus({ c }: { c: MyComputer }) {

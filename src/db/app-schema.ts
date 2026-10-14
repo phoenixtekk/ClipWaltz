@@ -690,6 +690,51 @@ export const connectorJobs = pgTable(
   (t) => [index("connector_jobs_queue").on(t.connectorId, t.status, t.createdAt)],
 );
 
+// Waltz Avatar (Phase 1): a user's own presenter ("digital twin") — their footage, lip-synced to new speech by MuseTalk on
+// AISERVER (aiserver/talking/presenter.py). Created only after an automatic consent check (live clip + one-time code +
+// voice match, aiserver/talking/consent.py). Deleting one removes its footage, consent clip and the AISERVER cache.
+export const presenters = pgTable(
+  "presenters",
+  {
+    id: text().primaryKey(), // uuid (also the AISERVER cache dir name)
+    userId: text().notNull().references(() => user.id, { onDelete: "cascade" }),
+    name: text().notNull(),
+    kind: text().notNull().default("twin"), // twin (the user) | ai (fictional, Phase 2)
+    status: text().notNull().default("draft"), // draft | queued | preparing | ready | failed
+    consentCode: text(), // the one-time code shown while recording the consent clip
+    footageKey: text(), // MinIO: presenters/<userId>/<id>/footage.<ext>
+    consentKey: text(), // MinIO: presenters/<userId>/<id>/consent.<ext> (live browser recording)
+    thumbKey: text(),
+    voice: text().notNull().default("af_heart"), // default Kokoro voice for this presenter
+    meta: jsonb(), // { frames, width, height, missing } from the prepare step
+    error: text(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    readyAt: timestamp({ withTimezone: true }),
+  },
+  (t) => [index("presenters_user_idx").on(t.userId, t.createdAt)],
+);
+
+// Consent record per presenter attempt (kept when the presenter is deleted — the clip itself is removed).
+export const presenterConsents = pgTable(
+  "presenter_consents",
+  {
+    id: text().primaryKey(),
+    userId: text().notNull().references(() => user.id, { onDelete: "cascade" }),
+    presenterId: text().references(() => presenters.id, { onDelete: "set null" }),
+    kind: text().notNull().default("likeness"), // likeness | voice (Phase 2 voice clones)
+    subjectName: text().notNull(),
+    statement: text().notNull(), // the sentence shown on screen
+    code: text().notNull(),
+    method: text().notNull().default("code+face+voice-match"),
+    verified: boolean().notNull().default(false),
+    result: jsonb(), // { transcript, heard, code_ok, face_share, voice_score, reason }
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    verifiedAt: timestamp({ withTimezone: true }),
+  },
+  (t) => [index("presenter_consents_user_idx").on(t.userId, t.createdAt)],
+);
+
 export const aiPrefs = pgTable("ai_prefs", {
   userId: text().primaryKey().references(() => user.id, { onDelete: "cascade" }),
   writingProvider: text().notNull().default("builtin"), // builtin | anthropic | openai | deepseek | gemini

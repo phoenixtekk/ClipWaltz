@@ -204,6 +204,12 @@ const COMPUTER_TIMEOUT_MS = Number(process.env.GEN_COMPUTER_TIMEOUT_MS ?? 3 * 60
 // Talking sizes on a home GPU (multiples of 16): the pixel budget ClipWaltz's own service renders (512×384 → 320×576,
 // 7.7 GB peak on a headless 3080), with 97-frame chunks for headroom on a card that also drives a desktop.
 const TALK_SIZES = { "9:16": [320, 576], "1:1": [448, 448], "16:9": [576, 320] };
+// InfiniteTalk (infinitetalk-v1) renders at Wan 2.1's 480p sizes on a 24 GB class card.
+const INFINITETALK_SIZES = { "9:16": [480, 832], "1:1": [624, 624], "16:9": [832, 480] };
+// Measured 2026-10-14 on a 10 GB RTX 3080 with the Connector's --allow-low-vram (the 14B model streamed from system RAM):
+// 4 s of speech in 917 s incl. a ~6 min first model load, ~37 s per sampling step. A 24 GB card is faster (not measured);
+// this only sets the progress estimate and the job's deadline.
+const INFINITETALK_SEC_PER_SEC = 120;
 
 async function runComputer(j, req, genJobId) {
   const { connectorId, template } = req.computer;
@@ -218,7 +224,7 @@ async function runComputer(j, req, genJobId) {
   if (seed !== req.seed) await sql`update generation_jobs set request_json = ${sql.json({ ...req, seed })} where id = ${genJobId}`;
 
   let payload, expectSec;
-  if (template === "clipwaltz-talking-v1") {
+  if (template === "clipwaltz-talking-v1" || template === "infinitetalk-v1") {
     let speechSec;
     if (req.audioKey) {
       inputs.speech = { key: req.audioKey, mime: "audio/mp4" };
@@ -237,9 +243,17 @@ async function runComputer(j, req, genJobId) {
     }
     const aspect = req.aspect && TALK_SIZES[req.aspect] ? req.aspect
       : a.width && a.height ? (Math.abs(a.width / a.height - 1) < 0.15 ? "1:1" : a.width > a.height ? "16:9" : "9:16") : "9:16";
-    const [width, height] = TALK_SIZES[aspect];
-    payload = { template, inputs: { width, height, seed, chunkFrames: 97, maxSeconds: Math.min(30, Math.max(1, Math.ceil(speechSec + 0.5))) } };
-    expectSec = Math.round(speechSec * 60); // a 10 GB card: roughly a minute per second of speech
+    if (template === "infinitetalk-v1") {
+      const [width, height] = INFINITETALK_SIZES[aspect];
+      // 25 fps; the speech's own length (the Connector trims the last window to it), at most 30 s.
+      const frames = Math.min(751, Math.max(25, Math.ceil(speechSec * 25) + 1));
+      payload = { template, inputs: { width, height, seed, frames } };
+      expectSec = Math.round(speechSec * INFINITETALK_SEC_PER_SEC);
+    } else {
+      const [width, height] = TALK_SIZES[aspect];
+      payload = { template, inputs: { width, height, seed, chunkFrames: 97, maxSeconds: Math.min(30, Math.max(1, Math.ceil(speechSec + 0.5))) } };
+      expectSec = Math.round(speechSec * 60); // a 10 GB card: roughly a minute per second of speech
+    }
   } else if (template === "wan-i2v-v1") {
     const w = Math.round((req.width ?? 704) / 32) * 32, h = Math.round((req.height ?? 480) / 32) * 32;
     payload = { template, inputs: { prompt: j.prompt ?? "", negativePrompt: j.negative_prompt ?? "", width: w, height: h, length: framesForSeconds(req.durationSec ?? 5), seed, steps: req.steps ?? 20 } };
@@ -743,6 +757,108 @@ computerWorker.on("failed", async (job, err) => {
   if (job?.data?.generationJobId) await markAttemptFailed(job, job.data.generationJobId, err).catch(() => {});
 });
 console.log(`[gen] computer video worker up (queue=${COMPUTER_GENERATION_QUEUE})`);
+
+// ─── Waltz Avatar presenters (Phase 1) ─────────────────────────────────────────────────────────────────────────
+// prepare: the footage + live consent clip go to AISERVER (presenter-prepare-v1 in the clipwaltz-talking service): the
+// consent check (spoken code, face, voice match — aiserver/talking/consent.py) and, if it passes, the presenter cache.
+// delete: forget the cache on AISERVER (the app already removed the MinIO files and the row).
+const PRESENTER_QUEUE = `${GENERATION_QUEUE}-presenter`;
+const PRESENTER_TIMEOUT_MS = 30 * 60_000;
+
+async function stageFile(key, name, type) {
+  const fd = new FormData();
+  fd.append("file", new Blob([await getBytes(key)], { type }), name);
+  const r = await fetch(`${AISERVER_URL}/inputs`, { method: "POST", headers: aiHeaders, body: fd });
+  if (!r.ok) throw new Error(`stage /inputs ${r.status}: ${(await r.text()).slice(0, 300)}`);
+  return (await r.json()).filename;
+}
+
+/** Submit a presenter-* job to the wrapper and wait for it. → the wrapper's final job record. */
+async function runPresenterJob(workflow, inputs, timeoutMs = PRESENTER_TIMEOUT_MS) {
+  const sub = await fetch(`${AISERVER_URL}/jobs`, {
+    method: "POST", headers: { ...aiHeaders, "content-type": "application/json" }, body: JSON.stringify({ workflow, inputs }),
+  });
+  if (!sub.ok) throw new Error(`/jobs ${sub.status}: ${(await sub.text()).slice(0, 300)}`);
+  const id = (await sub.json()).job_id;
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 3000));
+    const r = await fetch(`${AISERVER_URL}/jobs/${id}`, { headers: aiHeaders });
+    if (!r.ok) continue;
+    const st = await r.json();
+    if (st.status === "completed" || st.status === "failed" || st.status === "cancelled") return st;
+  }
+  await fetch(`${AISERVER_URL}/jobs/${id}/cancel`, { method: "POST", headers: aiHeaders }).catch(() => {});
+  throw new Error(`${workflow} timed out`);
+}
+
+async function processPresenter({ presenterId, action }) {
+  if (action === "delete") {
+    const r = await fetch(`${AISERVER_URL}/presenters/${presenterId}`, { method: "DELETE", headers: aiHeaders });
+    console.log(`[presenter] ${presenterId} cache delete → ${r.status}`);
+    return;
+  }
+  const [p] = await sql`select * from presenters where id = ${presenterId}`;
+  if (!p || p.status !== "queued") return;
+  await sql`update presenters set status = 'preparing', updated_at = now() where id = ${presenterId}`;
+  const [consent] = await sql`select id, statement from presenter_consents where presenter_id = ${presenterId} order by created_at desc limit 1`;
+  if (!consent) throw new Error("no consent record for this attempt");
+  try {
+    // The exact objects checked here are the ones the presenter keeps (a later upload uses a new key and can't land while
+    // the presenter is being built — the app's routes only update draft / failed rows).
+    const video = await stageFile(p.footage_key, "footage.mp4", "video/mp4");
+    const clip = await stageFile(p.consent_key, "consent.mp4", "video/mp4");
+    const st = await runPresenterJob("presenter-prepare-v1", { presenter_id: presenterId, video, consent_clip: clip, consent_code: p.consent_code, consent_statement: consent.statement });
+    const chk = st.result?.consent ?? null;
+    if (consent && chk) {
+      await sql`update presenter_consents set verified = ${!!chk.ok}, result = ${sql.json(chk)}, verified_at = ${chk.ok ? new Date() : null} where id = ${consent.id}`;
+    }
+    if (st.status !== "completed") {
+      // A failed consent check is final for this code: the user records again with a new one (restartConsent).
+      // Shown to the user: the consent check's reason, or a footage problem the service worded for them; anything else
+      // is an internal error (logged, not shown).
+      const reason = chk && !chk.ok ? chk.reason : st.result?.user_error ?? "We couldn't build the presenter — try again in a few minutes";
+      await sql`update presenters set status = 'failed', error = ${reason}, updated_at = now() where id = ${presenterId}`;
+      console.log(`[presenter] ${presenterId} failed: ${reason} (${String(st.error ?? "").slice(0, 300)})`);
+      return;
+    }
+    // Thumbnail: a frame 1 s into the footage, 480 px tall.
+    let thumbKey = null;
+    const dir = mkdtempSync(join(tmpdir(), "cw-pthumb-"));
+    try {
+      writeFileSync(join(dir, "f.mp4"), await getBytes(p.footage_key));
+      await run("ffmpeg", ["-v", "error", "-y", "-ss", "1", "-i", join(dir, "f.mp4"), "-frames:v", "1", "-vf", "scale=-2:480", "-q:v", "3", join(dir, "t.jpg")]);
+      thumbKey = `presenters/${p.user_id}/${presenterId}/thumb.jpg`;
+      await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: thumbKey, Body: readFileSync(join(dir, "t.jpg")), ContentType: "image/jpeg" }));
+    } catch (e) {
+      console.warn(`[presenter] ${presenterId} thumbnail skipped: ${e?.message ?? e}`);
+      thumbKey = null;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    const meta = { frames: st.result?.frames, width: st.result?.width, height: st.result?.height, missing: st.result?.missing };
+    // The code is spent once it has been checked.
+    const done = await sql`update presenters set status = 'ready', error = null, meta = ${sql.json(meta)}, thumb_key = ${thumbKey},
+      consent_code = null, ready_at = now(), updated_at = now()
+      where id = ${presenterId} and status = 'preparing' and footage_key = ${p.footage_key} and consent_key = ${p.consent_key} returning id`;
+    if (!done.length) {
+      console.warn(`[presenter] ${presenterId} changed or was deleted while building — not marked ready`);
+      return;
+    }
+    console.log(`[presenter] ${presenterId} ready (${meta.frames} frames, consent voice ${chk?.voice_score})`);
+  } catch (e) {
+    await sql`update presenters set status = 'failed', error = ${"Something went wrong building the presenter — try again"}, updated_at = now() where id = ${presenterId}`;
+    throw e;
+  }
+}
+
+const presenterWorker = new Worker(
+  PRESENTER_QUEUE,
+  async (job) => { await processPresenter(job.data); },
+  { connection, concurrency: 2, lockDuration: 5 * 60 * 1000 },
+);
+presenterWorker.on("failed", (job, err) => console.error(`[presenter] ${job?.data?.presenterId} ${job?.data?.action} failed:`, err?.message ?? err));
+console.log(`[gen] presenter worker up (queue=${PRESENTER_QUEUE})`);
 
 // ─── Export worker: transcode a generated version to a final deliverable ─────────
 // Short-clip ffmpeg on linuxg1 (ffmpeg already installed; this is not a heavy assembler render).

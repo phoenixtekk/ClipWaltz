@@ -14,7 +14,12 @@ import { LLM_SETTINGS_KEY } from "../../worker/deck/llm.mjs";
 export const COMPUTER_TEMPLATES = {
   i2v: "wan-i2v-v1",
   talking: "clipwaltz-talking-v1",
+  /** Talking photo, high quality: InfiniteTalk on Wan 2.1 14B (24 GB class card; Connector 0.3+). */
+  talkingHq: "infinitetalk-v1",
 } as const;
+/** Talking-photo engines on the user's computer → their Connector template. */
+export const TALKING_ENGINES = { clipwaltz: COMPUTER_TEMPLATES.talking, infinitetalk: COMPUTER_TEMPLATES.talkingHq } as const;
+export type TalkingEngine = keyof typeof TALKING_ENGINES;
 export type ComputerTemplate = (typeof COMPUTER_TEMPLATES)[keyof typeof COMPUTER_TEMPLATES];
 
 export type GpuComputer = {

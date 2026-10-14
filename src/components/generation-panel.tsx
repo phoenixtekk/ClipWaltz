@@ -696,7 +696,7 @@ export function GenerationPanel({
             projectId={projectId}
             photos={photos}
             highAvailable={talkHigh}
-            computers={computers.filter((c) => c.online && c.ready.includes("clipwaltz-talking-v1"))}
+            computers={computers.filter((c) => c.online && (c.ready.includes("clipwaltz-talking-v1") || c.ready.includes("infinitetalk-v1")))}
             busy={isGenerating}
             onStarted={(jobId) => setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null })}
           />

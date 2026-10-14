@@ -3,6 +3,7 @@
 // generation worker (worker/deck/jobs.mjs) via the deck queue; the editor polls getDeck().
 import { randomInt, randomUUID } from "crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { isPresenterLayout } from "./presenters";
 import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "./auth";
@@ -191,6 +192,11 @@ async function saveBriefImpl(projectId: string, input: Partial<DeckBrief>): Prom
     // Only setDeckBackdrop changes it (the editor's brief copy can be older than a backdrop the worker just made).
     backdrop: cur.backdrop,
     motion: cur.motion, // setDeckMotion / the planner own it
+    // The editor sends the whole brief on every save: only a CHANGED presenter is checked (it must be the saver's own and
+    // ready) — so other edits keep working for collaborators on a deck that uses the owner's presenter.
+    presenter: input.presenter === undefined || (input.presenter?.id ?? null) === (cur.presenter?.id ?? null)
+      ? cur.presenter ?? null
+      : await checkPresenter(userId, input.presenter?.id ?? null),
   };
   // A voice must speak the brief's language: switching language picks that language's first voice.
   if (next.voice && next.language && VOICES.find((v) => v.id === next.voice!.voiceId)?.lang !== next.language) {
@@ -275,7 +281,10 @@ async function updateSceneImpl(projectId: string, sceneId: string, patch: SceneP
     set.locked = true;
   }
   if (patch.textMode && ["auto", "manual", "none"].includes(patch.textMode)) set.textMode = patch.textMode;
-  if (patch.layout && LAYOUTS.some((l) => l.key === patch.layout)) set.layout = patch.layout;
+  if (patch.layout && LAYOUTS.some((l) => l.key === patch.layout)) {
+    set.layout = patch.layout;
+    if (isPresenterLayout(patch.layout)) set.locked = true; // a re-plan keeps the presenter where you put it
+  }
   if (patch.captionPosition !== undefined) set.captionPosition = patch.captionPosition === "top" || patch.captionPosition === "bottom" ? patch.captionPosition : null;
   if (patch.role && (ROLES as readonly string[]).includes(patch.role)) set.role = patch.role;
   if (patch.motion && (MOTIONS as readonly string[]).includes(patch.motion)) set.motion = patch.motion;
@@ -295,6 +304,33 @@ async function updateSceneImpl(projectId: string, sceneId: string, patch: SceneP
   }
   await db.update(schema.deckScenes).set(set)
     .where(and(eq(schema.deckScenes.id, sceneId), eq(schema.deckScenes.projectId, projectId)));
+}
+
+/** Waltz Avatar: a presenter the user may put in a deck — their own, and ready. null clears it. */
+async function checkPresenter(userId: string, id: string | null): Promise<{ id: string; name: string } | null> {
+  if (!id) return null;
+  const [p] = await db.select({ id: schema.presenters.id, name: schema.presenters.name, status: schema.presenters.status })
+    .from(schema.presenters).where(and(eq(schema.presenters.id, id), eq(schema.presenters.userId, userId)));
+  if (!p) throw new Error("Presenter not found");
+  if (p.status !== "ready") throw new Error("That presenter isn't ready yet");
+  return { id: p.id, name: p.name };
+}
+
+/** Waltz Avatar: put the presenter on every scene that has a voice line (layout = `layout`), or take it off them all. */
+async function setPresenterScenesImpl(projectId: string, layout: string | null): Promise<number> {
+  await assertAccess(projectId, "editor");
+  if (layout && !isPresenterLayout(layout)) throw new Error("Unknown presenter layout");
+  const scenes = await db.select({ id: schema.deckScenes.id, voice: schema.deckScenes.voice, layout: schema.deckScenes.layout })
+    .from(schema.deckScenes).where(eq(schema.deckScenes.projectId, projectId));
+  let n = 0;
+  for (const sc of scenes) {
+    const target = layout ? (sc.voice?.trim() ? layout : null) : isPresenterLayout(sc.layout) ? "headline-bottom" : null;
+    if (!target || target === sc.layout) continue;
+    await db.update(schema.deckScenes).set({ layout: target, locked: true, updatedAt: new Date() }).where(eq(schema.deckScenes.id, sc.id));
+    n++;
+  }
+  revalidatePath(`/projects/${projectId}/deck`);
+  return n;
 }
 
 /** Ask the AI to rewrite one scene's text: "rewrite" | "shorter" | "punchier" | the user's own instruction. */
@@ -749,3 +785,4 @@ export async function askDeckAi(...args: Parameters<typeof askDeckAiImpl>) { ret
 export async function clearDeckChat(...args: Parameters<typeof clearDeckChatImpl>) { return toResult(() => clearDeckChatImpl(...args)); }
 export async function getBriefHistory(...args: Parameters<typeof getBriefHistoryImpl>) { return toResult(() => getBriefHistoryImpl(...args)); }
 export async function removeBriefHistory(...args: Parameters<typeof removeBriefHistoryImpl>) { return toResult(() => removeBriefHistoryImpl(...args)); }
+export async function setPresenterScenes(...args: Parameters<typeof setPresenterScenesImpl>) { return toResult(() => setPresenterScenesImpl(...args)); }

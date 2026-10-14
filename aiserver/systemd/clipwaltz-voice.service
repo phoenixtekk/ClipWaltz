@@ -1,0 +1,22 @@
+[Unit]
+Description=ClipWaltz voice service (Waltz Avatar cloned voices: Chatterbox Multilingual, GPU 0, localhost only)
+After=network-online.target comfyui.service
+Wants=network-online.target
+
+[Service]
+User=lacy
+WorkingDirectory=/opt/clipwaltz-ai/voice
+# CW_API_TOKEN, CW_INPUT_DIR, CW_OUTPUT_DIR come from the wrapper's env (the wrapper is the only caller).
+EnvironmentFile=/opt/clipwaltz-ai/config/wrapper.env
+Environment=CUDA_VISIBLE_DEVICES=0
+Environment=HF_HOME=/opt/clipwaltz-ai/voice/hf
+Environment=HF_HUB_OFFLINE=1
+Environment=VOICE_GPU_COMFYUI=http://127.0.0.1:8188
+Environment=VOICE_WHISPER=/data/clipwaltz-ai/models/musetalk/whisper-base
+# Chatterbox is loaded per job (~17 s) and unloaded after it, so the card is free for ComfyUI between jobs.
+ExecStart=/opt/clipwaltz-ai/voice/venv/bin/uvicorn service:app --host 127.0.0.1 --port 8195 --workers 1
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

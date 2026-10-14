@@ -9,6 +9,7 @@ import {
   CompleteMultipartUploadCommand,
   AbortMultipartUploadCommand,
   ListObjectsV2Command,
+  ListObjectVersionsCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
@@ -55,6 +56,26 @@ export async function putObject(key: string, body: Uint8Array, contentType?: str
 
 export async function deleteObject(key: string) {
   await s3().send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: key }));
+}
+
+/** Delete every object under `prefix` for good: the bucket is versioned, so a plain delete only adds a delete marker and
+ *  keeps the data. Used for data that must really go (Waltz Avatar footage, consent clips, lip-syncs). */
+export async function purgePrefix(prefix: string): Promise<number> {
+  if (!prefix || prefix.length < 12) throw new Error("refusing to purge a short prefix");
+  let n = 0;
+  let keyMarker: string | undefined;
+  let versionMarker: string | undefined;
+  do {
+    const r = await s3().send(new ListObjectVersionsCommand({ Bucket: S3_BUCKET, Prefix: prefix, KeyMarker: keyMarker, VersionIdMarker: versionMarker, MaxKeys: 1000 }));
+    for (const v of [...(r.Versions ?? []), ...(r.DeleteMarkers ?? [])]) {
+      if (!v.Key) continue;
+      await s3().send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: v.Key, VersionId: v.VersionId }));
+      n++;
+    }
+    keyMarker = r.IsTruncated ? r.NextKeyMarker : undefined;
+    versionMarker = r.IsTruncated ? r.NextVersionIdMarker : undefined;
+  } while (keyMarker);
+  return n;
 }
 
 // ---- Resumable multipart upload (proxied — MinIO stays LAN-only) --------------

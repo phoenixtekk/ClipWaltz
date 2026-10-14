@@ -18,6 +18,13 @@ Bound to 127.0.0.1 only; the wrapper (the box's only network surface) is the sol
   GET  /jobs/{id} -> {status, stage, progress, output, duration, error}
   POST /jobs/{id}/cancel     GET /health     GET /voices
   POST /tts {text, voice, speed} -> audio/wav (Kokoro only; speech for talking photos rendered on a user's computer)
+
+Waltz Avatar presenters (presenter.py, consent.py) share this service's queue and GPU guard:
+  POST /presenter/jobs {job_id, kind: prepare, presenter_id, video, consent_clip?, consent_code?}
+       → consent check (code + face + voice match), then the presenter cache; result {frames, consent{...}}
+  POST /presenter/jobs {job_id, kind: lipsync, presenter_id, audio | text+voice+speed} → MP4 (error "not_prepared"
+       when this box has no cache for the presenter: the caller re-sends a prepare with the footage)
+  DELETE /presenter/{presenter_id}  — removes the cache (footage frames, latents, masks)
 """
 from __future__ import annotations
 
@@ -51,6 +58,8 @@ OVERLAP = int(os.environ.get("TALK_OVERLAP", "8"))
 SAMPLE_W, SAMPLE_H = (int(v) for v in os.environ.get("TALK_SAMPLE_SIZE", "512x384").split("x"))
 STEPS = int(os.environ.get("TALK_STEPS", "8"))
 MAX_SECONDS = float(os.environ.get("TALK_MAX_SECONDS", "30"))
+PRESENTERS = Path(os.environ.get("PRESENTER_CACHE", "/data/clipwaltz-ai/presenters"))
+PRESENTER_MAX_SECONDS = 60.0  # footage used for the loop; the speech itself may be up to 5 min (a deck scene)
 FPS = 25
 TTS_SR = 24000
 
@@ -423,6 +432,57 @@ def render(job: Dict[str, Any]) -> None:
          peak_gb=round(torch.cuda.max_memory_reserved() / 1e9, 2))
 
 
+def run_presenter(job: Dict[str, Any]) -> None:
+    """Waltz Avatar: prepare (consent check + presenter cache) or lip-sync (speech on a prepared presenter)."""
+    import presenter as P
+
+    job_id, pid = job["job_id"], job["presenter_id"]
+    cache = PRESENTERS / pid
+    t0 = time.time()
+    _set(job_id, status="running", stage="waiting for the GPU", progress=2)
+    wait_for_gpu(job_id)
+    try:
+        if job["kind"] == "prepare":
+            footage = INPUT_DIR / job["video"]
+            result: Dict[str, Any] = {}
+            if job.get("consent_clip"):
+                import consent as C
+
+                _set(job_id, stage="checking consent", progress=5)
+                chk = C.verify(INPUT_DIR / job["consent_clip"], footage, job["consent_code"], job.get("consent_statement") or "")
+                result["consent"] = chk
+                _set(job_id, result=result)  # kept even if the build below fails
+                if not chk["ok"]:
+                    _set(job_id, status="failed", stage="consent", error=chk["reason"], result=result)
+                    return
+            _set(job_id, stage="preparing the presenter", progress=10)
+            stats = P.prepare(footage, cache, PRESENTER_MAX_SECONDS, lambda f: _set(job_id, progress=10 + int(f * 88)))
+            _set(job_id, status="completed", stage="done", progress=100, result={**result, **stats}, render_s=round(time.time() - t0, 1))
+            return
+        if not (cache / "meta.json").exists():
+            _set(job_id, status="failed", error="not_prepared")
+            return
+        out_dir = OUTPUT_DIR / "clipwaltz" / "presenter" / job_id
+        out_dir.mkdir(parents=True, exist_ok=True)
+        if job.get("audio"):
+            speech = INPUT_DIR / job["audio"]
+        else:
+            _set(job_id, stage="voice", progress=5)
+            speech = out_dir / "speech.wav"
+            tts(job["text"], job["voice"], job["speed"], speech)
+        _set(job_id, stage="lip-sync", progress=10)
+        out = out_dir / "presenter.mp4"
+        dur = P.lipsync(cache, speech, out, lambda f: _set(job_id, progress=10 + int(f * 88)))
+        _set(job_id, status="completed", stage="done", progress=100, duration=round(dur, 2),
+             output=f"clipwaltz/presenter/{job_id}/{out.name}", render_s=round(time.time() - t0, 1),
+             peak_gb=round(torch.cuda.max_memory_reserved() / 1e9, 2))
+    except P.PresenterError as exc:
+        # A problem with the user's own footage/speech: the message is meant for them (result.user_error).
+        with _lock:
+            res = dict(_jobs[job_id].get("result") or {})
+        _set(job_id, status="failed", error=str(exc), result={**res, "user_error": str(exc)})
+
+
 def worker_loop() -> None:
     while True:
         job_id = _q.get()
@@ -430,13 +490,17 @@ def worker_loop() -> None:
             job = dict(_jobs[job_id])
         if job.get("cancel"):
             continue
-        while not M and _load_error is None:
+        presenter_job = job.get("kind") in ("prepare", "lipsync")
+        while not presenter_job and not M and _load_error is None:
             time.sleep(2)
         try:
-            if _load_error:
+            if _load_error and not presenter_job:
                 raise RuntimeError(f"model failed to load: {_load_error}")
             torch.cuda.reset_peak_memory_stats()
-            render(job)
+            if presenter_job:
+                run_presenter(job)
+            else:
+                render(job)
         except Cancelled:
             _set(job_id, status="cancelled", stage="cancelled")
         except torch.cuda.OutOfMemoryError:
@@ -476,7 +540,9 @@ class JobIn(BaseModel):
 
 @app.on_event("startup")
 def startup() -> None:
-    threading.Thread(target=load_models, daemon=True).start()
+    # TALK_ECHOMIMIC=0: presenters only (a test instance) — the EchoMimic models are not loaded.
+    if os.environ.get("TALK_ECHOMIMIC", "1") != "0":
+        threading.Thread(target=load_models, daemon=True).start()
     threading.Thread(target=worker_loop, daemon=True).start()
 
 
@@ -552,3 +618,51 @@ def cancel(job_id: str, _: None = Depends(require_token)) -> Dict[str, Any]:
         if j["status"] == "queued":
             j["status"] = "cancelled"
     return {"job_id": job_id, "status": "cancelling"}
+
+
+class PresenterJobIn(BaseModel):
+    job_id: str = Field(pattern=r"^cw_[a-f0-9]{12}$")
+    kind: str = Field(pattern=r"^(prepare|lipsync)$")
+    presenter_id: str = Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+    video: Optional[str] = Field(default=None, max_length=200)
+    consent_clip: Optional[str] = Field(default=None, max_length=200)
+    consent_code: Optional[str] = Field(default=None, pattern=r"^[0-9]{4,8}$")
+    consent_statement: Optional[str] = Field(default=None, max_length=400)
+    audio: Optional[str] = Field(default=None, max_length=200)
+    text: Optional[str] = Field(default=None, max_length=6000)
+    voice: str = "af_heart"
+    speed: float = Field(1.0, ge=0.7, le=1.4)
+
+
+@app.post("/presenter/jobs")
+def create_presenter(req: PresenterJobIn, _: None = Depends(require_token)) -> Dict[str, Any]:
+    if req.kind == "prepare":
+        if not req.video:
+            raise HTTPException(400, "send the presenter footage (video)")
+        if bool(req.consent_clip) != bool(req.consent_code) or bool(req.consent_clip) != bool(req.consent_statement):
+            raise HTTPException(400, "send the consent clip together with its code and sentence")
+    elif not req.audio and not (req.text or "").strip():
+        raise HTTPException(400, "send speech (audio) or a script (text)")
+    if req.voice not in VOICES:
+        raise HTTPException(400, f"unknown voice {req.voice}")
+    for name in (req.video, req.consent_clip, req.audio):
+        if name and (Path(name).name != name or not (INPUT_DIR / name).is_file()):
+            raise HTTPException(400, f"no staged input {name}")
+    with _lock:
+        if req.job_id in _jobs:
+            raise HTTPException(409, "job exists")
+        _jobs[req.job_id] = {**req.model_dump(), "status": "queued", "stage": "queued", "progress": 0,
+                             "created": time.time(), "output": None, "error": None, "result": None}
+    _q.put(req.job_id)
+    return {"job_id": req.job_id, "status": "queued"}
+
+
+@app.delete("/presenter/{presenter_id}")
+def delete_presenter(presenter_id: str, _: None = Depends(require_token)) -> Dict[str, Any]:
+    import re
+    import shutil
+
+    if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", presenter_id):
+        raise HTTPException(400, "bad presenter id")
+    shutil.rmtree(PRESENTERS / presenter_id, ignore_errors=True)
+    return {"deleted": presenter_id}

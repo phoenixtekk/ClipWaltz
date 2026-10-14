@@ -109,6 +109,9 @@ WORKFLOWS: Dict[str, Dict[str, str]] = {
     # Talking photo (Phase C2): EchoMimic v3-Flash in the clipwaltz-talking service, not ComfyUI.
     # source_image = staged photo; audio = staged speech, or text + voice for Kokoro.
     "echomimic-talking-v1": {"service": TALKING},
+    # Waltz Avatar presenters (MuseTalk 1.5 + MediaPipe) in the same service: consent check + cache, then lip-sync.
+    "presenter-prepare-v1": {"service": TALKING, "kind": "prepare"},
+    "presenter-lipsync-v1": {"service": TALKING, "kind": "lipsync"},
 }
 
 app = FastAPI(title="ClipWaltz AISERVER API", version="1.0")
@@ -402,6 +405,12 @@ class JobInputs(BaseModel):
     voice: Optional[str] = Field(default=None, max_length=40)
     speed: Optional[float] = Field(default=None, ge=0.7, le=1.4)
     aspect: Optional[str] = Field(default=None, max_length=10)
+    # Waltz Avatar (presenter-*-v1): the presenter, its staged footage + live consent clip and the code it shows.
+    presenter_id: Optional[str] = Field(default=None, pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+    video: Optional[str] = Field(default=None, max_length=200)
+    consent_clip: Optional[str] = Field(default=None, max_length=200)
+    consent_code: Optional[str] = Field(default=None, pattern=r"^[0-9]{4,8}$")
+    consent_statement: Optional[str] = Field(default=None, max_length=400)
 
 
 class JobRequest(BaseModel):
@@ -495,6 +504,20 @@ def _talk_headers() -> Dict[str, str]:
 
 def create_talking_job(job_id: str, req: JobRequest) -> Dict[str, Any]:
     i = req.inputs
+    kind = WORKFLOWS[req.workflow].get("kind")
+    if kind:
+        if not i.presenter_id:
+            raise HTTPException(status_code=400, detail="presenter_id is required")
+        body = {
+            "job_id": job_id, "kind": kind, "presenter_id": i.presenter_id,
+            "video": Path(i.video).name if i.video else None,
+            "consent_clip": Path(i.consent_clip).name if i.consent_clip else None,
+            "consent_code": i.consent_code,
+            "consent_statement": i.consent_statement,
+            "audio": Path(i.audio).name if i.audio else None,
+            "text": i.text, "voice": i.voice or "af_heart", "speed": i.speed or 1.0,
+        }
+        return _submit_talking(job_id, req, "/presenter/jobs", body)
     if not i.source_image:
         raise HTTPException(status_code=400, detail="source_image (the photo) is required")
     body = {
@@ -509,11 +532,15 @@ def create_talking_job(job_id: str, req: JobRequest) -> Dict[str, Any]:
         "aspect": i.aspect or "photo",
         "prompt": i.prompt or None,
     }
+    return _submit_talking(job_id, req, "/jobs", body)
+
+
+def _submit_talking(job_id: str, req: JobRequest, path: str, body: Dict[str, Any]) -> Dict[str, Any]:
     # Register first (under the dispatch lock) so the GPU guard keeps new ComfyUI work off the card at once.
     with _dispatch_lock:
         rec = _register_job(job_id, job_id, TALKING, req)
     try:
-        r = httpx.post(f"{TALKING_URL}/jobs", json=body, headers=_talk_headers(), timeout=30)
+        r = httpx.post(f"{TALKING_URL}{path}", json=body, headers=_talk_headers(), timeout=30)
     except Exception as exc:  # noqa: BLE001
         _finish_job(job_id, "failed", error=f"talking service unreachable: {exc}")
         raise HTTPException(status_code=502, detail="talking service unreachable")
@@ -548,9 +575,14 @@ def poll_talking(job_id: str) -> None:
             j = _jobs[job_id]
             j["progress"] = st.get("progress")
             j["stage"] = st.get("stage")
+            if st.get("result") is not None:
+                j["result"] = st["result"]  # presenter prepare: consent check + cache stats
             if st["status"] == "running" and j["status"] == "queued":
                 j["status"] = "running"
                 j["started_at"] = _now()
+        if st["status"] == "completed" and not st.get("output"):
+            _finish_job(job_id, "completed", outputs=[])  # presenter prepare: nothing to download
+            return
         if st["status"] == "completed":
             rel = st["output"]
             _finish_job(job_id, "completed", outputs=[{
@@ -655,3 +687,15 @@ def download_output(rel: str, _: None = Depends(require_token)) -> FileResponse:
     if not target.is_file():
         raise HTTPException(status_code=404, detail="output not found")
     return FileResponse(str(target))
+
+
+@app.delete("/presenters/{presenter_id}")
+def delete_presenter(presenter_id: str, _: None = Depends(require_token)) -> Dict[str, Any]:
+    """Waltz Avatar: forget a presenter's cache on this box (its footage frames, latents and masks)."""
+    try:
+        r = httpx.delete(f"{TALKING_URL}/presenter/{presenter_id}", headers=_talk_headers(), timeout=30)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"talking service unreachable: {exc}")
+    if r.status_code != 200:
+        raise HTTPException(status_code=400, detail=r.text[:300])
+    return r.json()

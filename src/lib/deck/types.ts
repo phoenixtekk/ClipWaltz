@@ -37,6 +37,11 @@ export const LAYOUTS = [
   { key: "mg-features", label: "Animated: feature cards" },
   { key: "mg-compare", label: "Animated: before / after" },
   { key: "mg-browser", label: "Animated: website / app screen" },
+  // Waltz Avatar presenter scenes (worker/deck/presenter.mjs; src/lib/presenters.ts PRESENTER_LAYOUTS). Need a presenter
+  // picked in the deck's Voiceover settings; the planner never picks these.
+  { key: "presenter-full", label: "Presenter: full screen" },
+  { key: "presenter-split", label: "Presenter: beside the slide" },
+  { key: "presenter-bubble", label: "Presenter: corner bubble" },
 ] as const;
 export type LayoutKey = (typeof LAYOUTS)[number]["key"];
 export const isMotionLayout = (l: string) => l.startsWith("mg-");
@@ -124,6 +129,8 @@ export type DeckBrief = {
   /** Animated scenes' art direction: a look (or auto = picked from the seed) and the seed that varies every scene.
    *  A new plan or "Shuffle" picks a new seed — the same storyboard renders differently (worker/deck/motion.mjs). */
   motion?: { look: LookKey | "auto"; seed: number };
+  /** Waltz Avatar: the presenter (one of the user's ready presenters) that speaks presenter-* scenes. */
+  presenter?: { id: string; name?: string } | null;
   /** Set on a translated copy: the deck it was translated from. */
   translatedFrom?: { projectId: string; title: string } | null;
 };

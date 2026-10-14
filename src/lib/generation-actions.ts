@@ -458,7 +458,8 @@ async function requeueGenerationCopy(
   const cloud = requestJson.cloud as { model?: string } | undefined;
   const computer = requestJson.computer as { connectorId?: string; template?: string } | undefined;
   if (computer?.connectorId) {
-    const tpl = job.jobType === "talking_photo" ? COMPUTER_TEMPLATES.talking : COMPUTER_TEMPLATES.i2v;
+    const tpl = job.jobType !== "talking_photo" ? COMPUTER_TEMPLATES.i2v
+      : computer.template === COMPUTER_TEMPLATES.talkingHq ? COMPUTER_TEMPLATES.talkingHq : COMPUTER_TEMPLATES.talking;
     const c = await computerFor(userId, computer.connectorId, tpl);
     requestJson = { ...requestJson, computer: { connectorId: c.id, template: tpl, name: c.name } };
     cloudCredits = 0;

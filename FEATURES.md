@@ -13,6 +13,56 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## Waltz Avatar — Your Presenter (Phase 1, built 2026-10-14 · dev-verified · not deployed yet)
+- **What:** a user records themself once; then any WaltzDeck voice line is spoken **by them** — their own footage,
+  lip-synced by **MuseTalk 1.5** on AISERVER. Spec: `07_ClipWaltz_Presenter_Feature_Spec.md`.
+- **Create a presenter** (`/avatars`, header link **Avatars**): name → **footage** (10 s – 2 min of talking to camera;
+  recorded in the browser or uploaded; normalised to H.264 25 fps, first 120 s kept) → **live consent clip** recorded in the
+  browser while the sentence *"I, <name>, agree that ClipWaltz may create an AI presenter of me. My code is 4 1 3 3."* is on
+  screen → **Build**. Up to **5 presenters** per user, **6 attempts per day**.
+- **Automatic consent check** (owner: automatic only) on AISERVER (`aiserver/talking/consent.py`): the one-time code must
+  be heard (whisper-base; digits or number words in EN/ES/FR/IT/PT/DE), a face must be visible in ≥ 70 % of sampled frames
+  (MediaPipe), and the consent voice must match the footage's voice (ECAPA speaker embeddings, cosine ≥ 0.40). A failed
+  check shows the reason; the next attempt gets a new code. Every attempt is stored in `presenter_consents` (transcript,
+  scores) and kept when the presenter is deleted (the clip itself is deleted).
+- **Licence swap done (spec §9 "before launch"):** no DWPose / S3FD / BiSeNet — face boxes, landmarks and the blend mask
+  come from **MediaPipe Face Landmarker** (Apache-2.0) mapped to MuseTalk's 68-point crop rule
+  (`aiserver/talking/presenter.py`). Face recognition is not used (no commercial model with stated training data).
+- **In WaltzDeck:** Voiceover → **Presenter (Waltz Avatar)**: pick a ready presenter, **On every voiced scene** with a
+  layout, or **Take it off**. Per scene, three layouts: **Presenter: full screen** (scene text as a caption bar),
+  **beside the slide** (slide left / presenter right; top / bottom in portrait), **corner bubble** (round, white ring,
+  bottom-right). Putting the presenter on a scene locks it so a re-plan keeps it. The planner never picks these layouts.
+- **Render:** each voiced presenter scene's narration (Kokoro, as before) is lip-synced on AISERVER and **cached in MinIO**
+  (`presenters/<user>/<id>/clips/<hash>.{mp4,wav,json}`) keyed by line + voice + speed + pronunciations — re-rendering an
+  unchanged line reuses the clip *and its narration* (sync stays exact) and costs nothing. A presenter scene without a
+  line shows the presenter's own footage. Every presenter scene carries the visible **"AI-generated"** label.
+- **Credits:** **1 AI credit per 10 s** of newly lip-synced presenter speech (cached lines free), charged when the render
+  is queued (a `generation_jobs` row `job_type = presenter_render`), settled down to what was made, refunded if the render
+  fails. Only the presenter's owner can render with it. *(Price set by Claude from the measured ~1 GPU-s per video-s —
+  owner to confirm.)*
+- **Measured (AISERVER RTX 3080):** prepare 268 frames in 9.8 s; lip-sync 60 s of speech in 62 s, **3.9 GB** peak
+  (spike pipeline: 8.3 GB). Dev end to end: presenter built from upload + consent (code heard, face 1.0, voice 0.92); deck
+  with bubble / split / full scenes rendered (39 s), unchanged re-render 12 s with **0 credits**; failed render refunded.
+- **Not in Phase 1:** presenters of other people (consent by link), voice cloning, AI presenters (Phase 2), translation
+  (Phase 3), abuse report / takedown queue (spec §5), the editor's scene preview drawing the presenter.
+
+## InfiniteTalk on your own GPU — Connector 0.3 (built 2026-10-14 · dev-verified · not deployed yet)
+- **What:** a third Connector template, `infinitetalk-v1` — **talking photo, high quality** with InfiniteTalk
+  (MeiGen-AI, Apache-2.0) on Wan 2.1 I2V 14B, using **only ComfyUI's own nodes** (ComfyUI 0.40 has `WanInfiniteTalkToVideo`)
+  — no node pack. 480p (480×832 / 832×480 / 624×624), 25 fps, 6 steps with the lightx2v distill LoRA. Clips longer than one
+  81-frame window are extended window by window from the last 9 frames; the repeated frames are trimmed so lips stay in sync.
+- **UI:** Talking photo → Render on **Your computer** → **Engine: ClipWaltz** (faster, 8 GB+) **/ InfiniteTalk** (higher
+  quality, 24 GB) when the computer can run both. 0 credits. Retry keeps the engine.
+- **Connector 0.3:** the template + `--allow-low-vram` (offer templates that need more GPU memory than the card has — they
+  borrow system RAM, much slower; 64 GB RAM recommended) + reads ComfyUI's newer `["COMBO", {options}]` file lists (the
+  InfiniteTalk loaders use them; 0.2 would always report the audio encoder missing).
+- **Models (all Apache-2.0 / MIT, checked on Hugging Face 2026-10-14):** `wan2.1_i2v_480p_14B_fp8_scaled.safetensors`
+  (diffusion_models), `wan2.1_infiniteTalk_single_fp16.safetensors` (model_patches), `wav2vec2-chinese-base_fp16.safetensors`
+  (audio_encoders), `Wan21_I2V_14B_lightx2v_cfg_step_distill_lora_rank64.safetensors` (loras), `wan_2.1_vae.safetensors`
+  (vae), `umt5_xxl_fp8_e4m3fn_scaled.safetensors` (text_encoders) — ~23 GB.
+- **Measured** on a 10 GB RTX 3080 with `--allow-low-vram` (no 24 GB card available): 4 s clip in 917 s incl. a ~6 min
+  first model load, ~37 s per step; seamless across the window join. A 24 GB card was not measured.
+
 ## Video on your own GPU — ClipWaltz Connector 0.2 (Phase C3, LIVE 2026-10-14)
 - **What:** users with an NVIDIA GPU make Waltz AI clips on their own computer for **0 credits**: **image → video**
   (Wan 2.2 TI2V-5B) and **talking photo** (EchoMimic v3 Flash, our own node pack). Same Connector program as writing on

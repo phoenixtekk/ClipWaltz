@@ -31,6 +31,10 @@ export type RenderSettings = {
   titleText: string | null;
   musicTrackId: string | null;
   clips: number;
+  /** Waltz Avatar: the generation_jobs row charging this render's presenter seconds (worker settles / refunds it). */
+  presenterChargeId?: string;
+  /** Waltz Avatar: what was checked and priced when Render was pressed — the worker lip-syncs only this. */
+  presenter?: { id: string; scenes: { id: string; layout: string; voice: string | null }[] };
 };
 
 export type CheckLevel = "red" | "yellow" | "info";

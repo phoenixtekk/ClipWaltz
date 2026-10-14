@@ -21,6 +21,12 @@ import {
 
 type Recording = { key: string; seconds: number; name: string };
 
+// Talking-photo engines on the user's own computer (Connector templates; see src/lib/computer-gpu.ts TALKING_ENGINES).
+const ENGINES = [
+  { id: "clipwaltz", template: "clipwaltz-talking-v1", label: "ClipWaltz", hint: "Faster · 8 GB+ GPU" },
+  { id: "infinitetalk", template: "infinitetalk-v1", label: "InfiniteTalk", hint: "Higher quality, slower · 24 GB GPU" },
+] as const;
+
 export function TalkingPhotoPanel({
   projectId,
   photos,
@@ -48,6 +54,7 @@ export function TalkingPhotoPanel({
   const [aspect, setAspect] = useState<TalkingAspect>("9:16");
   const [quality, setQuality] = useState<TalkingQuality>("standard");
   const [where, setWhere] = useState<string>("clipwaltz"); // "clipwaltz" or a connector id
+  const [engine, setEngine] = useState<"clipwaltz" | "infinitetalk">("clipwaltz");
   const [consent, setConsent] = useState(false);
   const [playing, setPlaying] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -57,6 +64,8 @@ export function TalkingPhotoPanel({
 
   const seconds = source === "audio" ? recording?.seconds ?? 0 : estimateScriptSeconds(script, speed);
   const pc = computers.find((c) => c.id === where) ?? null;
+  const pcEngines = pc ? ENGINES.filter((e) => pc.ready.includes(e.template)) : [];
+  const pcEngine = pcEngines.find((e) => e.id === engine) ?? pcEngines[0] ?? null;
   const q: TalkingQuality = quality === "high" && !highAvailable ? "standard" : quality;
   const cost = pc ? 0 : seconds > 0 ? talkingCost(seconds, q) : 0;
   const renderSecPerSec = TALKING_QUALITY[q].renderSecPerSec;
@@ -94,7 +103,7 @@ export function TalkingPhotoPanel({
     start(async () => {
       try {
         const jobId = unwrap(await createTalkingPhoto({
-          projectId, sourceAssetId: photoId, aspect, consent, quality: q, computerId: pc?.id ?? null,
+          projectId, sourceAssetId: photoId, aspect, consent, quality: q, computerId: pc?.id ?? null, computerEngine: pcEngine?.id,
           ...(source === "audio" ? { audioKey: recording?.key } : { script, voice, speed }),
         }));
         toast.success("Talking photo started — it'll appear under Generated versions");
@@ -223,6 +232,21 @@ export function TalkingPhotoPanel({
         </Section>
       )}
 
+      {pc && pcEngines.length > 1 && (
+        <Section label="Engine">
+          <div className="grid grid-cols-2 gap-1.5">
+            {pcEngines.map((e) => (
+              <button key={e.id} type="button" aria-pressed={pcEngine?.id === e.id} onClick={() => setEngine(e.id)}
+                className={cn("rounded-lg border px-2.5 py-2 text-left text-xs transition-colors",
+                  pcEngine?.id === e.id ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10" : "border-border hover:border-foreground/30")}>
+                <span className="block font-medium">{e.label}</span>
+                <span className="block text-muted-foreground">{e.hint}</span>
+              </button>
+            ))}
+          </div>
+        </Section>
+      )}
+
       {!pc && <Section label="Quality">
         <div className="grid grid-cols-2 gap-1.5">
           {(Object.keys(TALKING_QUALITY) as TalkingQuality[]).map((k) => {
@@ -261,7 +285,7 @@ export function TalkingPhotoPanel({
         </p>
       )}
       <p className="text-center text-[11px] text-muted-foreground">
-        {pc ? "How long it takes depends on your GPU — roughly a minute per second of speech on a 10 GB card." : <>Takes a while — about {renderSecPerSec} seconds of rendering per second of speech
+        {pc ? `How long it takes depends on your GPU — ${pcEngine?.id === "infinitetalk" ? "InfiniteTalk is the slower, higher-quality engine" : "roughly a minute per second of speech on a 10 GB card"}.` : <>Takes a while — about {renderSecPerSec} seconds of rendering per second of speech
         {seconds > 0 ? ` (≈ ${Math.max(1, Math.round((seconds * renderSecPerSec) / 60))} min for this one)` : ""}, plus any queue.</>}
       </p>
     </div>

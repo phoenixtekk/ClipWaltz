@@ -168,6 +168,57 @@ www.clipwaltz.com. Verified 2026-09-29 against a local `next build` + `next star
   first failure a job shows `queued` again (error kept); only the last failure sets `failed`. A
   retry atomically marks the old job `retried` (so it can't be retried twice) and creates a new job.
 
+## Waltz Avatar presenters (Phase 1, 2026-10-14)
+
+**Pieces:** app `/avatars` (`src/components/avatars-manager.tsx`, `src/lib/presenter-actions.ts`, uploads
+`src/app/api/presenters/[id]/{footage,consent,thumb}`) · tables `presenters`, `presenter_consents` (migration **0059**) ·
+queue `<GENERATION_QUEUE>-presenter` (generation worker `processPresenter`: `prepare` = consent check + cache,
+`delete` = forget the AISERVER cache) · AISERVER: the **`clipwaltz-talking`** service also runs presenter jobs
+(`aiserver/talking/presenter.py`, `consent.py`) — same queue and GPU guard as talking photos — wrapper workflows
+`presenter-prepare-v1`, `presenter-lipsync-v1`, `DELETE /presenters/{id}` · render worker `worker/deck/presenter.mjs`
+(lip-sync per voiced presenter scene, MinIO clip cache, compositing; needs `AISERVER_API_URL` + `AISERVER_API_TOKEN`).
+
+**AISERVER setup (once, before the deploy):**
+1. `sudo apt-get install -y libgles2 libegl1` (MediaPipe) — done on AISERVER 2026-10-14.
+2. Into `/opt/clipwaltz-ai/talking/venv`: `mediapipe==1.1.1 speechbrain torchaudio==2.6.0` (torch stays 2.6.0+cu124) —
+   **dry-run first** (`uv pip install --dry-run ...`) and stop if it would change torch / transformers / numpy.
+3. Models in `/data/clipwaltz-ai/models/musetalk` (`PRESENTER_MODELS`): `musetalkV15/{musetalk.json,unet.pth}`,
+   `sd-vae/` (sd-vae-ft-mse), `whisper/` (whisper-tiny, audio features), `whisper-base/` (consent code ASR),
+   `ecapa/` (speechbrain/spkrec-ecapa-voxceleb), `face_landmarker.task` (MediaPipe float16 v1,
+   sha256 `64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff`). Copies exist in `~/presenter-dev/models`
+   and `~/presenter-spike/MuseTalk/models`.
+4. Cache dir `/data/clipwaltz-ai/presenters` (`PRESENTER_CACHE`; ~0.7 GB per 22 s of 1080p footage — rebuilt from the
+   footage automatically if lost).
+5. Copy `aiserver/talking/{service.py,presenter.py,consent.py}` → `/opt/clipwaltz-ai/talking/`, `aiserver/wrapper/app.py` →
+   the wrapper; restart `clipwaltz-talking`, then `clipwaltz-aiserver-api`. Both changes are backward compatible.
+
+**Render workers (AI box, later AISERVER):** set `AISERVER_API_URL=http://192.168.166.158:8189` and `AISERVER_API_TOKEN`
+in the worker env (the AI box reaches the wrapper — 401 without a token, checked 2026-10-14) and keep a bold font for the
+label (`fonts-dejavu-core` or `AI_LABEL_FONT`).
+
+**Consent:** automatic only. Thresholds: `CONSENT_VOICE_MIN` (default 0.40 cosine; same voice measured 0.70–0.92,
+different 0.04–0.09), face in ≥ 70 % of 12 sampled frames, the code's digits in order. The result JSON is in
+`presenter_consents.result`. The one-time code is cleared once a presenter is ready.
+
+**Credits:** `PRESENTER_SECONDS_PER_CREDIT` (10) in `src/lib/presenters.ts` **and** `worker/deck/presenter.mjs` (keep in
+sync). Charge row: `generation_jobs.job_type = 'presenter_render'`, created `completed` (never counted as queue work),
+linked by `renders.settings.presenterChargeId`; the render worker settles it down, or marks it `failed` (refund) when the
+render fails or is reaped. Lines already in the clip cache are not charged (the app checks MinIO when pricing).
+
+**Delete:** the app removes everything under `presenters/<userId>/<id>/` in MinIO and the row; the worker then calls
+`DELETE /presenters/<id>` on the wrapper. Consent rows stay (without the clip).
+
+**Troubleshooting:** "presenter isn't ready" on render → `/avatars` status · a lip-sync answering `not_prepared` is
+handled automatically (the render worker re-sends the footage and rebuilds the cache) · MediaPipe `libGLESv2.so.2`
+missing → setup step 1 · `Repo id must be in the form ...` → a model folder is missing under `PRESENTER_MODELS`.
+
+## InfiniteTalk template — Connector 0.3 (2026-10-14)
+Template `infinitetalk-v1` in `public/connector/clipwaltz-connector.mjs` (id also in `src/lib/computer-gpu.ts`
+`COMPUTER_TEMPLATES.talkingHq` / `TALKING_ENGINES`). Core ComfyUI nodes only; needs ComfyUI ≥ 0.40
+(`WanInfiniteTalkToVideo`, `BatchImagesNode`). `minVramMb` 20000 (24 GB class) unless the user starts the Connector with
+`--allow-low-vram`. Worker `runComputer` sends `{ width, height, seed, frames }` (frames = speech × 25 + 1, ≤ 751); time
+estimate `INFINITETALK_SEC_PER_SEC` (120, measured on 10 GB low-VRAM). Model list + licences: FEATURES.md.
+
 ## Video on users' own GPUs — Connector 0.2 (Phase C3, 2026-10-14)
 
 **On/off:** the same switch as writing on users' computers — `/admin/ai` → **Users' own computers** (enabled + plans,

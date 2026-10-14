@@ -195,6 +195,10 @@ async function renderCampaignImpl(projectId: string, campaignId: string): Promis
   const n = count(cfg);
   if (!n) throw new Error("Pick at least one length and one shape.");
   if (n > MAX_VARIANTS) throw new Error(`That's ${n} videos — a pack makes at most ${MAX_VARIANTS}. Remove a hook, CTA, length or shape.`);
+  // Waltz Avatar: a pack's variants would lip-sync with no charge or owner check — not supported yet (render-worker).
+  const [pres] = await db.select({ id: schema.deckScenes.id }).from(schema.deckScenes)
+    .where(and(eq(schema.deckScenes.projectId, projectId), sql`${schema.deckScenes.layout} like 'presenter-%'`)).limit(1);
+  if (pres) throw new Error("Campaign packs can't include presenter scenes yet — take the presenter off (Voiceover → Take it off) to make a pack.");
   const watermark = await shouldWatermark(userId);
   const [done] = await db.update(schema.deckCampaigns).set({ status: "building", error: null, config: { ...cfg, watermark }, updatedAt: new Date() })
     .where(and(eq(schema.deckCampaigns.id, campaignId), eq(schema.deckCampaigns.status, "draft"))).returning({ id: schema.deckCampaigns.id });

@@ -73,6 +73,28 @@ restore for more natural skin and eyes and takes about twice as long.
 **Cost:** 1 or 2 AI credits per second of speech (Standard / High), up to 30 seconds. For a script we reserve an estimate and then charge only the
 seconds actually made. **Every talking photo carries an "AI-generated" label** in the top-right corner, also in downloads.
 
+## Waltz Avatar — your own presenter
+Record yourself once, and your WaltzDeck videos can be presented **by you** — your face, speaking each scene's voice line.
+
+**Create your presenter** (top menu → **Avatars**):
+1. Type a name (usually yours) and press **Create presenter**.
+2. **A video of you talking:** record 10 seconds to 2 minutes with your camera, or upload a video. Talk naturally to the
+   camera, in good light, with your face and shoulders in view and nobody else in the picture.
+3. **Live consent:** press **Start recording** and read the sentence on screen, including the code, with your face in
+   view. ClipWaltz checks automatically that the code was said, that your face is visible and that the voice matches your
+   video.
+4. Press **Build my presenter**. In a minute or two it shows **Ready**. If the check fails you'll see why — press
+   **Get a new code** and record the consent again.
+
+**Use it in a WaltzDeck video:** turn the **Voiceover** on, then under **Presenter (Waltz Avatar)** pick your presenter.
+Press **On every voiced scene** (choose **full screen**, **beside the slide** or **corner bubble** first), or set a single
+scene's layout to one of the *Presenter* layouts. Render as usual — your presenter speaks each scene's line.
+
+**Cost:** 1 AI credit for every 10 seconds of new presenter speech. Re-rendering lines you haven't changed is free.
+
+**Good to know:** only make a presenter of **yourself**. Every presenter video is labelled **"AI-generated"**. Delete a
+presenter at any time (bin icon on its card) — its video, consent recording and saved lip-syncs are removed.
+
 ## Make videos on your own computer (free)
 If your computer has an NVIDIA graphics card (8 GB or more; 10 GB recommended), ClipWaltz can make Waltz AI clips on it
 at no AI-credit cost — image → video and talking photos.
@@ -88,7 +110,16 @@ at no AI-credit cost — image → video and talking photos.
    models — about 12 GB). Update it later with `git pull` in that folder.
 5. Restart ComfyUI and the ClipWaltz Connector. **Your computers** now shows what your computer can make.
 
-Then pick **Your computer** as the model (From image) or under **Render on** (Talking photo). Keep ComfyUI and the
+**Higher-quality talking photos (InfiniteTalk, a 24 GB card):** also download these into ComfyUI's models folder —
+from Hugging Face Comfy-Org/Wan_2.1_ComfyUI_repackaged: `wan2.1_i2v_480p_14B_fp8_scaled.safetensors` (diffusion_models),
+`wan2.1_infiniteTalk_single_fp16.safetensors` (model_patches) and `wan_2.1_vae.safetensors` (vae); from
+Kijai/wav2vec2_safetensors: `wav2vec2-chinese-base_fp16.safetensors` (audio_encoders); from
+lightx2v/Wan2.1-I2V-14B-480P-StepDistill-CfgDistill-Lightx2v: `Wan21_I2V_14B_lightx2v_cfg_step_distill_lora_rank64.safetensors`
+(loras). You need ClipWaltz Connector 0.3 or newer. On a smaller card you can start the Connector with `--allow-low-vram`
+— it then borrows system memory (64 GB recommended) and is much slower.
+
+Then pick **Your computer** as the model (From image) or under **Render on** (Talking photo — and, if your computer can
+run both, the **Engine**: ClipWaltz or InfiniteTalk). Keep ComfyUI and the
 Connector running until the clip is done — a home graphics card can take several minutes (on a 10 GB card a 5-second clip from a photo
 took about 10 minutes; an 11-second talking photo about 3 minutes). **Cancel** stops it on your computer.
 
