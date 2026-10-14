@@ -219,9 +219,9 @@ Swept with the project on delete.
 
 **Consent record:** `generation_jobs.request_json.consent` = `{confirmed, text, at, userId}`.
 
-**Known issue (2026-10-13):** Real-ESRGAN / RIFE use `h264_nvenc`, which fails ("No capable devices found") while the
-kernel module (595.91.07) and libraries (595.99.02) differ — fixed by the pending AISERVER reboot. Talking clips are
-then kept at 320×576 (9:16).
+**NVENC dependency:** Real-ESRGAN / RIFE encode with `h264_nvenc`, which fails ("No capable devices found") whenever the
+NVIDIA kernel module and libraries differ (happened 595.91 vs 595.99 until the 2026-10-14 reboot). Talking clips then stay
+at their native size; after any driver update, reboot AISERVER and check `nvidia-smi`.
 
 ## Outside AI models for writing (2026-10-13)
 `/admin/ai` → **Writing & planning models**. Providers: Claude (`@anthropic-ai/sdk`), ChatGPT (`openai`), DeepSeek and

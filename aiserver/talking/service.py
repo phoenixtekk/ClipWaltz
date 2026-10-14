@@ -63,6 +63,12 @@ VOICES = {
     "im_nicola": "i", "pf_dora": "p", "pm_alex": "p",
 }
 ASPECTS = {"9:16": 9 / 16, "16:9": 16 / 9, "1:1": 1.0}
+# Render size per quality: pixel budget (W x H area) and frames per chunk. "standard" = the env defaults; "high" = the
+# 768x512 budget (9.4 GB for 81 frames in the C0 spike), so its chunks are kept at 81 frames.
+QUALITY = {
+    "standard": ((SAMPLE_W, SAMPLE_H), CHUNK_FRAMES),
+    "high": ((768, 512), int(os.environ.get("TALK_HIGH_CHUNK_FRAMES", "81"))),
+}
 
 
 class Cancelled(Exception):
@@ -246,10 +252,10 @@ def crop_to_aspect(img, aspect: str):
     return img.crop((0, top, w, top + nh))
 
 
-def sample_size(img) -> tuple:
-    """Fit the photo into the SAMPLE_W x SAMPLE_H pixel budget, multiples of 16 (as the Flash script does)."""
+def sample_size(img, budget=(SAMPLE_W, SAMPLE_H)) -> tuple:
+    """Fit the photo into the pixel budget (W x H area), multiples of 16 (as the Flash script does)."""
     w, h = img.size
-    ratio = math.sqrt(w * h / (SAMPLE_W * SAMPLE_H))
+    ratio = math.sqrt(w * h / (budget[0] * budget[1]))
     if ratio > 1:
         w, h = w / ratio, h / ratio
     return int(h // 16 * 16), int(w // 16 * 16)
@@ -281,16 +287,16 @@ def audio_embeds_for(wav16: np.ndarray, frames: int) -> torch.Tensor:
     return emb[idx].unsqueeze(0)  # [1, F, 5, 12, 768]
 
 
-def chunk_plan(total: int) -> list:
+def chunk_plan(total: int, chunk: int = CHUNK_FRAMES) -> list:
     """(start, length) per chunk; lengths are 4n+1 (Wan's temporal compression), consecutive chunks overlap."""
     plan, start = [], 0
     while True:
         remaining = total - start
-        length = (min(CHUNK_FRAMES, remaining) - 1) // 4 * 4 + 1  # may drop up to 3 tail frames
+        length = (min(chunk, remaining) - 1) // 4 * 4 + 1  # may drop up to 3 tail frames
         if plan and length <= OVERLAP:
             break
         plan.append((start, length))
-        if remaining <= CHUNK_FRAMES:
+        if remaining <= chunk:
             break
         start += length - OVERLAP
     return plan
@@ -322,14 +328,15 @@ def render(job: Dict[str, Any]) -> None:
         raise ValueError("the speech is too short (under half a second)")
     total = int(seconds * FPS)
     total = (total - 1) // 4 * 4 + 1
-    plan = chunk_plan(total)
+    budget, chunk = QUALITY.get(job.get("quality") or "standard", QUALITY["standard"])
+    plan = chunk_plan(total, chunk)
 
     # 2. Photo.
     img_path = INPUT_DIR / Path(job["image"]).name
     if not img_path.is_file():
         raise ValueError("photo not found")
     photo = crop_to_aspect(Image.open(img_path).convert("RGB"), job.get("aspect", "photo"))
-    h, w = sample_size(photo)
+    h, w = sample_size(photo, budget)
     embeds = audio_embeds_for(wav16, total)
 
     # 3. GPU guard, then render chunk by chunk.
@@ -461,6 +468,7 @@ class JobIn(BaseModel):
     seed: int = Field(43, ge=0, le=2**32 - 1)
     aspect: str = "photo"
     prompt: Optional[str] = Field(default=None, max_length=500)
+    quality: str = "standard"
 
 
 @app.on_event("startup")
@@ -487,6 +495,8 @@ def create(req: JobIn, _: None = Depends(require_token)) -> Dict[str, Any]:
         raise HTTPException(400, "send a script (text) or audio")
     if req.voice not in VOICES:
         raise HTTPException(400, f"unknown voice {req.voice}")
+    if req.quality not in QUALITY:
+        raise HTTPException(400, "quality must be standard or high")
     if req.aspect not in ("photo", *ASPECTS):
         raise HTTPException(400, "aspect must be photo, 9:16, 16:9 or 1:1")
     with _lock:
