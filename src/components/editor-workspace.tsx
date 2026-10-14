@@ -171,6 +171,7 @@ export function EditorWorkspace({
           <GenerationPanel
             projectId={projectId}
             photos={uploaded.filter((a) => a.kind === "photo")}
+            videos={uploaded.filter((a) => a.kind === "video")}
             templateSettings={templateSettings}
           />
         </StudioPanel>

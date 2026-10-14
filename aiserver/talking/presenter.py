@@ -145,41 +145,47 @@ def blend_mask(pts: np.ndarray, box, cbox) -> np.ndarray:
 
 
 # ── Prepare ────────────────────────────────────────────────────────────────────────────────────────
-def _read_frames(video: Path, max_seconds: float):
+def _frames(video: Path, max_seconds: float):
+    """The video's frames resampled to 25 fps (the source frame at or after each 1/25 s tick), longest side ≤ MAX_SIDE —
+    yielded one at a time, so long footage never sits in memory."""
     cap = cv2.VideoCapture(str(video))
     src_fps = cap.get(cv2.CAP_PROP_FPS) or FPS
-    frames, step = [], src_fps / FPS  # resample to 25 fps: keep the source frame at or after each 1/25 s tick
-    i, want = 0, 0.0
-    while True:
-        ok, f = cap.read()
-        if not ok:
-            break
-        while i >= want - 1e-6 and len(frames) < max_seconds * FPS:
-            h, w = f.shape[:2]
-            if max(h, w) > MAX_SIDE:
-                s = MAX_SIDE / max(h, w)
-                f = cv2.resize(f, (int(w * s) // 2 * 2, int(h * s) // 2 * 2), interpolation=cv2.INTER_AREA)
-            frames.append(f)
-            want += step
-        i += 1
-        if len(frames) >= max_seconds * FPS:
-            break
-    cap.release()
-    return frames
+    step, i, want, n = src_fps / FPS, 0, 0.0, 0
+    limit = int(max_seconds * FPS)
+    try:
+        while n < limit:
+            ok, f = cap.read()
+            if not ok:
+                break
+            while i >= want - 1e-6 and n < limit:
+                h, w = f.shape[:2]
+                if max(h, w) > MAX_SIDE:
+                    s = MAX_SIDE / max(h, w)
+                    f = cv2.resize(f, (int(w * s) // 2 * 2, int(h * s) // 2 * 2), interpolation=cv2.INTER_AREA)
+                yield f
+                n += 1
+                want += step
+            i += 1
+    finally:
+        cap.release()
 
 
 @torch.no_grad()
 def prepare(video: Path, cache: Path, max_seconds: float = 30.0, progress: Optional[Callable[[float], None]] = None) -> dict:
-    """Build the presenter cache from its base footage. Returns stats for the caller to store."""
+    """Build the presenter cache from its base footage, streaming (two passes over the video: faces, then crops). The
+    cache holds the frames (JPEG), the VAE latents of each face crop, and the face landmarks (the blend mask is rebuilt
+    from them while lip-syncing). Returns stats for the caller to store."""
     load()
-    frames = _read_frames(video, max_seconds)
-    if len(frames) < FPS * 2:
-        raise PresenterError("The video is too short — record at least 10 seconds of yourself talking")
+    cap = cv2.VideoCapture(str(video))
+    total = max(1, int(min(max_seconds * FPS, (cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0) / (cap.get(cv2.CAP_PROP_FPS) or FPS) * FPS)))
+    cap.release()
+    # Pass 1: a face per frame (MediaPipe, video mode).
     mp, lmk = _landmarker()
-    found, last, missing = [], None, 0
+    found, last, missing, size = [], None, 0, None
     with lmk:
-        for n, f in enumerate(frames):
+        for n, f in enumerate(_frames(video, max_seconds)):
             h, w = f.shape[:2]
+            size = (w, h)
             res = lmk.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(f, cv2.COLOR_BGR2RGB)), int(n * 1000 / FPS))
             if res.face_landmarks:
                 last = np.array([[p.x * w, p.y * h] for p in res.face_landmarks[0]], np.float32)
@@ -187,27 +193,28 @@ def prepare(video: Path, cache: Path, max_seconds: float = 30.0, progress: Optio
                 missing += 1  # brief miss (blink, turn): the last face found is reused
             found.append(last)
             if progress and n % 25 == 0:
-                progress(0.6 * n / len(frames))
-    if missing > len(frames) * 0.1 or last is None:
+                progress(min(0.5, 0.5 * n / total))
+    if len(found) < FPS * 2:
+        raise PresenterError("The video is too short — record at least 10 seconds of yourself talking")
+    if missing > len(found) * 0.1 or last is None:
         raise PresenterError("Your face wasn't visible in enough of the video — face the camera, in good light, one person only")
     first = next(p for p in found if p is not None)  # frames before the first detection take the first face
-    boxes, cboxes, masks = [], [], []
-    for pts in found:
-        pts = first if pts is None else pts
-        box = face_box(pts[MP68], frames[0].shape[0])
-        cb = crop_box(box)
-        boxes.append(box)
-        cboxes.append(cb)
-        masks.append(blend_mask(pts, box, cb))
+    pts_all = np.stack([first if p is None else p for p in found]).astype(np.float32)
+    w, h = size
+    boxes = [face_box(p[MP68], h) for p in pts_all]
+    cboxes = [crop_box(b) for b in boxes]
 
+    # Pass 2: frames to disk + VAE latents of each face crop.
     if cache.exists():
         shutil.rmtree(cache)
     (cache / "frames").mkdir(parents=True)
     latents = []
     vae = _models["vae"]
     with _OnGpu(["vae"]):
-        for n, (f, box) in enumerate(zip(frames, boxes)):
-            x, y, x1, y1 = box
+        for n, f in enumerate(_frames(video, max_seconds)):
+            if n >= len(boxes):
+                break
+            x, y, x1, y1 = boxes[n]
             crop = cv2.resize(f[y:y1, x:x1], (CROP, CROP), interpolation=cv2.INTER_LANCZOS4)
             img = torch.from_numpy(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)).permute(2, 0, 1).float().div(255).mul(2).sub(1)
             masked = img.clone()
@@ -217,11 +224,11 @@ def prepare(video: Path, cache: Path, max_seconds: float = 30.0, progress: Optio
             latents.append(torch.cat([lat[0:1], lat[1:2]], dim=1).cpu())
             cv2.imwrite(str(cache / "frames" / f"{n:05d}.jpg"), f, [cv2.IMWRITE_JPEG_QUALITY, 94])
             if progress and n % 25 == 0:
-                progress(0.6 + 0.4 * n / len(frames))
+                progress(0.5 + 0.5 * n / len(boxes))
     torch.save(torch.cat(latents), cache / "latents.pt")
-    np.save(cache / "masks.npy", np.array(masks, dtype=object), allow_pickle=True)
-    meta = {"frames": len(frames), "boxes": boxes, "crop_boxes": cboxes, "missing": missing,
-            "width": frames[0].shape[1], "height": frames[0].shape[0], "fps": FPS, "engine": "musetalk-1.5+mediapipe"}
+    np.save(cache / "landmarks.npy", pts_all.astype(np.float16))
+    meta = {"frames": len(latents), "boxes": boxes, "crop_boxes": cboxes, "missing": missing,
+            "width": w, "height": h, "fps": FPS, "engine": "musetalk-1.5+mediapipe"}
     (cache / "meta.json").write_text(json.dumps(meta))
     return {k: meta[k] for k in ("frames", "missing", "width", "height")}
 
@@ -247,8 +254,10 @@ def _whisper_chunks(wav16: np.ndarray) -> torch.Tensor:
 
 
 @torch.no_grad()
-def lipsync(cache: Path, audio: Path, out: Path, progress: Optional[Callable[[float], None]] = None) -> float:
+def lipsync(cache: Path, audio: Path, out: Path, progress: Optional[Callable[[float], None]] = None, loop: bool = True) -> float:
     """Render `audio` (any format ffmpeg reads) on the prepared presenter → H.264 MP4 at the presenter's size.
+    loop: the footage plays forward then back for as long as the speech lasts (a presenter); False: straight through
+    while it lasts (a translated video — the speech was fitted to its length), then forward-back for any overrun.
     Returns the video length in seconds."""
     import librosa
 
@@ -256,7 +265,9 @@ def lipsync(cache: Path, audio: Path, out: Path, progress: Optional[Callable[[fl
     meta = json.loads((cache / "meta.json").read_text())
     n = meta["frames"]
     latents = torch.load(cache / "latents.pt", weights_only=True)
-    masks = np.load(cache / "masks.npy", allow_pickle=True)
+    lm_file = cache / "landmarks.npy"
+    landmarks = np.load(lm_file).astype(np.float32) if lm_file.exists() else None
+    masks = None if landmarks is not None else np.load(cache / "masks.npy", allow_pickle=True)  # caches built before 2026-10-14
     boxes, cboxes = meta["boxes"], meta["crop_boxes"]
     order = list(range(n)) + list(range(n - 1, -1, -1))  # forward then back, so long speech loops smoothly
     wav16, _ = librosa.load(str(audio), sr=16000)
@@ -276,7 +287,7 @@ def lipsync(cache: Path, audio: Path, out: Path, progress: Optional[Callable[[fl
             unet, vae, pe = _models["unet"], _models["vae"], _models["pe"]
             t0 = torch.tensor([0], device="cuda")
             for b in range(0, total, BATCH):
-                idx = [order[i % len(order)] for i in range(b, min(total, b + BATCH))]
+                idx = [(i if (not loop and i < n) else order[i % len(order)]) for i in range(b, min(total, b + BATCH))]
                 aud = chunks[b:b + len(idx)].cuda()
                 aud = aud + pe[:, : aud.shape[1]]
                 lat = latents[idx].half().cuda()
@@ -287,7 +298,8 @@ def lipsync(cache: Path, audio: Path, out: Path, progress: Optional[Callable[[fl
                     frame = cv2.imread(str(cache / "frames" / f"{fi:05d}.jpg"))
                     x, y, x1, y1 = boxes[fi]
                     face = cv2.resize(np.ascontiguousarray(img[k]), (x1 - x, y1 - y), interpolation=cv2.INTER_LANCZOS4)
-                    enc.stdin.write(_paste(frame, face, boxes[fi], cboxes[fi], masks[fi]).tobytes())
+                    mask = blend_mask(landmarks[fi], boxes[fi], cboxes[fi]) if landmarks is not None else masks[fi]
+                    enc.stdin.write(_paste(frame, face, boxes[fi], cboxes[fi], mask).tobytes())
                 if progress:
                     progress(min(1.0, (b + len(idx)) / total))
         enc.stdin.close()

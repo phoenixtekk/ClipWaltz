@@ -13,6 +13,35 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## Waltz Avatar Phases 2 + 3 — your own voice, the presenter library, templates, translate a video (built 2026-10-14 · not deployed yet)
+- **Your own voice (2a):** Avatars → a ready presenter → **Use my own voice** → a live voice consent clip (*"I, <name>, agree
+  that ClipWaltz may clone my voice. My code is …"*), checked like the presenter consent (sentence + name, code as one run
+  of numbers, face, voice match to the footage) → a 12 s reference clip from the footage. In WaltzDeck, Voiceover → **My voice
+  — <name>**: every line is spoken by **Chatterbox Multilingual** (Resemble AI, MIT, inaudible PerTh watermark) on AISERVER's
+  new `clipwaltz-voice` service (GPU 0, loaded per job, all lines in one visit), word timings from whisper-base for the
+  captions, cached per line in MinIO. Any of the 5 narration languages. **Remove my voice** purges the reference, consent clip
+  and cached lines. Charged with the presenter seconds (1 credit / 10 s of new lines; cached lines free).
+- **Presenter library (2b, `/admin/avatars`):** admins make **AI presenters** (describe a fictional person → 3 faces from
+  Wan 2.2 one-frame stills → pick one → ~20 s of talking footage from it with EchoMimic v3 Flash + Real-ESRGAN → the usual
+  presenter cache) and add **licensed actors** (their footage + the signed release's reference — AI likeness + voice, uses,
+  territory, term). **Publish** puts a ready one in every user's library (Avatars → *ClipWaltz presenters* and the deck's
+  presenter picker); library presenters can be rendered by anyone (owner check waived), cached clips are shared.
+- **Templates (2b, "Make a video"):** on any ready presenter (yours or the library's): paste a script, pick **Talking head /
+  Presenter beside the slides / Slides with a corner bubble** and a shape → a ready WaltzDeck project (script split into
+  scenes of ≤ ~30 words, a title per scene for slide styles, voice = your own cloned voice if ready, else the presenter's
+  voice; presenter scenes locked) → edit → Render.
+- **Translate (3):** (a) WaltzDeck **Translate** now keeps a cloned voice and the presenter, so the translated copy is spoken
+  in your own voice with lips re-synced. (b) Waltz AI → **Translate**: a video of yourself (≤ 3 min) → **Transcribe &
+  translate (free)** (whisper-small on AISERVER + the deck LLM) → review / edit the translation → **Make the translated
+  video**: checks the video is your presenter's person (voice match + face), speaks the text in your cloned voice, fits it
+  to the video (0.8–1.25× speed), lip-syncs the video's own frames (MuseTalk, a temporary cache deleted afterwards) and adds
+  the AI-generated label → a new version. **2 credits per 10 s** (voice + lip-sync), settled to the length made.
+- **Presenter build now streams** (two passes over the video; landmarks stored instead of masks), so 3-minute videos fit in
+  memory; old caches still work.
+- **Measured:** Chatterbox on a 3080: load 16.6 s, 4.9 s of English in 4.8 s, 6.4 s of Spanish in 3.7 s, 3.6 GB; clone vs
+  reference voice 0.79 (EN) / 0.58 (ES) vs 0.05 for another voice; deck rendered in the cloned voice in 77 s (render audio vs
+  footage voice 0.79). AI faces: 3 portraits in ~1 min.
+
 ## Waltz Avatar — Your Presenter (Phase 1, built 2026-10-14 · dev-verified · not deployed yet)
 - **What:** a user records themself once; then any WaltzDeck voice line is spoken **by them** — their own footage,
   lip-synced by **MuseTalk 1.5** on AISERVER. Spec: `07_ClipWaltz_Presenter_Feature_Spec.md`.

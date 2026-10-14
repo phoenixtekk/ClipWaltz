@@ -312,12 +312,13 @@ async function updateSceneImpl(projectId: string, sceneId: string, patch: SceneP
     .where(and(eq(schema.deckScenes.id, sceneId), eq(schema.deckScenes.projectId, projectId)));
 }
 
-/** Waltz Avatar: a presenter the user may put in a deck — their own, and ready. null clears it. */
+/** Waltz Avatar: a presenter the user may put in a deck — their own, or a published library one; ready. null clears it. */
 async function checkPresenter(userId: string, id: string | null): Promise<{ id: string; name: string } | null> {
   if (!id) return null;
-  const [p] = await db.select({ id: schema.presenters.id, name: schema.presenters.name, status: schema.presenters.status })
-    .from(schema.presenters).where(and(eq(schema.presenters.id, id), eq(schema.presenters.userId, userId)));
-  if (!p) throw new Error("Presenter not found");
+  const [p] = await db.select({ id: schema.presenters.id, name: schema.presenters.name, status: schema.presenters.status,
+    userId: schema.presenters.userId, library: schema.presenters.library, kind: schema.presenters.kind })
+    .from(schema.presenters).where(eq(schema.presenters.id, id));
+  if (!p || !((p.userId === userId && p.kind === "twin") || p.library)) throw new Error("Presenter not found");
   if (p.status !== "ready") throw new Error("That presenter isn't ready yet");
   return { id: p.id, name: p.name };
 }
@@ -724,7 +725,9 @@ async function translateDeckImpl(projectId: string, lang: string): Promise<strin
   const assetMap = new Map(assets.map((a) => [a.id, randomUUID()]));
   const nextBrief = {
     ...brief, language: L.code, translatedFrom: { projectId, title: p.title },
-    voice: { ...(brief.voice ?? defaultBrief().voice!), voiceId: defaultVoiceFor(L.code) },
+    // Waltz Avatar: a cloned voice speaks every language — the translated copy keeps it (and the presenter), so the
+    // translated lines come out in the user's own voice with their lips re-synced (Phase 3). Otherwise the language's voice.
+    voice: { ...(brief.voice ?? defaultBrief().voice!), voiceId: isCloneVoice(brief.voice?.voiceId) ? brief.voice!.voiceId : defaultVoiceFor(L.code) },
   };
   await db.transaction(async (tx) => {
     const { id: _id, createdAt: _c, updatedAt: _u, deck: _d, title, ...rest } = p;

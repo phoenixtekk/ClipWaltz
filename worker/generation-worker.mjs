@@ -25,6 +25,7 @@ import { WATERMARK_PATH, wmChain, wmBox } from "./watermark.mjs";
 import { composeRemix } from "./remix-compose.mjs";
 import { startDeckWorker, DECK_QUEUE } from "./deck/jobs.mjs";
 import { decryptSecret } from "./deck/llm.mjs";
+import { chatJson, TEXT_MODEL, LANG_NAMES } from "./deck/planner.mjs";
 import { videoModel, VIDEO_PROVIDERS, VIDEO_SETTINGS_KEY } from "./video/catalog.mjs";
 import { submitCloud, pollCloud, cancelCloud, downloadOutput, videoErrorText } from "./video/cloud.mjs";
 import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand, CopyObjectCommand } from "@aws-sdk/client-s3";
@@ -177,12 +178,120 @@ async function processJob(genJobId) {
   console.log(`[gen] ${genJobId} start (${j.job_type}, ${workflow})`);
   await setStatus(genJobId, { status: "preparing", progress: 5, started_at: new Date() });
 
+  if (j.job_type === "translate_prep") return runTranslatePrep(j, req, genJobId);
   const videoBytes = req.cloud ? await runCloud(j, req, genJobId)
+    : j.job_type === "translate_video" ? await runTranslateVideo(j, req, genJobId)
     : req.computer ? await runComputer(j, req, genJobId)
     : j.job_type === "talking_photo" ? await runTalking(j, req, genJobId)
     : await runAiserver(j, req, genJobId, workflow);
   if (!videoBytes) return; // cancelled
   await storeResult(j, req, genJobId, videoBytes);
+}
+
+// ─── Waltz Avatar Phase 3: translate a video of yourself (src/lib/translate-actions.ts) ───────────────────────────
+// prep (free): the video's speech → whisper-small on AISERVER (voice-transcribe-v1) → the deck LLM translates it; the
+// result waits in request_json.prep for the user to review. video: is it the presenter's person (presenter-match-v1)? →
+// the reviewed text in their cloned voice (voice-clone-tts-v1) → fitted to the video's length (atempo 0.8–1.25×) → the
+// video's own frames lip-synced to it (presenter-dub-v1) → the AI-generated label → a new version.
+async function assetVideoBytes(assetId) {
+  const [a] = await sql`select storage_key, converted_key, kind from assets where id = ${assetId}`;
+  if (!a || a.kind !== "video") throw new Error("source video not found");
+  return getBytes(a.converted_key ?? a.storage_key);
+}
+
+async function aiOutput(o) {
+  const rel = o.subfolder ? `${o.subfolder}/${o.filename}` : o.filename;
+  const dl = await fetch(`${AISERVER_URL}/outputs/${rel}`, { headers: aiHeaders });
+  if (!dl.ok) throw new Error(`/outputs ${dl.status}`);
+  return Buffer.from(await dl.arrayBuffer());
+}
+
+async function runTranslatePrep(j, req, genJobId) {
+  const dir = mkdtempSync(join(tmpdir(), "cw-tprep-"));
+  try {
+    writeFileSync(join(dir, "v.mp4"), await assetVideoBytes(req.sourceAssetId));
+    await run("ffmpeg", ["-v", "error", "-y", "-i", join(dir, "v.mp4"), "-t", "180", "-vn", "-ac", "1", "-ar", "16000", join(dir, "a.wav")]);
+    const fd = new FormData();
+    fd.append("file", new Blob([readFileSync(join(dir, "a.wav"))], { type: "audio/wav" }), "speech.wav");
+    const up = await fetch(`${AISERVER_URL}/inputs`, { method: "POST", headers: aiHeaders, body: fd });
+    if (!up.ok) throw new Error(`stage /inputs ${up.status}`);
+    await setStatus(genJobId, { status: "generating", progress: 20 });
+    const st = await runPresenterJob("voice-transcribe-v1", { audio: (await up.json()).filename }, 20 * 60_000);
+    const tr = st.result ?? {};
+    if (st.status !== "completed" || !String(tr.text ?? "").trim()) throw new Error("We couldn't hear any speech in that video");
+    await setStatus(genJobId, { progress: 70 });
+    const target = LANG_NAMES[req.lang] ?? "English";
+    const out = await chatJson(TEXT_MODEL,
+      `Translate this spoken text${tr.language ? ` (language code "${tr.language}")` : ""} into natural, idiomatic ${target} as it would be ` +
+      `SPOKEN by the same person — same meaning, same tone, similar length, no additions. Keep names, brands, numbers and ` +
+      `web addresses exactly (write web addresses the way a ${target} speaker says them aloud).\n\nTEXT: ${JSON.stringify(String(tr.text).slice(0, 6000))}\n\n` +
+      `JSON shape: {"translation": string}`, null, { temperature: 0.2 });
+    const translation = String(out?.data?.translation ?? "").trim();
+    if (!translation) throw new Error("The translation came back empty — try again");
+    const prep = { source: String(tr.text), sourceLang: tr.language ?? null, translation, seconds: Number(tr.seconds) || null };
+    await sql`update generation_jobs set request_json = ${sql.json({ ...req, prep })}, status = 'completed', progress = 100,
+      completed_at = now(), updated_at = now() where id = ${genJobId}`;
+    console.log(`[gen] ${genJobId} translate prep → ${req.lang}: ${prep.source.length} → ${translation.length} chars`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+async function runTranslateVideo(j, req, genJobId) {
+  const [p] = await sql`select id, footage_key, voice_ref_key, voice_status, status from presenters where id = ${req.presenterId}`;
+  if (!p || p.status !== "ready" || p.voice_status !== "ready") throw new Error("your presenter or its voice isn't ready any more");
+  const dir = mkdtempSync(join(tmpdir(), "cw-tvid-"));
+  try {
+    const src = join(dir, "v.mp4");
+    writeFileSync(src, await assetVideoBytes(req.sourceAssetId));
+    // 1. Same person as the consented presenter? (voice match + a visible face)
+    await setStatus(genJobId, { status: "uploading_to_ai_node", progress: 8 });
+    const video = await stageFile(null, "video.mp4", "video/mp4", readFileSync(src));
+    const footage = await stageFile(p.footage_key, "footage.mp4", "video/mp4");
+    const m = await runPresenterJob("presenter-match-v1", { presenter_id: p.id, video, audio: footage });
+    if (m.status !== "completed") throw new Error(m.result?.match?.reason ?? "We couldn't check that this is a video of you");
+    // 2. The translation in the user's cloned voice, one line per sentence group (≤ 600 chars).
+    await setStatus(genJobId, { status: "generating", progress: 20 });
+    const lines = (String(req.text).match(/[^.!?。]+[.!?。]*\s*/g) ?? [String(req.text)]).map((s) => s.trim()).filter(Boolean)
+      .reduce((acc, s) => { const last = acc[acc.length - 1]; if (last && (last + " " + s).length <= 400) acc[acc.length - 1] = `${last} ${s}`; else acc.push(s.slice(0, 600)); return acc; }, [])
+      .slice(0, 60);
+    writeFileSync(join(dir, "ref.wav"), await getBytes(p.voice_ref_key));
+    const ref = await stageFile(null, "ref.wav", "audio/wav", readFileSync(join(dir, "ref.wav")));
+    const v = await runPresenterJob("voice-clone-tts-v1", { audio: ref, lines, language: req.lang }, 60 * 60_000);
+    if (v.status !== "completed") throw new Error(`your cloned voice failed — ${v.error ?? v.status}`);
+    const [, ...wavs] = v.outputs ?? [];
+    const list = [];
+    for (const [n, o] of wavs.entries()) {
+      const f = join(dir, `l${n}.wav`);
+      writeFileSync(f, await aiOutput(o));
+      list.push(`file '${f.replace(/\\/g, "/")}'`);
+    }
+    writeFileSync(join(dir, "list.txt"), list.join("\n"));
+    await run("ffmpeg", ["-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", join(dir, "list.txt"), "-ac", "1", "-ar", "24000", join(dir, "speech.wav")]);
+    // 3. Fit the speech to the video: speed up / slow down by up to 25 % (a longer translation runs past the video; the
+    //    lip-sync then plays the video's last stretch back and forth).
+    const vlen = (await probeFile(src)).duration || 0;
+    const slen = (await probeFile(join(dir, "speech.wav"))).duration || 0;
+    const tempo = vlen > 0 && slen > 0 ? Math.min(1.25, Math.max(0.8, slen / vlen)) : 1;
+    await run("ffmpeg", ["-v", "error", "-y", "-i", join(dir, "speech.wav"), "-af", `atempo=${tempo.toFixed(4)}`, join(dir, "fit.wav")]);
+    // 4. The video's own frames lip-synced to the new speech (a temporary presenter cache on AISERVER, deleted after).
+    await setStatus(genJobId, { progress: 45 });
+    const audio = await stageFile(null, "speech.wav", "audio/wav", readFileSync(join(dir, "fit.wav")));
+    const d = await runPresenterJob("presenter-dub-v1", { presenter_id: randomUUID(), video, audio }, 90 * 60_000);
+    if (d.status !== "completed") throw new Error(`lip-sync failed — ${d.error ?? d.status}`);
+    const dubbed = await aiOutput(d.outputs[0]);
+    await setStatus(genJobId, { status: "uploading_output", progress: 85 });
+    const final = await finishTalking(dubbed, null, req.aiLabel !== false);
+    // Credits: estimated from the source length; settle down to what was made (2 × the presenter rate).
+    const meta = await probeVideo(final).catch(() => ({}));
+    if (meta.duration) {
+      const credits = Math.max(1, Math.ceil((Math.min(180, meta.duration) * 2) / 10));
+      await sql`update generation_jobs set credits = ${credits} where id = ${genJobId} and credits > ${credits}`;
+    }
+    return final;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 // ─── Talking photo (Phase C2): EchoMimic v3-Flash in AISERVER's clipwaltz-talking service ────────────────────────
@@ -765,9 +874,9 @@ console.log(`[gen] computer video worker up (queue=${COMPUTER_GENERATION_QUEUE})
 const PRESENTER_QUEUE = `${GENERATION_QUEUE}-presenter`;
 const PRESENTER_TIMEOUT_MS = 30 * 60_000;
 
-async function stageFile(key, name, type) {
+async function stageFile(key, name, type, bytes = null) {
   const fd = new FormData();
-  fd.append("file", new Blob([await getBytes(key)], { type }), name);
+  fd.append("file", new Blob([bytes ?? await getBytes(key)], { type }), name);
   const r = await fetch(`${AISERVER_URL}/inputs`, { method: "POST", headers: aiHeaders, body: fd });
   if (!r.ok) throw new Error(`stage /inputs ${r.status}: ${(await r.text()).slice(0, 300)}`);
   return (await r.json()).filename;
@@ -799,6 +908,9 @@ async function processPresenter({ presenterId, action }) {
     return;
   }
   if (action === "voice") return processVoice(presenterId);
+  if (action === "portraits") return libraryPortraits(presenterId);
+  if (action === "ai_build") return libraryAiBuild(presenterId);
+  if (action === "library_prepare") return libraryPrepare(presenterId);
   const [p] = await sql`select * from presenters where id = ${presenterId}`;
   if (!p || p.status !== "queued") return;
   await sql`update presenters set status = 'preparing', updated_at = now() where id = ${presenterId}`;
@@ -851,6 +963,130 @@ async function processPresenter({ presenterId, action }) {
     await sql`update presenters set status = 'failed', error = ${"Something went wrong building the presenter — try again"}, updated_at = now() where id = ${presenterId}`;
     throw e;
   }
+}
+
+// ─── Phase 2 — ClipWaltz's presenter library (admin-made; every user may use a ready one) ───────────────────────
+// ai: a fictional face (Wan 2.2 one-frame stills — the admin picks one) → ~20 s of talking footage from it (EchoMimic,
+// echomimic-talking-v1, + Real-ESRGAN 2×) → the usual presenter cache. actor: footage the admin uploaded with a signed
+// release (releaseRef) → the presenter cache. No consent clip: the face is fictional, or the release covers it.
+const PORTRAIT_COUNT = 3;
+const BASE_SCRIPT = "Hello and welcome. Today I want to walk you through something useful, step by step. " +
+  "It only takes a minute, and by the end you will know exactly what to do next. Let's get started together.";
+
+async function libraryPortraits(presenterId) {
+  const [p] = await sql`select * from presenters where id = ${presenterId}`;
+  if (!p || p.kind !== "ai" || p.status !== "queued") return;
+  const prompt = `Photorealistic chest-up portrait of ${String(p.description ?? "a friendly adult").slice(0, 300)}, a professional video ` +
+    "presenter, looking straight into the camera with a friendly expression, mouth closed, wearing smart casual clothes, " +
+    "head and shoulders with space above the head, bright soft glowing studio light, plain light grey background, sharp focus, natural skin, 85mm photo";
+  const keys = [];
+  try {
+    for (let n = 0; n < PORTRAIT_COUNT; n++) {
+      const st = await runPresenterJob("wan-text-to-video-v1", {
+        prompt, width: 704, height: 1280, length: 1, steps: 30, seed: randomInt(0, 2 ** 31),
+        negative_prompt: "dark, underexposed, cartoon, painting, illustration, deformed, extra fingers, bare shoulders, text, watermark, logo",
+      });
+      if (st.status !== "completed") throw new Error(st.error ?? "portrait failed");
+      const o = st.outputs[0];
+      const rel = o.subfolder ? `${o.subfolder}/${o.filename}` : o.filename;
+      const dl = await fetch(`${AISERVER_URL}/outputs/${rel}`, { headers: aiHeaders });
+      if (!dl.ok) throw new Error(`/outputs ${dl.status}`);
+      const dir = mkdtempSync(join(tmpdir(), "cw-portrait-"));
+      try {
+        writeFileSync(join(dir, "p.mp4"), Buffer.from(await dl.arrayBuffer()));
+        await run("ffmpeg", ["-v", "error", "-y", "-i", join(dir, "p.mp4"), "-frames:v", "1", join(dir, "p.png")]);
+        const key = `presenters/${p.user_id}/${presenterId}/portrait-${n}-${randomUUID()}.png`;
+        await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: readFileSync(join(dir, "p.png")), ContentType: "image/png" }));
+        keys.push(key);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+    await sql`update presenters set portrait_keys = ${sql.json(keys)}, status = 'draft', error = null, updated_at = now() where id = ${presenterId}`;
+  } catch (e) {
+    await sql`update presenters set status = 'failed', error = ${"Couldn't make the faces — try again"}, updated_at = now() where id = ${presenterId}`;
+    throw e;
+  }
+}
+
+async function libraryAiBuild(presenterId) {
+  const [p] = await sql`select * from presenters where id = ${presenterId}`;
+  if (!p || p.kind !== "ai" || p.status !== "queued" || !p.thumb_key) return;
+  try {
+    await sql`update presenters set status = 'preparing', updated_at = now() where id = ${presenterId}`;
+    // The picked portrait (thumb_key) speaks a neutral script in the presenter's voice → base footage.
+    const image = await stageFile(p.thumb_key, "portrait.png", "image/png");
+    const st = await runPresenterJob("echomimic-talking-v1", {
+      source_image: image, text: BASE_SCRIPT, voice: p.voice, speed: 1, duration: 30, seed: randomInt(0, 2 ** 31), aspect: "9:16",
+    }, 90 * 60_000);
+    if (st.status !== "completed") throw new Error(`base footage: ${st.error ?? st.status}`);
+    const o = st.outputs[0];
+    const dl = await fetch(`${AISERVER_URL}/outputs/${o.subfolder ? `${o.subfolder}/` : ""}${o.filename}`, { headers: aiHeaders });
+    if (!dl.ok) throw new Error(`/outputs ${dl.status}`);
+    const raw = Buffer.from(await dl.arrayBuffer());
+    let up = null;
+    try {
+      up = await runAiWorkflow("esrgan-upscale-v1", raw, presenterId);
+    } catch (e) {
+      console.warn(`[presenter] ${presenterId} upscale skipped: ${e?.message ?? e}`);
+    }
+    // Footage: the upscaled picture with the original speech (ESRGAN drops audio), H.264 25 fps.
+    const dir = mkdtempSync(join(tmpdir(), "cw-aibase-"));
+    const footageKey = `presenters/${p.user_id}/${presenterId}/footage-${randomUUID()}.mp4`;
+    try {
+      writeFileSync(join(dir, "raw.mp4"), raw);
+      if (up) writeFileSync(join(dir, "up.mp4"), up);
+      await run("ffmpeg", ["-v", "error", "-y", "-i", join(dir, up ? "up.mp4" : "raw.mp4"), "-i", join(dir, "raw.mp4"), "-map", "0:v:0", "-map", "1:a:0?",
+        "-vf", "fps=25,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-c:a", "aac", "-ac", "1", "-shortest", join(dir, "f.mp4")]);
+      await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: footageKey, Body: readFileSync(join(dir, "f.mp4")), ContentType: "video/mp4" }));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    await sql`update presenters set footage_key = ${footageKey}, updated_at = now() where id = ${presenterId}`;
+    await prepareLibrary({ ...p, footage_key: footageKey }, false);
+  } catch (e) {
+    await sql`update presenters set status = 'failed', error = ${"Couldn't build this presenter — try again"}, updated_at = now() where id = ${presenterId}`;
+    throw e;
+  }
+}
+
+async function libraryPrepare(presenterId) {
+  const [p] = await sql`select * from presenters where id = ${presenterId}`;
+  if (!p || p.kind !== "actor" || p.status !== "queued" || !p.footage_key || !p.release_ref) return;
+  await sql`update presenters set status = 'preparing', updated_at = now() where id = ${presenterId}`;
+  try {
+    await prepareLibrary(p, true);
+  } catch (e) {
+    await sql`update presenters set status = 'failed', error = ${"Couldn't build this presenter — try again"}, updated_at = now() where id = ${presenterId}`;
+    throw e;
+  }
+}
+
+/** The presenter cache from the footage (no consent clip — see above), a thumbnail if asked, then ready. */
+async function prepareLibrary(p, thumb) {
+  const video = await stageFile(p.footage_key, "footage.mp4", "video/mp4");
+  const st = await runPresenterJob("presenter-prepare-v1", { presenter_id: p.id, video });
+  if (st.status !== "completed") {
+    const reason = st.result?.user_error ?? "Couldn't build this presenter from the video";
+    await sql`update presenters set status = 'failed', error = ${reason}, updated_at = now() where id = ${p.id}`;
+    return;
+  }
+  let thumbKey = p.thumb_key;
+  if (thumb) {
+    const dir = mkdtempSync(join(tmpdir(), "cw-pthumb-"));
+    try {
+      writeFileSync(join(dir, "f.mp4"), await getBytes(p.footage_key));
+      await run("ffmpeg", ["-v", "error", "-y", "-ss", "1", "-i", join(dir, "f.mp4"), "-frames:v", "1", "-vf", "scale=-2:480", "-q:v", "3", join(dir, "t.jpg")]);
+      thumbKey = `presenters/${p.user_id}/${p.id}/thumb.jpg`;
+      await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: thumbKey, Body: readFileSync(join(dir, "t.jpg")), ContentType: "image/jpeg" }));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  const meta = { frames: st.result?.frames, width: st.result?.width, height: st.result?.height, missing: st.result?.missing };
+  await sql`update presenters set status = 'ready', error = null, meta = ${sql.json(meta)}, thumb_key = ${thumbKey}, ready_at = now(), updated_at = now()
+    where id = ${p.id} and status = 'preparing' and footage_key = ${p.footage_key}`;
+  console.log(`[presenter] library ${p.kind} ${p.id} ready (${meta.frames} frames)`);
 }
 
 // Phase 2 — the presenter's own cloned voice: the voice consent clip is checked against the footage (code, sentence, face,

@@ -57,6 +57,7 @@ import type { AiAvailability, Quality } from "@/lib/ai/routing";
 import { getMyVideoModels, type MyVideoModels } from "@/lib/video-provider-actions";
 import { ScenesPanel } from "@/components/scenes-panel";
 import { RemixPanel } from "@/components/remix-panel";
+import { TranslateVideoPanel } from "@/components/translate-video-panel";
 import { TalkingPhotoPanel } from "@/components/talking-photo-panel";
 import { getMyGpuComputers, getTalkingAvailable } from "@/lib/talking-actions";
 import type { GpuComputer } from "@/lib/computer-gpu";
@@ -205,16 +206,19 @@ function FullscreenButton({ target }: { target: React.RefObject<HTMLVideoElement
 export function GenerationPanel({
   projectId,
   photos,
+  videos = [],
   templateSettings,
 }: {
   projectId: string;
   photos: AssetSummary[];
+  /** The project's videos (Translate a video — Waltz Avatar Phase 3). */
+  videos?: AssetSummary[];
   /** Settings from the AI template the project was started from (CW-MVP-151); wins over "recent". */
   templateSettings?: GenerationSettings | null;
 }) {
   // Create-panel state
   const previewRef = useRef<HTMLVideoElement>(null);
-  const [mode, setMode] = useState<"image" | "text" | "remix" | "talk">(photos.length ? "image" : "text");
+  const [mode, setMode] = useState<"image" | "text" | "remix" | "talk" | "translate">(photos.length ? "image" : "text");
   // Talking photo (Phase C2) shows only while the admin has it switched on (AI registry).
   const [talkOn, setTalkOn] = useState(false);
   const [talkHigh, setTalkHigh] = useState(false);
@@ -312,7 +316,7 @@ export function GenerationPanel({
   // ── Settings snapshot / apply (recent settings, presets, templates, Edit & regenerate) ──
   function currentSettings(): GenerationSettings {
     return normalizeSettings({
-      mode: mode === "remix" || mode === "talk" ? "image" : mode, prompt, negativePrompt, style: styleKey, camera: cameraKey, motion: MOTIONS[motionIdx],
+      mode: mode === "remix" || mode === "talk" || mode === "translate" ? "image" : mode, prompt, negativePrompt, style: styleKey, camera: cameraKey, motion: MOTIONS[motionIdx],
       aspect: aspectKey, duration: durationSec, quality: qualityKey, seed,
     });
   }
@@ -675,7 +679,7 @@ export function GenerationPanel({
 
         {/* Mode: image→video vs text→video */}
         <div className="inline-flex rounded-lg border border-border bg-muted/50 p-0.5 text-sm font-medium">
-          {(talkOn ? (["image", "text", "talk", "remix"] as const) : (["image", "text", "remix"] as const)).map((m) => (
+          {(talkOn ? (["image", "text", "talk", "remix", "translate"] as const) : (["image", "text", "remix", "translate"] as const)).map((m) => (
             <button
               key={m}
               type="button"
@@ -686,7 +690,7 @@ export function GenerationPanel({
                 mode === m ? "bg-[color:var(--cw-violet)] text-white shadow" : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {m === "image" ? "From image" : m === "text" ? "From text" : m === "talk" ? "Talking photo" : "Remix a video"}
+              {m === "image" ? "From image" : m === "text" ? "From text" : m === "talk" ? "Talking photo" : m === "translate" ? "Translate" : "Remix a video"}
             </button>
           ))}
         </div>
@@ -697,6 +701,13 @@ export function GenerationPanel({
             photos={photos}
             highAvailable={talkHigh}
             computers={computers.filter((c) => c.online && (c.ready.includes("clipwaltz-talking-v1") || c.ready.includes("infinitetalk-v1")))}
+            busy={isGenerating}
+            onStarted={(jobId) => setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null })}
+          />
+        ) : mode === "translate" ? (
+          <TranslateVideoPanel
+            projectId={projectId}
+            videos={videos}
             busy={isGenerating}
             onStarted={(jobId) => setJob({ id: jobId, status: "queued", progress: 0, errorMessage: null })}
           />
@@ -987,7 +998,7 @@ export function GenerationPanel({
         ) : null}
         {isGenerating ? (
           <GenerationProgress job={job!} onCancel={cancel} />
-        ) : mode === "remix" || mode === "talk" ? null : (
+        ) : mode === "remix" || mode === "talk" || mode === "translate" ? null : (
           <>
           <Button
             onClick={generate}

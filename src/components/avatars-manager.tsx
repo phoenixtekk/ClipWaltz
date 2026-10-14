@@ -1,6 +1,9 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
-import { AlertTriangle, Camera, CheckCircle2, Circle, Loader2, Mic, Plus, ShieldCheck, Square, Trash2, Upload, UserRound } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, Circle, Clapperboard, Loader2, Mic, Plus, ShieldCheck, Square, Trash2, Upload, UserRound } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { createPresenterVideo } from "@/lib/presenter-video-actions";
+import type { LibraryPresenter } from "@/lib/presenter-library-actions";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
@@ -9,15 +12,18 @@ import {
   deletePresenter, getConsentStatement, getVoiceStatement, listPresenters, removeVoice, restartConsent, startPresenter, startVoice, submitPresenter,
   submitVoice, updatePresenter,
 } from "@/lib/presenter-actions";
-import { CONSENT_MAX_SECONDS, FOOTAGE_MAX_BYTES, FOOTAGE_MIN_SECONDS, MAX_PRESENTERS, type PresenterView } from "@/lib/presenters";
+import {
+  CONSENT_MAX_SECONDS, FOOTAGE_MAX_BYTES, FOOTAGE_MIN_SECONDS, MAX_PRESENTERS, PRESENTER_VIDEO_STYLES, type PresenterVideoStyle, type PresenterView,
+} from "@/lib/presenters";
 import { VOICES } from "@/lib/deck/types";
+import { uploadWithProgress } from "@/lib/upload-progress";
 
 const inputCls = "h-9 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-primary";
 const busyStatus = (s: string) => s === "queued" || s === "preparing";
 const busyPresenter = (p: PresenterView) => busyStatus(p.status) || p.voiceStatus === "queued";
 
 /** Waltz Avatar → presenters: list + the setup wizard (name → footage → live consent clip → build). */
-export function AvatarsManager({ initial }: { initial: PresenterView[] }) {
+export function AvatarsManager({ initial, library }: { initial: PresenterView[]; library: LibraryPresenter[] }) {
   const [items, setItems] = useState(initial);
   const [openId, setOpenId] = useState<string | null>(initial.find((p) => p.status === "draft" || p.status === "failed")?.id ?? null);
   const [name, setName] = useState("");
@@ -52,6 +58,29 @@ export function AvatarsManager({ initial }: { initial: PresenterView[] }) {
         <PresenterCard key={p.id} p={p} open={openId === p.id} onOpen={() => setOpenId(openId === p.id ? null : p.id)} onChanged={refresh}
           onDeleted={() => setItems((xs) => xs.filter((x) => x.id !== p.id))} />
       ))}
+      {library.length ? (
+        <section className="space-y-2 pt-2">
+          <h2 className="text-sm font-semibold">ClipWaltz presenters</h2>
+          <p className="text-xs text-muted-foreground">Ready-made presenters anyone can use — fictional AI presenters and licensed actors.</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {library.map((p) => (
+              <div key={p.id} className="rounded-xl border border-border bg-card p-3">
+                <div className="flex items-center gap-3">
+                  <div className="size-14 shrink-0 overflow-hidden rounded-lg bg-muted">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- auth-gated API image */}
+                    {p.thumbUrl ? <img src={p.thumbUrl} alt="" className="size-full object-cover" /> : null}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium">{p.name}</p>
+                    <p className="text-xs text-muted-foreground">{p.kind === "ai" ? "AI presenter (fictional)" : "Licensed actor"}</p>
+                  </div>
+                </div>
+                <MakeVideo presenter={p} />
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
       {items.length < MAX_PRESENTERS ? (
         <div className="flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-border p-4">
           <label className="flex flex-1 flex-col gap-1 text-xs text-muted-foreground">
@@ -130,21 +159,9 @@ function PresenterCard({ p, open, onOpen, onChanged, onDeleted }: {
       </div>
       {setup && open ? <SetupSteps p={p} onChanged={onChanged} /> : null}
       {p.status === "ready" ? <VoiceSection p={p} onChanged={onChanged} /> : null}
+      {p.status === "ready" ? <div className="border-t border-border px-3 pb-3"><MakeVideo presenter={p} /></div> : null}
     </div>
   );
-}
-
-/** Upload with progress (XHR: fetch has no upload progress). The raw file is the request body. */
-function uploadWithProgress(url: string, body: Blob, onProgress: (f: number) => void): Promise<{ seconds: number }> {
-  return new Promise((resolve, reject) => {
-    const x = new XMLHttpRequest();
-    x.open("POST", url);
-    x.setRequestHeader("content-type", body.type || "application/octet-stream");
-    x.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
-    x.onload = () => (x.status >= 200 && x.status < 300 ? resolve(JSON.parse(x.responseText)) : reject(new Error(x.responseText || `Upload failed (${x.status})`)));
-    x.onerror = () => reject(new Error("Upload failed — check your connection"));
-    x.send(body);
-  });
 }
 
 function SetupSteps({ p, onChanged }: { p: PresenterView; onChanged: () => Promise<void> }) {
@@ -236,6 +253,55 @@ function FootageInput({ id, has, onDone }: { id: string; has: boolean; onDone: (
         disabled={progress !== null} onRecording={setRecording} onRecorded={send}
         hint="Talk about anything for a minute — your day, your work. Look at the camera." />
       {progress !== null ? <p className="text-xs text-muted-foreground">Uploading… {Math.round(progress * 100)}% (then a moment to process)</p> : null}
+    </div>
+  );
+}
+
+/** Phase 2 templates: a script → a ready WaltzDeck project spoken by this presenter. */
+function MakeVideo({ presenter }: { presenter: PresenterView }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [script, setScript] = useState("");
+  const [style, setStyle] = useState<PresenterVideoStyle>("talking-head");
+  const [aspect, setAspect] = useState<"9:16" | "16:9" | "1:1">("9:16");
+  const [pending, start] = useTransition();
+  if (!open) {
+    return <Button size="sm" variant="secondary" className="mt-2" onClick={() => setOpen(true)}><Clapperboard className="size-4" /> Make a video</Button>;
+  }
+  return (
+    <div className="mt-2 space-y-2 rounded-lg border border-border p-3">
+      <textarea value={script} onChange={(e) => setScript(e.target.value)} maxLength={3000} rows={5}
+        placeholder={`What should ${presenter.name} say? Paste your script — it's split into scenes.`}
+        className="w-full rounded-md border border-border bg-background p-2 text-sm outline-none focus:border-primary" />
+      <div className="flex flex-wrap gap-1.5">
+        {PRESENTER_VIDEO_STYLES.map((s) => (
+          <button key={s.key} type="button" aria-pressed={style === s.key} onClick={() => setStyle(s.key)}
+            className={cn("rounded-full border px-3 py-1 text-xs", style === s.key ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10" : "border-border text-muted-foreground")}>
+            {s.label}
+          </button>
+        ))}
+        {(["9:16", "16:9", "1:1"] as const).map((a) => (
+          <button key={a} type="button" aria-pressed={aspect === a} onClick={() => setAspect(a)}
+            className={cn("rounded-full border px-3 py-1 text-xs", aspect === a ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10" : "border-border text-muted-foreground")}>
+            {a}
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <Button size="sm" disabled={pending || !script.trim()}
+          onClick={() => start(async () => {
+            try {
+              const id = unwrap(await createPresenterVideo({ presenterId: presenter.id, script, style, aspect }));
+              router.push(`/projects/${id}/deck`);
+            } catch (e) {
+              toast.error((e as Error).message);
+            }
+          })}>
+          {pending ? <Loader2 className="size-4 animate-spin" /> : <Clapperboard className="size-4" />} Create the video
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+      </div>
+      <p className="text-[11px] text-muted-foreground">Opens in WaltzDeck — edit any line, then Render. 1 AI credit per 10 s of presenter speech.</p>
     </div>
   );
 }

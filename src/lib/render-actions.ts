@@ -100,16 +100,17 @@ async function createRenderImpl(projectId: string, opts: { cloudTargets?: string
     if (ps.length) {
       const pid = brief?.presenter?.id;
       if (!pid) throw new Error("This video has presenter scenes — pick your presenter under Voiceover first");
-      const [pr] = await db.select({ status: schema.presenters.status, userId: schema.presenters.userId })
+      const [pr] = await db.select({ status: schema.presenters.status, userId: schema.presenters.userId, library: schema.presenters.library })
         .from(schema.presenters).where(eq(schema.presenters.id, pid));
       if (!pr) throw new Error("The presenter was deleted — pick another under Voiceover");
-      if (pr.userId !== userId) throw new Error("Only the person whose presenter this is can render it");
+      // Your own presenter, or a published ClipWaltz library presenter (its owner is the admin who made it).
+      if (pr.userId !== userId && !pr.library) throw new Error("Only the person whose presenter this is can render it");
       if (pr.status !== "ready") throw new Error("The presenter isn't ready yet");
       presenterSnap = { id: pid, scenes: ps.map((s) => ({ id: s.id, layout: s.layout, voice: s.voice })) };
       if (voiceOn) {
         for (const s of ps) {
           if (!s.voice?.trim()) continue;
-          const base = clipCacheBase({ id: pid, user_id: userId }, narrationRequest(s.voice, brief?.voice, pron));
+          const base = clipCacheBase({ id: pid, user_id: pr.userId }, narrationRequest(s.voice, brief?.voice, pron));
           const cached = await headObject(`${base}.mp4`).then(() => true, () => false);
           if (!cached) seconds += estimateScriptSeconds(s.voice, brief?.voice?.speed ?? 1);
         }

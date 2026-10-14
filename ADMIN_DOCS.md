@@ -212,6 +212,27 @@ render fails or is reaped. Lines already in the clip cache are not charged (the 
 handled automatically (the render worker re-sends the footage and rebuilds the cache) · MediaPipe `libGLESv2.so.2`
 missing → setup step 1 · `Repo id must be in the form ...` → a model folder is missing under `PRESENTER_MODELS`.
 
+## Waltz Avatar Phases 2 + 3 (2026-10-14)
+**New AISERVER service `clipwaltz-voice`** (`aiserver/voice/service.py`, unit `aiserver/systemd/clipwaltz-voice.service`,
+127.0.0.1:**8195**, GPU 0 with the guard vs ComfyUI #1). Own venv `/opt/clipwaltz-ai/voice/venv` (Python 3.11,
+`chatterbox-tts==0.1.7`, torch 2.6.0+cu124, `fastapi uvicorn httpx soundfile librosa`) — Chatterbox pins its own
+transformers/numpy, so it must not share the talking venv. Models: Chatterbox via `HF_HOME=/opt/clipwaltz-ai/voice/hf`
+(copy the spike's `~/.cache/huggingface` entries; offline), `VOICE_WHISPER` = whisper-base (word timings),
+`VOICE_ASR` = whisper-small (Phase 3 transcription) under `/data/clipwaltz-ai/models/musetalk/`. Wrapper env
+`CW_VOICE_URL` (default http://127.0.0.1:8195), `CW_VOICE_GPU_BACKEND` (default the first ComfyUI).
+**Wrapper workflows added:** `voice-clone-tts-v1`, `voice-transcribe-v1`, `presenter-consent-v1`, `presenter-match-v1`,
+`presenter-dub-v1`. **Talking-service kinds added:** `consent`, `match`, `dub`.
+**Talking venv extras (rehearsed on a copy 2026-10-14):** `uv pip install --python /opt/clipwaltz-ai/talking/venv/bin/python
+mediapipe==1.1.1 speechbrain "numpy==1.26.4"` — numpy MUST be pinned (unpinned it upgrades to 2.4 and risks EchoMimic);
+the pinned install adds 12 packages and changes nothing else (opencv-contrib 4.11 alongside opencv 4.11).
+**Migrations:** 0060 (`presenters.voice_*`), 0061 (`presenters.library`, `description`, `release_ref`, `portrait_keys`).
+**Generation worker:** presenter queue actions `voice`, `portraits`, `ai_build`, `library_prepare`; generation job types
+`translate_prep` (free) and `translate_video` (credits 2 × presenter rate). The worker imports the deck LLM (`chatJson`)
+for the translation.
+**Admin:** `/admin/avatars` (env allowlist `ADMIN_EMAILS`). AI faces: Wan `wan-text-to-video-v1` length 1 at 704×1280.
+AI base footage: `echomimic-talking-v1` (standard) + `esrgan-upscale-v1`, ~15–20 GPU-minutes. Actors: footage via
+`POST /api/presenters/<id>/footage` from the admin page, then build (no consent clip — the release reference is required).
+
 ## InfiniteTalk template — Connector 0.3 (2026-10-14)
 Template `infinitetalk-v1` in `public/connector/clipwaltz-connector.mjs` (id also in `src/lib/computer-gpu.ts`
 `COMPUTER_TEMPLATES.talkingHq` / `TALKING_ENGINES`). Core ComfyUI nodes only; needs ComfyUI ≥ 0.40

@@ -97,7 +97,7 @@ export async function enqueueComputerGeneration(generationJobId: string, opts: J
 // Waltz Avatar presenters: build (consent check + AISERVER cache) and delete. Few, short GPU jobs on the talking
 // service's queue — one attempt each (a failed consent check is final; the user records again).
 export const PRESENTER_QUEUE = `${GENERATION_QUEUE}-presenter`;
-export type PresenterJobData = { presenterId: string; action: "prepare" | "delete" | "voice" };
+export type PresenterJobData = { presenterId: string; action: "prepare" | "delete" | "voice" | "portraits" | "ai_build" | "library_prepare" };
 let _presenterQueue: Queue<PresenterJobData> | null = null;
 export async function enqueuePresenter(data: PresenterJobData): Promise<void> {
   if (!_presenterQueue) _presenterQueue = new Queue<PresenterJobData>(PRESENTER_QUEUE, { connection: redis() });

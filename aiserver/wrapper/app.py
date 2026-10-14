@@ -120,8 +120,13 @@ WORKFLOWS: Dict[str, Dict[str, str]] = {
     "presenter-prepare-v1": {"service": TALKING, "kind": "prepare"},
     "presenter-lipsync-v1": {"service": TALKING, "kind": "lipsync"},
     "presenter-consent-v1": {"service": TALKING, "kind": "consent"},
+    # Phase 3 (translate a video of yourself): same person as the presenter? / lip-sync the video itself to new speech.
+    "presenter-match-v1": {"service": TALKING, "kind": "match"},
+    "presenter-dub-v1": {"service": TALKING, "kind": "dub"},
     # Waltz Avatar Phase 2: lines in a presenter's cloned voice (+ word timings), clipwaltz-voice service.
     "voice-clone-tts-v1": {"service": VOICE},
+    # Phase 3: what a video says (whisper-small) before it is translated; result {text, language}.
+    "voice-transcribe-v1": {"service": VOICE, "mode": "transcribe"},
 }
 
 app = FastAPI(title="ClipWaltz AISERVER API", version="1.0")
@@ -568,9 +573,10 @@ def _submit_talking(job_id: str, req: JobRequest, path: str, body: Dict[str, Any
 
 def create_voice_job(job_id: str, req: JobRequest) -> Dict[str, Any]:
     i = req.inputs
-    if not i.audio or not i.lines:
-        raise HTTPException(status_code=400, detail="send the voice reference (audio) and the lines")
-    body = {"job_id": job_id, "ref": Path(i.audio).name, "language": i.language or "en", "lines": i.lines}
+    mode = WORKFLOWS[req.workflow].get("mode", "tts")
+    if not i.audio or (mode == "tts" and not i.lines):
+        raise HTTPException(status_code=400, detail="send the audio (and the lines to speak)")
+    body = {"job_id": job_id, "mode": mode, "ref": Path(i.audio).name, "language": i.language or "en", "lines": i.lines or []}
     return _submit_talking(job_id, req, "/jobs", body, VOICE)
 
 

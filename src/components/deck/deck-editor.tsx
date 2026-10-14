@@ -30,6 +30,7 @@ import { DeckChatPanel } from "./deck-chat";
 import { EditableTitle } from "@/components/studio/editable-title";
 import { unwrap } from "@/lib/action-result";
 import { listPresenters } from "@/lib/presenter-actions";
+import { listLibraryPresenters } from "@/lib/presenter-library-actions";
 import { CLONE_PREFIX, PRESENTER_LAYOUTS, PRESENTER_SECONDS_PER_CREDIT, isCloneVoice, type PresenterView } from "@/lib/presenters";
 import { CampaignPanel } from "./campaign-panel";
 import { AudioMix } from "./audio-mix";
@@ -783,7 +784,9 @@ function PresenterControls({ projectId, brief, canEdit, onChange, onScenes }: {
   const [layout, setLayout] = useState<string>("presenter-bubble");
   const [pending, start] = useTransition();
   useEffect(() => {
-    void listPresenters().then((r) => setList(r.ok ? r.data.filter((p) => p.status === "ready") : []));
+    // Your own ready presenters, then ClipWaltz's library presenters.
+    void Promise.all([listPresenters(), listLibraryPresenters()]).then(([mine, lib]) =>
+      setList([...(mine.ok ? mine.data.filter((p) => p.status === "ready") : []), ...(lib.ok ? lib.data : [])]));
   }, []);
   const voiceOn = (brief.voice?.mode ?? "off") !== "off";
   const cur = brief.presenter?.id ?? "";

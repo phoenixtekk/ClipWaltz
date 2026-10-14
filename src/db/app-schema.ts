@@ -699,7 +699,12 @@ export const presenters = pgTable(
     id: text().primaryKey(), // uuid (also the AISERVER cache dir name)
     userId: text().notNull().references(() => user.id, { onDelete: "cascade" }),
     name: text().notNull(),
-    kind: text().notNull().default("twin"), // twin (the user) | ai (fictional, Phase 2)
+    kind: text().notNull().default("twin"), // twin (the user) | ai (fictional, generated) | actor (licensed, signed release)
+    // Phase 2 — ClipWaltz's presenter library (admin-made): every user may use a library presenter that is ready.
+    library: boolean().notNull().default(false),
+    description: text(), // ai: the look it was generated from; actor: who they are
+    releaseRef: text(), // actor: the signed release's reference (AI likeness + voice; scope, territory, term)
+    portraitKeys: jsonb(), // ai: generated face candidates (MinIO keys) to pick from
     status: text().notNull().default("draft"), // draft | queued | preparing | ready | failed
     consentCode: text(), // the one-time code shown while recording the consent clip
     footageKey: text(), // MinIO: presenters/<userId>/<id>/footage.<ext>

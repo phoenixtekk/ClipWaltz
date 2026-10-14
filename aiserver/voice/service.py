@@ -13,6 +13,8 @@ Bound to 127.0.0.1; the wrapper (the box's only network surface) is the sole cal
 
   POST /jobs {job_id, ref (staged audio), language, lines: [text], exaggeration?} -> {"status": "queued"}
        output: clipwaltz/voice/<job_id>/{0..n}.wav + manifest.json [{file, dur, words: [{w, s, e}]}]
+  POST /jobs {job_id, mode: "transcribe", ref (staged audio)} -> result {text, language} (whisper-small, CPU)
+       — Waltz Avatar Phase 3: what a video of the user says, before it is translated
   GET  /jobs/{id}   POST /jobs/{id}/cancel   GET /health
 """
 from __future__ import annotations
@@ -39,6 +41,8 @@ INPUT_DIR = Path(os.environ.get("CW_INPUT_DIR", "/data/clipwaltz-ai/input"))
 OUTPUT_DIR = Path(os.environ.get("CW_OUTPUT_DIR", "/data/clipwaltz-ai/output"))
 GPU_COMFYUI = os.environ.get("VOICE_GPU_COMFYUI", "http://127.0.0.1:8188").rstrip("/")
 WHISPER = os.environ.get("VOICE_WHISPER", "/data/clipwaltz-ai/models/musetalk/whisper-base")
+ASR = os.environ.get("VOICE_ASR", "/data/clipwaltz-ai/models/musetalk/whisper-small")  # transcription (Phase 3)
+MAX_TRANSCRIBE_SECONDS = 180
 DEVICE = "cuda" if torch.cuda.is_available() and os.environ.get("VOICE_DEVICE", "cuda") == "cuda" else "cpu"
 # ClipWaltz's narration languages (src/lib/deck/types.ts LANGUAGES) — all supported by Chatterbox Multilingual.
 LANGUAGES = {"en", "es", "fr", "it", "pt"}
@@ -108,7 +112,32 @@ def words_for(wav: np.ndarray, sr: int, language: str) -> List[Dict[str, Any]]:
     return words
 
 
+def transcribe(job: Dict[str, Any]) -> None:
+    """Phase 3: the words of a video's speech (whisper-small, CPU, language detected) — up to 3 minutes."""
+    import librosa
+    from transformers import pipeline
+
+    job_id = job["job_id"]
+    _set(job_id, status="running", stage="transcribing", progress=10)
+    if "asr" not in _asr:
+        _asr["asr"] = pipeline("automatic-speech-recognition", model=ASR, device="cpu", chunk_length_s=30)
+    a16, _ = librosa.load(str(INPUT_DIR / job["ref"]), sr=16000, duration=MAX_TRANSCRIBE_SECONDS)
+    pipe = _asr["asr"]
+    feats = pipe.feature_extractor(a16[: 16000 * 30], sampling_rate=16000, return_tensors="pt").input_features
+    language = None
+    try:  # the spoken language (whisper's own detection); the transcription below detects it anyway if this fails
+        lang_ids = pipe.model.detect_language(feats)
+        language = str(pipe.tokenizer.convert_ids_to_tokens(int(lang_ids[0]))).strip("<|>") or None
+    except Exception:  # noqa: BLE001
+        language = None
+    out = pipe({"raw": a16, "sampling_rate": 16000}, generate_kwargs={"task": "transcribe", **({"language": language} if language else {})})
+    text = " ".join(str(out.get("text", "")).split())
+    _set(job_id, status="completed", stage="done", progress=100, result={"text": text, "language": language, "seconds": round(len(a16) / 16000, 2)})
+
+
 def run(job: Dict[str, Any]) -> None:
+    if job.get("mode") == "transcribe":
+        return transcribe(job)
     from chatterbox.mtl_tts import ChatterboxMultilingualTTS
 
     job_id = job["job_id"]
@@ -176,9 +205,10 @@ def require_token(creds: HTTPAuthorizationCredentials = Depends(bearer)) -> None
 
 class JobIn(BaseModel):
     job_id: str = Field(pattern=r"^cw_[a-f0-9]{12}$")
+    mode: str = Field("tts", pattern=r"^(tts|transcribe)$")
     ref: str = Field(min_length=1, max_length=200)
     language: str = "en"
-    lines: List[str] = Field(min_length=1, max_length=MAX_LINES)
+    lines: List[str] = Field(default_factory=list, max_length=MAX_LINES)
     exaggeration: float = Field(0.5, ge=0.25, le=1.0)
 
 
@@ -196,13 +226,13 @@ def health(_: None = Depends(require_token)) -> Dict[str, Any]:
 
 @app.post("/jobs")
 def create(req: JobIn, _: None = Depends(require_token)) -> Dict[str, Any]:
-    if req.language not in LANGUAGES:
+    if req.mode == "tts" and req.language not in LANGUAGES:
         raise HTTPException(400, f"language must be one of {sorted(LANGUAGES)}")
     if Path(req.ref).name != req.ref or not (INPUT_DIR / req.ref).is_file():
         raise HTTPException(400, "no staged reference audio")
     lines = [str(t).strip()[:MAX_LINE_CHARS] for t in req.lines]
-    if not all(lines):
-        raise HTTPException(400, "empty line")
+    if req.mode == "tts" and (not lines or not all(lines)):
+        raise HTTPException(400, "send the lines to speak")
     with _lock:
         if req.job_id in _jobs:
             raise HTTPException(409, "job exists")

@@ -137,6 +137,26 @@ def _face_share(video: Path) -> float:
 
 
 @torch.no_grad()
+def match(video: Path, footage: Path) -> dict:
+    """Phase 3: is a video the user wants translated the same person as their (consented) presenter footage? Voice match
+    (ECAPA ≥ VOICE_MIN) + a face visible in most of it. → {ok, reason, face_share, voice_score}."""
+    _load()
+    a, b = _wav16(video, 60), _wav16(footage, 60)
+    if len(a) < 16000 * 3:
+        return {"ok": False, "reason": "There's too little speech in that video to translate", "face_share": 0.0, "voice_score": 0.0}
+    spk = _m["spk"]
+    emb = lambda w: spk.encode_batch(torch.tensor(w[: 16000 * 30])[None]).squeeze()  # noqa: E731
+    score = float(torch.nn.functional.cosine_similarity(emb(a), emb(b), dim=0)) if len(b) >= 16000 * 3 else 0.0
+    face = _face_share(video)
+    res = {"face_share": round(face, 2), "voice_score": round(score, 3)}
+    if face < FACE_MIN:
+        return {**res, "ok": False, "reason": "Your face needs to be visible in most of the video"}
+    if score < VOICE_MIN:
+        return {**res, "ok": False, "reason": "The voice in that video doesn't match your presenter — you can only translate videos of yourself"}
+    return {**res, "ok": True, "reason": None}
+
+
+@torch.no_grad()
 def verify(clip: Path, footage: Path, code: str, statement: str = "") -> dict:
     """→ {ok, reason, transcript, heard, code_ok, face_share, voice_score}. `reason` is shown to the user on failure."""
     _load()

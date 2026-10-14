@@ -95,6 +95,20 @@ scene's layout to one of the *Presenter* layouts. Render as usual — your prese
 **Good to know:** only make a presenter of **yourself**. Every presenter video is labelled **"AI-generated"**. Delete a
 presenter at any time (bin icon on its card) — its video, consent recording and saved lip-syncs are removed.
 
+## Waltz Avatar — your own voice, ready-made presenters, translations
+- **Your own voice:** on Avatars, under your ready presenter, press **Use my own voice**, read the sentence on screen
+  (live, face in view) and press **Check my voice**. Then pick **My voice — <name>** under a WaltzDeck's Voiceover — your
+  narration is spoken in your voice, in English, Spanish, French, Italian or Portuguese. **Remove my voice** deletes it.
+- **ClipWaltz presenters:** ready-made fictional AI presenters and licensed actors anyone can use — on Avatars, or in a
+  deck's presenter picker.
+- **Make a video:** press **Make a video** on any presenter, paste your script, choose *Talking head*, *Presenter beside the
+  slides* or *Slides with a corner bubble* and a shape. A WaltzDeck project opens, ready to edit and render.
+- **Translate a deck:** a WaltzDeck's **Translate** keeps your presenter and your own voice — the translation is spoken by
+  you, with your lips matched.
+- **Translate a video of yourself:** Waltz AI → **Translate**. Pick a video of you talking (up to 3 minutes), your presenter
+  and the language, press **Transcribe & translate** (free), check or edit the translation, then **Make the translated
+  video** (2 AI credits per 10 seconds). You need your own voice set up first; we check the video's voice matches yours.
+
 ## Make videos on your own computer (free)
 If your computer has an NVIDIA graphics card (8 GB or more; 10 GB recommended), ClipWaltz can make Waltz AI clips on it
 at no AI-credit cost — image → video and talking photos.

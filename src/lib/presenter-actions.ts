@@ -30,7 +30,8 @@ function view(p: Row): PresenterView {
 }
 
 async function own(userId: string, id: string): Promise<Row> {
-  const [p] = await db.select().from(schema.presenters).where(and(eq(schema.presenters.id, id), eq(schema.presenters.userId, userId)));
+  const [p] = await db.select().from(schema.presenters)
+    .where(and(eq(schema.presenters.id, id), eq(schema.presenters.userId, userId), eq(schema.presenters.kind, "twin")));
   if (!p) throw new Error("Presenter not found");
   return p;
 }
@@ -40,7 +41,9 @@ const newCode = () => String(randomInt(1000, 10000));
 export async function listPresenters(): Promise<ActionResult<PresenterView[]>> {
   return toResult(async () => {
     const userId = await requireUserId();
-    const rows = await db.select().from(schema.presenters).where(eq(schema.presenters.userId, userId)).orderBy(schema.presenters.createdAt);
+    // The user's own presenters (an admin's library presenters live on /admin/avatars).
+    const rows = await db.select().from(schema.presenters).where(and(eq(schema.presenters.userId, userId), eq(schema.presenters.kind, "twin")))
+      .orderBy(schema.presenters.createdAt);
     return rows.map(view);
   });
 }
@@ -51,7 +54,8 @@ export async function startPresenter(name: string): Promise<ActionResult<{ prese
     const userId = await requireUserId();
     const clean = String(name ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
     if (!clean) throw new Error("Give your presenter a name — usually your own");
-    const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.presenters).where(eq(schema.presenters.userId, userId));
+    const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.presenters)
+      .where(and(eq(schema.presenters.userId, userId), eq(schema.presenters.kind, "twin")));
     if (n >= MAX_PRESENTERS) throw new Error(`You can keep up to ${MAX_PRESENTERS} presenters — delete one first`);
     const id = randomUUID();
     const code = newCode();

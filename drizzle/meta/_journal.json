@@ -428,6 +428,13 @@
       "when": 1792014527431,
       "tag": "0060_presenter_voice",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1792015288564,
+      "tag": "0061_presenter_library",
+      "breakpoints": true
     }
   ]
 }

@@ -26,6 +26,10 @@ Waltz Avatar presenters (presenter.py, consent.py) share this service's queue an
        → the consent check only (Phase 2 voice clones: the voice consent against the footage); result {consent}
   POST /presenter/jobs {job_id, kind: lipsync, presenter_id, audio | text+voice+speed} → MP4 (error "not_prepared"
        when this box has no cache for the presenter: the caller re-sends a prepare with the footage)
+  POST /presenter/jobs {job_id, kind: match, presenter_id, video, audio=<the presenter's footage, staged>} → result
+       {match: {ok, reason, face_share, voice_score}} (Phase 3: is this video the presenter's person?)
+  POST /presenter/jobs {job_id, kind: dub, presenter_id=<any new uuid>, video, audio} → MP4: the video's own frames
+       lip-synced to `audio` straight through (Phase 3 translation); its temporary cache is deleted afterwards
   DELETE /presenter/{presenter_id}  — removes the cache (footage frames, latents, masks)
 """
 from __future__ import annotations
@@ -62,6 +66,7 @@ STEPS = int(os.environ.get("TALK_STEPS", "8"))
 MAX_SECONDS = float(os.environ.get("TALK_MAX_SECONDS", "30"))
 PRESENTERS = Path(os.environ.get("PRESENTER_CACHE", "/data/clipwaltz-ai/presenters"))
 PRESENTER_MAX_SECONDS = 60.0  # footage used for the loop; the speech itself may be up to 5 min (a deck scene)
+DUB_MAX_SECONDS = 180.0  # Phase 3: a video translated whole (prepare streams frames, so length isn't a memory problem)
 FPS = 25
 TTS_SR = 24000
 
@@ -444,6 +449,31 @@ def run_presenter(job: Dict[str, Any]) -> None:
     _set(job_id, status="running", stage="waiting for the GPU", progress=2)
     wait_for_gpu(job_id)
     try:
+        if job["kind"] == "match":
+            import consent as C
+
+            _set(job_id, stage="checking the video", progress=10)
+            m = C.match(INPUT_DIR / job["video"], INPUT_DIR / job["audio"])
+            _set(job_id, status="completed" if m["ok"] else "failed", stage="done", progress=100, result={"match": m},
+                 error=None if m["ok"] else m["reason"])
+            return
+        if job["kind"] == "dub":
+            dub_cache = PRESENTERS / f"dub-{job_id}"
+            out_dir = OUTPUT_DIR / "clipwaltz" / "presenter" / job_id
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out = out_dir / "dubbed.mp4"
+            try:
+                _set(job_id, stage="reading the video", progress=5)
+                P.prepare(INPUT_DIR / job["video"], dub_cache, DUB_MAX_SECONDS, lambda f: _set(job_id, progress=5 + int(f * 45)))
+                _set(job_id, stage="lip-sync", progress=50)
+                dur = P.lipsync(dub_cache, INPUT_DIR / job["audio"], out, lambda f: _set(job_id, progress=50 + int(f * 48)), loop=False)
+            finally:
+                import shutil
+
+                shutil.rmtree(dub_cache, ignore_errors=True)
+            _set(job_id, status="completed", stage="done", progress=100, duration=round(dur, 2),
+                 output=f"clipwaltz/presenter/{job_id}/{out.name}", render_s=round(time.time() - t0, 1))
+            return
         if job["kind"] == "consent":
             import consent as C
 
@@ -500,7 +530,7 @@ def worker_loop() -> None:
             job = dict(_jobs[job_id])
         if job.get("cancel"):
             continue
-        presenter_job = job.get("kind") in ("prepare", "lipsync", "consent")
+        presenter_job = job.get("kind") in ("prepare", "lipsync", "consent", "match", "dub")
         while not presenter_job and not M and _load_error is None:
             time.sleep(2)
         try:
@@ -632,7 +662,7 @@ def cancel(job_id: str, _: None = Depends(require_token)) -> Dict[str, Any]:
 
 class PresenterJobIn(BaseModel):
     job_id: str = Field(pattern=r"^cw_[a-f0-9]{12}$")
-    kind: str = Field(pattern=r"^(prepare|lipsync|consent)$")
+    kind: str = Field(pattern=r"^(prepare|lipsync|consent|match|dub)$")
     presenter_id: str = Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
     video: Optional[str] = Field(default=None, max_length=200)
     consent_clip: Optional[str] = Field(default=None, max_length=200)
@@ -653,6 +683,9 @@ def create_presenter(req: PresenterJobIn, _: None = Depends(require_token)) -> D
             raise HTTPException(400, "send the consent clip, its code and sentence")
         if bool(req.consent_clip) != bool(req.consent_code) or bool(req.consent_clip) != bool(req.consent_statement):
             raise HTTPException(400, "send the consent clip together with its code and sentence")
+    elif req.kind in ("match", "dub"):
+        if not req.video or not req.audio:
+            raise HTTPException(400, "send the video and the audio")
     elif not req.audio and not (req.text or "").strip():
         raise HTTPException(400, "send speech (audio) or a script (text)")
     if req.voice not in VOICES:

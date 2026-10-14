@@ -62,3 +62,14 @@ export const PRESENTER_LAYOUTS = [
   { key: "presenter-bubble", label: "Presenter: corner bubble" },
 ] as const;
 export const isPresenterLayout = (l: string | null | undefined) => !!l && l.startsWith("presenter-");
+
+/** Presenter video templates ("Make a video", src/lib/presenter-video-actions.ts). */
+export const PRESENTER_VIDEO_STYLES = [
+  { key: "talking-head", label: "Talking head", layout: "presenter-full", text: false },
+  { key: "beside-slides", label: "Presenter beside the slides", layout: "presenter-split", text: true },
+  { key: "bubble", label: "Slides with a corner bubble", layout: "presenter-bubble", text: true },
+] as const;
+export type PresenterVideoStyle = (typeof PRESENTER_VIDEO_STYLES)[number]["key"];
+
+/** Phase 3: the longest video that can be translated (seconds). */
+export const TRANSLATE_MAX_SECONDS = 180;
