@@ -13,7 +13,8 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
-## Waltz Avatar — presenters from a photo or an AI face (dev, 2026-10-15)
+## Waltz Avatar — presenters from a photo or an AI face (AI faces LIVE 2026-10-15; photo option on dev only)
+- **Photo option status:** behind `WALTZ_AVATAR_PHOTO=1` (off on prod) until the lip-movement check is tuned.
 - **Three ways to make your own presenter** (Avatars → new presenter): **From a video of me** (as before, free),
   **From a photo of me**, or **AI presenter** (a made-up face). Owner decision 2026-10-15: both new ways, **30 AI credits
   per build** (`PRESENTER_BUILD_CREDITS`), refunded automatically if the build fails or the consent check fails.

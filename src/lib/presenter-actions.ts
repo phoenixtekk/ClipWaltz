@@ -58,6 +58,13 @@ export async function listPresenters(): Promise<ActionResult<PresenterView[]>> {
   });
 }
 
+/** "From a photo of me" is off unless WALTZ_AVATAR_PHOTO=1 — owner decision 2026-10-15: it waits for the lip-movement
+ *  check (a printed photo held up to the camera must not pass). */
+const photoEnabled = () => process.env.WALTZ_AVATAR_PHOTO === "1";
+function requirePhotoEnabled() {
+  if (!photoEnabled()) throw new Error("Presenters from a photo aren't available yet — make one from a video of you");
+}
+
 async function roomForAnother(userId: string) {
   const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.presenters)
     .where(and(eq(schema.presenters.userId, userId), eq(schema.presenters.kind, "twin")));
@@ -71,6 +78,7 @@ export async function startPresenter(name: string, source: "video" | "photo" = "
     const userId = await requireUserId();
     const clean = String(name ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
     if (!clean) throw new Error("Give your presenter a name — usually your own");
+    if (source === "photo") requirePhotoEnabled();
     await roomForAnother(userId);
     const id = randomUUID();
     const code = newCode();
@@ -114,6 +122,7 @@ export async function submitPresenter(id: string): Promise<ActionResult<Presente
     if (p.status !== "draft" && p.status !== "failed") throw new Error("This presenter is already being made");
     if (p.source === "ai") throw new Error("Pick one of the faces to build this presenter");
     const photo = p.source === "photo";
+    if (photo) requirePhotoEnabled();
     if (!photo && !p.footageKey) throw new Error("Add a video of yourself talking first");
     if (!p.consentKey || !p.consentCode) throw new Error("Record the consent clip first");
     if (photo && p.photoAt == null) throw new Error("Pick the picture of you to use first");
@@ -184,6 +193,7 @@ export async function setPhotoFrame(id: string, at: number): Promise<ActionResul
     const userId = await requireUserId();
     const p = await own(userId, id);
     if (p.source !== "photo") throw new Error("This presenter is made from a video");
+    requirePhotoEnabled();
     if (!p.consentKey) throw new Error("Record the consent clip first");
     const t = Number(at);
     if (!Number.isFinite(t) || t < 0 || t > CONSENT_MAX_SECONDS) throw new Error("Pick a moment in your recording");

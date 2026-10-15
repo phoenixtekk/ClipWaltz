@@ -20,7 +20,7 @@ export default async function AvatarsPage() {
           lip-synced. Every presenter video is labelled “AI-generated”.
         </p>
       </div>
-      <AvatarsManager initial={res.data} library={lib.ok ? lib.data : []} />
+      <AvatarsManager initial={res.data} library={lib.ok ? lib.data : []} photoEnabled={process.env.WALTZ_AVATAR_PHOTO === "1"} />
     </div>
   );
 }

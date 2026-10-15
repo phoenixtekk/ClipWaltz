@@ -34,7 +34,7 @@ const SOURCES: { key: PresenterSource; label: string; hint: string; icon: typeof
 const SOURCE_LABEL: Record<PresenterSource, string | null> = { video: null, photo: "From your photo", ai: "AI face (fictional)" };
 
 /** Waltz Avatar → presenters: list + the setup wizard (name → footage → live consent clip → build). */
-export function AvatarsManager({ initial, library }: { initial: PresenterView[]; library: LibraryPresenter[] }) {
+export function AvatarsManager({ initial, library, photoEnabled = false }: { initial: PresenterView[]; library: LibraryPresenter[]; photoEnabled?: boolean }) {
   const [items, setItems] = useState(initial);
   const [openId, setOpenId] = useState<string | null>(initial.find((p) => p.status === "draft" || p.status === "failed")?.id ?? null);
   const [name, setName] = useState("");
@@ -101,7 +101,7 @@ export function AvatarsManager({ initial, library }: { initial: PresenterView[];
       {items.length < MAX_PRESENTERS ? (
         <div className="space-y-3 rounded-xl border border-dashed border-border p-4">
           <div role="radiogroup" aria-label="Make the presenter from" className="grid gap-2 sm:grid-cols-3">
-            {SOURCES.map((s) => (
+            {SOURCES.filter((s) => photoEnabled || s.key !== "photo").map((s) => (
               <button key={s.key} type="button" role="radio" aria-checked={source === s.key} onClick={() => setSource(s.key)}
                 className={cn("flex items-start gap-2 rounded-lg border p-2.5 text-left", source === s.key ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10" : "border-border")}>
                 <s.icon className="mt-0.5 size-4 shrink-0" />

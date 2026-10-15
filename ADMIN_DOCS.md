@@ -284,7 +284,9 @@ settles the charge to the HQ seconds actually made. Full + split layouts only. *
 enhance.api.json` already wired the output frame rate to the source (`VHS_VideoInfoLoaded`); the repo copy was stale
 (hard-coded 24) and is now in line — verified 2026-10-15: 25 → 25 fps and 30 → 30 fps through the live wrapper.
 
-**Presenters from a photo or an AI face (2026-10-15, dev):** `presenters.source` = `video` (default) | `photo` | `ai`
+**Presenters from a photo or an AI face (2026-10-15):** AI faces LIVE on prod; **the photo option is off unless
+`WALTZ_AVATAR_PHOTO=1`** in the app env (unset on prod — owner decision 2026-10-15: it waits for the lip-movement check;
+set on dev). Off = the choice is hidden and `startPresenter`/`setPhotoFrame`/`submitPresenter` refuse photo presenters. `presenters.source` = `video` (default) | `photo` | `ai`
 (kind stays `twin` = a user's own), `photo_at`, `build_charge_id`; **migration 0062** also makes
 `generation_jobs.project_id` nullable (build charges have no project — access checks treat a null project as not found).
 Flow: photo → consent clip (as usual) → `setPhotoFrame` → `submitPresenter` charges and queues `prepare`; the worker's
