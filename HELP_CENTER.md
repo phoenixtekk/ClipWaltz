@@ -86,6 +86,21 @@ Record yourself once, and your WaltzDeck videos can be presented **by you** — 
 4. Press **Build my presenter**. In a minute or two it shows **Ready**. If the check fails you'll see why — press
    **Get a new code** and record the consent again.
 
+**No video? Make a presenter from a photo of you, or a made-up AI face.** When you create a presenter, choose how:
+- **From a video of me** — the steps above. Free, and the most natural result.
+- **From a photo of me** — record the live consent (read the sentence and code, facing the camera, centred, in good
+  light). Then under **Pick your picture**, play or drag through your recording, pause where you look straight at the
+  camera with your mouth closed, and press **Use this frame** — the bright box shows the part that's used. Press **Build
+  my presenter · 30 credits**; it's ready in about 20 minutes.
+- **AI presenter** — give it a name, a voice and a description of how they look (a made-up person — descriptions of real,
+  named people are refused). Press **Make 3 faces**, click the one you like and press **Build with this face · 30
+  credits** (about 20 minutes). Don't like any? **New faces** makes three more (up to 3 rounds).
+
+Building from a photo or an AI face costs **30 AI credits**, and they're refunded automatically if it fails. These
+presenters speak with the built-in voices — **Your own voice** needs a presenter made from a video of you.
+
+**Big video files:** you can upload a presenter video up to 400 MB; large files upload in pieces automatically.
+
 **Recording yourself — pick your camera and microphone:** when you press **Record with my camera** (or **Start
 recording** for the consent), a camera check opens first. Choose the **Camera** and **Microphone** you want (useful if you
 have more than one — ClipWaltz remembers your choice on this browser), and watch the mic bar move when you speak. You can

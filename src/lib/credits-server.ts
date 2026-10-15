@@ -48,7 +48,7 @@ export class NotEnoughCredits extends Error {}
  * Check the balance and insert the job in ONE transaction, serialised per user (advisory lock), so two clicks can't
  * both spend the last credits. `insert` must write the generation_jobs row with `credits: cost` through `tx`.
  */
-export async function spendCredits<T>(userId: string, cost: number, insert: (tx: Tx) => Promise<T>): Promise<T> {
+export async function spendCredits<T>(userId: string, cost: number, insert: (tx: Tx) => Promise<T>, hint?: string): Promise<T> {
   const tier = await getEffectiveTier(userId);
   const planAllowance = CREDIT_ALLOWANCE[tier];
   return db.transaction(async (tx) => {
@@ -62,7 +62,7 @@ export async function spendCredits<T>(userId: string, cost: number, insert: (tx:
         const plan = `${planAllowance} on the ${tier === "free" ? "Free" : tier === "plus" ? "Plus" : "Pro"} plan${bonus ? ` + ${bonus} bonus` : ""}`;
         throw new NotEnoughCredits(
           `This needs ${cost} AI credit${cost === 1 ? "" : "s"} and you have ${left} left this month (${plan}; ` +
-          `it resets on ${reset}). ${tier === "pro" ? "Try a shorter clip or a lower quality." : "Upgrade for more, or try a shorter clip."}`,
+          `it resets on ${reset}). ${hint ?? (tier === "pro" ? "Try a shorter clip or a lower quality." : "Upgrade for more, or try a shorter clip.")}`,
         );
       }
     }

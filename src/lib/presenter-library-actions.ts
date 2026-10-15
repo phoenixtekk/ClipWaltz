@@ -32,7 +32,7 @@ function libView(p: Row, admin: boolean): LibraryPresenter {
     thumbUrl: p.thumbKey ? `/api/presenters/${p.id}/thumb?v=${p.readyAt?.getTime() ?? p.updatedAt.getTime()}` : null,
     createdAt: p.createdAt.toISOString(), readyAt: p.readyAt?.toISOString() ?? null,
     meta: (p.meta ?? null) as PresenterView["meta"], voiceStatus: "none", voiceHasConsent: false, voiceError: null,
-    kind: p.kind as "ai" | "actor", library: p.library, description: p.description,
+    kind: p.kind as "ai" | "actor", library: p.library, description: p.description, source: "ai", photoAt: null, consentRef: null,
     releaseRef: admin ? p.releaseRef : null,
     portraits: admin && Array.isArray(p.portraitKeys) ? (p.portraitKeys as string[]).map((_, n) => `/api/presenters/${p.id}/portrait/${n}`) : [],
   };

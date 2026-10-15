@@ -24,7 +24,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ versionId: stri
     .select({ projectId: schema.generationJobs.projectId })
     .from(schema.generationJobs)
     .where(eq(schema.generationJobs.id, id));
-  if (!own || !(await userCanAccessProject(userId, own.projectId))) return new NextResponse("not found", { status: 404 });
+  if (!own?.projectId || !(await userCanAccessProject(userId, own.projectId))) return new NextResponse("not found", { status: 404 });
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({

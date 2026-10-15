@@ -699,7 +699,12 @@ export const presenters = pgTable(
     id: text().primaryKey(), // uuid (also the AISERVER cache dir name)
     userId: text().notNull().references(() => user.id, { onDelete: "cascade" }),
     name: text().notNull(),
-    kind: text().notNull().default("twin"), // twin (the user) | ai (fictional, generated) | actor (licensed, signed release)
+    kind: text().notNull().default("twin"), // twin (a user's own) | ai (library, fictional, generated) | actor (licensed, signed release)
+    // A user's own presenter (twin) is made from: video (their footage) | photo (a frame of their live consent clip, animated)
+    // | ai (a fictional face they generated). photo + ai are built like the library's AI presenters (EchoMimic base footage).
+    source: text().notNull().default("video"),
+    photoAt: real(), // photo: seconds into the consent clip of the frame the user picked
+    buildChargeId: text(), // photo / ai: the generation_jobs row charged for the build (failed → refunded)
     // Phase 2 — ClipWaltz's presenter library (admin-made): every user may use a library presenter that is ready.
     library: boolean().notNull().default(false),
     description: text(), // ai: the look it was generated from; actor: who they are
@@ -789,9 +794,7 @@ export const scenes = pgTable("scenes", {
 // through the state machine. Each run of a job may produce a generationVersion.
 export const generationJobs = pgTable("generation_jobs", {
   id: text().primaryKey(),
-  projectId: text()
-    .notNull()
-    .references(() => projects.id, { onDelete: "cascade" }),
+  projectId: text().references(() => projects.id, { onDelete: "cascade" }), // null: not tied to a project (a presenter build)
   sceneId: text().references(() => scenes.id, { onDelete: "set null" }),
   workspaceId: text().references(() => workspaces.id, { onDelete: "cascade" }),
   requestedBy: text().references(() => user.id, { onDelete: "set null" }),

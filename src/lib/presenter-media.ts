@@ -88,6 +88,7 @@ export async function footagePresenter(id: string, userId: string) {
   const [p] = await db.select().from(schema.presenters).where(eq(schema.presenters.id, id));
   const library = p && (p.kind === "ai" || p.kind === "actor");
   if (!p || (library ? !(await getAdminSession()) : p.userId !== userId)) throw new UploadError("Presenter not found", 404);
+  if (p.kind === "twin" && p.source !== "video") throw new UploadError("This presenter isn't made from a video", 409);
   if (p.status !== "draft" && p.status !== "failed") throw new UploadError("This presenter is already being made", 409);
   return { owner: p.userId };
 }

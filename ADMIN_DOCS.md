@@ -27,7 +27,19 @@ npm run dev                        # http://localhost:3000
 See [`env.example`](env.example) for the full list. Groups:
 - **App:** `NEXT_PUBLIC_APP_URL`
 - **Auth:** `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `AUTH_REQUIRE_EMAIL_VERIFICATION`, optional social creds
-- **DB:** `DATABASE_URL`
+- **DB:** `DATABASE_URL`, optional `DATABASE_POOL_MAX` (per-process pool cap — see below)
+
+### Postgres connection budget (shared server — 2026-10-06)
+The linuxg1 Postgres (`max_connections` 100) is shared by ~10 apps. On 2026-10-06 04:37–04:46 UTC
+ClipWaltz connections (mostly `clipwaltz_dev`) filled every slot and other apps (VelvetSong, mibrow)
+were refused. Two caps now apply:
+- **Per-process pools** (postgres.js defaults to 10): app `src/db/index.ts` **5**, gen worker **5**
+  (job concurrency 2+2+1), render worker **3**; override with `DATABASE_POOL_MAX`. `idle_timeout` 30 s.
+  In `next dev` the client is cached on `globalThis` so hot reloads don't leak a new pool each time.
+- **Hard role cap:** `ALTER ROLE clipwaltz CONNECTION LIMIT 30` (covers `clipwaltz` + `clipwaltz_dev`
+  together). Over the cap, ClipWaltz alone gets `too many connections for role` — other apps are safe.
+  Check: `sudo -u postgres psql -Atc "select count(*) from pg_stat_activity where usename='clipwaltz'"`.
+  Undo: `ALTER ROLE clipwaltz CONNECTION LIMIT -1`.
 - **Storage (MinIO):** `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_REGION`
 - **Storage edge (ADR-0003):** `S3_PUBLIC_ENDPOINT=https://media.clipwaltz.com` turns on direct
   browser ↔ MinIO media (presigned URLs); unset it (or `MEDIA_DIRECT=0`) to fall back to proxying.
@@ -42,7 +54,9 @@ See [`env.example`](env.example) for the full list. Groups:
 
   (For any non-prod environment, substitute that env's `NEXT_PUBLIC_APP_URL` for the host.) Drive backup also needs the **Drive API enabled** and the **`drive.file`** scope on the OAuth consent screen. While the consent screen is in Testing, each user's Google account must be a **test user**; public use needs Google verification of the `drive.file` scope. Connections stored in `oauth_accounts` (providers `google` / `google_drive`).
   - **Troubleshooting — `Error 400: redirect_uri_mismatch`:** the callback URL the app sent isn't in the client's Authorized redirect URIs. Add the exact URL above (the Drive one was the cause on 2026-09-19: Photos was registered, Drive was not), Save, wait a few minutes for propagation, retry. It matches character-for-character.
-- **Worker vision (face/scene):** `OLLAMA_URL` (e.g. `http://192.168.166.182:11434`), `OLLAMA_MODEL` (default `qwen2.5vl:7b`, a non-reasoning VL model), optional `OLLAMA_TIMEOUT_MS`. Worker-only; empty `OLLAMA_URL` = motion-only.
+- **Worker vision (face/scene):** `OLLAMA_URL` (e.g. `http://192.168.166.182:11434`), `OLLAMA_MODEL` (default `qwen2.5vl:7b`, a non-reasoning VL model), optional `OLLAMA_TIMEOUT_MS`. Empty `OLLAMA_URL` = motion-only in the worker. **The app (linuxg1 `.env.local`) also needs
+  `OLLAMA_URL`** for the Waltz Avatar AI-presenter real-person check (`PERSONA_CHECK_MODEL`, default `qwen2.5:14b`) —
+  without it, creating an AI presenter is refused.
 - **Web Push (render-complete OS notifications):** `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (a `mailto:` for the push service to contact), and `NEXT_PUBLIC_VAPID_PUBLIC_KEY` (**same value** as `VAPID_PUBLIC_KEY` — exposed to the browser to build subscriptions). **App-only** (linuxg1 `.env.local`); the worker does not need them. Generate a keypair with `node -e "console.log(require('web-push').generateVAPIDKeys())"`. If unset, push is a no-op and the "Windows notification" toggle disables itself; the in-tab toggle and email still work. Keys stored in `_keys/clipwaltz.txt`. The private key is a secret — never in `NEXT_PUBLIC_*` or git.
 
 > **Never** commit `.env*`, log secrets, or put secrets in `NEXT_PUBLIC_*`.
@@ -222,9 +236,12 @@ transformers/numpy, so it must not share the talking venv. Models: Chatterbox vi
 `CW_VOICE_URL` (default http://127.0.0.1:8195), `CW_VOICE_GPU_BACKEND` (default the first ComfyUI).
 **Wrapper workflows added:** `voice-clone-tts-v1`, `voice-transcribe-v1`, `presenter-consent-v1`, `presenter-match-v1`,
 `presenter-dub-v1`. **Talking-service kinds added:** `consent`, `match`, `dub`.
-**Talking venv extras (rehearsed on a copy 2026-10-14):** `uv pip install --python /opt/clipwaltz-ai/talking/venv/bin/python
-mediapipe==1.1.1 speechbrain "numpy==1.26.4"` — numpy MUST be pinned (unpinned it upgrades to 2.4 and risks EchoMimic);
-the pinned install adds 12 packages and changes nothing else (opencv-contrib 4.11 alongside opencv 4.11).
+**Talking venv extras (installed on prod 2026-10-15):** pin EVERYTHING already installed, then add the two packages —
+`uv pip freeze --python /opt/clipwaltz-ai/talking/venv/bin/python > /tmp/c.txt` then `uv pip install --python
+/opt/clipwaltz-ai/talking/venv/bin/python -c /tmp/c.txt --index-strategy unsafe-best-match --extra-index-url
+https://download.pytorch.org/whl/cu124 mediapipe==1.1.1 speechbrain==1.1.1` (always `--dry-run` first). It adds exactly
+12 packages and changes nothing. **Never install `speechbrain` unpinned:** on 2026-10-15 it resolved to 1.1.2 and would
+have upgraded torch 2.6.0+cu124 → 2.14.1 (+ torchaudio, triton) in the live venv, risking EchoMimic.
 **Migrations:** 0060 (`presenters.voice_*`), 0061 (`presenters.library`, `description`, `release_ref`, `portrait_keys`).
 **Generation worker:** presenter queue actions `voice`, `portraits`, `ai_build`, `library_prepare`; generation job types
 `translate_prep` (free) and `translate_video` (credits 2 × presenter rate). The worker imports the deck LLM (`chatJson`)
@@ -232,6 +249,65 @@ for the translation.
 **Admin:** `/admin/avatars` (env allowlist `ADMIN_EMAILS`). AI faces: Wan `wan-text-to-video-v1` length 1 at 704×1280.
 AI base footage: `echomimic-talking-v1` (standard) + `esrgan-upscale-v1`, ~15–20 GPU-minutes. Actors: footage via
 `POST /api/presenters/<id>/footage` from the admin page, then build (no consent clip — the release reference is required).
+
+**Deployed to prod 2026-10-15** (deploy branch `deploy/waltz-avatar-20261014` @ `1329da6` = `c7a5d87` + Waltz Avatar,
+no render scaling). AISERVER: models in `/data/clipwaltz-ai/models/musetalk` (4.9 GB: musetalkV15, sd-vae, whisper,
+whisper-base, whisper-small, ecapa, face_landmarker.task), presenter caches `/data/clipwaltz-ai/presenters`, talking venv
+extras, NEW systemd `clipwaltz-voice` (127.0.0.1:8195, GPU 0, `/opt/clipwaltz-ai/voice` with its own py3.11 venv pinned in
+`requirements.lock.txt`, Chatterbox weights in `voice/hf`), talking service + wrapper + cleanup.sh updated (`.bak-20261015-wa`
+copies beside each). Prod DB migrations 0059–0061 (59 → 62). linuxg1: 42-file overlay, build 0, `pm2 restart clipwaltz
+clipwaltz-gen-worker`. AI box: 6 worker files + `AISERVER_API_URL`/`AISERVER_API_TOKEN` in `.env.worker`, `clipwaltz-worker`
+restarted. **Run migrations with the env loaded** — `drizzle-kit` does not read `.env.local` and otherwise falls back to an
+unauthenticated localhost URL and exits 1 silently: `DATABASE_URL="$(grep ^DATABASE_URL= .env.local | cut -d= -f2-)" npx
+drizzle-kit migrate`. Backups: linuxg1 `~/backups/clipwaltz-db-pre-wa-20261015-0232.dump` + `/tmp/cw-pre-wa-src.tgz`, AI box
+`/tmp/cw-pre-wa-worker.tgz`, AISERVER `/data/clipwaltz-ai/backups/pre-wa-20261015-0232.tgz` (+ talking venv freeze).
+Smoke test through the prod wrapper after the restart: transcription, presenter build and lip-sync all completed.
+**Recording studio LIVE 2026-10-15 ~03:06 UTC** (camera/mic pickers, zoom, brightness, review — `webcam-recorder.tsx`):
+deploy branch `deploy/waltz-avatar-20261014` @ `60c4ce2`; linuxg1 overlay of `src/components/webcam-recorder.tsx` (new) +
+`avatars-manager.tsx` (backup `/tmp/avatars-manager.tsx.bak-20261015-rec`), build 0, `pm2 restart clipwaltz` (app only).
+**Consent name fix LIVE 2026-10-15 ~04:00 UTC** (deploy branch `17db67f`): `aiserver/talking/consent.py` — a presenter
+name word passes on a close match (`NAME_CLOSE` 0.6, env `CONSENT_NAME_CLOSE`; ≥ 0.8 for names of ≤ 4 letters), never
+against the sentence's own words; `FACE_MIN` 0.7 → 0.6. Cause: speech recognition can't spell made-up names ("Lacyceo" →
+"LACIO"/"Lacey"), so every real reading failed "Read the whole sentence… including your name". AISERVER backup
+`consent.py.bak-20261015-name`; `clipwaltz-talking` restarted when idle. There is no presenter rename in the UI yet — the
+owner's presenter was renamed "Lacyceo" → "Lacy" in the prod DB (status failed; the sentence is rebuilt from the name).
+
+**Presenter picture quality (2026-10-15):** render encodes — `INTER_X264` (veryfast CRF 12) for every in-between file,
+`FINAL_X264` for the delivered file (`FINAL_PRESET` default `medium`, `FINAL_CRF` default `18` in the render worker env);
+Lanczos presenter scaling. **High** (`brief.presenter.quality`, priced in `render-actions.ts`, `PRESENTER_HQ_FACTOR` = 2 in
+`src/lib/presenters.ts` + `worker/deck/presenter.mjs`): `presenterHq()` crops the lip-synced clip to the layout box,
+runs the wrapper workflow `esrgan-upscale-v1` (RealESRGAN_x2plus), restores the source fps, muxes the narration back and
+caches `presenters/<owner>/<id>/clips/<hash>-hq2-<W>x<H>-<faceHash>.mp4`; any failure → standard clip, and the render
+settles the charge to the HQ seconds actually made. Full + split layouts only. **Framing:** `presenter.py prepare` returns
+`face` (median face box, fractions) → `presenters.meta.face` → `presenterCropXY()`; presenters built earlier have no
+`face` and use a window centred at 38 % of the height. **Workflow note:** the live `/opt/clipwaltz-ai/workflows/wan/
+enhance.api.json` already wired the output frame rate to the source (`VHS_VideoInfoLoaded`); the repo copy was stale
+(hard-coded 24) and is now in line — verified 2026-10-15: 25 → 25 fps and 30 → 30 fps through the live wrapper.
+
+**Presenters from a photo or an AI face (2026-10-15, dev):** `presenters.source` = `video` (default) | `photo` | `ai`
+(kind stays `twin` = a user's own), `photo_at`, `build_charge_id`; **migration 0062** also makes
+`generation_jobs.project_id` nullable (build charges have no project — access checks treat a null project as not found).
+Flow: photo → consent clip (as usual) → `setPhotoFrame` → `submitPresenter` charges and queues `prepare`; the worker's
+`photoBuild` runs **`presenter-consent-v1` with the consent clip as both `video` and `consent_clip`** (sentence + code +
+face; the voice match is the clip against itself), cuts the frame at `photo_at` (centre 9:16 crop, 1280 tall, Lanczos)
+→ `buildFromPortrait` (the library AI pipeline). ai → `createAiPresenter` (persona check) queues `portraits` (3 Wan stills,
+free, logged as 0-credit `presenter_faces` jobs, cap 8/day, 3 rounds/presenter) → `pickFace` charges and queues
+`ai_build`. **Charging:** `chargeAndQueue` writes a `generation_jobs` row `job_type='presenter_build'`, `status='generating'`,
+`credits=30` in the same `spendCredits` transaction; `settleBuild` sets it `completed` when the presenter is ready, else
+`failed` (= refunded). Queue unreachable → refunded at once. **Stuck builds:** the generation worker sweeps every 10 min —
+presenters `queued`/`preparing` > 3 h → `failed` (a worker restart mid-build otherwise leaves them stuck forever), and
+`presenter_build` charges still `generating` after 3 h with no build running → `completed` if the presenter is ready,
+else `failed`. The owner may delete a presenter stuck > 3 h (refunded); deletion is conditional on the status in the
+DELETE itself and refunds the charge the deleted row held. **Persona check:** `src/lib/persona-check.ts` → `OLLAMA_URL` `/api/generate`, model
+`PERSONA_CHECK_MODEL` (default `qwen2.5:14b`), fails closed. Tested 7/7 on real/fictional samples (~0.4 s warm). Needs
+`OLLAMA_URL` in the app env (prod already has it). No AISERVER changes.
+
+**Large presenter footage (2026-10-15):** Cloudflare refuses request bodies over 100 MB (a 148 MB POST gets a 413 at the edge,
+never reaching the app), so footage over 64 MB goes up in 8 MB parts: `POST /api/presenters/[id]/footage/upload` `{action:"init"}` →
+`PUT …/upload?token&uploadId&partNumber` per part → `{action:"complete"}`. The parts form a MinIO multipart upload at
+`presenters/<owner>/<id>/incoming-<token>`; on complete ffmpeg normalises it straight from MinIO (presigned LAN URL) and the
+raw upload is deleted. Limit stays `FOOTAGE_MAX_BYTES` (400 MB). A Cloudflare **502** page during an upload is not this —
+it means the app was down (e.g. mid-build during a deploy).
 
 **Dev stack (AISERVER, beside the live services — never instead of them):** `aiserver/scripts/dev-avatar-stack.sh
 start|stop|status` runs the talking service (`~/presenter-dev`, venv-full, :8193, GPU 1), the voice service (:8196, GPU 0)

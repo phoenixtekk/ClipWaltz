@@ -1,6 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
-import { AlertTriangle, CheckCircle2, Circle, Clapperboard, Loader2, Mic, Plus, ShieldCheck, Trash2, Upload, UserRound } from "lucide-react";
+import {
+  AlertTriangle, CheckCircle2, Circle, Clapperboard, ImageIcon, Loader2, Mic, Plus, ShieldCheck, Sparkles, Trash2, Upload, UserRound, Video,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { createPresenterVideo } from "@/lib/presenter-video-actions";
 import type { LibraryPresenter } from "@/lib/presenter-library-actions";
@@ -9,11 +11,12 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { unwrap } from "@/lib/action-result";
 import {
-  deletePresenter, getConsentStatement, getVoiceStatement, listPresenters, removeVoice, restartConsent, startPresenter, startVoice, submitPresenter,
-  submitVoice, updatePresenter,
+  createAiPresenter, deletePresenter, getConsentStatement, getVoiceStatement, listPresenters, moreFaces, pickFace, removeVoice, restartConsent,
+  setPhotoFrame, startPresenter, startVoice, submitPresenter, submitVoice, updatePresenter,
 } from "@/lib/presenter-actions";
 import {
-  CONSENT_MAX_SECONDS, FOOTAGE_MAX_BYTES, FOOTAGE_MIN_SECONDS, MAX_PRESENTERS, PRESENTER_VIDEO_STYLES, type PresenterVideoStyle, type PresenterView,
+  CONSENT_MAX_SECONDS, FOOTAGE_MAX_BYTES, FOOTAGE_MIN_SECONDS, MAX_FACE_ROUNDS, MAX_PRESENTERS, PRESENTER_BUILD_CREDITS, PRESENTER_VIDEO_STYLES,
+  type PresenterSource, type PresenterVideoStyle, type PresenterView,
 } from "@/lib/presenters";
 import { VOICES } from "@/lib/deck/types";
 import { uploadFootage, uploadWithProgress } from "@/lib/upload-progress";
@@ -23,11 +26,21 @@ const inputCls = "h-9 rounded-md border border-border bg-background px-2 text-sm
 const busyStatus = (s: string) => s === "queued" || s === "preparing";
 const busyPresenter = (p: PresenterView) => busyStatus(p.status) || p.voiceStatus === "queued";
 
+const SOURCES: { key: PresenterSource; label: string; hint: string; icon: typeof Video }[] = [
+  { key: "video", label: "From a video of me", hint: "Most natural — 10 s to 2 min of you talking", icon: Video },
+  { key: "photo", label: "From a photo of me", hint: "Just a short live recording; we animate a still of you", icon: ImageIcon },
+  { key: "ai", label: "AI presenter", hint: "A made-up face you describe — no recording", icon: Sparkles },
+];
+const SOURCE_LABEL: Record<PresenterSource, string | null> = { video: null, photo: "From your photo", ai: "AI face (fictional)" };
+
 /** Waltz Avatar → presenters: list + the setup wizard (name → footage → live consent clip → build). */
 export function AvatarsManager({ initial, library }: { initial: PresenterView[]; library: LibraryPresenter[] }) {
   const [items, setItems] = useState(initial);
   const [openId, setOpenId] = useState<string | null>(initial.find((p) => p.status === "draft" || p.status === "failed")?.id ?? null);
   const [name, setName] = useState("");
+  const [source, setSource] = useState<PresenterSource>("video");
+  const [look, setLook] = useState("");
+  const [voice, setVoice] = useState("af_heart");
   const [pending, start] = useTransition();
 
   const refresh = useCallback(async () => {
@@ -44,10 +57,13 @@ export function AvatarsManager({ initial, library }: { initial: PresenterView[];
   const create = () =>
     start(async () => {
       try {
-        const { presenter } = unwrap(await startPresenter(name));
+        const presenter = source === "ai"
+          ? unwrap(await createAiPresenter({ name, description: look, voice }))
+          : unwrap(await startPresenter(name, source)).presenter;
         setItems((xs) => [...xs, presenter]);
         setOpenId(presenter.id);
         setName("");
+        setLook("");
       } catch (e) {
         toast.error((e as Error).message);
       }
@@ -83,15 +99,53 @@ export function AvatarsManager({ initial, library }: { initial: PresenterView[];
         </section>
       ) : null}
       {items.length < MAX_PRESENTERS ? (
-        <div className="flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-border p-4">
-          <label className="flex flex-1 flex-col gap-1 text-xs text-muted-foreground">
-            New presenter — usually your own name
-            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="e.g. Sam Rivera" className={inputCls}
-              onKeyDown={(e) => e.key === "Enter" && name.trim() && create()} />
-          </label>
-          <Button onClick={create} disabled={pending || !name.trim()}>
-            {pending ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />} Create presenter
-          </Button>
+        <div className="space-y-3 rounded-xl border border-dashed border-border p-4">
+          <div role="radiogroup" aria-label="Make the presenter from" className="grid gap-2 sm:grid-cols-3">
+            {SOURCES.map((s) => (
+              <button key={s.key} type="button" role="radio" aria-checked={source === s.key} onClick={() => setSource(s.key)}
+                className={cn("flex items-start gap-2 rounded-lg border p-2.5 text-left", source === s.key ? "border-[color:var(--cw-violet)] bg-[color:var(--cw-violet)]/10" : "border-border")}>
+                <s.icon className="mt-0.5 size-4 shrink-0" />
+                <span className="space-y-0.5">
+                  <span className="block text-sm font-medium">{s.label}</span>
+                  <span className="block text-[11px] text-muted-foreground">{s.hint}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="flex flex-1 flex-col gap-1 text-xs text-muted-foreground">
+              {source === "ai" ? "Presenter name" : "New presenter — usually your own name"}
+              <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder={source === "ai" ? "e.g. Nova" : "e.g. Sam Rivera"}
+                className={inputCls} onKeyDown={(e) => e.key === "Enter" && source !== "ai" && name.trim() && create()} />
+            </label>
+            {source === "ai" ? (
+              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                Voice
+                <select value={voice} onChange={(e) => setVoice(e.target.value)} className={cn(inputCls, "max-w-[220px]")}>
+                  {VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+                </select>
+              </label>
+            ) : null}
+          </div>
+          {source === "ai" ? (
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              How they look — a made-up person, never a real one
+              <textarea value={look} onChange={(e) => setLook(e.target.value)} maxLength={300} rows={2}
+                placeholder="e.g. a friendly woman in her 40s, short grey hair, navy blazer, warm smile"
+                className="rounded-md border border-border bg-background p-2 text-sm outline-none focus:border-primary" />
+            </label>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={create} disabled={pending || !name.trim() || (source === "ai" && look.trim().length < 10)}>
+              {pending ? <Loader2 className="size-4 animate-spin" /> : source === "ai" ? <Sparkles className="size-4" /> : <Plus className="size-4" />}
+              {source === "ai" ? " Make 3 faces" : " Create presenter"}
+            </Button>
+            <p className="text-[11px] text-muted-foreground">
+              {source === "video" ? "Free to build." : source === "photo"
+                ? `Building costs ${PRESENTER_BUILD_CREDITS} AI credits (refunded if it fails).`
+                : `Faces are free; building the one you pick costs ${PRESENTER_BUILD_CREDITS} AI credits (refunded if it fails).`}
+            </p>
+          </div>
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">You have {MAX_PRESENTERS} presenters — delete one to make another.</p>
@@ -100,11 +154,13 @@ export function AvatarsManager({ initial, library }: { initial: PresenterView[];
   );
 }
 
-function StatusBadge({ s }: { s: PresenterView["status"] }) {
+function StatusBadge({ p }: { p: PresenterView }) {
+  const s = p.status;
   const map: Record<string, [string, string]> = {
-    draft: ["Setting up", "bg-muted text-muted-foreground"],
-    queued: ["Waiting for the GPU", "bg-amber-500/15 text-amber-700 dark:text-amber-300"],
-    preparing: ["Checking consent & building", "bg-amber-500/15 text-amber-700 dark:text-amber-300"],
+    draft: [p.source === "ai" && p.portraits.length ? "Pick a face" : "Setting up", "bg-muted text-muted-foreground"],
+    queued: [p.source === "ai" && !p.portraits.length ? "Making faces" : "Waiting for the GPU", "bg-amber-500/15 text-amber-700 dark:text-amber-300"],
+    preparing: [p.source === "ai" ? "Building (about 20 min)" : p.source === "photo" ? "Checking consent & building (about 20 min)" : "Checking consent & building",
+      "bg-amber-500/15 text-amber-700 dark:text-amber-300"],
     ready: ["Ready", "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"],
     failed: ["Needs attention", "bg-red-500/15 text-red-700 dark:text-red-300"],
   };
@@ -134,7 +190,8 @@ function PresenterCard({ p, open, onOpen, onChanged, onDeleted }: {
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="truncate font-medium">{p.name}</span>
-            <StatusBadge s={p.status} />
+            <StatusBadge p={p} />
+            {SOURCE_LABEL[p.source] ? <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{SOURCE_LABEL[p.source]}</span> : null}
             {busyStatus(p.status) ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : null}
           </div>
           {p.status === "ready" ? (
@@ -158,8 +215,8 @@ function PresenterCard({ p, open, onOpen, onChanged, onDeleted }: {
           <Trash2 className="size-4" />
         </Button>
       </div>
-      {setup && open ? <SetupSteps p={p} onChanged={onChanged} /> : null}
-      {p.status === "ready" ? <VoiceSection p={p} onChanged={onChanged} /> : null}
+      {setup && open ? (p.source === "ai" ? <AiFaceSteps p={p} onChanged={onChanged} /> : <SetupSteps p={p} onChanged={onChanged} />) : null}
+      {p.status === "ready" && p.source === "video" ? <VoiceSection p={p} onChanged={onChanged} /> : null}
       {p.status === "ready" ? <div className="border-t border-border px-3 pb-3"><MakeVideo presenter={p} /></div> : null}
     </div>
   );
@@ -173,19 +230,24 @@ function SetupSteps({ p, onChanged }: { p: PresenterView; onChanged: () => Promi
   }, [p.id, p.status]);
   // After a failed check the next attempt needs a new code (the consent clip is recorded again with it).
   const failedConsent = p.status === "failed";
+  const photo = p.source === "photo";
+  const ready = photo ? p.hasConsent && p.photoAt != null : p.hasFootage && p.hasConsent;
   return (
     <div className="space-y-4 border-t border-border p-4">
-      <Step n={1} title="A video of you talking" done={p.hasFootage}>
+      {photo ? null : (
+        <Step n={1} title="A video of you talking" done={p.hasFootage}>
+          <p className="text-xs text-muted-foreground">
+            {FOOTAGE_MIN_SECONDS} s to 2 min of you talking naturally to the camera: good light, steady camera, your face and
+            shoulders in frame, one person only. This is the footage your presenter is made from.
+          </p>
+          <FootageInput id={p.id} has={p.hasFootage} onDone={onChanged} />
+        </Step>
+      )}
+      <Step n={photo ? 1 : 2} title="Live consent" done={p.hasConsent}>
         <p className="text-xs text-muted-foreground">
-          {FOOTAGE_MIN_SECONDS} s to 2 min of you talking naturally to the camera: good light, steady camera, your face and
-          shoulders in frame, one person only. This is the footage your presenter is made from.
-        </p>
-        <FootageInput id={p.id} has={p.hasFootage} onDone={onChanged} />
-      </Step>
-      <Step n={2} title="Live consent" done={p.hasConsent}>
-        <p className="text-xs text-muted-foreground">
-          Record yourself reading this sentence, live, with your face in view. We check the code, your face and that the
-          voice matches the video above — automatically.
+          {photo
+            ? "Record yourself reading this sentence, live, facing the camera in good light — centred, head and shoulders in frame. Your presenter's picture is taken from this recording, so we know it's you."
+            : "Record yourself reading this sentence, live, with your face in view. We check the code, your face and that the voice matches the video above — automatically."}
         </p>
         {statement ? <blockquote className="rounded-lg border-l-4 border-[color:var(--cw-violet)] bg-muted/40 p-3 text-base font-medium">{statement}</blockquote> : null}
         {failedConsent ? (
@@ -197,16 +259,122 @@ function SetupSteps({ p, onChanged }: { p: PresenterView; onChanged: () => Promi
           <ConsentRecorder id={p.id} has={p.hasConsent} onDone={onChanged} />
         )}
       </Step>
+      {photo ? (
+        <Step n={2} title="Pick your picture" done={p.photoAt != null}>
+          {p.hasConsent && !failedConsent ? <FramePicker p={p} onChanged={onChanged} /> : (
+            <p className="text-xs text-muted-foreground">Record the consent above first — your picture is chosen from it.</p>
+          )}
+        </Step>
+      ) : null}
       <Step n={3} title="Build my presenter" done={false}>
         <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
           <ShieldCheck className="mt-0.5 size-3.5 shrink-0" /> Only make a presenter of yourself. Videos made with it are labelled
           “AI-generated”. You can delete it — and everything we stored for it — at any time.
         </p>
-        <Button disabled={pending || !p.hasFootage || !p.hasConsent}
-          onClick={() => start(async () => { try { unwrap(await submitPresenter(p.id)); toast.success("Checking consent and building — this takes a minute or two"); await onChanged(); } catch (e) { toast.error((e as Error).message); } })}>
-          {pending ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />} Build my presenter
+        <Button disabled={pending || !ready}
+          onClick={() => start(async () => {
+            try {
+              unwrap(await submitPresenter(p.id));
+              toast.success(photo ? "Checking consent and building — this takes about 20 minutes" : "Checking consent and building — this takes a minute or two");
+              await onChanged();
+            } catch (e) {
+              toast.error((e as Error).message);
+            }
+          })}>
+          {pending ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
+          {photo ? ` Build my presenter · ${PRESENTER_BUILD_CREDITS} credits` : " Build my presenter"}
         </Button>
+        {photo ? <p className="text-[11px] text-muted-foreground">Refunded if the consent check or the build fails. Your own cloned voice needs a presenter made from a video.</p> : null}
       </Step>
+    </div>
+  );
+}
+
+/** Photo presenter: scrub the consent recording to the best moment; the bright box is the part that's kept (9:16). */
+function FramePicker({ p, onChanged }: { p: PresenterView; onChanged: () => Promise<void> }) {
+  const video = useRef<HTMLVideoElement>(null);
+  const [pending, start] = useTransition();
+  useEffect(() => {
+    if (p.photoAt != null && video.current) video.current.currentTime = p.photoAt;
+  }, [p.photoAt]);
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">
+        Pause on a moment where you look straight at the camera with your mouth closed, then use that frame. The bright box is what your presenter shows.
+      </p>
+      <div className="relative w-full max-w-md overflow-hidden rounded-lg bg-black">
+        {/* The consent recording (only its owner can load it, and only while setting up). */}
+        <video ref={video} src={`/api/presenters/${p.id}/consent?v=${p.consentRef ?? ""}`} controls playsInline preload="metadata" className="block w-full" />
+        <div aria-hidden className="pointer-events-none absolute inset-y-0 left-1/2 aspect-[9/16] h-full max-w-full -translate-x-1/2 rounded-sm ring-2 ring-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]" />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="secondary" disabled={pending}
+          onClick={() => start(async () => {
+            try {
+              const t = video.current?.currentTime ?? 0;
+              unwrap(await setPhotoFrame(p.id, t));
+              toast.success(`Picture set (${t.toFixed(1)} s)`);
+              await onChanged();
+            } catch (e) {
+              toast.error((e as Error).message);
+            }
+          })}>
+          <ImageIcon className="size-4" /> Use this frame
+        </Button>
+        {p.photoAt != null ? <span className="text-xs text-muted-foreground">Using the frame at {p.photoAt.toFixed(1)} s</span> : null}
+      </div>
+    </div>
+  );
+}
+
+/** AI presenter: pick one of the generated faces (free), then build it (PRESENTER_BUILD_CREDITS). */
+function AiFaceSteps({ p, onChanged }: { p: PresenterView; onChanged: () => Promise<void> }) {
+  const [pick, setPick] = useState<number | null>(null);
+  const [pending, start] = useTransition();
+  const rounds = Number((p.meta as { faceRounds?: number } | null)?.faceRounds ?? 1);
+  const act = (fn: () => Promise<void>) => start(async () => {
+    try {
+      await fn();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  });
+  return (
+    <div className="space-y-3 border-t border-border p-4">
+      {p.description ? <p className="text-xs text-muted-foreground">“{p.description}”</p> : null}
+      {p.portraits.length ? (
+        <>
+          <div role="radiogroup" aria-label="Pick a face" className="grid max-w-md grid-cols-3 gap-2">
+            {p.portraits.map((src, n) => (
+              <button key={src} type="button" role="radio" aria-checked={pick === n} aria-label={`Face ${n + 1}`} onClick={() => setPick(n)}
+                className={cn("overflow-hidden rounded-lg border-2", pick === n ? "border-[color:var(--cw-violet)]" : "border-transparent")}>
+                {/* eslint-disable-next-line @next/next/no-img-element -- auth-gated API image */}
+                <img src={src} alt="" className="aspect-[9/16] w-full object-cover" />
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button disabled={pending || pick === null}
+              onClick={() => act(async () => {
+                unwrap(await pickFace(p.id, pick!));
+                toast.success("Building your presenter — about 20 minutes");
+                await onChanged();
+              })}>
+              {pending ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />} Build with this face · {PRESENTER_BUILD_CREDITS} credits
+            </Button>
+            <Button variant="ghost" size="sm" disabled={pending || rounds >= MAX_FACE_ROUNDS}
+              onClick={() => act(async () => { unwrap(await moreFaces(p.id)); setPick(null); await onChanged(); })}>
+              <Sparkles className="size-4" /> {rounds >= MAX_FACE_ROUNDS ? "No more new faces" : `New faces (${MAX_FACE_ROUNDS - rounds} left)`}
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">Refunded if the build fails. AI presenters use the voices above; their videos are labelled “AI-generated”.</p>
+        </>
+      ) : (
+        <Button variant="secondary" size="sm" disabled={pending || rounds >= MAX_FACE_ROUNDS}
+          onClick={() => act(async () => { unwrap(await moreFaces(p.id)); await onChanged(); })}>
+          <Sparkles className="size-4" /> Try making faces again
+        </Button>
+      )}
     </div>
   );
 }

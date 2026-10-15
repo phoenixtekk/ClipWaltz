@@ -101,7 +101,7 @@ export async function createTranslatedVideo(input: { prepJobId: string; text: st
       .where(and(eq(schema.generationJobs.id, input.prepJobId), eq(schema.generationJobs.requestedBy, userId), eq(schema.generationJobs.jobType, "translate_prep")));
     if (!prep || prep.status !== "completed") throw new Error("Transcribe the video first");
     const r = (prep.requestJson ?? {}) as { sourceAssetId: string; presenterId: string; lang: string; prep?: { seconds: number } };
-    if (!(await userCanAccessProject(userId, prep.projectId, "editor"))) throw new Error("Project not found");
+    if (!prep.projectId || !(await userCanAccessProject(userId, prep.projectId, "editor"))) throw new Error("Project not found");
     await ownVoicePresenter(userId, r.presenterId);
     const text = String(input.text ?? "").trim().slice(0, 6000);
     if (!text) throw new Error("The translation is empty");

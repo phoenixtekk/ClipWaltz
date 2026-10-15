@@ -13,7 +13,26 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
-## Waltz Avatar Phases 2 + 3 — your own voice, the presenter library, templates, translate a video (built 2026-10-14 · not deployed yet)
+## Waltz Avatar — presenters from a photo or an AI face (dev, 2026-10-15)
+- **Three ways to make your own presenter** (Avatars → new presenter): **From a video of me** (as before, free),
+  **From a photo of me**, or **AI presenter** (a made-up face). Owner decision 2026-10-15: both new ways, **30 AI credits
+  per build** (`PRESENTER_BUILD_CREDITS`), refunded automatically if the build fails or the consent check fails.
+- **From a photo of me:** the live consent recording as before (sentence + one-time code, face in view), then **Pick your
+  picture** — scrub that recording and **Use this frame** (a 9:16 box shows what's kept). The picture is always a frame of
+  the consent recording, so the face is the person who consented (no face recognition). The frame is animated like the
+  library's AI presenters (EchoMimic base footage + Real-ESRGAN) and becomes a normal presenter (~20 min).
+- **AI presenter:** describe a made-up person (+ a name and a voice) → 3 faces (free; up to 3 rounds per presenter, 8 rounds
+  a day) → **Build with this face**. Descriptions that name or point to a real person are refused by a check on the AI Box
+  LLM (`src/lib/persona-check.ts`; refuses when it can't check).
+- Photo / AI presenters can't use **Your own voice** (the voice check compares against video footage) — they speak the
+  stock voices. Everything else (WaltzDeck, Make a video, High picture) works as for video presenters.
+- Code: `presenters.source` / `photo_at` / `build_charge_id` (migration 0062), `src/lib/presenter-actions.ts`
+  (`setPhotoFrame`, `createAiPresenter`, `moreFaces`, `pickFace`), `worker/generation-worker.mjs` (`photoBuild`,
+  `buildFromPortrait`, `settleBuild`), `src/components/avatars-manager.tsx`.
+- **Large footage uploads (2026-10-15):** presenter videos over 64 MB upload in 8 MB parts, so files up to 400 MB get past
+  Cloudflare's 100 MB request limit.
+
+## Waltz Avatar Phases 2 + 3 — your own voice, the presenter library, templates, translate a video (LIVE 2026-10-15)
 - **Your own voice (2a):** Avatars → a ready presenter → **Use my own voice** → a live voice consent clip (*"I, <name>, agree
   that ClipWaltz may clone my voice. My code is …"*), checked like the presenter consent (sentence + name, code as one run
   of numbers, face, voice match to the footage) → a 12 s reference clip from the footage. In WaltzDeck, Voiceover → **My voice
@@ -53,7 +72,7 @@ Both carry the bottom-left logo watermark (Free always; paid per the `/admin` sw
   double-click safe and never stuck "queued"; any admin can upload an actor's footage; "Translated — <language>" label;
   the "Make a video" deck length matches the script; the Waltz AI mode row wraps.
 
-## Waltz Avatar — Your Presenter (Phase 1, built 2026-10-14 · dev-verified · not deployed yet)
+## Waltz Avatar — Your Presenter (Phase 1, LIVE 2026-10-15)
 - **What:** a user records themself once; then any WaltzDeck voice line is spoken **by them** — their own footage,
   lip-synced by **MuseTalk 1.5** on AISERVER. Spec: `07_ClipWaltz_Presenter_Feature_Spec.md`.
 - **Create a presenter** (`/avatars`, header link **Avatars**): name → **footage** (10 s – 2 min of talking to camera;
@@ -69,6 +88,17 @@ Both carry the bottom-left logo watermark (Free always; paid per the `/admin` sw
   never mirrored), **framing guide**, **mic level meter** + "we can't hear anything" warning, **3-second countdown**,
   controls **locked while recording**, then a **review** (play back → **Use this take** / **Record again**). Clear messages
   for blocked permission, no device, or a camera busy in another app.
+- **Sharper presenter videos (2026-10-15):** (1) **Picture: Standard / High** under Voiceover → Presenter — High crops
+  each full-screen / beside-the-slide presenter clip to the part shown and upscales it 2× with **Real-ESRGAN** on AISERVER
+  (BSD-3), so the render only scales down; **2 credits per 10 s** (`PRESENTER_HQ_FACTOR`), charged only for lines not
+  upscaled yet and only for upscales that succeed (a failed one falls back to Standard, uncharged); cached per line, box and
+  framing. (2) **Face-centred framing**: the presenter build records where the face is and every crop centres on it (a
+  fixed crop used to cut the mouth off an upright presenter in a 16:9 video; older presenters use a safer centre).
+  (3) **Shape warning**: when the presenter was recorded in another shape than the video (e.g. landscape in 9:16 ≈ 1.8×
+  zoom) the editor says so, with the fix. (4) **Better encodes**: near-lossless in-between files, final x264 "medium" CRF 18
+  (was veryfast CRF 20 at every step), Lanczos scaling, higher-quality footage/cache/lip-sync encodes. (5) **Web addresses**
+  in a script are spoken "envyrix dot com" and captioned "www.envyrix.com" (the script splitter used to break them at the
+  dots → "https://www ENVYRIX com" captions). (6) Recording tips in the recorder.
 - **Automatic consent check** (owner: automatic only) on AISERVER (`aiserver/talking/consent.py`): the one-time code must
   be heard (whisper-base; digits or number words in EN/ES/FR/IT/PT/DE), a face must be visible in ≥ 70 % of sampled frames
   (MediaPipe), and the consent voice must match the footage's voice (ECAPA speaker embeddings, cosine ≥ 0.40). A failed
@@ -95,7 +125,7 @@ Both carry the bottom-left logo watermark (Free always; paid per the `/admin` sw
 - **Not in Phase 1:** presenters of other people (consent by link), voice cloning, AI presenters (Phase 2), translation
   (Phase 3), abuse report / takedown queue (spec §5), the editor's scene preview drawing the presenter.
 
-## InfiniteTalk on your own GPU — Connector 0.3 (built 2026-10-14 · dev-verified · not deployed yet)
+## InfiniteTalk on your own GPU — Connector 0.3 (LIVE 2026-10-15)
 - **What:** a third Connector template, `infinitetalk-v1` — **talking photo, high quality** with InfiniteTalk
   (MeiGen-AI, Apache-2.0) on Wan 2.1 I2V 14B, using **only ComfyUI's own nodes** (ComfyUI 0.40 has `WanInfiniteTalkToVideo`)
   — no node pack. 480p (480×832 / 832×480 / 624×624), 25 fps, 6 steps with the lightx2v distill LoRA. Clips longer than one

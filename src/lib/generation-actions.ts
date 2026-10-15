@@ -592,7 +592,7 @@ async function enqueueOrRefund(id: string, enqueue: () => Promise<unknown>): Pro
 async function retryGenerationJobImpl(jobId: string): Promise<string> {
   const userId = await requireUserId();
   const [job] = await db.select().from(schema.generationJobs).where(eq(schema.generationJobs.id, jobId));
-  if (!job || !(await userCanAccessProject(userId, job.projectId, "editor"))) throw new Error("Job not found");
+  if (!job?.projectId || !(await userCanAccessProject(userId, job.projectId, "editor"))) throw new Error("Job not found");
   // Claim the failed job atomically so a double-click or repeated call retries it only once.
   const claimed = await db
     .update(schema.generationJobs)
@@ -716,7 +716,7 @@ async function ownedVersion(versionId: string, userId: string) {
     .from(schema.generationVersions)
     .innerJoin(schema.projects, eq(schema.generationVersions.projectId, schema.projects.id))
     .where(eq(schema.generationVersions.id, versionId));
-  if (!row || !(await userCanAccessProject(userId, row.projectId, "editor"))) throw new Error("Version not found");
+  if (!row?.projectId || !(await userCanAccessProject(userId, row.projectId, "editor"))) throw new Error("Version not found");
   return row;
 }
 
@@ -763,7 +763,7 @@ async function deleteGenerationVersionImpl(versionId: string): Promise<void> {
     .from(schema.generationVersions)
     .innerJoin(schema.projects, eq(schema.generationVersions.projectId, schema.projects.id))
     .where(eq(schema.generationVersions.id, versionId));
-  if (!row || !(await userCanAccessProject(userId, row.projectId, "editor"))) throw new Error("Version not found");
+  if (!row?.projectId || !(await userCanAccessProject(userId, row.projectId, "editor"))) throw new Error("Version not found");
   await db.delete(schema.generationVersions).where(eq(schema.generationVersions.id, versionId));
   if (row.key) await deleteObject(row.key).catch(() => {});
   if (row.cleanKey) await deleteObject(row.cleanKey).catch(() => {});
@@ -786,7 +786,7 @@ async function getGenerationJobImpl(jobId: string) {
     })
     .from(schema.generationJobs)
     .where(eq(schema.generationJobs.id, jobId));
-  if (!row || !(await userCanAccessProject(userId, row.projectId))) throw new Error("Job not found");
+  if (!row?.projectId || !(await userCanAccessProject(userId, row.projectId))) throw new Error("Job not found");
   const queuePosition = await queuePositionOf(row);
   return {
     id: row.id, projectId: row.projectId, status: row.status, progress: row.progress, jobType: row.jobType,
@@ -813,7 +813,7 @@ async function cancelGenerationJobImpl(jobId: string): Promise<void> {
     .from(schema.generationJobs)
     .innerJoin(schema.projects, eq(schema.generationJobs.projectId, schema.projects.id))
     .where(eq(schema.generationJobs.id, jobId));
-  if (!row || !(await userCanAccessProject(userId, row.projectId, "editor"))) throw new Error("Job not found");
+  if (!row?.projectId || !(await userCanAccessProject(userId, row.projectId, "editor"))) throw new Error("Job not found");
 
   // A clip on ClipWaltz's key that has been sent to the vendor is being made (and billed) — it can't be cancelled, or a
   // cancel-and-refund loop would make free clips at ClipWaltz's cost (security review 2026-10-13).
@@ -855,7 +855,7 @@ async function getVersionSettingsImpl(versionId: string): Promise<GenerationSett
     .from(schema.generationVersions)
     .innerJoin(schema.generationJobs, eq(schema.generationVersions.generationJobId, schema.generationJobs.id))
     .where(eq(schema.generationVersions.id, versionId));
-  if (!row || !(await userCanAccessProject(userId, row.projectId))) throw new Error("Version not found");
+  if (!row?.projectId || !(await userCanAccessProject(userId, row.projectId))) throw new Error("Version not found");
   if (row.jobType !== "text_to_video" && row.jobType !== "image_to_video") throw new Error("Only generated versions have settings to edit");
   const rq = (row.request ?? {}) as Record<string, unknown>;
   const w = Number(rq.width), h = Number(rq.height);

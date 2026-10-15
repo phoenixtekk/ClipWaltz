@@ -973,6 +973,7 @@ async function processPresenter({ presenterId, action }) {
   if (action === "library_prepare") return libraryPrepare(presenterId);
   const [p] = await sql`select * from presenters where id = ${presenterId}`;
   if (!p || p.status !== "queued") return;
+  if (p.source === "photo") return settleBuild(p, () => photoBuild(p));
   await sql`update presenters set status = 'preparing', updated_at = now() where id = ${presenterId}`;
   const [consent] = await sql`select id, statement from presenter_consents where presenter_id = ${presenterId} order by created_at desc limit 1`;
   if (!consent) throw new Error("no consent record for this attempt");
@@ -1033,9 +1034,71 @@ const PORTRAIT_COUNT = 3;
 const BASE_SCRIPT = "Hello and welcome. Today I want to walk you through something useful, step by step. " +
   "It only takes a minute, and by the end you will know exactly what to do next. Let's get started together.";
 
+// The same pipeline also builds a user's own presenter made without footage (kind twin): source "ai" (a fictional face the
+// user generated and picked — portraits + ai_build) or "photo" (a frame of their live consent clip — photoBuild, after the
+// consent check). Those builds are charged (buildChargeId, a generation_jobs row): settleBuild marks it completed when the
+// presenter is ready, else failed — which refunds it.
+const userAi = (p) => p.kind === "twin" && p.source === "ai";
+
+async function settleBuild(p, build) {
+  try {
+    await build();
+  } finally {
+    if (p.build_charge_id) {
+      const [now] = await sql`select status from presenters where id = ${p.id}`;
+      const ok = now?.status === "ready";
+      await sql`update generation_jobs set status = ${ok ? "completed" : "failed"}, progress = ${ok ? 100 : 0},
+        error_message = ${ok ? null : "Presenter build didn't finish — refunded"}, completed_at = ${ok ? new Date() : null},
+        failed_at = ${ok ? null : new Date()}, updated_at = now()
+        where id = ${p.build_charge_id} and job_type = 'presenter_build' and status = 'generating'`;
+      console.log(`[presenter] ${p.id} build charge ${ok ? "settled" : "refunded"}`);
+    }
+  }
+}
+
+/** A user's photo presenter: the live consent clip is checked (sentence, code, a face — and, as the "footage" is the clip
+ *  itself, the voice match trivially holds), then the picked frame of that same clip is animated like an AI face. */
+async function photoBuild(p) {
+  const presenterId = p.id;
+  await sql`update presenters set status = 'preparing', updated_at = now() where id = ${presenterId}`;
+  const [consent] = await sql`select id, statement from presenter_consents where presenter_id = ${presenterId} and kind = 'likeness' order by created_at desc limit 1`;
+  try {
+    if (!consent || !p.consent_key || p.photo_at == null) throw new Error("photo presenter without consent / frame");
+    const clip = await stageFile(p.consent_key, "consent.mp4", "video/mp4");
+    const st = await runPresenterJob("presenter-consent-v1", {
+      presenter_id: presenterId, video: clip, consent_clip: clip, consent_code: p.consent_code, consent_statement: consent.statement,
+    });
+    const chk = st.result?.consent ?? null;
+    if (chk) await sql`update presenter_consents set verified = ${!!chk.ok}, result = ${sql.json(chk)}, verified_at = ${chk.ok ? new Date() : null} where id = ${consent.id}`;
+    if (st.status !== "completed" || !chk?.ok) {
+      const reason = chk && !chk.ok ? chk.reason : "We couldn't check the consent recording — try again in a few minutes";
+      await sql`update presenters set status = 'failed', error = ${`${reason} (credits refunded)`}, updated_at = now() where id = ${presenterId}`;
+      console.log(`[presenter] ${presenterId} photo consent failed: ${reason}`);
+      return;
+    }
+    // The picked frame, cropped to 9:16 around the middle (the recorder frames the face there) → the portrait to animate.
+    const dir = mkdtempSync(join(tmpdir(), "cw-photo-"));
+    const portraitKey = `presenters/${p.user_id}/${presenterId}/portrait-photo-${randomUUID()}.png`;
+    try {
+      writeFileSync(join(dir, "c.mp4"), await getBytes(p.consent_key));
+      await run("ffmpeg", ["-v", "error", "-y", "-ss", String(p.photo_at), "-i", join(dir, "c.mp4"), "-frames:v", "1",
+        "-vf", "crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale=-2:1280:flags=lanczos", join(dir, "p.png")]);
+      await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: portraitKey, Body: readFileSync(join(dir, "p.png")), ContentType: "image/png" }));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    // The code is spent once it has been checked.
+    await sql`update presenters set thumb_key = ${portraitKey}, consent_code = null, updated_at = now() where id = ${presenterId}`;
+    await buildFromPortrait({ ...p, thumb_key: portraitKey });
+  } catch (e) {
+    await sql`update presenters set status = 'failed', error = ${"Something went wrong building the presenter — try again (credits refunded)"}, updated_at = now() where id = ${presenterId}`;
+    throw e;
+  }
+}
+
 async function libraryPortraits(presenterId) {
   const [p] = await sql`select * from presenters where id = ${presenterId}`;
-  if (!p || p.kind !== "ai" || p.status !== "queued") return;
+  if (!p || !(p.kind === "ai" || userAi(p)) || p.status !== "queued") return;
   const prompt = `Photorealistic chest-up portrait of ${String(p.description ?? "a friendly adult").slice(0, 300)}, a professional video ` +
     "presenter, looking straight into the camera with a friendly expression, mouth closed, wearing smart casual clothes, " +
     "head and shoulders with space above the head, bright soft glowing studio light, plain light grey background, sharp focus, natural skin, 85mm photo";
@@ -1071,43 +1134,52 @@ async function libraryPortraits(presenterId) {
 
 async function libraryAiBuild(presenterId) {
   const [p] = await sql`select * from presenters where id = ${presenterId}`;
-  if (!p || p.kind !== "ai" || p.status !== "queued" || !p.thumb_key) return;
-  try {
-    await sql`update presenters set status = 'preparing', updated_at = now() where id = ${presenterId}`;
-    // The picked portrait (thumb_key) speaks a neutral script in the presenter's voice → base footage.
-    const image = await stageFile(p.thumb_key, "portrait.png", "image/png");
-    const st = await runPresenterJob("echomimic-talking-v1", {
-      source_image: image, text: BASE_SCRIPT, voice: p.voice, speed: 1, duration: 30, seed: randomInt(0, 2 ** 31), aspect: "9:16",
-    }, 90 * 60_000);
-    if (st.status !== "completed") throw new Error(`base footage: ${st.error ?? st.status}`);
-    const o = st.outputs[0];
-    const dl = await fetch(`${AISERVER_URL}/outputs/${o.subfolder ? `${o.subfolder}/` : ""}${o.filename}`, { headers: aiHeaders });
-    if (!dl.ok) throw new Error(`/outputs ${dl.status}`);
-    const raw = Buffer.from(await dl.arrayBuffer());
-    let up = null;
+  if (!p || !(p.kind === "ai" || userAi(p)) || p.status !== "queued" || !p.thumb_key) return;
+  return settleBuild(p, async () => {
     try {
-      up = await runAiWorkflow("esrgan-upscale-v1", raw, presenterId);
+      await sql`update presenters set status = 'preparing', updated_at = now() where id = ${presenterId}`;
+      await buildFromPortrait(p);
     } catch (e) {
-      console.warn(`[presenter] ${presenterId} upscale skipped: ${e?.message ?? e}`);
+      const msg = userAi(p) ? "Couldn't build this presenter — try again (credits refunded)" : "Couldn't build this presenter — try again";
+      await sql`update presenters set status = 'failed', error = ${msg}, updated_at = now() where id = ${presenterId}`;
+      throw e;
     }
-    // Footage: the upscaled picture with the original speech (ESRGAN drops audio), H.264 25 fps.
-    const dir = mkdtempSync(join(tmpdir(), "cw-aibase-"));
-    const footageKey = `presenters/${p.user_id}/${presenterId}/footage-${randomUUID()}.mp4`;
-    try {
-      writeFileSync(join(dir, "raw.mp4"), raw);
-      if (up) writeFileSync(join(dir, "up.mp4"), up);
-      await run("ffmpeg", ["-v", "error", "-y", "-i", join(dir, up ? "up.mp4" : "raw.mp4"), "-i", join(dir, "raw.mp4"), "-map", "0:v:0", "-map", "1:a:0?",
-        "-vf", "fps=25,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-c:a", "aac", "-ac", "1", "-shortest", join(dir, "f.mp4")]);
-      await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: footageKey, Body: readFileSync(join(dir, "f.mp4")), ContentType: "video/mp4" }));
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-    await sql`update presenters set footage_key = ${footageKey}, updated_at = now() where id = ${presenterId}`;
-    await prepareLibrary({ ...p, footage_key: footageKey }, false);
+  });
+}
+
+/** The portrait (thumb_key) speaks a neutral script in the presenter's voice → base footage (EchoMimic + Real-ESRGAN)
+ *  → the presenter cache → ready. */
+async function buildFromPortrait(p) {
+  const presenterId = p.id;
+  const image = await stageFile(p.thumb_key, "portrait.png", "image/png");
+  const st = await runPresenterJob("echomimic-talking-v1", {
+    source_image: image, text: BASE_SCRIPT, voice: p.voice, speed: 1, duration: 30, seed: randomInt(0, 2 ** 31), aspect: "9:16",
+  }, 90 * 60_000);
+  if (st.status !== "completed") throw new Error(`base footage: ${st.error ?? st.status}`);
+  const o = st.outputs[0];
+  const dl = await fetch(`${AISERVER_URL}/outputs/${o.subfolder ? `${o.subfolder}/` : ""}${o.filename}`, { headers: aiHeaders });
+  if (!dl.ok) throw new Error(`/outputs ${dl.status}`);
+  const raw = Buffer.from(await dl.arrayBuffer());
+  let up = null;
+  try {
+    up = await runAiWorkflow("esrgan-upscale-v1", raw, presenterId);
   } catch (e) {
-    await sql`update presenters set status = 'failed', error = ${"Couldn't build this presenter — try again"}, updated_at = now() where id = ${presenterId}`;
-    throw e;
+    console.warn(`[presenter] ${presenterId} upscale skipped: ${e?.message ?? e}`);
   }
+  // Footage: the upscaled picture with the original speech (ESRGAN drops audio), H.264 25 fps.
+  const dir = mkdtempSync(join(tmpdir(), "cw-aibase-"));
+  const footageKey = `presenters/${p.user_id}/${presenterId}/footage-${randomUUID()}.mp4`;
+  try {
+    writeFileSync(join(dir, "raw.mp4"), raw);
+    if (up) writeFileSync(join(dir, "up.mp4"), up);
+    await run("ffmpeg", ["-v", "error", "-y", "-i", join(dir, up ? "up.mp4" : "raw.mp4"), "-i", join(dir, "raw.mp4"), "-map", "0:v:0", "-map", "1:a:0?",
+      "-vf", "fps=25,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-c:a", "aac", "-ac", "1", "-shortest", join(dir, "f.mp4")]);
+    await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: footageKey, Body: readFileSync(join(dir, "f.mp4")), ContentType: "video/mp4" }));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  await sql`update presenters set footage_key = ${footageKey}, updated_at = now() where id = ${presenterId}`;
+  await prepareLibrary({ ...p, footage_key: footageKey }, false);
 }
 
 async function libraryPrepare(presenterId) {
@@ -1128,7 +1200,7 @@ async function prepareLibrary(p, thumb) {
   const st = await runPresenterJob("presenter-prepare-v1", { presenter_id: p.id, video });
   if (st.status !== "completed") {
     const reason = st.result?.user_error ?? "Couldn't build this presenter from the video";
-    await sql`update presenters set status = 'failed', error = ${reason}, updated_at = now() where id = ${p.id}`;
+    await sql`update presenters set status = 'failed', error = ${p.build_charge_id ? `${reason} (credits refunded)` : reason}, updated_at = now() where id = ${p.id}`;
     return;
   }
   let thumbKey = p.thumb_key;
@@ -1206,6 +1278,28 @@ const presenterWorker = new Worker(
 );
 presenterWorker.on("failed", (job, err) => console.error(`[presenter] ${job?.data?.presenterId} ${job?.data?.action} failed:`, err?.message ?? err));
 console.log(`[gen] presenter worker up (queue=${PRESENTER_QUEUE})`);
+
+// Presenters left queued / preparing by a worker restart or a lost queue job never run again (every step only starts
+// from "queued", and a re-run stalled job finds "preparing"): after 3 h (the longest build is ~20 min, the EchoMimic
+// timeout 90 min) they're failed so the user can retry, and a photo / AI build's charge is settled — completed if the
+// presenter did get built, else refunded. The app's deletePresenter uses the same 3 h.
+async function sweepStuckPresenters() {
+  const stuck = await sql`update presenters set status = 'failed', updated_at = now(),
+      error = case when build_charge_id is not null then 'The build was interrupted — try again (credits refunded)' else 'The build was interrupted — try again' end
+    where status in ('queued', 'preparing') and updated_at < now() - interval '3 hours' returning id`;
+  for (const p of stuck) console.warn(`[presenter] ${p.id} stuck building > 3 h — marked failed`);
+  const settled = await sql`update generation_jobs g set
+      status = case when exists (select 1 from presenters p where p.build_charge_id = g.id and p.status = 'ready') then 'completed' else 'failed' end,
+      error_message = case when exists (select 1 from presenters p where p.build_charge_id = g.id and p.status = 'ready') then null
+        else 'Presenter build interrupted — refunded' end,
+      updated_at = now()
+    where g.job_type = 'presenter_build' and g.status = 'generating' and g.created_at < now() - interval '3 hours'
+      and not exists (select 1 from presenters p where p.build_charge_id = g.id and p.status in ('queued', 'preparing')) returning g.id, g.status`;
+  for (const g of settled) console.warn(`[presenter] build charge ${g.id} settled by the sweep → ${g.status}`);
+}
+const sweep = () => sweepStuckPresenters().catch((e) => console.error("[presenter] sweep failed:", e?.message ?? e));
+void sweep();
+setInterval(sweep, 10 * 60_000).unref();
 
 // ─── Export worker: transcode a generated version to a final deliverable ─────────
 // Short-clip ffmpeg on linuxg1 (ffmpeg already installed; this is not a heavy assembler render).

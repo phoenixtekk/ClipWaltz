@@ -17,7 +17,15 @@ export const CONSENT_MAX_SECONDS = 30;
 /** Presenter seconds are charged in AI credits: one credit per this many seconds (rounded up per render). */
 export const PRESENTER_SECONDS_PER_CREDIT = 10;
 
+/** A presenter made from a photo or an AI face: ~30 s of EchoMimic base footage + Real-ESRGAN, the same GPU work as a
+ *  30 s Standard talking photo (1 credit/s) — owner decision 2026-10-15. Refunded when the build fails. */
+export const PRESENTER_BUILD_CREDITS = 30;
+/** AI faces: rounds of new face candidates (3 each) per presenter before one must be picked or the presenter deleted. */
+export const MAX_FACE_ROUNDS = 3;
+
 export type PresenterStatus = "draft" | "queued" | "preparing" | "ready" | "failed";
+/** How a user's own presenter is made: their video, a frame of their live consent clip, or a fictional AI face. */
+export type PresenterSource = "video" | "photo" | "ai";
 
 export type PresenterView = {
   id: string;
@@ -35,6 +43,13 @@ export type PresenterView = {
   voiceStatus: "none" | "draft" | "queued" | "ready" | "failed";
   voiceHasConsent: boolean;
   voiceError: string | null;
+  source: PresenterSource;
+  /** photo: the picked frame (seconds into the consent clip); ai: the look it was generated from + face candidates. */
+  photoAt: number | null;
+  /** Changes when the consent clip is recorded again (cache key for the frame picker). */
+  consentRef: string | null;
+  description: string | null;
+  portraits: string[];
 };
 
 /** Deck voice id for a presenter's cloned voice (brief.voice.voiceId). */

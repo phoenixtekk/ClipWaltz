@@ -40,7 +40,7 @@ export async function getBetaMetrics(days: number): Promise<BetaMetrics> {
         count(*) filter (where status = 'failed')::int failed,
         coalesce(sum(extract(epoch from completed_at - started_at)) filter (where status = 'completed'), 0) gpu_secs,
         percentile_cont(0.5) within group (order by extract(epoch from completed_at - started_at)) filter (where status = 'completed' and job_type in ('text_to_video','image_to_video')) med_gen
-      from generation_jobs where created_at > ${since}`),
+      from generation_jobs where created_at > ${since} and job_type <> 'presenter_faces'`),
     db.execute(sql`select name, count(*)::int n, coalesce(sum((props->>'bytes')::bigint), 0) bytes
       from analytics_events where created_at > ${since} group by name`),
     db.execute(sql`select

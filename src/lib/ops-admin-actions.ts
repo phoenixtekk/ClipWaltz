@@ -55,8 +55,10 @@ export async function getOpsQueue(): Promise<OpsQueue> {
       error: schema.generationJobs.errorMessage,
     })
       .from(schema.generationJobs)
-      .innerJoin(schema.projects, eq(schema.generationJobs.projectId, schema.projects.id))
+      // left join: presenter builds (job_type presenter_build) have no project
+      .leftJoin(schema.projects, eq(schema.generationJobs.projectId, schema.projects.id))
       .leftJoin(schema.user, eq(schema.generationJobs.requestedBy, schema.user.id))
+      .where(sql`${schema.generationJobs.jobType} <> 'presenter_faces'`)
       .orderBy(desc(schema.generationJobs.createdAt))
       .limit(60),
   ]);
@@ -70,7 +72,7 @@ export async function getOpsQueue(): Promise<OpsQueue> {
       return {
         id: j.id, jobType: j.jobType, status: j.status, progress: j.progress, workflow: j.workflow,
         quality: typeof (j.request as Record<string, unknown> | null)?.quality === "string" ? String((j.request as Record<string, unknown>).quality) : null,
-        project: j.project, user: j.user, createdAt: j.createdAt.toISOString(),
+        project: j.project ?? (j.jobType === "presenter_build" ? "Presenter build" : "—"), user: j.user, createdAt: j.createdAt.toISOString(),
         startedAt: j.startedAt?.toISOString() ?? null, finishedAt: end?.toISOString() ?? null,
         runSeconds: secs(j.startedAt, end), waitSeconds: secs(j.createdAt, j.startedAt),
         error: friendlyJobError(j.error), errorDetail: j.error,
@@ -98,11 +100,13 @@ export async function getUsageMetrics(days = 30): Promise<UsageMetrics> {
       completed: sql<number>`count(*) filter (where ${schema.generationJobs.status} = 'completed')::int`,
       failed: sql<number>`count(*) filter (where ${schema.generationJobs.status} = 'failed')::int`,
       avgRun: sql<number | null>`avg(extract(epoch from ${schema.generationJobs.completedAt} - ${schema.generationJobs.startedAt}))`,
-    }).from(schema.generationJobs).where(sql`${schema.generationJobs.createdAt} > ${since}`).groupBy(schema.generationJobs.jobType),
+    }).from(schema.generationJobs)
+      // presenter_faces rows are free 0-credit records of AI face rounds (a daily cap), not generations
+      .where(sql`${schema.generationJobs.createdAt} > ${since} and ${schema.generationJobs.jobType} <> 'presenter_faces'`).groupBy(schema.generationJobs.jobType),
     db.execute(sql`
       with days as (select generate_series(date_trunc('day', now()) - make_interval(days => ${d - 1}), date_trunc('day', now()), interval '1 day')::date as day)
       select to_char(days.day, 'YYYY-MM-DD') as day,
-        (select count(*) from generation_jobs g where g.created_at::date = days.day and g.job_type <> 'enhancement')::int as generations,
+        (select count(*) from generation_jobs g where g.created_at::date = days.day and g.job_type not in ('enhancement', 'presenter_faces'))::int as generations,
         (select count(*) from generation_jobs g where g.created_at::date = days.day and g.job_type = 'enhancement')::int as enhancements,
         (select count(*) from export_jobs e where e.created_at::date = days.day)::int as exports,
         (select count(*) from renders r where r.created_at::date = days.day)::int as renders,
