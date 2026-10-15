@@ -27,7 +27,9 @@ import torch
 
 MODELS = Path(os.environ.get("PRESENTER_MODELS", "/data/clipwaltz-ai/models/musetalk"))
 VOICE_MIN = float(os.environ.get("CONSENT_VOICE_MIN", "0.40"))
-FACE_MIN = 0.7  # share of sampled frames with a face
+FACE_MIN = 0.6  # share of sampled frames with a face (0.7 failed a real reading: people glance at the sentence)
+NAME_CLOSE = float(os.environ.get("CONSENT_NAME_CLOSE", "0.6"))  # difflib ratio, a name word vs a heard word
+NAME_CLOSE_SHORT = 0.8  # names of ≤ 4 letters
 SENTENCE_MIN = float(os.environ.get("CONSENT_SENTENCE_MIN", "0.6"))  # difflib ratio, shown sentence vs what was said
 
 _m: dict = {}
@@ -97,7 +99,15 @@ def sentence_match(text: str, statement: str, code: str) -> tuple:
     rest = set(_tokens(statement[m.end():])) if m else set()
     own = [t for t in names if t not in rest]
     if own:
-        name_ok = any(n in said for n in own)
+        # Speech recognition can't spell made-up or rare names ("Lacyceo" is heard as "LACIO" / "Lacey"), so a CLOSE match
+        # of any of the name's own words counts — never against the sentence's other words. Long names: ≥ NAME_CLOSE;
+        # names of ≤ 4 letters need ≥ NAME_CLOSE_SHORT ("Jo"/"Joe" yes, "Sam"/"Sum" no). Measured 2026-10-15: real
+        # readings of "Lacyceo" 0.67; wrong names 0.15–0.55 ("Lucy" 0.55); no name 0.
+        cand = [t for t in said if t not in rest]
+        name_ok = any(
+            n in said or any(difflib.SequenceMatcher(None, n, w).ratio() >= (NAME_CLOSE_SHORT if len(n) <= 4 else NAME_CLOSE) for w in cand)
+            for n in own
+        )
     else:  # every word of the name is also elsewhere in the sentence: the whole name must be said in a row
         k = len(names)
         name_ok = not names or any(said[i:i + k] == names for i in range(len(said) - k + 1))
