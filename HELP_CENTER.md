@@ -86,6 +86,15 @@ Record yourself once, and your WaltzDeck videos can be presented **by you** — 
 4. Press **Build my presenter**. In a minute or two it shows **Ready**. If the check fails you'll see why — press
    **Get a new code** and record the consent again.
 
+**Recording yourself — pick your camera and microphone:** when you press **Record with my camera** (or **Start
+recording** for the consent), a camera check opens first. Choose the **Camera** and **Microphone** you want (useful if you
+have more than one — ClipWaltz remembers your choice on this browser), and watch the mic bar move when you speak. You can
+**zoom** in (drag the picture to move it), adjust **brightness**, pick **HD** or **Full HD**, turn the **framing guide**,
+**mirror preview** and **3-second countdown** on or off. Press **Record**, then **Stop**, watch your take back, and press
+**Use this take** — or **Record again**. Use the same camera and microphone for your video and your consent, so the voice
+check matches. If the camera doesn't start, allow camera and microphone access in your browser (the camera icon in the
+address bar) and close other apps that may be using it (Teams, Zoom…).
+
 **Use it in a WaltzDeck video:** turn the **Voiceover** on, then under **Presenter (Waltz Avatar)** pick your presenter.
 Press **On every voiced scene** (choose **full screen**, **beside the slide** or **corner bubble** first), or set a single
 scene's layout to one of the *Presenter* layouts. Render as usual — your presenter speaks each scene's line.

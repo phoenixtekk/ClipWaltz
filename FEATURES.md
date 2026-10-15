@@ -60,6 +60,15 @@ Both carry the bottom-left logo watermark (Free always; paid per the `/admin` sw
   recorded in the browser or uploaded; normalised to H.264 25 fps, first 120 s kept) → **live consent clip** recorded in the
   browser while the sentence *"I, <name>, agree that ClipWaltz may create an AI presenter of me. My code is 4 1 3 3."* is on
   screen → **Build**. Up to **5 presenters** per user, **6 attempts per day**.
+- **Recording studio (2026-10-15)** (`src/components/webcam-recorder.tsx`, used for the footage, the consent clip and the
+  voice consent): a **camera check** opens first — nothing records until **Record**. **Camera + microphone pickers** (real
+  device names, live switching, hot-plug aware, remembered per browser so consent uses the same devices as the footage; a
+  saved device that's unplugged falls back to the default and keeps the other one), **zoom 1–3×** (the camera's own zoom
+  when it has one, else digital — the recording matches the preview; drag or arrow keys to reframe), **brightness** (camera
+  control or digital), **HD 720p / Full HD 1080p** with the actual resolution shown, **mirror preview** (the recording is
+  never mirrored), **framing guide**, **mic level meter** + "we can't hear anything" warning, **3-second countdown**,
+  controls **locked while recording**, then a **review** (play back → **Use this take** / **Record again**). Clear messages
+  for blocked permission, no device, or a camera busy in another app.
 - **Automatic consent check** (owner: automatic only) on AISERVER (`aiserver/talking/consent.py`): the one-time code must
   be heard (whisper-base; digits or number words in EN/ES/FR/IT/PT/DE), a face must be visible in ≥ 70 % of sampled frames
   (MediaPipe), and the consent voice must match the footage's voice (ECAPA speaker embeddings, cosine ≥ 0.40). A failed

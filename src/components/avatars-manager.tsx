@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
-import { AlertTriangle, Camera, CheckCircle2, Circle, Clapperboard, Loader2, Mic, Plus, ShieldCheck, Square, Trash2, Upload, UserRound } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Circle, Clapperboard, Loader2, Mic, Plus, ShieldCheck, Trash2, Upload, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { createPresenterVideo } from "@/lib/presenter-video-actions";
 import type { LibraryPresenter } from "@/lib/presenter-library-actions";
@@ -17,6 +17,7 @@ import {
 } from "@/lib/presenters";
 import { VOICES } from "@/lib/deck/types";
 import { uploadWithProgress } from "@/lib/upload-progress";
+import { WebcamRecorder } from "@/components/webcam-recorder";
 
 const inputCls = "h-9 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-primary";
 const busyStatus = (s: string) => s === "queued" || s === "preparing";
@@ -373,71 +374,4 @@ function ConsentRecorder({ id, has, onDone, path = "consent" }: { id: string; ha
     }
   };
   return <WebcamRecorder label={has ? "Record again" : "Start recording"} maxSeconds={CONSENT_MAX_SECONDS} minSeconds={3} disabled={busy} onRecorded={send} />;
-}
-
-/** Camera + microphone recording in the browser (MediaRecorder). Shows the live preview and a timer. */
-function WebcamRecorder({ label, maxSeconds, minSeconds, disabled, onRecorded, onRecording, hint }: {
-  label: string; maxSeconds: number; minSeconds: number; disabled?: boolean; hint?: string;
-  onRecorded: (b: Blob) => void | Promise<void>; onRecording?: (on: boolean) => void;
-}) {
-  const video = useRef<HTMLVideoElement>(null);
-  const rec = useRef<MediaRecorder | null>(null);
-  const stream = useRef<MediaStream | null>(null);
-  const chunks = useRef<Blob[]>([]);
-  const [secs, setSecs] = useState<number | null>(null);
-  const t0 = useRef(0);
-  useEffect(() => () => stream.current?.getTracks().forEach((t) => t.stop()), []);
-  useEffect(() => {
-    if (secs === null) return;
-    const t = setInterval(() => {
-      const s = Math.floor((Date.now() - t0.current) / 1000);
-      setSecs(s);
-      if (s >= maxSeconds) rec.current?.stop();
-    }, 250);
-    return () => clearInterval(t);
-  }, [secs, maxSeconds]);
-
-  const begin = async () => {
-    try {
-      stream.current = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: true });
-    } catch {
-      return toast.error("Allow camera and microphone access to record");
-    }
-    if (video.current) {
-      video.current.srcObject = stream.current;
-      await video.current.play().catch(() => {});
-    }
-    const mime = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"].find((m) => MediaRecorder.isTypeSupported(m));
-    const r = new MediaRecorder(stream.current, mime ? { mimeType: mime } : undefined);
-    chunks.current = [];
-    r.ondataavailable = (e) => e.data.size && chunks.current.push(e.data);
-    r.onstop = () => {
-      const len = (Date.now() - t0.current) / 1000;
-      stream.current?.getTracks().forEach((t) => t.stop());
-      setSecs(null);
-      onRecording?.(false);
-      if (len < minSeconds) return toast.error(`Too short — record at least ${minSeconds} seconds`);
-      void onRecorded(new Blob(chunks.current, { type: r.mimeType || "video/webm" }));
-    };
-    rec.current = r;
-    t0.current = Date.now();
-    r.start(1000);
-    setSecs(0);
-    onRecording?.(true);
-  };
-
-  return (
-    <div className="space-y-2">
-      <video ref={video} muted playsInline className={cn("w-full max-w-sm rounded-lg bg-black", secs === null && "hidden")} />
-      {secs !== null ? (
-        <div className="flex items-center gap-3">
-          <Button size="sm" variant="destructive" onClick={() => rec.current?.stop()}><Square className="size-4" /> Stop</Button>
-          <span className="text-sm tabular-nums text-red-600">● {secs}s / {maxSeconds}s</span>
-          {hint ? <span className="text-xs text-muted-foreground">{hint}</span> : null}
-        </div>
-      ) : (
-        <Button size="sm" disabled={disabled} onClick={() => void begin()}><Camera className="size-4" /> {label}</Button>
-      )}
-    </div>
-  );
 }
