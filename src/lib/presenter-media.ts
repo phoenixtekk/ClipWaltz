@@ -7,8 +7,9 @@ import { join } from "path";
 import { Readable } from "stream";
 import { pipeline } from "stream/promises";
 import { promisify } from "util";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { getAdminSession } from "./admin";
 import { putObject, listObjectKeys, purgePrefix } from "./storage";
 
 const run = promisify(execFile);
@@ -47,12 +48,15 @@ async function seconds(p: string): Promise<number> {
   return Number(stdout.trim());
 }
 
-/** Upload → H.264/AAC MP4 at 25 fps, longest side ≤ 1920, first `keepSeconds` → MinIO `key`. Returns its length. */
-export async function storeNormalisedVideo(req: Request, key: string, opts: { max: number; keepSeconds: number; minSeconds: number; what: string }) {
+/** Upload (request body or URL) → H.264/AAC MP4 at 25 fps, longest side ≤ 1920, first `keepSeconds` → MinIO `key`. Returns its length. */
+export async function storeNormalisedVideo(source: Request | string, key: string, opts: { max: number; keepSeconds: number; minSeconds: number; what: string }) {
   const dir = await mkdtemp(join(tmpdir(), "cw-presenter-"));
   try {
-    const src = join(dir, "in"), out = join(dir, "out.mp4");
-    await bodyToFile(req, src, opts.max);
+    let src = join(dir, "in");
+    const out = join(dir, "out.mp4");
+    // `source` is the request (the raw file as its body) or a URL ffmpeg reads (a stored upload, see footage/upload).
+    if (typeof source === "string") src = source;
+    else await bodyToFile(source, src, opts.max);
     try {
       await run("ffmpeg", ["-v", "error", "-y", "-i", src, "-t", String(opts.keepSeconds),
         "-vf", "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(iw,ih),-2,min(1920,ih))',fps=25,format=yuv420p",
@@ -76,4 +80,28 @@ export async function storeNormalisedVideo(req: Request, key: string, opts: { ma
  *  ones and any from overlapping uploads. */
 export async function replaceKey(prefix: string, newKey: string) {
   for (const k of await listObjectKeys(prefix).catch(() => [] as string[])) if (k !== newKey) await purgePrefix(k).catch(() => {});
+}
+
+/** The presenter whose footage the caller may set: their own twin, or — for any admin — a library presenter (AI / licensed
+ *  actor). Files live under the row's owner, so every admin can manage an actor another admin created. */
+export async function footagePresenter(id: string, userId: string) {
+  const [p] = await db.select().from(schema.presenters).where(eq(schema.presenters.id, id));
+  const library = p && (p.kind === "ai" || p.kind === "actor");
+  if (!p || (library ? !(await getAdminSession()) : p.userId !== userId)) throw new UploadError("Presenter not found", 404);
+  if (p.status !== "draft" && p.status !== "failed") throw new UploadError("This presenter is already being made", 409);
+  return { owner: p.userId };
+}
+
+/** Make the stored footage at `key` the presenter's — only while it's still being set up (not queued / building / ready,
+ *  not deleted meanwhile); else the new file is dropped. False when it was dropped. */
+export async function saveFootage(id: string, owner: string, key: string): Promise<boolean> {
+  const [row] = await db.update(schema.presenters).set({ footageKey: key, status: "draft", error: null, updatedAt: new Date() })
+    .where(and(eq(schema.presenters.id, id), eq(schema.presenters.userId, owner), inArray(schema.presenters.status, ["draft", "failed"])))
+    .returning({ id: schema.presenters.id });
+  if (!row) {
+    await purgePrefix(key).catch(() => {});
+    return false;
+  }
+  await replaceKey(`presenters/${owner}/${id}/footage-`, key);
+  return true;
 }

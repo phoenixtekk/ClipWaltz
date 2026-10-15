@@ -16,7 +16,7 @@ import {
   CONSENT_MAX_SECONDS, FOOTAGE_MAX_BYTES, FOOTAGE_MIN_SECONDS, MAX_PRESENTERS, PRESENTER_VIDEO_STYLES, type PresenterVideoStyle, type PresenterView,
 } from "@/lib/presenters";
 import { VOICES } from "@/lib/deck/types";
-import { uploadWithProgress } from "@/lib/upload-progress";
+import { uploadFootage, uploadWithProgress } from "@/lib/upload-progress";
 import { WebcamRecorder } from "@/components/webcam-recorder";
 
 const inputCls = "h-9 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-primary";
@@ -233,7 +233,7 @@ function FootageInput({ id, has, onDone }: { id: string; has: boolean; onDone: (
     }
     setProgress(0);
     try {
-      const r = await uploadWithProgress(`/api/presenters/${id}/footage`, blob, setProgress);
+      const r = await uploadFootage(`/api/presenters/${id}/footage`, blob, setProgress);
       toast.success(`Video saved (${Math.round(r.seconds)} s)`);
       await onDone();
     } catch (e) {

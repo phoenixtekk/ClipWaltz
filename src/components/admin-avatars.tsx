@@ -11,7 +11,7 @@ import {
 } from "@/lib/presenter-library-actions";
 import { FOOTAGE_MAX_BYTES } from "@/lib/presenters";
 import { VOICES } from "@/lib/deck/types";
-import { uploadWithProgress } from "@/lib/upload-progress";
+import { uploadFootage } from "@/lib/upload-progress";
 
 const inputCls = "h-9 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-primary";
 const busy = (s: string) => s === "queued" || s === "preparing";
@@ -128,7 +128,7 @@ function LibraryCard({ p, onChanged }: { p: LibraryPresenter; onChanged: () => P
     if (f.size > FOOTAGE_MAX_BYTES) return void toast.error("That video is too large");
     setProgress(0);
     try {
-      const r = await uploadWithProgress(`/api/presenters/${p.id}/footage`, f, setProgress);
+      const r = await uploadFootage(`/api/presenters/${p.id}/footage`, f, setProgress);
       toast.success(`Footage saved (${Math.round(r.seconds)} s)`);
       await onChanged();
     } catch (e) {
