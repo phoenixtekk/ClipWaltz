@@ -15,6 +15,7 @@ import { join } from "node:path";
 import IORedis from "ioredis";
 import { Worker } from "bullmq";
 import { describeMedia, planStoryboard, rewriteScene, writeHooks, translateDeck, editDeck, fixLayout, chatJson, llmScope, VISION_MODEL, TEXT_MODEL, DESCRIBE_VERSION } from "./planner.mjs";
+import { parseScript } from "./script.mjs";
 import { resolveLlm, noteLlmResult, llmErrorText } from "./llm.mjs";
 import { buildVariant, combinations, variantCode, snapshotLength, MAX_VARIANTS } from "./variants.mjs";
 import { brandFromSite } from "./brand-site.mjs";
@@ -78,7 +79,8 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
     const started = new Date().toISOString();
     try {
       const assets = await loadMedia(projectId);
-      if (!assets.length && brief.mode !== "explainer") throw new Error("Add some photos or videos first."); // explainers can be all animation
+      // Explainers can be all animation; a script describes its own pictures (each scene gets a suggested AI shot).
+      if (!assets.length && brief.mode !== "explainer" && !parseScript(brief.prompt)) throw new Error("Add some photos or videos first.");
       const todo = assets.filter((a) => !isCurrent(a.ai_description));
       for (const [i, a] of todo.entries()) {
         await setPlan(projectId, { status: "describing", done: i, total: todo.length, startedAt: started });
@@ -111,7 +113,8 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
             await tx`update deck_scenes set order_index = ${i}, updated_at = now() where id = ${s.lockedRow.id}`;
             continue;
           }
-          const textMode = brief.textMode === "off" && s.role !== "cta" ? "none" : "auto";
+          // A script's words are the owner's own: Manual text (the AI never rewrites them).
+          const textMode = brief.textMode === "off" && s.role !== "cta" ? "none" : result.fromScript ? "manual" : "auto";
           await tx`insert into deck_scenes ${tx({
             id: randomUUID(), project_id: projectId, order_index: i, role: s.role, asset_id: s.assetId,
             duration_sec: s.durationSec, in_sec: s.inSec ?? null, text_mode: textMode, text: tx.json(s.text), layout: s.layout, voice: s.voice || null, prompt: s.shot || null,
@@ -123,8 +126,14 @@ export function startDeckWorker({ sql, getBytes, putBytes, deleteKey, run, redis
       for (const o of order) if (o.lockedRow?.asset_id) used.add(o.lockedRow.asset_id);
       // Every plan is a new film: a new seed for the animated scenes (and, with the look on Auto, a new look).
       const motion = { look: brief.motion?.look ?? "auto", seed: randomInt(1, 2 ** 31 - 1) };
+      // A script sets the video's length, and its voiceover lines are spoken as written (Voiceover "I'll write it").
+      const fromScript = {};
+      if (result.fromScript) {
+        fromScript.lengthSec = Math.max(6, Math.min(180, Math.round(result.scenes.reduce((n, s) => n + s.durationSec, 0))));
+        if (result.scenes.some((s) => s.voice) && (brief.voice?.mode ?? "off") !== "manual") fromScript.voice = { voiceId: "af_heart", speed: 1, ...brief.voice, mode: "manual" };
+      }
       await sql`update projects set deck = jsonb_set(coalesce(deck, '{}'::jsonb), '{brief}',
-        coalesce(deck->'brief', '{}'::jsonb) || jsonb_build_object('motion', ${sql.json(motion)}::jsonb)) where id = ${projectId}`;
+        coalesce(deck->'brief', '{}'::jsonb) || jsonb_build_object('motion', ${sql.json(motion)}::jsonb) || ${sql.json(fromScript)}::jsonb) where id = ${projectId}`;
       await setPlan(projectId, {
         status: "ready", title: result.title, startedAt: started, finishedAt: new Date().toISOString(),
         unusedAssetIds: assets.filter((a) => !used.has(a.id)).map((a) => a.id), stats: result.stats,

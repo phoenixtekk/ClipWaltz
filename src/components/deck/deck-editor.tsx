@@ -17,7 +17,7 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { aspectClass, isWide } from "@/lib/aspect";
 import {
-  CAMERA_MODES, DECK_MODES, LANGUAGES, LAYOUTS, MAX_BULLETS, MOTION_FIELDS, chatThinking, deckFillSeconds, MOTIONS, MOTION_LABELS, TONES, VOICES, type CameraMode,
+  CAMERA_MODES, DECK_MODES, LANGUAGES, LAYOUTS, MAX_BRIEF_CHARS, MAX_BULLETS, MOTION_FIELDS, chatThinking, deckFillSeconds, MOTIONS, MOTION_LABELS, TONES, VOICES, type CameraMode,
   type BrandSuggestion, type Campaign, type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type SceneTextMode, type TextMode, type VoiceMode, type ResolvedBackdrop,
 } from "@/lib/deck/types";
 import {
@@ -311,7 +311,7 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
               ) : null}
             </span>
             <textarea value={brief.prompt} disabled={!canEdit} onChange={(e) => setBrief({ ...brief, prompt: e.target.value })} onBlur={() => saveBriefNow()}
-              rows={4} maxLength={2000}
+              rows={brief.prompt.length > 600 ? 12 : 4} maxLength={MAX_BRIEF_CHARS}
               placeholder={brief.mode === "ad"
                 ? "e.g. 15-second Instagram ad for our cold brew — summer vibe, easy to order, for busy commuters."
                 : brief.mode === "presentation"
@@ -320,6 +320,10 @@ export function DeckEditor({ initial, initialBrand, initialCampaigns, initialHis
                     ? "e.g. 40-second explainer for TxtYa: groups are spread across texts, chats and email — one message reaches everyone on the channel they already use."
                   : "e.g. Our family trip to Lake Powell — warm, fun, in the order it happened."}
               className={cn(field, "resize-y py-2")} />
+            <span className="flex justify-between gap-2 text-[11px] text-muted-foreground">
+              <span>Have a full script? Paste it with <b>Scene 1</b>, <b>Scene 2</b>… headings, <b>On-screen text:</b> and <b>Voiceover:</b> lines — they&apos;re used word for word.</span>
+              <span className="shrink-0 tabular-nums">{brief.prompt.length.toLocaleString()} / {MAX_BRIEF_CHARS.toLocaleString()}</span>
+            </span>
           </label>
           <div className="grid grid-cols-2 gap-2">
             <label className="col-span-2 block space-y-1">

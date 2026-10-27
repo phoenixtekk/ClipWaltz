@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   bigint,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { user } from "./auth-schema";
 
 // ClipWaltz domain tables (MVP). Field names are camelCase; with the snake_case-cased
@@ -966,7 +967,8 @@ export const deckBriefHistory = pgTable(
     text: text().notNull(),
     usedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("deck_brief_history_user_text_idx").on(t.userId, t.text), index("deck_brief_history_user_idx").on(t.userId, t.usedAt)],
+  // md5: a long brief (a whole script, up to MAX_BRIEF_CHARS) is past what a btree index entry can hold.
+  (t) => [uniqueIndex("deck_brief_history_user_text_idx").on(t.userId, sql`md5(${t.text})`), index("deck_brief_history_user_idx").on(t.userId, t.usedAt)],
 );
 
 // WaltzDeck campaign packs (phase 4): one storyboard → hooks × CTAs × lengths × aspects, rendered as a batch

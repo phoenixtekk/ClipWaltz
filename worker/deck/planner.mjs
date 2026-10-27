@@ -8,6 +8,7 @@
 import { MOTION_LAYOUTS, OVER_MEDIA_LAYOUTS } from "./motion.mjs";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { llmText, llmErrorText } from "./llm.mjs";
+import { parseScript, scenesFromScript } from "./script.mjs";
 
 /**
  * The outside model (Claude, ChatGPT, …) the current job should use, set by the generation worker around each job:
@@ -40,6 +41,7 @@ const langRule = (brief) => {
     : "";
 };
 const MIN_SCENE = 1.2;
+const BRIEF_CHARS = 8000; // the editor's limit (src/lib/deck/types.ts MAX_BRIEF_CHARS): the AI reads the whole brief
 const MAX_SCENE = 8;
 // Slides are read, not glanced at: longer scenes and more / longer points than an ad.
 const maxSceneOf = (mode) => (mode === "presentation" ? 15 : MAX_SCENE);
@@ -328,6 +330,13 @@ function mediaList(media) {
  */
 export async function planStoryboard(brief, media, locked = []) {
   const mode = MODES.includes(brief.mode) ? brief.mode : "ad";
+  // A brief written as a scene-by-scene script is followed exactly — no model call (worker/deck/script.mjs).
+  const script = parseScript(brief.prompt);
+  if (script) {
+    const t0 = Date.now();
+    const scenes = scenesFromScript(script, { mode, media, lengthSec: brief.lengthSec, speechSec: (l) => speechSec(l, brief.voice?.speed), minScene: MIN_SCENE });
+    return { title: str(script.title, 80) || "Your script", scenes, fromScript: true, stats: { model: "script", ms: Date.now() - t0 } };
+  }
   const length = Math.max(6, Math.min(180, Number(brief.lengthSec) || (mode === "ad" ? 15 : 45)));
   const list = mediaList(media);
   // A different story structure each time (owner, 2026-10-05: "never similar videos unless explicitly asked for").
@@ -344,7 +353,7 @@ export async function planStoryboard(brief, media, locked = []) {
     `You are an expert video editor and copywriter. Plan a ${length}-second ${mode} video using ONLY the owner's media below` +
     `${mode === "explainer" ? " (an explainer may use none — its animated scenes need no media)" : ""}.\n` +
     `${MODE_GUIDE[mode]}\n${mode === "explainer" ? `STORY ARC for this video: ${arc}\n` : ""}${langRule(brief)}\n` +
-    `BRIEF: "${str(brief.prompt, 1500)}"\n` +
+    `BRIEF: "${str(brief.prompt, BRIEF_CHARS)}"\n` +
     (brief.goal ? `Goal: ${str(brief.goal, 200)}\n` : "") +
     (brief.audience ? `Audience: ${str(brief.audience, 200)}\n` : "") +
     (brief.tone ? `Tone: ${str(brief.tone, 100)}\n` : "") +
@@ -435,7 +444,7 @@ export async function ensureShots(brief, scenes, want = 2) {
   if (!picks.length) return;
   const list = picks.map(({ s, i }, k) => `${k + 1}. scene ${i + 1} (${s.role}) — on screen: "${[s.text.headline, s.text.sub].filter(Boolean).join(" — ")}"; voiceover: "${s.voice || ""}"`).join("\n");
   const prompt =
-    `You direct the real filmed shots of a short explainer video. ${langRule(brief)}BRIEF: "${str(brief.prompt, 1000)}"\n` +
+    `You direct the real filmed shots of a short explainer video. ${langRule(brief)}BRIEF: "${str(brief.prompt, BRIEF_CHARS)}"\n` +
     `For each scene below, describe ONE real cinematic shot an AI video model can film that fits what the scene says ` +
     `(a specific person, place or object from this product's world; natural action; bright light; cinematic camera move). ` +
     `No text, logos, readable screens, brand names or abstract ideas. One sentence each, max 35 words.\n${list}\n` +
@@ -540,7 +549,7 @@ async function writeNarration(brief, scenes, media) {
     return `${i + 1}. ${sc.role}, ${sc.durationSec}s — shows: ${m?.desc?.summary || (m ? "the owner's media" : "a text card")}; on-screen text: "${[sc.text.headline, sc.text.sub].filter(Boolean).join(" — ")}"`;
   }).join("\n");
   const prompt =
-    `Write the VOICEOVER for a ${brief.mode === "slideshow" ? "slideshow" : brief.mode === "explainer" ? "short animated explainer" : "short ad"}. ${langRule(brief)}BRIEF: "${str(brief.prompt, 1200)}"` +
+    `Write the VOICEOVER for a ${brief.mode === "slideshow" ? "slideshow" : brief.mode === "explainer" ? "short animated explainer" : "short ad"}. ${langRule(brief)}BRIEF: "${str(brief.prompt, BRIEF_CHARS)}"` +
     (brief.tone ? ` Tone: ${str(brief.tone, 100)}.` : "") + (brief.offer ? ` Offer: ${str(brief.offer, 200)}.` : "") +
     (brief.cta?.text ? ` Call to action: "${str(brief.cta.text, 120)}".` : "") + `\nSCENES:\n${list}\n` +
     `One spoken line per scene, in order. Each line: conversational, 5-14 words, fits the scene length at ~${SPEECH_WPS} words per second, ` +
@@ -757,7 +766,7 @@ export async function rewriteScene(brief, scene, mediaItem, instruction, sibling
   const prompt =
     `You write on-screen text for one scene of a ${brief.mode === "slideshow" ? "slideshow" : brief.mode === "presentation" ? "presentation (one slide)" : "short ad"}.\n` +
     langRule(brief) +
-    `BRIEF: "${str(brief.prompt, 1200)}"` + (brief.tone ? ` Tone: ${str(brief.tone, 100)}.` : "") +
+    `BRIEF: "${str(brief.prompt, BRIEF_CHARS)}"` + (brief.tone ? ` Tone: ${str(brief.tone, 100)}.` : "") +
     (brief.offer ? ` Offer: ${str(brief.offer, 200)}.` : "") + (brief.cta?.text ? ` CTA: "${str(brief.cta.text, 120)}".` : "") + "\n" +
     `SCENE ${scene.role}, ${scene.durationSec}s, layout ${scene.layout}. ` +
     (mediaItem ? `It shows: ${d.summary || "(no description)"}${mediaItem.note ? ` — owner's note: "${mediaItem.note}"` : ""}.` : "It is a text card with no media.") + "\n" +
@@ -807,7 +816,7 @@ export async function writeHooks(brief, media, base, { hooks: k = 2, ctas: kc = 
   const prompt =
     `You are a performance-ad copywriter. Write alternative OPENING scenes (hooks) for a short video ad and alternative ` +
     `call-to-action wordings, to A/B test.\n` + langRule(brief) +
-    `BRIEF: "${str(brief.prompt, 1500)}"\n` +
+    `BRIEF: "${str(brief.prompt, BRIEF_CHARS)}"\n` +
     (brief.audience ? `Audience: ${str(brief.audience, 200)}\n` : "") + (brief.tone ? `Tone: ${str(brief.tone, 100)}\n` : "") +
     (brief.offer ? `Offer: ${str(brief.offer, 200)}\n` : "") + (cta ? `Current call to action: "${cta}"\n` : "") +
     `\nMEDIA (refer to them by number):\n${mediaList(media)}\n\n` +
@@ -895,7 +904,7 @@ export async function translateDeck(brief, scenes, lang) {
   if (!name) throw new Error("unsupported language");
   const src = LANG_NAMES[brief.language] ?? "English";
   const items = scenes.map((sc, i) => ({ i, headline: sc.text?.headline ?? "", sub: sc.text?.sub ?? "", bullets: sc.text?.bullets ?? [], voice: sc.voice ?? "" }));
-  const b = { prompt: str(brief.prompt, 1500), goal: str(brief.goal, 200), audience: str(brief.audience, 200), tone: str(brief.tone, 100), offer: str(brief.offer, 200), cta: str(brief.cta?.text, 120) };
+  const b = { prompt: str(brief.prompt, BRIEF_CHARS), goal: str(brief.goal, 200), audience: str(brief.audience, 200), tone: str(brief.tone, 100), offer: str(brief.offer, 200), cta: str(brief.cta?.text, 120) };
   const prompt =
     `Translate this short video / slide deck from ${src} into ${name}. Natural, idiomatic ${name} for the same audience — ` +
     `not word-for-word. Keep headlines about as short as the original (they must fit on screen). Keep every number, price, ` +
@@ -957,7 +966,7 @@ export async function editDeck(brief, scenes, history) {
   const convo = history.slice(-12).map((m) => `${m.role === "user" ? "OWNER" : "YOU"}: ${str(m.text, 1500)}`).join("\n");
   const prompt =
     `You edit a short ${brief.mode === "explainer" ? "animated explainer" : brief.mode ?? "ad"} video in ClipWaltz. The owner chats with you to change it. ${langRule(brief)}\n` +
-    `BRIEF: "${str(brief.prompt, 1200)}"` + (brief.cta?.text ? ` CTA: "${str(brief.cta.text, 120)}"${brief.cta.url ? ` (${str(brief.cta.url, 120)})` : ""}.` : "") + "\n" +
+    `BRIEF: "${str(brief.prompt, BRIEF_CHARS)}"` + (brief.cta?.text ? ` CTA: "${str(brief.cta.text, 120)}"${brief.cta.url ? ` (${str(brief.cta.url, 120)})` : ""}.` : "") + "\n" +
     `CURRENT STORYBOARD (in order; #1 is the opening scene${scenes.length ? `, #${scenes.length} is the LAST / closing scene` : ""}):\n${list || "(empty)"}\n` +
     `Animated-scenes LOOK: ${look} (options: ${EDIT_LOOKS.join(", ")}).\n` +
     `LAYOUTS: ${LAYOUTS.join(", ")}.\n${MG_GUIDE}` +

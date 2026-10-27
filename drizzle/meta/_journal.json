@@ -442,6 +442,13 @@
       "when": 1792088193762,
       "tag": "0062_presenter_photo_ai",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1793120238433,
+      "tag": "0063_brief_history_hash",
+      "breakpoints": true
     }
   ]
 }

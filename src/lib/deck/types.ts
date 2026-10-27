@@ -284,6 +284,8 @@ export const TONES = [
   "Urgent & direct", "Informative & clear", "Adventurous & exciting", "Minimal & modern",
 ] as const;
 export const MAX_BRIEF_HISTORY = 15;
+/** "What is this video for?" — long enough for a full scene-by-scene script (worker/deck/script.mjs follows one exactly). */
+export const MAX_BRIEF_CHARS = 8000;
 
 // ── Music & voice mix ──────────────────────────────────────────────────────────────────────────────
 export type DuckMode = "steady" | "gentle" | "strong";

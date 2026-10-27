@@ -14,7 +14,7 @@ import { deleteObject } from "./storage";
 import { toResult, unwrap, type ActionResult } from "./action-result";
 import {
   CAMERA_MODES, DEFAULT_AUDIO, DUCK_MODES, MUSIC_TONES, VOICE_TONES, type DeckAudio,
-  DECK_MODES, LANGUAGES, LAYOUTS, MAX_BRIEF_HISTORY, deckFillSeconds, MAX_BULLETS, MAX_BULLET_CHARS, MOTIONS, ROLES, VOICES, defaultBrief, defaultVoiceFor,
+  DECK_MODES, LANGUAGES, LAYOUTS, MAX_BRIEF_CHARS, MAX_BRIEF_HISTORY, deckFillSeconds, MAX_BULLETS, MAX_BULLET_CHARS, MOTIONS, ROLES, VOICES, defaultBrief, defaultVoiceFor,
   type DeckBrief, type DeckExport, type DeckExportFormat, type DeckScene, type DeckState, type SceneText, type SceneTextMode,
   type ResolvedBackdrop, type SceneBackdrop, BACKDROP_PRESETS, type BackdropPresetKey, type LookKey,
 } from "./deck/types";
@@ -45,6 +45,9 @@ function normAudio(a: Partial<DeckAudio> | null | undefined): DeckAudio {
 }
 
 const clip = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "");
+/** Like clip, but keeps the line breaks (at most one blank line): a brief can be a script, read line by line. */
+const clipLines = (v: unknown, max: number) =>
+  typeof v === "string" ? v.replace(/\r/g, "").replace(/[^\S\n]+/g, " ").replace(/ *\n */g, "\n").replace(/\n{3,}/g, "\n\n").trim().slice(0, max) : "";
 
 async function assertAccess(projectId: string, role: "viewer" | "editor") {
   const userId = await requireUserId();
@@ -165,7 +168,7 @@ async function saveBriefImpl(projectId: string, input: Partial<DeckBrief>): Prom
   const mode = DECK_MODES.some((m) => m.key === input.mode) ? input.mode! : cur.mode;
   const next: DeckBrief = {
     mode,
-    prompt: input.prompt !== undefined ? clip(input.prompt, 2000) : cur.prompt,
+    prompt: input.prompt !== undefined ? clipLines(input.prompt, MAX_BRIEF_CHARS) : cur.prompt,
     goal: input.goal !== undefined ? clip(input.goal, 200) : cur.goal,
     audience: input.audience !== undefined ? clip(input.audience, 200) : cur.audience,
     tone: input.tone !== undefined ? clip(input.tone, 100) : cur.tone,
@@ -763,10 +766,12 @@ async function translateDeckImpl(projectId: string, lang: string): Promise<strin
 
 /** Remember a brief in the user's history (re-using one moves it to the top); keeps the newest MAX_BRIEF_HISTORY. */
 async function rememberBrief(userId: string, text: string) {
-  const t = clip(text, 2000);
+  const t = clipLines(text, MAX_BRIEF_CHARS);
   if (t.length < 10) return;
-  await db.insert(schema.deckBriefHistory).values({ id: randomUUID(), userId, text: t, usedAt: new Date() })
-    .onConflictDoUpdate({ target: [schema.deckBriefHistory.userId, schema.deckBriefHistory.text], set: { usedAt: new Date() } });
+  // The unique index is on md5(text) (a whole script is too long for a plain index): bump an existing one, else add.
+  const bumped = await db.update(schema.deckBriefHistory).set({ usedAt: new Date() })
+    .where(and(eq(schema.deckBriefHistory.userId, userId), sql`md5(${schema.deckBriefHistory.text}) = md5(${t})`)).returning({ id: schema.deckBriefHistory.id });
+  if (!bumped.length) await db.insert(schema.deckBriefHistory).values({ id: randomUUID(), userId, text: t, usedAt: new Date() }).onConflictDoNothing();
   const old = await db.select({ id: schema.deckBriefHistory.id }).from(schema.deckBriefHistory)
     .where(eq(schema.deckBriefHistory.userId, userId)).orderBy(desc(schema.deckBriefHistory.usedAt)).offset(MAX_BRIEF_HISTORY);
   if (old.length) await db.delete(schema.deckBriefHistory).where(inArray(schema.deckBriefHistory.id, old.map((o) => o.id)));
