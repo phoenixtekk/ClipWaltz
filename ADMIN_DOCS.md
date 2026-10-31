@@ -109,6 +109,11 @@ www.clipwaltz.com. Verified 2026-09-29 against a local `next build` + `next star
 - After standing up the service, **update `server-inventory.md`** (port/route) and re-publish the wiki copy.
 
 ## Runbooks (to expand as features land)
+- **Home page content (`/`, 2026-10-31):** nothing to edit by hand — it follows live data. **Showcase** + hero
+  videos = the latest public renders (users set a video to Public); the **Community** band shows the running Monthly
+  Theme Challenge (`/admin` → Contest) or a generic community pitch; **Your AI, your choice** appears only when
+  `/admin/ai` switches on an outside writing model, a cloud video model or the Connector for at least one plan, and
+  names only those. Code: `src/lib/home-data.ts` (each read fails soft, so `/` still renders if the DB is slow).
 - **Object storage:** MinIO on linuxg7 at `192.168.166.169:9000` (LAN), bucket `clipwaltz` (versioning on), accessed via a **bucket-scoped service account** (least privilege; not the root key). Keys in `.env.local`/`_keys`. Never recursive-delete the bucket (documented incident on the fleet). Uploads are proxied through `/api/projects/[id]/assets` (MinIO stays off the public internet).
 - **Render pool:** FFmpeg on the AI box; keep renders off the shared linuxg web hosts (they throttle transcoding).
 - **Proxied media (music preview, video watch, downloads):** all media is served **through the

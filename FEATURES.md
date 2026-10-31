@@ -13,6 +13,33 @@ operable per [`ADMIN_DOCS.md`](ADMIN_DOCS.md), and explained in the
 
 Both carry the bottom-left logo watermark (Free always; paid per the `/admin` switch).
 
+## Home page redesign — four tools, real showcase (2026-10-31)
+- **`/` rebuilt** (layout ideas from big AI-creation sites; no copy, images or branding taken): centred hero with
+  **real community videos** floating around the headline (a row under it on phones/tablets; gradients if none),
+  a **"Make a…" use-case strip**, **Four tools, one studio** tabs (AutoWaltz · Waltz AI · Waltz Avatar · WaltzDeck — a
+  description, 4 facts, a CTA and a mock-up each; arrow keys move between tabs), **Showcase** (the latest 8 public
+  videos, hover to play, links to `/w/<id>`), **Built in** tiles (script briefs, Edit with AI chat, PDF/PowerPoint,
+  campaign packs, your own voice, translate a video, brand kit from website, 360, cloud auto-save), **Your AI, your
+  choice**, a **Community** band (the running Monthly Theme Challenge, else the community), How it works, the pricing
+  teaser (unchanged) and a four-column footer.
+- **Only live facts:** `src/lib/home-data.ts` reads the public feed, the active contest and the `/admin/ai` switches
+  (`app_settings` `llm_providers` / `video_providers`). A cloud video model, outside writing model or the Connector is
+  named only while it's switched on for at least one plan; **Your AI** hides itself when nothing beyond the built-in
+  model is on (the case on prod 2026-10-31). Showcase + its nav/footer links hide when there are no public videos.
+  Each data read fails soft, so a database hiccup can't break `/`. No testimonials, stats or render-time claims.
+- **Font fix (app-wide):** `globals.css` `@theme` had `--font-sans: var(--font-sans)` (self-reference since the
+  scaffold), so every page fell back to the browser serif (Times New Roman). Now `var(--font-geist-sans)` — Geist, as
+  `layout.tsx` intended.
+- Code: `src/app/page.tsx`, `src/components/home/tool-tabs.tsx` (client tabs), `src/lib/home-data.ts`.
+
+## WaltzDeck — full-script briefs, followed exactly (LIVE 2026-10-27)
+- **"What is this video for?"** takes up to **8,000 characters** and keeps line breaks.
+- A brief written as a **scene-by-scene script** (`Scene N` headings, optional `0:00–0:05` timing, `On-screen text:`,
+  `Voiceover:`) becomes the storyboard directly (`worker/deck/script.mjs`): the owner's timing, words and narration
+  verbatim, Text on video = Manual, voiceover = *I'll write it*, each scene's picture description as its suggested AI
+  shot. Other briefs: the planner reads all 8,000 characters (was 1,000–1,500).
+- Brief history's unique index is on `md5(text)` (migration 0063) — a whole script is past a btree entry's size.
+
 ## Waltz Avatar — presenters from a photo or an AI face (AI faces LIVE 2026-10-15; photo option on dev only)
 - **Photo option status:** behind `WALTZ_AVATAR_PHOTO=1` (off on prod) until the lip-movement check is tuned.
 - **Three ways to make your own presenter** (Avatars → new presenter): **From a video of me** (as before, free),

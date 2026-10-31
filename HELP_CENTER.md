@@ -5,8 +5,11 @@ End-user documentation. Categories mirror the product's features (kept in sync w
 ships. It will also surface in-app at `/help`.
 
 ## Getting started
-- **Two tools, two names:** **AutoWaltz** turns your own photos and videos into a beat-synced music
-  video. **Waltz AI** creates brand-new video clips from a description or a photo.
+- **Four tools, one studio:** **AutoWaltz** turns your own photos and videos into a beat-synced music
+  video. **Waltz AI** creates brand-new video clips from a description or a photo. **Waltz Avatar** gives you a
+  presenter who reads your script. **WaltzDeck** plans ads, slideshows, presentations and explainers scene by scene.
+  The home page (www.clipwaltz.com) shows each one under **Four tools, one studio**, plus the latest videos people
+  shared to the community.
 - **New project:** give it a name (and a description if you like), then choose **AutoWaltz** (music video from my media)
   (pick an occasion and upload your clips) or **Waltz AI** (AI video from a template) (Product Promo, Social Reel, Story,
   Event Recap, Travel or Cinematic Intro — the **Waltz AI** tab opens with the template's settings ready).
@@ -359,6 +362,10 @@ was closed: click that icon (or the icon at the left of the address bar → **Si
 - **New project → WaltzDeck**, pick **Ad**, **Slideshow** or **Presentation** and a shape (vertical, wide, square or 4:5), then **Continue**.
 - **Write the brief:** what the video is for, the tone, any offer and your call to action (e.g. "Book at example.com").
   Choose **Text on video**: *Auto* (the AI writes it), *Manual* (you write it) or *Off*.
+- **Already have a script?** Paste it into the brief (up to 8,000 characters) as scenes — a `Scene 1` heading,
+  optional timing like `0:00–0:05`, then `On-screen text:` and `Voiceover:` lines. WaltzDeck builds one scene per
+  heading and uses your timing and words exactly as written; any picture description becomes that scene's suggested
+  AI shot.
 - **Add your photos and videos.** Give any of them a note and the AI follows it — "show this first", "end on this",
   "say it's organic". Put exact wording in quotes. The AI never invents prices, numbers or claims you didn't give it.
 - **Plan my video.** The AI looks at your files and builds a storyboard — one card per scene with the clip, the text

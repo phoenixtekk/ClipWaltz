@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { connection } from "next/server";
 import { watermarkPaidPlans } from "@/lib/watermark";
+import { getHomeData, type HomeData } from "@/lib/home-data";
+import type { FeedItem } from "@/lib/feed";
 import Image from "next/image";
 import {
   ArrowRight,
@@ -8,24 +10,32 @@ import {
   Upload,
   Wand2,
   Share2,
-  Music,
-  Clapperboard,
-  Palette,
-  Gauge,
-  ShieldCheck,
   Check,
-  Plane,
-  Briefcase,
-  Sparkles,
   Star,
+  Sparkles,
+  Heart,
+  Trophy,
+  ScrollText,
+  MessageSquareText,
+  FileDown,
+  FlaskConical,
+  Mic,
+  Languages,
+  Palette,
   Aperture,
+  CloudUpload,
+  Cpu,
+  PenLine,
+  Film,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { VideoPreview } from "@/components/video-preview";
+import { ToolTabs } from "@/components/home/tool-tabs";
 
 export const metadata = {
-  title: "ClipWaltz — your memories, shown to the beat",
+  title: "ClipWaltz — music videos, AI clips, presenters and ads in one studio",
   description:
-    "Drop in the photos and clips from your trip, event, or launch and ClipWaltz auto-edits them into a beat-synced, share-ready music video in under a minute. No editing required.",
+    "Turn your photos and clips into beat-synced music videos, make AI clips from a sentence, have a presenter read your script, and plan ads, slideshows and presentations scene by scene — all in ClipWaltz.",
 };
 
 // "No watermark" is only promised while the admin has paid plans exempt (/admin → Watermark).
@@ -35,7 +45,7 @@ async function paidPlansWatermarked(): Promise<boolean> {
 }
 
 export default async function Home() {
-  const paidWatermarked = await paidPlansWatermarked();
+  const [paidWatermarked, data] = await Promise.all([paidPlansWatermarked(), getHomeData()]);
   return (
     <main className="cw-landing relative min-h-screen w-full overflow-hidden">
       {/* aurora field */}
@@ -50,27 +60,30 @@ export default async function Home() {
         />
         <div
           className="cw-aurora cw-anim-float"
-          style={{ width: 460, height: 460, left: "30%", bottom: "-14%", background: "var(--cw-coral)" }}
+          style={{ width: 460, height: 460, left: "30%", top: "38%", background: "var(--cw-coral)" }}
         />
       </div>
 
       <div className="relative z-10">
-        <Nav />
-        <Hero />
-        <TwoVibes />
+        <Nav showcase={data.feed.length > 0} />
+        <Hero feed={data.feed} />
+        <UseCases />
+        <Tools videoVendors={data.videoVendors} />
+        <Showcase feed={data.feed} />
+        <ToolTiles />
+        <YourAi data={data} />
+        <Community contest={data.contest} />
         <HowItWorks />
-        <Features paidWatermarked={paidWatermarked} />
-        <Templates />
         <Pricing paidWatermarked={paidWatermarked} />
         <FinalCta />
-        <Footer />
+        <Footer showcase={data.feed.length > 0} />
       </div>
     </main>
   );
 }
 
 /* ---------------------------------------------------------------- Nav */
-function Nav() {
+function Nav({ showcase }: { showcase: boolean }) {
   return (
     <header className="sticky top-0 z-50 px-4 pt-4">
       <nav className="cw-glass-light mx-auto flex max-w-6xl items-center justify-between gap-4 rounded-2xl px-4 py-2.5 sm:px-5">
@@ -85,10 +98,11 @@ function Nav() {
           />
         </Link>
         <div className="hidden items-center gap-7 text-sm font-medium text-slate-700 md:flex">
-          <a href="#how" className="transition-colors hover:text-slate-950">How it works</a>
-          <a href="#features" className="transition-colors hover:text-slate-950">Features</a>
-          <a href="#templates" className="transition-colors hover:text-slate-950">Templates</a>
+          <a href="#tools" className="transition-colors hover:text-slate-950">Tools</a>
+          {showcase ? <a href="#showcase" className="transition-colors hover:text-slate-950">Showcase</a> : null}
           <a href="#pricing" className="transition-colors hover:text-slate-950">Pricing</a>
+          <Link href="/community" className="transition-colors hover:text-slate-950">Community</Link>
+          <Link href="/help" className="transition-colors hover:text-slate-950">Help</Link>
         </div>
         <div className="flex items-center gap-2">
           <ThemeToggle className="inline-flex size-9 items-center justify-center rounded-full text-slate-700 transition-colors hover:bg-black/5" />
@@ -111,267 +125,207 @@ function Nav() {
 }
 
 /* --------------------------------------------------------------- Hero */
-function Hero() {
+// Where the floating tiles sit around the headline on wide screens (left/right edges, staggered heights).
+const HERO_TILES = [
+  "left-[1%] top-[4%] w-28 rotate-[-6deg]",
+  "left-[8%] top-[44%] w-24 rotate-[4deg]",
+  "left-[0%] bottom-[-2%] w-20 rotate-[-3deg]",
+  "right-[2%] top-[2%] w-24 rotate-[6deg]",
+  "right-[7%] top-[40%] w-28 rotate-[-5deg]",
+  "right-[0%] bottom-[-4%] w-20 rotate-[3deg]",
+];
+const HERO_GRADS = [
+  "linear-gradient(140deg,#ff9966,#ff5e7e,#8b5cf6)",
+  "linear-gradient(140deg,#8b5cf6,#e05bd6,#ff7a59)",
+  "linear-gradient(140deg,#4f7cff,#8b5cf6,#e05bd6)",
+  "linear-gradient(140deg,#4f7cff,#22d3ee,#8b5cf6)",
+  "linear-gradient(140deg,#ff7a59,#e05bd6,#4f7cff)",
+  "linear-gradient(140deg,#22d3ee,#4f7cff,#8b5cf6)",
+];
+
+function Hero({ feed }: { feed: FeedItem[] }) {
   return (
-    <section className="mx-auto grid max-w-6xl items-center gap-12 px-5 pt-16 pb-20 lg:grid-cols-[1.05fr_0.95fr] lg:pt-24">
-      <div>
+    <section className="relative mx-auto max-w-6xl px-5 pt-14 pb-16 lg:pt-20 lg:pb-24">
+      {/* real community videos floating around the headline (gradients until there are some) */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 hidden xl:block">
+        {HERO_TILES.map((pos, i) => (
+          <div key={pos} className={`cw-glass cw-anim-drift absolute rounded-2xl p-1.5 ${pos}`} style={{ animationDelay: `${i * 0.7}s` }}>
+            <div className="relative aspect-[9/16] overflow-hidden rounded-xl" style={{ background: HERO_GRADS[i] }}>
+              {feed[i] ? <VideoPreview renderId={feed[i].renderId} /> : null}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="relative mx-auto max-w-3xl text-center">
         <span className="cw-glass cw-muted inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-medium">
           <Sparkles className="size-3.5 text-[color:var(--cw-coral)]" />
-          Auto music-video maker · no editing required
+          AutoWaltz · Waltz AI · Waltz Avatar · WaltzDeck
         </span>
-        <p className="cw-gradient-text mt-6 text-lg font-bold tracking-tight">ClipWaltz</p>
-        <h1 className="mt-1 text-balance text-5xl font-semibold leading-[1.03] tracking-tight sm:text-6xl">
-          Your memories,
+        <h1 className="mt-6 text-balance text-5xl font-semibold leading-[1.02] tracking-tight sm:text-6xl lg:text-7xl">
+          Every video you need,
           <br />
-          <span className="cw-gradient-text">Shown to the beat!</span>
+          <span className="cw-gradient-text">shown to the beat</span>
         </h1>
-        <p className="cw-muted mt-6 max-w-xl text-pretty text-lg leading-relaxed">
-          Drop in the photos and clips from your trip, your event, your launch. ClipWaltz
-          auto-edits them in the cloud into a beat-synced, share-ready music video — in under a
-          minute. No timeline. No editing. Just the good part.
+        <p className="cw-muted mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed">
+          Turn your camera roll into a music video, make new clips with AI, have a presenter read your script, and
+          plan ads, slideshows and presentations scene by scene. One studio, in the cloud — no timeline required.
         </p>
-        <div className="mt-8 flex flex-wrap items-center gap-3">
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
           <Link
             href="/projects"
-            className="cw-gradient cw-sheen inline-flex items-center gap-2 rounded-full px-6 py-3.5 text-base font-semibold text-white shadow-xl shadow-fuchsia-500/30"
+            className="cw-gradient cw-sheen inline-flex items-center gap-2 rounded-full px-7 py-4 text-base font-semibold text-white shadow-xl shadow-fuchsia-500/30"
           >
-            Let&apos;s Waltz <ArrowRight className="size-5" />
+            Start creating — it&apos;s free <ArrowRight className="size-5" />
           </Link>
           <a
-            href="#how"
-            className="cw-glass cw-fg inline-flex items-center gap-2 rounded-full px-6 py-3.5 text-base font-semibold transition-colors"
+            href={feed.length ? "#showcase" : "#tools"}
+            className="cw-glass cw-fg inline-flex items-center gap-2 rounded-full px-6 py-4 text-base font-semibold transition-colors"
           >
-            <Play className="size-4 fill-current" /> See how it works
+            <Play className="size-4 fill-current" /> {feed.length ? "See what people made" : "Explore the tools"}
           </a>
         </div>
-        <div className="cw-subtle mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
-          <span className="inline-flex items-center gap-1.5"><Check className="size-4 text-[color:var(--cw-blue)]" /> 9:16 for TikTok, Reels &amp; Shorts</span>
+        <div className="cw-subtle mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm">
+          <span className="inline-flex items-center gap-1.5"><Check className="size-4 text-[color:var(--cw-blue)]" /> 9:16, 16:9, 1:1 &amp; 4:5</span>
           <span className="inline-flex items-center gap-1.5"><Check className="size-4 text-[color:var(--cw-violet)]" /> Licensed music</span>
-          <span className="inline-flex items-center gap-1.5"><Check className="size-4 text-[color:var(--cw-coral)]" /> HD render</span>
+          <span className="inline-flex items-center gap-1.5"><Check className="size-4 text-[color:var(--cw-coral)]" /> Rendered in the cloud</span>
         </div>
       </div>
 
-      <div className="flex items-center justify-center lg:justify-end">
-        <PhoneMockup />
-      </div>
-    </section>
-  );
-}
-
-function PhoneMockup() {
-  return (
-    <div className="relative w-[248px] shrink-0 sm:w-[268px]">
-      <div
-        aria-hidden
-        className="cw-aurora"
-        style={{ width: 340, height: 340, inset: "10% 10% auto auto", background: "var(--cw-violet)", opacity: 0.5 }}
-      />
-      <div className="cw-glass cw-metal cw-anim-drift relative rounded-[2.6rem] p-3">
-        <div className="relative aspect-[9/19] w-[248px] overflow-hidden rounded-[2.1rem] bg-black text-white sm:w-[268px]">
-          {/* animated "clip" background */}
-          <div className="cw-gradient absolute inset-0 opacity-90" />
-          <div className="absolute inset-0 bg-[radial-gradient(120%_80%_at_50%_0%,transparent,rgba(0,0,0,0.55))]" />
-          {/* top chip */}
-          <div className="absolute inset-x-3 top-3 flex items-center justify-between text-[11px] font-medium text-white/90">
-            <span className="cw-glass-dark rounded-full px-2.5 py-1">Trip · Italy</span>
-            <span className="cw-glass-dark inline-flex items-center gap-1 rounded-full px-2.5 py-1">
-              <Music className="size-3" /> Golden Hour
-            </span>
-          </div>
-          {/* floating frames */}
-          <div className="absolute left-4 top-1/3 h-16 w-24 rotate-[-6deg] rounded-xl border border-white/25 bg-white/10 backdrop-blur-sm" />
-          <div className="absolute right-4 top-[42%] h-20 w-28 rotate-[7deg] rounded-xl border border-white/25 bg-white/10 backdrop-blur-sm" />
-          {/* play */}
-          <div className="absolute left-1/2 top-1/2 flex size-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 shadow-2xl">
-            <Play className="size-6 translate-x-0.5 fill-slate-900 text-slate-900" />
-          </div>
-          {/* equalizer + progress */}
-          <div className="absolute inset-x-3 bottom-3 space-y-2">
-            <EqBars />
-            <div className="h-1 w-full overflow-hidden rounded-full bg-white/25">
-              <div className="cw-gradient h-full w-2/3 rounded-full" />
+      {/* phones/tablets: the same videos as a row under the headline */}
+      {feed.length > 0 ? (
+        <div aria-hidden className="mt-10 flex justify-center gap-3 xl:hidden">
+          {feed.slice(0, 3).map((f, i) => (
+            <div key={f.renderId} className={`cw-glass rounded-2xl p-1.5 ${i === 2 ? "hidden sm:block" : ""}`}>
+              <div className="relative aspect-[9/16] w-28 overflow-hidden rounded-xl" style={{ background: HERO_GRADS[i] }}>
+                <VideoPreview renderId={f.renderId} />
+              </div>
             </div>
-          </div>
+          ))}
         </div>
-      </div>
-      {/* floating stat cards */}
-      <div className="cw-glass cw-metal absolute -left-10 top-14 z-20 hidden whitespace-nowrap rounded-2xl px-3.5 py-2.5 xl:block">
-        <p className="cw-subtle text-[11px]">Render time</p>
-        <p className="cw-fg text-lg font-semibold">~48s</p>
-      </div>
-      <div className="cw-glass cw-metal absolute -right-10 bottom-16 z-20 hidden whitespace-nowrap rounded-2xl px-3.5 py-2.5 xl:block">
-        <p className="cw-subtle text-[11px]">Beat-synced</p>
-        <p className="cw-fg inline-flex items-center gap-1 text-lg font-semibold">
-          <Wand2 className="size-4 text-[color:var(--cw-coral)]" /> Auto
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function EqBars() {
-  const bars = [0.2, 0.5, 0.1, 0.35, 0.7, 0.25, 0.55, 0.15, 0.45, 0.3, 0.6, 0.2, 0.4, 0.1, 0.5];
-  return (
-    <div className="flex h-8 items-end justify-between gap-[3px]">
-      {bars.map((d, i) => (
-        <span
-          key={i}
-          className="cw-eq-bar w-full origin-bottom rounded-full bg-white/85"
-          style={{
-            height: "100%",
-            animation: `cw-eq ${0.9 + (i % 4) * 0.18}s ease-in-out ${i * 0.06}s infinite`,
-            transform: `scaleY(${d})`,
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
-/* ---------------------------------------------------------- Two vibes */
-function TwoVibes() {
-  return (
-    <section className="mx-auto max-w-6xl px-5 py-12">
-      <div className="mx-auto max-w-2xl text-center">
-        <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">One App, Two Vibes</h2>
-        <p className="cw-muted mt-3">
-          The same one-minute magic, whether you&apos;re chasing sunsets or shipping a brand.
-        </p>
-      </div>
-      <div className="mt-10 grid gap-5 md:grid-cols-2">
-        <VibeCard
-          icon={<Plane className="size-5" />}
-          tint="var(--cw-coral)"
-          kicker="For the fun"
-          title="Turn the trip into a vibe"
-          body="Beaches, road trips, birthdays, weddings. Hand ClipWaltz the camera roll and get back a highlight reel worth posting — before the tan fades."
-          tags={["Vacations", "Weddings", "Birthdays", "Everyday"]}
-        />
-        <VibeCard
-          icon={<Briefcase className="size-5" />}
-          tint="var(--cw-blue)"
-          kicker="For the brand"
-          title="Make the brand move"
-          body="Product drops, event recaps, testimonials, weekly updates. On-brand music videos your team can ship daily, without a video editor on payroll."
-          tags={["Launches", "Events", "Recaps", "Social"]}
-        />
-      </div>
+      ) : null}
     </section>
   );
 }
 
-function VibeCard({
-  icon,
-  tint,
-  kicker,
-  title,
-  body,
-  tags,
-}: {
-  icon: React.ReactNode;
-  tint: string;
-  kicker: string;
-  title: string;
-  body: string;
-  tags: string[];
-}) {
-  return (
-    <div className="cw-glass cw-metal cw-lift overflow-hidden rounded-3xl p-7">
-      <div
-        className="mb-5 inline-flex size-11 items-center justify-center rounded-xl text-white"
-        style={{ background: `color-mix(in oklab, ${tint}, transparent 15%)` }}
-      >
-        {icon}
-      </div>
-      <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: tint }}>
-        {kicker}
-      </p>
-      <h3 className="mt-1.5 text-2xl font-semibold tracking-tight">{title}</h3>
-      <p className="cw-muted mt-3">{body}</p>
-      <div className="mt-5 flex flex-wrap gap-2">
-        {tags.map((t) => (
-          <span key={t} className="cw-fill cw-hair cw-muted rounded-full border px-3 py-1 text-xs">
-            {t}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------- How it works */
-function HowItWorks() {
-  const steps = [
-    {
-      icon: <Upload className="size-5" />,
-      title: "Drop it in",
-      body: "Upload the photos and clips from any device. Phone, laptop, or a shared drive — no cables, no timeline.",
-    },
-    {
-      icon: <Wand2 className="size-5" />,
-      title: "We waltz it",
-      body: "AutoWaltz cuts to the beat in the cloud, drops in licensed music, and sizes everything 9:16 for social.",
-    },
-    {
-      icon: <Share2 className="size-5" />,
-      title: "Post it",
-      body: "Preview instantly, render in crisp HD, and download or share it everywhere. Done before your coffee.",
-    },
-  ];
-  return (
-    <section id="how" className="mx-auto max-w-6xl scroll-mt-24 px-5 py-16">
-      <div className="mx-auto max-w-2xl text-center">
-        <p className="text-sm font-semibold uppercase tracking-widest text-[color:var(--cw-violet)]">
-          How it works
-        </p>
-        <h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
-          Three steps to Pictures becoming Videos
-        </h2>
-      </div>
-      <div className="mt-12 grid gap-5 md:grid-cols-3">
-        {steps.map((s, i) => (
-          <div key={s.title} className="cw-glass cw-lift relative rounded-3xl p-7">
-            <div className="cw-gradient-text text-6xl font-bold leading-none">{i + 1}</div>
-            <div className="cw-fill cw-fg mt-4 inline-flex size-11 items-center justify-center rounded-xl">
-              {s.icon}
-            </div>
-            <h3 className="mt-4 text-xl font-semibold">{s.title}</h3>
-            <p className="cw-muted mt-2">{s.body}</p>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-/* ----------------------------------------------------------- Features */
-function Features({ paidWatermarked }: { paidWatermarked: boolean }) {
+/* ---------------------------------------------------------- Use cases */
+function UseCases() {
   const items = [
-    { icon: <Clapperboard className="size-5" />, title: "AutoWaltz", body: "Beat-synced cuts from your own photos and clips — every edit lands on the beat automatically." },
-    { icon: <Wand2 className="size-5" />, title: "Waltz AI", body: "Describe a scene or animate a photo and Waltz AI creates brand-new video clips — then enhance, storyboard and export them." },
-    { icon: <Music className="size-5" />, title: "Licensed music", body: "A curated catalog of royalty-free tracks — safe to post, mood by mood." },
-    { icon: <Play className="size-5" />, title: "Instant draft preview", body: "See the whole cut in the editor before you commit to a full render." },
-    { icon: <Gauge className="size-5" />, title: "Cloud HD render", body: "1080p 9:16 rendered on our machines, not your laptop. Leave and come back." },
-    { icon: <Palette className="size-5" />, title: "Occasion templates", body: "Trip, event, birthday, or ‘surprise me’ — start from a vibe that fits." },
-    { icon: <Aperture className="size-5" />, title: "360 camera ready", body: "Drop in Insta360 (.insv) & 360 footage — we reframe it into a normal, shareable video. No desktop software." },
-    ...(paidWatermarked ? [] : [{ icon: <ShieldCheck className="size-5" />, title: "Watermark-free", body: "Upgrade to export clean, full-length videos with no watermark." }]),
+    { label: "Music video", tool: "AutoWaltz" },
+    { label: "Trip highlight reel", tool: "AutoWaltz" },
+    { label: "AI clip from a sentence", tool: "Waltz AI" },
+    { label: "Photo brought to life", tool: "Waltz AI" },
+    { label: "Talking presenter", tool: "Waltz Avatar" },
+    { label: "Translated video", tool: "Waltz Avatar" },
+    { label: "Product ad", tool: "WaltzDeck" },
+    { label: "Slideshow", tool: "WaltzDeck" },
+    { label: "Presentation", tool: "WaltzDeck" },
+    { label: "Explainer", tool: "WaltzDeck" },
   ];
   return (
-    <section id="features" className="mx-auto max-w-6xl scroll-mt-24 px-5 py-16">
-      <div className="mx-auto max-w-2xl text-center">
-        <p className="text-sm font-semibold uppercase tracking-widest text-[color:var(--cw-blue)]">
-          Features
+    <section aria-labelledby="usecases-h" className="mx-auto max-w-6xl px-5 pb-8">
+      <h2 id="usecases-h" className="cw-subtle text-center text-xs font-semibold uppercase tracking-widest">
+        Make a…
+      </h2>
+      <ul className="mt-4 flex flex-wrap justify-center gap-2">
+        {items.map((it) => (
+          <li key={it.label}>
+            <Link
+              href="/projects"
+              className="cw-glass cw-fg inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-transform hover:-translate-y-0.5"
+            >
+              {it.label}
+              <span className="cw-subtle text-xs">· {it.tool}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------------- Tools */
+function Tools({ videoVendors }: { videoVendors: string[] }) {
+  return (
+    <section id="tools" className="mx-auto max-w-6xl scroll-mt-24 px-5 py-16">
+      <div className="mx-auto mb-10 max-w-2xl text-center">
+        <p className="text-sm font-semibold uppercase tracking-widest text-[color:var(--cw-violet)]">Four tools, one studio</p>
+        <h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Pick how you want to make it</h2>
+        <p className="cw-muted mt-3">
+          Start from your own media, from a sentence, from a presenter or from a brief. Everything lands in the same
+          projects, editor and cloud render.
         </p>
-        <h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
-          From Camera Roll to Cinematic Videos
-        </h2>
+      </div>
+      <ToolTabs videoVendors={videoVendors} />
+    </section>
+  );
+}
+
+/* ----------------------------------------------------------- Showcase */
+function Showcase({ feed }: { feed: FeedItem[] }) {
+  if (feed.length === 0) return null;
+  return (
+    <section id="showcase" className="mx-auto max-w-6xl scroll-mt-24 px-5 py-16">
+      <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
+        <div className="max-w-xl">
+          <p className="text-sm font-semibold uppercase tracking-widest text-[color:var(--cw-coral)]">Showcase</p>
+          <h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Made with ClipWaltz</h2>
+          <p className="cw-muted mt-3">The latest videos creators chose to share. Hover to play.</p>
+        </div>
+        <Link
+          href="/community"
+          className="cw-glass cw-fg inline-flex items-center gap-1.5 rounded-full px-5 py-2.5 text-sm font-semibold"
+        >
+          See the community <ArrowRight className="size-4" />
+        </Link>
+      </div>
+      <div className="mt-10 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {feed.slice(0, 8).map((f, i) => (
+          <Link
+            key={f.renderId}
+            href={`/w/${f.renderId}`}
+            className={`cw-glass cw-lift group overflow-hidden rounded-2xl p-1.5 ${i >= 6 ? "hidden lg:block" : ""}`}
+          >
+            <div className="relative aspect-[3/4] overflow-hidden rounded-xl" style={{ background: HERO_GRADS[i % HERO_GRADS.length] }}>
+              <VideoPreview renderId={f.renderId} />
+              <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[11px] text-white">
+                <Heart className="size-3" /> {f.likes}
+              </span>
+            </div>
+            <div className="px-2 pb-1.5 pt-2.5">
+              <p className="truncate text-sm font-semibold">{f.title}</p>
+              <p className="cw-subtle truncate text-xs">by {f.creator}</p>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* --------------------------------------------------------- Tool tiles */
+function ToolTiles() {
+  const tiles = [
+    { icon: <ScrollText className="size-5" />, title: "Script briefs, followed exactly", body: "Paste a scene-by-scene script — timing, on-screen text, voiceover — and WaltzDeck uses your words as written." },
+    { icon: <MessageSquareText className="size-5" />, title: "Edit with AI chat", body: "Ask for changes to a scene in plain words and see what changed." },
+    { icon: <FileDown className="size-5" />, title: "PDF & PowerPoint", body: "Export a deck as PDF or PowerPoint, or start one from a PPTX, a PDF or a web page." },
+    { icon: <FlaskConical className="size-5" />, title: "Campaign packs", body: "Test hooks × calls to action × lengths × shapes, with stats per variant." },
+    { icon: <Mic className="size-5" />, title: "Your own voice", body: "After a recorded voice consent, your presenter narrates in your voice." },
+    { icon: <Languages className="size-5" />, title: "Translate a video", body: "A video of yourself, translated and spoken in your voice with the lips re-synced." },
+    { icon: <Palette className="size-5" />, title: "Brand kit from your website", body: "Pull your colours, fonts and logo from your site so every deck looks like you." },
+    { icon: <Aperture className="size-5" />, title: "360 camera ready", body: "Insta360 .insv and 360 footage reframed into a normal, shareable video." },
+    { icon: <CloudUpload className="size-5" />, title: "Saves to your cloud", body: "Finished videos can save automatically to Google Drive or Dropbox." },
+  ];
+  return (
+    <section className="mx-auto max-w-6xl px-5 py-16">
+      <div className="mx-auto max-w-2xl text-center">
+        <p className="text-sm font-semibold uppercase tracking-widest text-[color:var(--cw-blue)]">Built in</p>
+        <h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">The details that save you an afternoon</h2>
       </div>
       <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {items.map((it) => (
+        {tiles.map((it) => (
           <div key={it.title} className="cw-glass cw-metal cw-lift rounded-2xl p-6">
-            <div className="cw-ring cw-fg mb-4 inline-flex size-11 items-center justify-center rounded-xl">
-              {it.icon}
-            </div>
+            <div className="cw-ring cw-fg mb-4 inline-flex size-11 items-center justify-center rounded-xl">{it.icon}</div>
             <h3 className="text-lg font-semibold">{it.title}</h3>
             <p className="cw-muted mt-1.5 text-sm">{it.body}</p>
           </div>
@@ -381,42 +335,136 @@ function Features({ paidWatermarked }: { paidWatermarked: boolean }) {
   );
 }
 
-/* ---------------------------------------------------------- Templates */
-function Templates() {
-  const cards = [
-    { name: "Trip", vibe: "Golden, sun-soaked, wanderlust", grad: "linear-gradient(140deg,#ff9966,#ff5e7e,#8b5cf6)" },
-    { name: "Wedding & Events", vibe: "Cinematic, warm, unforgettable", grad: "linear-gradient(140deg,#8b5cf6,#e05bd6,#ff7a59)" },
-    { name: "Birthday", vibe: "Bright, playful, confetti energy", grad: "linear-gradient(140deg,#4f7cff,#8b5cf6,#e05bd6)" },
-    { name: "Surprise me", vibe: "Let ClipWaltz pick the mood", grad: "linear-gradient(140deg,#4f7cff,#22d3ee,#8b5cf6)" },
+/* ------------------------------------------------------------ Your AI */
+// Shown only once the admin offers something beyond the built-in model (/admin/ai), so it never promises a choice
+// that isn't there.
+function YourAi({ data }: { data: HomeData }) {
+  if (!data.writers.length && !data.videoVendors.length && !data.connector) return null;
+  const writers = ["ClipWaltz AI (built in)", ...data.writers];
+  const video = ["ClipWaltz AI (built in)", ...data.videoVendors];
+  const rows: { icon: React.ReactNode; title: string; body: string; chips: string[] }[] = [
+    {
+      icon: <PenLine className="size-5" />,
+      title: "Who writes your WaltzDeck",
+      body: data.writers.length
+        ? "Plans, narration and rewrites come from the model you choose under AI models."
+        : "Plans, narration and rewrites come from ClipWaltz's own model.",
+      chips: writers,
+    },
+    {
+      icon: <Film className="size-5" />,
+      title: "Who makes your Waltz AI clips",
+      body: data.videoVendors.length
+        ? "Pick a video model per clip; each one shows its credit cost first."
+        : "Clips are made by ClipWaltz's own model.",
+      chips: video,
+    },
+  ];
+  if (data.connector) {
+    rows.push({
+      icon: <Cpu className="size-5" />,
+      title: "Or your own computer",
+      body: "The ClipWaltz Connector lets the AI run on your own machine — it connects out to ClipWaltz, nothing to open on your router.",
+      chips: ["ClipWaltz Connector"],
+    });
+  }
+  return (
+    <section className="mx-auto max-w-6xl px-5 py-16">
+      <div className="mx-auto max-w-2xl text-center">
+        <p className="text-sm font-semibold uppercase tracking-widest text-[color:var(--cw-violet)]">Your AI, your choice</p>
+        <h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Use ours, or bring your own</h2>
+      </div>
+      <div className={`mt-12 grid gap-4 ${rows.length === 3 ? "lg:grid-cols-3" : "md:grid-cols-2"}`}>
+        {rows.map((r) => (
+          <div key={r.title} className="cw-glass rounded-3xl p-6">
+            <div className="cw-fill cw-fg inline-flex size-11 items-center justify-center rounded-xl">{r.icon}</div>
+            <h3 className="mt-4 text-lg font-semibold">{r.title}</h3>
+            <p className="cw-muted mt-1.5 text-sm">{r.body}</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {r.chips.map((c) => (
+                <span key={c} className="cw-fill cw-hair cw-fg rounded-full border px-3 py-1 text-xs font-medium">{c}</span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ---------------------------------------------------------- Community */
+function Community({ contest }: { contest: HomeData["contest"] }) {
+  return (
+    <section className="mx-auto max-w-6xl px-5 py-12">
+      <div className="cw-glass cw-metal grid items-center gap-6 rounded-[2rem] p-7 sm:p-10 md:grid-cols-[1fr_auto]">
+        <div>
+          {contest ? (
+            <>
+              <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-[color:var(--cw-violet)]">
+                <Trophy className="size-3.5" /> Monthly Theme Challenge
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">This month: {contest.theme}</h2>
+              <p className="cw-muted mt-2 max-w-xl">
+                {contest.description ? `${contest.description} ` : ""}Share a video to the community — likes are votes,
+                and the winner gets ClipWaltz Pro.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-[color:var(--cw-violet)]">
+                <Heart className="size-3.5" /> Community
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Share it, like it, chat about it</h2>
+              <p className="cw-muted mt-2 max-w-xl">
+                Post your videos to the community feed, like other creators&apos; work and see the most-liked videos
+                and top posters.
+              </p>
+            </>
+          )}
+        </div>
+        <Link
+          href="/community"
+          className="cw-gradient cw-sheen inline-flex items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/25"
+        >
+          Visit the community <ArrowRight className="size-4" />
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------- How it works */
+function HowItWorks() {
+  const steps = [
+    {
+      icon: <Upload className="size-5" />,
+      title: "Bring something",
+      body: "Your photos and clips, a sentence for Waltz AI, a script for your presenter, or a brief for WaltzDeck.",
+    },
+    {
+      icon: <Wand2 className="size-5" />,
+      title: "ClipWaltz builds it",
+      body: "Beat-synced cuts, AI clips, a talking presenter or a scene-by-scene plan — ready to tweak in the editor.",
+    },
+    {
+      icon: <Share2 className="size-5" />,
+      title: "Render & share",
+      body: "Render in the cloud, then download, save to your cloud or share it to the community.",
+    },
   ];
   return (
-    <section id="templates" className="mx-auto max-w-6xl scroll-mt-24 px-5 py-16">
-      <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
-        <div className="max-w-xl">
-          <p className="text-sm font-semibold uppercase tracking-widest text-[color:var(--cw-coral)]">
-            Templates
-          </p>
-          <h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
-            Start from a vibe
-          </h2>
-          <p className="cw-muted mt-3">
-            Pick the occasion and ClipWaltz tunes the pacing, music, and mood to match.
-          </p>
-        </div>
+    <section id="how" className="mx-auto max-w-6xl scroll-mt-24 px-5 py-16">
+      <div className="mx-auto max-w-2xl text-center">
+        <p className="text-sm font-semibold uppercase tracking-widest text-[color:var(--cw-violet)]">How it works</p>
+        <h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Three steps, whichever tool you pick</h2>
       </div>
-      <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {cards.map((c) => (
-          <div key={c.name} className="cw-glass cw-lift cw-sheen overflow-hidden rounded-2xl p-2">
-            <div className="relative aspect-[3/4] overflow-hidden rounded-xl" style={{ background: c.grad }}>
-              <div className="absolute inset-0 bg-[radial-gradient(120%_90%_at_50%_0%,transparent,rgba(0,0,0,0.5))]" />
-              <div className="absolute left-1/2 top-1/2 flex size-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/85">
-                <Play className="size-4 translate-x-0.5 fill-slate-900 text-slate-900" />
-              </div>
-            </div>
-            <div className="px-3 pb-2 pt-3">
-              <h3 className="font-semibold">{c.name}</h3>
-              <p className="cw-subtle text-xs">{c.vibe}</p>
-            </div>
+      <div className="mt-12 grid gap-5 md:grid-cols-3">
+        {steps.map((s, i) => (
+          <div key={s.title} className="cw-glass cw-lift relative rounded-3xl p-7">
+            <div className="cw-gradient-text text-6xl font-bold leading-none">{i + 1}</div>
+            <div className="cw-fill cw-fg mt-4 inline-flex size-11 items-center justify-center rounded-xl">{s.icon}</div>
+            <h3 className="mt-4 text-xl font-semibold">{s.title}</h3>
+            <p className="cw-muted mt-2">{s.body}</p>
           </div>
         ))}
       </div>
@@ -529,8 +577,8 @@ function FinalCta() {
             Make your first <span className="cw-gradient-text">ClipWaltz</span> today
           </h2>
           <p className="cw-muted mx-auto mt-4 max-w-xl">
-            The trip already happened. The launch is live. Turn what you captured into something
-            worth watching — in the next minute.
+            A music video from the trip, an ad for the launch, a presenter for the update. Start free and see it
+            take shape.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
             <Link
@@ -553,25 +601,42 @@ function FinalCta() {
 }
 
 /* ------------------------------------------------------------- Footer */
-function Footer() {
+function Footer({ showcase }: { showcase: boolean }) {
+  const cols: { title: string; links: [string, string][] }[] = [
+    { title: "Tools", links: [["AutoWaltz", "#tools"], ["Waltz AI", "#tools"], ["Waltz Avatar", "#tools"], ["WaltzDeck", "#tools"]] },
+    { title: "Explore", links: [...(showcase ? [["Showcase", "#showcase"] as [string, string]] : []), ["Community", "/community"], ["How it works", "#how"], ["Pricing", "#pricing"]] },
+    { title: "Support", links: [["Help Center", "/help"], ["Log in", "/sign-in"], ["Sign up", "/sign-up"]] },
+    { title: "Legal", links: [["Terms", "/terms"], ["Privacy", "/privacy"], ["Refunds", "/refund"]] },
+  ];
   return (
     <footer className="cw-hair border-t px-5 py-12">
-      <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-6 sm:flex-row">
-        <div className="cw-glass-light inline-flex items-center rounded-xl px-3 py-2">
-          <Image src="/logo-name-1.png" alt="ClipWaltz" width={1204} height={306} className="h-6 w-auto" />
+      <div className="mx-auto grid max-w-6xl gap-10 md:grid-cols-[1.2fr_repeat(4,1fr)]">
+        <div>
+          <div className="cw-glass-light inline-flex items-center rounded-xl px-3 py-2">
+            <Image src="/logo-name-1.png" alt="ClipWaltz" width={1204} height={306} className="h-6 w-auto" />
+          </div>
+          <p className="cw-subtle mt-4 max-w-xs text-sm">
+            Music videos, AI clips, presenters and decks — one studio, in the cloud.
+          </p>
         </div>
-        <div className="cw-subtle flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm">
-          <a href="#how" className="transition-colors hover:text-[color:var(--cw-fg)]">How it works</a>
-          <a href="#features" className="transition-colors hover:text-[color:var(--cw-fg)]">Features</a>
-          <a href="#pricing" className="transition-colors hover:text-[color:var(--cw-fg)]">Pricing</a>
-          <Link href="/help" className="transition-colors hover:text-[color:var(--cw-fg)]">Help</Link>
-          <Link href="/terms" className="transition-colors hover:text-[color:var(--cw-fg)]">Terms</Link>
-          <Link href="/privacy" className="transition-colors hover:text-[color:var(--cw-fg)]">Privacy</Link>
-          <Link href="/refund" className="transition-colors hover:text-[color:var(--cw-fg)]">Refunds</Link>
-          <Link href="/sign-in" className="transition-colors hover:text-[color:var(--cw-fg)]">Log in</Link>
-        </div>
+        {cols.map((c) => (
+          <div key={c.title}>
+            <p className="cw-fg text-sm font-semibold">{c.title}</p>
+            <ul className="cw-subtle mt-3 space-y-2 text-sm">
+              {c.links.map(([label, href]) => (
+                <li key={label}>
+                  {href.startsWith("#") ? (
+                    <a href={href} className="transition-colors hover:text-[color:var(--cw-fg)]">{label}</a>
+                  ) : (
+                    <Link href={href} className="transition-colors hover:text-[color:var(--cw-fg)]">{label}</Link>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
       </div>
-      <p className="cw-subtle mx-auto mt-8 max-w-6xl text-center text-xs sm:text-left">
+      <p className="cw-subtle mx-auto mt-10 max-w-6xl text-center text-xs sm:text-left">
         © {new Date().getFullYear()} ClipWaltz · www.clipwaltz.com — your memories, shown to the beat.
       </p>
     </footer>
