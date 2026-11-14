@@ -498,6 +498,7 @@ Honest residue: competitor intelligence on Meta/TikTok, direct ads-manager push,
 | D8 | Semrush deferred |
 | D9 | Workspace roles + one new `approver` capability |
 | §4.7 | Credits and plan limits **approved as proposed** |
+| SP (2026-11-14, later) | **publish.phoenixtekk.com stays live for Phoenixtekk staff. It is NOT paused or redirected at cut-over.** This replaces the §5 "redirect everything else" row and the SP-pause half of `--activate`. ClipWaltz runs its own network apps, starting with a new Meta Threads app (`docs/social/THREADS_META_SETUP.md`). |
 | UI | **All new screens use shadcn/ui (https://ui.shadcn.com/)** via the repo's existing `components.json` (`style: base-nova`, Base UI primitives, lucide icons). Add components with `npx shadcn@latest add <name>`; do not port SP's own UI components. |
 
 Consequence: `publish.phoenixtekk.com` stays alive as a Phoenixtekk-internal tool (funnels, Autonnel, Problem Finder); only the social-publishing user surface, the podcast and the explainer/Shorts pipeline move.
