@@ -1649,3 +1649,13 @@ when a ClipWaltz tab is focused (the in-tab notification covers that case).
 - *Subscriptions not sending:* check `push_subscriptions` has rows for the user; server logs
   `[push] send failed (<code>)`. 404/410 rows self-prune; a 403 means a VAPID key mismatch (the
   keys the subscription was created with differ from the server's — re-subscribe after a key change).
+
+## All social publishing paused by owner (2026-11-14 ~22:35 UTC)
+- **Social Publishing (publish.phoenixtekk.com, stays live for staff):** all 20 channels set `paused=true`; Shorts rule
+  "Intune quick tips" set inactive (was due 2026-11-16 16:20 UTC); Auto Post rules were already all off; nothing
+  scheduled or retrying. Resume per channel on SP's Networks page; turn rules back on in Auto Post / Shorts.
+- **ClipWaltz:** all 20 imported channels also `paused=true` and still `migration_hold='sp-import'` (kept on purpose: a
+  released connection gets background Threads/LinkedIn token refresh, which could rotate the token SP still uses). No
+  rules active, nothing scheduled. New channels connected in ClipWaltz are not held and can be resumed in the UI.
+- **Verified:** SP cron sweep 15:35/15:36 MST and a ClipWaltz `--sweep-once` both published 0, errors none.
+- **Undo snapshot:** `linuxg1:~/backups/pause-20261114-pause/*.csv` (prior `paused`/`active`/hold values for both apps).
