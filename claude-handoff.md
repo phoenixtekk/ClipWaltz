@@ -14,6 +14,25 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
+## Social Publishing P6b — deployed 2026-11-14 (branch `feat/social-publish-20261114`)
+- **Prod = `deploy/social-p6b-20261114` @ `c08fdc3`** (P1–P6a + P6b: G10 store catalogs, G12 public API + keys, G13 MCP
+  `/mcp`, G11 Meta/Google ads export, G7 competitors, G16 PWA; G17 not built — D8). Migration **0070** (70 → 71 rows, no
+  DROP lines, drift columns intact). No new deps/env. Flag still unset. Details + runbook: ADMIN_DOCS → "Social
+  Publishing — P6b".
+- **Backups (linuxg1):** `~/backups/clipwaltz-{src,db,next,package-lock}-pre-social-20261114-p6b*`,
+  `.env.local.bak-pre-social-20261114-p6b`.
+- **Verified after deploy:** www 200, apex 308, `/manifest.webmanifest` 200, `/api/v1/openapi.json` 200 (3.1.0, server
+  www), unauthenticated `/api/v1/posts` 401, unauthenticated `/mcp` 401, `/offline` 200, `/help/api` 200,
+  publish.phoenixtekk.com 200, pm2 three online, 5 sweeps after restart all `scheduledPublished 0`, errors [], 0 failed jobs.
+- **Dev acceptance:** `scripts/test-p6b.mts` 22/22 (keys, scopes, Pro gate, cross-workspace, idempotency, rate limit,
+  revoke, MCP handshake + tools, webhook HMAC, disconnect cascade, live Woo sync 46, CSV columns, feeds/robots);
+  `scripts/social-selftest.mts` 22/22. Shopify live read from linuxg1 (beardbrand 69, kith 250, allbirds 250); the
+  workstation IP gets 429 from Shopify storefronts.
+- **Open / unverified:** Wix sync never run against a live site; Meta CSV headers unverified against Meta's template;
+  Lighthouse not run (installability criteria checked by hand); push-on-Android for approvals not tested; MCP not yet
+  connected from Claude Desktop/Code; API outgoing webhooks + create-project/render endpoints not built; competitor
+  auto-refresh job not built.
+
 ## Social Publishing P6a — deployed 2026-11-14 (branch `feat/social-publish-20261114`)
 - **Prod = `deploy/social-p6a-20261114` @ `8db2cc2`** (P1–P5 + P6a: G9 approvals, G6 best times, G15 workspace switcher,
   G14 Plan a week, G4 per-network copy, G3 product link pack, G8 estimate). Migration **0069** on prod (69 → 70 rows; no

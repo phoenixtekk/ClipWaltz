@@ -1254,7 +1254,12 @@ Plan §6 G10, G12, G13, G11, G7, G16 (G17 not built — D8 deferred). Migration 
 (additive: `commerce_connections`, `api_keys`, `api_requests`, `api_idempotency`, `competitor_sources`,
 `competitor_posts`; `product_sources.connection_id / external_id / available` + unique (connection_id, external_id)).
 No DROP lines (checked). No new npm packages, no new env vars. Acceptance test: `scripts/test-p6b.mts` (below).
-DEPLOY_LINE_PLACEHOLDER
+**Deployed to prod 2026-11-14** — deploy branch `deploy/social-p6b-20261114` @ `c08fdc3`. linuxg1 backups
+`~/backups/clipwaltz-{src,db,next,package-lock}-pre-social-20261114-p6b*` + `.env.local.bak-pre-social-20261114-p6b`;
+59-file overlay (prod's 14 modified files matched `a5823cc` first, line endings aside); migration 0070 (70 → 71 rows;
+drift columns `render_workers` + 0052 lease columns verified present); no npm/env changes; `next build` exit 0;
+`pm2 restart clipwaltz clipwaltz-gen-worker clipwaltz-social-worker`. Flag still unset. Rollback: restore the src tarball +
+`.next` copy, restart the three; 0070 is additive and can stay.
 - **New public paths (`src/proxy.ts`):** `/api/v1/*` and `/mcp` (gated per request by API key), `/api/commerce/<shopify|woocommerce>/webhook/<id>`
   (HMAC-gated), `/manifest.webmanifest`, `/offline`.
 - **G12 API keys (`src/lib/api-keys.ts`):** secret `cwk_` + 43 base64url chars, shown once; `api_keys.hash` = SHA-256 hex,
