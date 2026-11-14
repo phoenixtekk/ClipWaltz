@@ -14,6 +14,18 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
+## Social Publishing P4 — deployed 2026-11-14 (branch `feat/social-publish-20261114`)
+- **Prod = `deploy/social-20261114` @ `691593d`** (P1–P3 + P4 import script + migration 0067 hold). Flag
+  `SOCIAL_PUBLISHING_ENABLED` unset (admin-only). New pm2 `clipwaltz-social-worker`. Migrations 0064–0067 on prod (68 rows).
+  Details, backups, env, rollback: ADMIN_DOCS → "Social Publishing — P4 data import + prod deploy".
+- **SP data NOT imported — owner decision needed:** SP's data belongs to `lacy@phoenixtekk.com`, which has no ClipWaltz
+  account; the owner's ClipWaltz account is `lacy@clipwaltz.com`. Options: run with
+  `--map lacy@phoenixtekk.com=lacy@clipwaltz.com` (dry-run preview done: 19 conns / 494 posts / 2,391 targets / 1,860
+  media), or the owner signs up as lacy@phoenixtekk.com first. Then `--apply` (all held), later `--activate` at cut-over.
+- **Owner TODO before OAuth connects work on ClipWaltz:** register `https://www.clipwaltz.com/api/social/oauth/<p>/callback`
+  in each provider app; brand fonts on linuxg1 (`fonts-inter fonts-lato fonts-montserrat fonts-open-sans fonts-roboto
+  fonts-noto-core`) need sudo apt + app restart.
+
 ## Working state (2026-10-14, v15) — Phase C2 talking photo LIVE on prod
 **Branch `claude/continue-previous-b21cc2`** (worktree `.claude/worktrees/continue-previous-728cde`), not pushed / not merged.
 **Prod = deploy branch `deploy/c2-20261014` @ `fbf630e`** (= `218a851` + C2; render-scaling code still out). Deployed

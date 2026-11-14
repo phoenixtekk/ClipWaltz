@@ -1113,7 +1113,7 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
 
 ## Social Publishing — P1 publishing core (2026-11-14, ADR-0011)
 Port of publish.phoenixtekk.com's publishing core (plan `docs/PREDIS_PARITY_AND_PUBLISH_MERGE_PLAN.md` §4, P1). **No UI
-yet** (P2); behind `SOCIAL_PUBLISHING_ENABLED` (off → only `ADMIN_EMAILS` accounts). **Not deployed.**
+yet** (P2); behind `SOCIAL_PUBLISHING_ENABLED` (off → only `ADMIN_EMAILS` accounts). **Deployed to prod 2026-11-14** (see P4 below).
 - **Schema:** `0064_social_publishing` — `social_connections`, `social_posts` (+ `render_id`/`export_id`, D9
   `approval_status`/`approved_by`/`approved_at`), `social_post_targets` (+ `metrics`), `social_media` (`storage_key`),
   `social_auto_rules` (+ per-rule `timezone`), `social_auto_presets`, `social_snippets`, `social_ai_generations`;
@@ -1170,7 +1170,7 @@ yet** (P2); behind `SOCIAL_PUBLISHING_ENABLED` (off → only `ADMIN_EMAILS` acco
   destination and explainer rules (P5), product grounding for Auto Post (funnels stay on SP, D3).
 
 ## Social Publishing — P2 Publish screens (2026-11-14, ADR-0011)
-**Not deployed.** Same flag as P1: `SOCIAL_PUBLISHING_ENABLED=1` shows Publish to everyone; unset → only
+**Deployed to prod 2026-11-14** (flag off — see P4 below). Same flag as P1: `SOCIAL_PUBLISHING_ENABLED=1` shows Publish to everyone; unset → only
 `ADMIN_EMAILS` accounts see the nav entry, the `/publish` pages (others get a "coming soon" card) and the Publish
 buttons. Everything works on the caller's **personal workspace** in P2.
 - **Routes:** `src/app/(app)/publish/**` (overview, compose, posts, drafts, favorites, shared, calendar, auto, by-hand,
@@ -1208,7 +1208,7 @@ buttons. Everything works on the caller's **personal workspace** in P2.
   runs the comments pull inline); only FB/IG/Threads/Bluesky are supported.
 
 ## Waltz Image — P3 images, carousels, memes (2026-11-14, ADR-0011)
-**Not deployed.** Not behind the social flag (the Publish button on a design is, like every Publish button).
+**Deployed to prod 2026-11-14** (see P4 below; brand fonts NOT installed on linuxg1 yet). Not behind the social flag (the Publish button on a design is, like every Publish button).
 - **Env (all optional, defaults shown):** `IMAGE_COMFYUI_URL=http://192.168.166.183:8188` (decision D1 — the ComfyUI box
   Social Publishing uses; must be reachable from the **generation worker** host, linuxg1: checked 2026-11-14,
   `/system_stats` → 200), `IMAGE_COMFYUI_CKPT=flux1-schnell-fp8.safetensors` (CheckpointLoaderSimple; Flux → euler /
@@ -1248,6 +1248,65 @@ buttons. Everything works on the caller's **personal workspace** in P2.
   `curl http://192.168.166.183:8188/queue`). "The image server has work waiting and nothing running" → restart ComfyUI
   on .183. Every picture failing with "Prompt outputs failed validation" → `IMAGE_COMFYUI_CKPT` not on the box
   (`/object_info/CheckpointLoaderSimple`).
+
+## Social Publishing — P4 data import + prod deploy (2026-11-14, ADR-0011)
+**Deployed to prod 2026-11-14** — deploy branch `deploy/social-20261114` @ `691593d` (P1–P3 + P4 script + hold).
+`SOCIAL_PUBLISHING_ENABLED` is **unset** on prod → Publish and Waltz Image's Publish buttons are admin-only
+(`ADMIN_EMAILS`). **SP data NOT imported yet** (owner decision pending, see below). SP (`social-publishing` pm2, its
+crontab sweep) untouched and still the live publisher.
+- **What was done on linuxg1:** backups `~/backups/clipwaltz-src-pre-social-20261114-p4.tgz`,
+  `~/backups/clipwaltz-db-pre-social-20261114-p4.dump`, `~/backups/clipwaltz-next-pre-social-20261114-p4/` (old `.next`),
+  `~/backups/clipwaltz-package-lock-pre-social-20261114-p4.json`, `.env.local.bak-pre-social-20261114-p4`; 200-file overlay
+  (prod code matched `deploy/home-redesign-20261031` before; only docs differed); `npm install` (+@napi-rs/canvas,
+  undici, react-day-picker, date-fns, tsx); migrations **0064–0067** (64 → 68 rows; drift columns `render_workers`,
+  `renders`/`media`/`deck_exports` lease columns verified still present); `next build` exit 0;
+  `pm2 restart clipwaltz clipwaltz-gen-worker`; **new pm2 `clipwaltz-social-worker`**; `pm2 save`.
+- **Social worker pm2 line:** `cd /home/lacy/clipwaltz && pm2 start worker/social-worker.mjs --name clipwaltz-social-worker
+  --cwd /home/lacy/clipwaltz --node-args="--env-file=.env.local --import tsx"` (no port; BullMQ queue `clipwaltz-social`
+  on local Redis). After a code deploy: `pm2 restart clipwaltz-social-worker` too.
+- **Env added to prod `.env.local`:** provider app creds copied from SP's env (`FACEBOOK_APP_ID/SECRET`,
+  `FACEBOOK_API_VERSION`, `LINKEDIN_API_VERSION`, `LINKEDIN_CLIENT_ID/SECRET`, `THREADS_CLIENT_ID/SECRET`,
+  `PINTEREST_APP_ID/SECRET`, `TUMBLR_CLIENT_ID/SECRET`, `X_CLIENT_ID/SECRET`, `YOUTUBE_CLIENT_ID/SECRET`), a new random
+  `SOCIAL_OAUTH_STATE_SECRET`, `SOCIAL_EMAIL_DAILY_CAP=200`, `IMAGE_COMFYUI_URL=http://192.168.166.183:8188`. SP's
+  `*_REDIRECT_URI` values were NOT copied (ClipWaltz derives `${NEXT_PUBLIC_APP_URL}/api/social/oauth/<p>/callback`;
+  those URIs must be registered with each provider by the owner before OAuth connects work). TikTok creds: none in SP.
+- **Brand fonts:** not installed on linuxg1 (needs `sudo apt install fonts-inter fonts-lato fonts-montserrat
+  fonts-open-sans fonts-roboto fonts-noto-core` + app restart) — the image studio falls back to Liberation Sans.
+- **Double-post guard (migration 0067):** `migration_hold` on `social_connections`, `social_posts`,
+  `social_post_targets`, `social_auto_rules`. A held row is never swept, retried, reaped, claimed by `publish-target`,
+  published by `publishPost` ("…on hold until the cut-over…") or the Retry button, picked from an Auto Post queue, and a
+  held connection gets no token refresh (SP owns token rotation until cut-over). `sp-import` = imported, released by
+  `--activate`; `sp-deleted` = deleted on SP before activation, stays held for good.
+- **Import script:** `scripts/migrate-social-publishing.mjs` (header documents everything). Run from `/home/lacy/clipwaltz`
+  with an env file that is the app's `.env.local` + `SP_DATABASE_URL` (build it, then delete it after the run:
+  `umask 077; cp .env.local /tmp/sp-mig.env; echo "SP_DATABASE_URL=$(grep '^DATABASE_URL=' ../social-publishing/.env.local | cut -d= -f2- | tr -d '"')" >> /tmp/sp-mig.env`):
+  `node --env-file=<that file> scripts/migrate-social-publishing.mjs [--map sp@x=cw@y] [--apply | --activate] [--report f]`.
+  Dry run by default. Creates no accounts; ids preserved; re-runs insert nothing new. Media `~/social-publishing-data/media/<id>`
+  → MinIO `social/<workspace>/<id>` (HEAD-checked by size). Skips provider `podcast` (P5), funnels, podcast, research,
+  shorts. The env Facebook Page (`FACEBOOK_PAGE_ID/ACCESS_TOKEN`) is imported only if those lines are active in SP's env —
+  they were commented out on 2026-11-08, so nothing to import.
+- **`--activate` (cut-over, owner's call):** (a) SP transaction: refuses if SP has a post publishing/rendering or a
+  destination pending/publishing; writes a state file (`./migrate-sp-state/activate-<ts>.json`); sets SP's active rules
+  inactive, scheduled/queued posts to draft, clears retries; commits. (b) ClipWaltz transaction: imports new rows, re-syncs
+  held rows from SP (pre-pause state laid over), re-copies tokens, releases. If (b) fails: SP paused + ClipWaltz held →
+  nothing double-posts; finish with `--activate --state <file>`. It does NOT touch SP's short (explainer) rules, crontab
+  or process — retire those per plan §5.
+- **Prod dry run 2026-11-14 (reports in `/home/lacy/clipwaltz-p4test/prod-dry*.json`):** SP has 2 users, 20 connections,
+  494 posts, 2,391 destinations, 1,860 media (1,855 on disk, 2.06 GB; 5 files missing), 11 rules (all inactive), 14 presets,
+  0 snippets, 13 AI generations; nothing scheduled, no pending/retrying destinations. **Neither SP user has a ClipWaltz
+  account by email** (`lacy@phoenixtekk.com` is not a ClipWaltz user; the owner's ClipWaltz account is
+  `lacy@clipwaltz.com`), so a plain run imports nothing. With `--map lacy@phoenixtekk.com=lacy@clipwaltz.com` it would
+  import 19 connections, 494 posts, 2,391 destinations, 1,860 media rows (1,855 files), 11 rules, 14 presets, 13 AI
+  generations, 3 settings, holding 19 connections / 11 rules / 135 posts / 110 destinations.
+- **Dev test 2026-11-14:** SP prod `pg_dump` (`~/backups/socialpublishing-20261114-p4test.dump`) restored as scratch db
+  `sp_scratch_20261114`; imported into `clipwaltz_dev` (15 media files): reconciliation all OK, re-run inserted 0, tokens
+  decrypt with the app's `decryptToken` to SP's values (18/18 + 1 empty hand-off token), `--sweep-once --inline` published 0
+  with a due held post, a due held rule and a due held retry; `publishPost`/`retryTargetNow` refused held rows;
+  `--activate` paused SP (1 rule, 2 posts, 1 retry), synced a post SP had published meanwhile as published, marked a
+  post deleted on SP `sp-deleted`, imported a post created after the import, released; in-flight refusal tested. Dev rows
+  and the 15 test objects were then deleted, and the scratch db dropped.
+- **Rollback:** `pm2 delete clipwaltz-social-worker`; restore src tarball + `.next` copy + `.env.local` backup; the
+  0064–0067 tables/columns are additive and can stay (or restore the db dump); `pm2 restart clipwaltz clipwaltz-gen-worker`.
 
 ## Cloud storage routing + analytics (2026-10-07)
 - **Schema:** `0051_cloud_routing` — `cloud_prefs` (user_id PK, `default_targets` jsonb provider[], `rules` jsonb

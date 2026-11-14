@@ -940,6 +940,10 @@ version in the current project (the "import"); the original is untouched.
 - Publishing, scheduling, Auto Post rules, automatic retries and token refresh run in the background social worker;
   a double-clicked Publish still posts once. Optional approval step (approvers).
 - API under `/api/social/*`; the Publish screens are P2 (below). See ADMIN_DOCS → Social Publishing.
+- **On prod since 2026-11-14** (flag off → admin-only). **Import from publish.phoenixtekk.com (P4):**
+  `scripts/migrate-social-publishing.mjs` copies channels, posts, results, media, Auto Post rules/presets and AI
+  history into the owner's workspace; everything that could still publish arrives **on hold** (never sent by
+  ClipWaltz) until the cut-over step pauses it on the old site and releases it here. Not run on prod yet.
 
 ## Social Publishing — Publish screens + render integration (P2, 2026-11-14, ADR-0011) — 🚧 behind the flag
 All screens are shadcn/ui (`components.json`, base-nova). Nav **Publish** shows only when the flag is on, or for
