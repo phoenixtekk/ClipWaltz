@@ -14,6 +14,26 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
+## Social Publishing P6a — deployed 2026-11-14 (branch `feat/social-publish-20261114`)
+- **Prod = `deploy/social-p6a-20261114` @ `8db2cc2`** (P1–P5 + P6a: G9 approvals, G6 best times, G15 workspace switcher,
+  G14 Plan a week, G4 per-network copy, G3 product link pack, G8 estimate). Migration **0069** on prod (69 → 70 rows; no
+  DROP lines; drift columns intact). Flag still unset (admin-only Publish). No new npm deps, no new env. AI box untouched
+  (no render-worker / social-render change). Details + runbook: ADMIN_DOCS → "Social Publishing — P6a".
+- **linuxg1 backups:** `~/backups/clipwaltz-{src,db,next,package-lock}-pre-social-20261114-p6a*`,
+  `.env.local.bak-pre-social-20261114-p6a`. 59-file overlay (prod matched `8f92817` for all 37 modified files first).
+- **Verified after deploy:** www.clipwaltz.com 200, apex 308, publish.phoenixtekk.com 200, pm2 clipwaltz /
+  clipwaltz-gen-worker / clipwaltz-social-worker online; sweeps after the restart returned `scheduledPublished 0`, no
+  errors, 0 failed jobs; signed-out `/publish/review` → 307 sign-in; unknown review token → 404.
+- **G8 on the owner's data (read-only `scripts/score-calibration.mts lacy@clipwaltz.com`):** 14 published posts with
+  results, Spearman ρ = 0.025 → below the 20-post minimum, so the number is hidden and only the checklist shows (by design).
+- **G3 real pages (dev, `node worker/deck/importer.mjs <url> --product`):** correct name/price/currency/photo for
+  mercantile.wordpress.org beanie + tote (WooCommerce), ruggable.com rug (Shopify), ikea.com ottoman. allbirds,
+  deathwishcoffee, tentree, brooklinen, bombas (Shopify), rei.com answered 429/403 to the automated reader; patagonia.com
+  served no product data (text fallback, wrong name). The WooCommerce pages were only reachable after narrowing the SSRF
+  guard's 192.0.0.0/16 refusal to 192.0.0.0/24 + 192.0.2.0/24.
+- **Open:** G10–G13, G11, G7, G16/G17 (P6 batch B+). Not built in G15: deleting a workspace, moving projects between
+  workspaces.
+
 ## Social Publishing P5 — deployed 2026-11-14 (branch `feat/social-publish-20261114`)
 - **Prod = `deploy/social-p5-20261114`** (P1–P5). Migration 0068 on prod (69 rows). Flag still unset (admin-only).
   Podcast moved: `https://www.clipwaltz.com/p/the-intune-explainer/rss.xml` live (same GUID + enclosure length as SP);

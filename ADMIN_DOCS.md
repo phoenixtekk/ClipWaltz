@@ -1252,6 +1252,11 @@ buttons. Everything works on the caller's **personal workspace** in P2.
 ## Social Publishing — P6a approvals, best times, workspaces, plan, product links, estimate (2026-11-14, ADR-0011)
 Plan §6 G9, G6, G15, G14, G4, G3, G8. Same flag (`SOCIAL_PUBLISHING_ENABLED`); the workspace switcher and the product
 link are not behind it.
+**Deployed to prod 2026-11-14** — deploy branch `deploy/social-p6a-20261114` @ `8db2cc2`. linuxg1 backups
+`~/backups/clipwaltz-{src,db,next,package-lock}-pre-social-20261114-p6a*` + `.env.local.bak-pre-social-20261114-p6a`;
+59-file overlay; migration 0069 (69 → 70 rows); no npm/env changes; `next build` exit 0;
+`pm2 restart clipwaltz clipwaltz-gen-worker clipwaltz-social-worker`; AI box unchanged. Rollback: restore the src tarball +
+`.next` copy, restart the three processes; 0069 is additive and can stay.
 - **Schema (migration `0069_p6_approval_products`, additive):** `workspaces.social_require_approval` (bool, default
   false), `social_posts.plan_id` / `plan_angle`, `social_post_reviews` (post, workspace, reviewer user | `via_token`,
   `reviewer_name`, decision `submitted|approved|changes_requested` check, note), `product_sources` (workspace, url,
