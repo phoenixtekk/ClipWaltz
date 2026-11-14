@@ -4,6 +4,20 @@ Per `00_ClipWaltz_Build_Execution_Guide.md` §38. Newest first.
 
 ---
 
+## ADR-0011 — Social Publishing (publish.phoenixtekk.com) merges into ClipWaltz
+- **Date:** 2026-11-14
+- **Decision:** Port Social Publishing's publishing core (21 network adapters, composer, scheduler, auto-post,
+  analytics, comments, review links), its podcast hosting and its explainer/Shorts pipeline into ClipWaltz under
+  `/publish`. Funnels/Autonnel, the `funnels.phoenixtekk.com` SSO, the `/media` proxy and Problem Finder stay on SP,
+  which remains a Phoenixtekk-internal tool. SP's $99 plan is retired; publishing is part of Plus/Pro.
+  AI images use the ComfyUI box `192.168.166.183`. Permissions = workspace roles + one `approver` capability.
+  Mobile = PWA. Semrush deferred. All new UI is shadcn/ui (`components.json`, `base-nova`).
+  Credits: 0 publish/schedule/analytics/AI copy; 2 per AI image / AI carousel slide / AI meme. Channels Plus 10 / Pro 25.
+- **Reason:** Owner decisions D1–D9 + §4.7 sign-off (2026-11-14), plan `docs/PREDIS_PARITY_AND_PUBLISH_MERGE_PLAN.md`.
+- **Impact:** New `social_*` tables (migrations 0064+), BullMQ queue `clipwaltz-social` + pm2 `clipwaltz-social-worker`
+  replaces SP's crontab sweep; tokens encrypted at rest; feature flag `SOCIAL_PUBLISHING_ENABLED` until cut-over.
+  Build branch `feat/social-publish-20261114` is cut from prod lineage `deploy/home-redesign-20261031`.
+
 ## ADR-0010 — Insta360 split-lens stitching; level sanity limit; IMU levelling next
 - **Date:** 2026-09-25
 - **Decision:** Pair `…_00_N.insv` (front) + `…_10_N.insv` (rear) single-lens files of the same owner and stitch
