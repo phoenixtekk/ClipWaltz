@@ -1,6 +1,6 @@
 import { isAdminEmail } from "@/lib/admin";
 import { requireSocial, socialErrorResponse } from "@/lib/social/access";
-import { getConnectionById, persistConnection } from "@/lib/social/connections";
+import { isInPlaceUpdate, persistConnection } from "@/lib/social/connections";
 import { CONNECTORS } from "@/lib/social/credentials";
 import { assertChannelCapacity, ChannelLimitError } from "@/lib/social/limits";
 import type { ProviderId } from "@/lib/social/publishing/types";
@@ -29,9 +29,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ provider: stri
     }
     const id = typeof body.id === "string" && body.id ? body.id : undefined;
 
-    // Updating a connection this workspace already has costs no channel; anything else needs room in the plan.
-    const updating = id && id !== "new" ? await getConnectionById(id, sc.workspaceId) : null;
-    if (!updating) await assertChannelCapacity(sc.workspaceId, 1);
+    // Updating a connection this workspace already has, on this same network, costs no channel; anything else (including
+    // an id of another network's connection, which persistConnection turns into a NEW row) needs room in the plan.
+    if (!(await isInPlaceUpdate(provider, id, sc.workspaceId))) await assertChannelCapacity(sc.workspaceId, 1);
 
     const r = await connector(body, { workspaceId: sc.workspaceId });
     if (!r.ok) return Response.json({ error: r.error }, { status: r.status ?? 400 });

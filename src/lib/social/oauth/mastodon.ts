@@ -9,6 +9,7 @@ import { appUrl, socialRedirectUri } from "../app-url";
 //
 // Docs: https://docs.joinmastodon.org/methods/apps/ + /methods/oauth/
 
+import { safeFetch } from "@/lib/social/safe-fetch";
 import { getSetting, setSetting } from "@/lib/social/settings";
 
 // ClipWaltz: one callback per provider under /api/social/oauth/<provider>/callback on the canonical www. origin.
@@ -61,7 +62,7 @@ export async function ensureApp(instance: string): Promise<MastodonApp | null> {
     scopes: MASTODON_SCOPES,
     website: BASE,
   });
-  const res = await fetch(`${instance}/api/v1/apps`, {
+  const res = await safeFetch(`${instance}/api/v1/apps`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
@@ -93,7 +94,7 @@ export async function mastodonExchangeCode(
   app: MastodonApp,
   code: string
 ): Promise<string | null> {
-  const res = await fetch(`${instance}/oauth/token`, {
+  const res = await safeFetch(`${instance}/oauth/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -116,7 +117,7 @@ export async function mastodonVerify(
   instance: string,
   token: string
 ): Promise<{ id: string; acct: string; displayName: string | null } | null> {
-  const res = await fetch(`${instance}/api/v1/accounts/verify_credentials`, {
+  const res = await safeFetch(`${instance}/api/v1/accounts/verify_credentials`, {
     headers: { Authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(15_000),
   }).catch(() => null);

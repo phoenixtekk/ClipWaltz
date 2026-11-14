@@ -1,5 +1,6 @@
 import { listConnections, type Connection } from "@/lib/social/connections";
 import { missingScopes, pinterestAccessToken, pinterestBoards } from "@/lib/social/oauth/pinterest";
+import { safeFetch } from "@/lib/social/safe-fetch";
 
 // ─── Can this connection actually publish? ────────────────────────────────────
 // Connecting a destination proves less than it looks. Telegram's `getChat`
@@ -112,7 +113,7 @@ async function checkDiscourse(c: Connection): Promise<Health> {
   // key/username pair is still accepted, and the category still exists — without
   // writing anything. A category deleted or renamed after connecting is the
   // failure that would otherwise only surface on a post.
-  const res = await fetch(`${cred.instance}/categories.json`, {
+  const res = await safeFetch(`${cred.instance}/categories.json`, {
     headers: { "Api-Key": cred.key, "Api-Username": cred.username, Accept: "application/json" },
   }).catch(() => null);
 

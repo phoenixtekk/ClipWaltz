@@ -24,7 +24,7 @@ import { youtubeAuthUrl, youtubeConfigured, youtubeExchangeCode } from "./youtub
 // Every provider's redirect URI is `${APP_URL}/api/social/oauth/<provider>/callback` (APP_URL = the canonical www.
 // origin). Those URIs must be registered in each provider's developer console before a connect can work (plan §5/R4).
 
-/** Opaque per-flow values carried from start to callback in the httpOnly state cookie (never secrets). */
+/** Opaque per-flow values carried from start to callback in the HMAC-sealed httpOnly state cookie (never secrets). */
 export type FlowExtras = Record<string, string>;
 
 /** One connection to save. `matchExternalId` = update the same account if already connected. */
@@ -134,8 +134,13 @@ const FLOWS: Partial<Record<ProviderId, OAuthFlow>> = {
       return { url: mastodonAuthUrl(instance, app.clientId, state), extras: { instance } };
     },
     async finish({ code, extras }) {
-      const instance = extras.instance;
-      if (!instance) throw new Error("mastodon_state");
+      // The cookie is sealed, but the instance is still re-normalized and re-checked here: it decides where this server
+      // sends the code and client secret. (safeFetch re-vets the resolved address on every request as well.)
+      const instance = normalizeInstance(extras.instance || "");
+      if (!instance || instance !== extras.instance) throw new Error("mastodon_state");
+      await assertPublicHost(instance).catch(() => {
+        throw new Error("mastodon_instance");
+      });
       const app = await ensureApp(instance);
       if (!app) throw new Error("mastodon_register");
       const token = await mastodonExchangeCode(instance, app, code);

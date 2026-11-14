@@ -1,4 +1,5 @@
 import { lookup } from "dns/promises";
+import { createHash } from "crypto";
 import { isIP } from "net";
 import type { ConnData } from "@/lib/social/connections";
 import { fetchUploadLimits } from "@/lib/social/publishing/providers/discourse";
@@ -6,6 +7,8 @@ import { groupUrl, parseGroupRef } from "@/lib/social/publishing/providers/faceb
 import { TeamsProvider } from "@/lib/social/publishing/providers/teams";
 import { emailConfigured } from "@/lib/social/publishing/providers/email";
 import type { ProviderId } from "@/lib/social/publishing/types";
+import { isTeamsWebhookUrl, isTxtyaWebhookUrl } from "@/lib/social/publishing/webhook-urls";
+import { isBlockedAddress, safeFetch, UnsafeUrlError } from "@/lib/social/safe-fetch";
 
 // Paste-credential connects: the networks with no OAuth flow (or where pasting a token is the supported path).
 //
@@ -30,38 +33,23 @@ const labelOf = (b: ConnectBody) => str(b, "label") || null;
 const fail = (error: string, status = 400): ConnectResult => ({ ok: false, error, status });
 
 // ── SSRF guard ───────────────────────────────────────────────────────────────
-
-function privateV4(ip: string): boolean {
-  const [a, b] = ip.split(".").map(Number);
-  return (
-    a === 10 || a === 127 || a === 0 ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 100 && b >= 64 && b <= 127) // CGNAT
-  );
-}
-function privateV6(ip: string): boolean {
-  const s = ip.toLowerCase();
-  if (s === "::1" || s === "::") return true;
-  if (s.startsWith("fc") || s.startsWith("fd") || s.startsWith("fe80")) return true;
-  const mapped = s.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  return mapped ? privateV4(mapped[1]) : false;
-}
+// The block list and the pinned, redirect-checking fetch live in ./safe-fetch.ts. This early check only gives the
+// connect form a clear message before any request is made; the real protection is safeFetch on every call.
 
 /** Throws unless every address the URL's host resolves to is public. */
 export async function assertPublicHost(url: string): Promise<void> {
-  const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
+  const host = new URL(url).hostname.replace(/^\[|\]$/g, "").toLowerCase();
   if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) {
-    throw new Error("That address is not a public server.");
+    throw new UnsafeUrlError();
   }
-  const addrs = isIP(host) ? [{ address: host, family: isIP(host) }] : await lookup(host, { all: true });
-  if (addrs.length === 0) throw new Error("That address does not resolve.");
-  for (const a of addrs) {
-    if (a.family === 4 ? privateV4(a.address) : privateV6(a.address)) {
-      throw new Error("That address is not a public server.");
-    }
-  }
+  const addrs = isIP(host) ? [{ address: host }] : await lookup(host, { all: true }).catch(() => []);
+  if (addrs.length === 0) throw new UnsafeUrlError("That address does not resolve.");
+  if (addrs.some((a) => isBlockedAddress(a.address))) throw new UnsafeUrlError();
+}
+
+/** A stable, non-reversible id for a webhook whose URL is itself the secret (shown in the UI instead of the URL). */
+export function webhookFingerprint(url: string): string {
+  return `hook:${createHash("sha256").update(url).digest("hex").slice(0, 16)}`;
 }
 
 // ── Connectors ───────────────────────────────────────────────────────────────
@@ -283,10 +271,9 @@ async function discourse(b: ConnectBody): Promise<ConnectResult> {
     return fail((e as Error).message);
   }
 
-  const res = await fetch(`${instance}/categories.json`, {
+  const res = await safeFetch(`${instance}/categories.json`, {
     headers: { "Api-Key": apiKey, "Api-Username": apiUsername, Accept: "application/json" },
     signal: AbortSignal.timeout(20_000),
-    redirect: "error",
   }).catch(() => null);
   if (!res) return fail(`Could not reach ${instance}.`, 502);
   if (res.status === 403) {
@@ -416,13 +403,13 @@ async function teams(b: ConnectBody, ctx: { workspaceId: string }): Promise<Conn
   const webhookUrl = str(b, "webhookUrl");
   const label = labelOf(b);
   // Accept Workflows (logic.azure.com) and legacy connector (*.webhook.office.com) URLs.
-  if (!/^https:\/\/[^/]*(webhook\.office\.com|logic\.azure\.com|office\.com)([:/]|$)/i.test(webhookUrl)) {
+  if (!isTeamsWebhookUrl(webhookUrl)) {
     return fail(
       'That doesn\'t look like a Teams webhook URL. In Teams: channel → ••• → Workflows → "Post to a channel when a webhook request is received" → copy the URL.',
     );
   }
   const card = new TeamsProvider().messageCard("✅ Connected to ClipWaltz. Posts to this channel will appear here.");
-  const res = await fetch(webhookUrl, {
+  const res = await safeFetch(webhookUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(card),
@@ -440,12 +427,12 @@ async function teams(b: ConnectBody, ctx: { workspaceId: string }): Promise<Conn
 async function txtya(b: ConnectBody): Promise<ConnectResult> {
   const webhookUrl = str(b, "webhookUrl");
   const label = labelOf(b);
-  if (!/^https:\/\/(www\.)?txtya\.com\/api\/hooks\/.+/.test(webhookUrl)) {
+  if (!isTxtyaWebhookUrl(webhookUrl)) {
     return fail("That doesn't look like a TxtYa webhook URL (https://www.txtya.com/api/hooks/…).");
   }
   return {
     ok: true,
-    data: { accessToken: webhookUrl, externalId: webhookUrl.split("/").pop() || "hook", label, displayName: label || "TxtYa group" },
+    data: { accessToken: webhookUrl, externalId: webhookFingerprint(webhookUrl), label, displayName: label || "TxtYa group" },
   };
 }
 

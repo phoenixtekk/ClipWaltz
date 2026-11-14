@@ -57,10 +57,27 @@ export interface Connection {
 /** What may be shown in the UI: no credentials. */
 export type PublicConnection = Omit<Connection, "accessToken" | "refreshToken">;
 
+/**
+ * Webhook networks whose URL IS the credential. Their externalId is never shown: TxtYa rows connected before
+ * 2026-11-14 stored the hook's secret path segment there (new rows store a hash — credentials.ts webhookFingerprint).
+ */
+const SECRET_EXTERNAL_ID = new Set(["txtya"]);
+
 export function publicConnection(c: Connection): PublicConnection {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { accessToken, refreshToken, ...rest } = c;
-  return rest;
+  return SECRET_EXTERNAL_ID.has(c.provider) ? { ...rest, externalId: null } : rest;
+}
+
+/**
+ * Does saving this connect skip the plan's channel check? Only when it updates a connection this workspace already
+ * has FOR THE SAME NETWORK. Any other id (another network's row, another workspace's row, "new", unknown) is saved as a
+ * new connection by persistConnection, so it must pass assertChannelCapacity first.
+ */
+export async function isInPlaceUpdate(provider: string, id: string | undefined, workspaceId: string): Promise<boolean> {
+  if (!id || id === "new") return false;
+  const existing = await getConnectionById(id, workspaceId);
+  return !!existing && existing.workspaceId === workspaceId && existing.provider === provider;
 }
 
 type Row = typeof schema.socialConnections.$inferSelect;

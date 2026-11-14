@@ -3,6 +3,7 @@ import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { publishToTargets } from "@/lib/social/publishing";
 import { readMedia } from "@/lib/social/media";
+import { emailCapExceeded } from "@/lib/social/email-cap";
 import { parseKey, resolveTarget } from "@/lib/social/destinations";
 import { setConnectionPaused, updateConnectionById } from "@/lib/social/connections";
 import { isTransientPublishError, nextRetryAt, refreshPostStatus, BACKOFF_MIN } from "@/lib/social/retry-targets";
@@ -48,7 +49,7 @@ export async function resolvePostTarget(post: PostRow, key: string, media: Media
   if (meta && typeof meta.thumbnailMediaId === "string") {
     const { thumbnailMediaId, ...rest } = meta;
     try {
-      meta = { ...rest, thumbnail: await readMedia(thumbnailMediaId) };
+      meta = { ...rest, thumbnail: await readMedia(thumbnailMediaId, post.workspaceId) };
     } catch {
       // A missing thumbnail must not sink the upload: the video is the post, the picture is a nicety, and YouTube
       // will use its own frame.
@@ -79,7 +80,7 @@ export async function loadPostMedia(postId: string): Promise<MediaInput[]> {
   const out: MediaInput[] = [];
   for (const m of rows) {
     try {
-      const data = await readMedia(m.id);
+      const data = await readMedia(m.id, m.workspaceId);
       out.push({ id: m.id, kind: m.kind === "video" ? "video" : "image", mime: m.mime, filename: m.filename, data });
     } catch {
       /* object missing — skip rather than fail the post */
@@ -248,6 +249,19 @@ export async function publishTargetJob(targetId: string): Promise<PublishTargetR
       .where(eq(schema.socialPostTargets.id, targetId));
     await refreshPostStatus(post.id);
     return { claimed: true, status: "failed" };
+  }
+
+  // Email goes out through ClipWaltz's own SES account: refuse once this workspace has used its daily send cap.
+  if (target.provider === "email") {
+    const capped = await emailCapExceeded(post.workspaceId);
+    if (capped) {
+      await db
+        .update(schema.socialPostTargets)
+        .set({ status: "failed", error: capped, retryAt: null, updatedAt: new Date() })
+        .where(eq(schema.socialPostTargets.id, targetId));
+      await refreshPostStatus(post.id);
+      return { claimed: true, status: "failed", error: capped };
+    }
   }
 
   // Pinterest gets the image reshaped into a Pin.

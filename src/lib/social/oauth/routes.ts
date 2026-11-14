@@ -5,13 +5,15 @@ import { requireSocial, SocialAccessError } from "@/lib/social/access";
 import { listConnectionsForProvider, saveOAuthConnection } from "@/lib/social/connections";
 import { assertChannelCapacity, ChannelLimitError } from "@/lib/social/limits";
 import { newState, oauthFlow, type FlowExtras } from "./registry";
+import { openState, sealState } from "./state-cookie";
 
 // The shared half of the single OAuth start/callback route pair (plan §4.4). Per-provider logic is in ./registry.ts.
 //
 // CSRF: a random state in an httpOnly cookie bound to the provider it was issued for (one cookie per provider, so two
 // tabs connecting different networks both work — the pattern of src/lib/cloud/oauth.ts). The cookie also carries the
 // workspace the connect was started for and per-flow values (PKCE verifier, Mastodon instance); none are secrets on
-// their own. The workspace role is checked again at the callback: an admin demoted mid-flow cannot finish it.
+// their own, but the callback trusts them, so the cookie is HMAC-sealed (./state-cookie.ts) and an edited cookie is
+// treated as missing. The workspace role is checked again at the callback: an admin demoted mid-flow cannot finish it.
 
 const PAGE = "/publish/networks"; // the Networks page (built in P2)
 const COOKIE = (p: string) => `social_oauth_${p}`;
@@ -67,7 +69,7 @@ export async function startSocialOAuth(req: NextRequest, provider: string): Prom
   }
   console.log(`[social] ${provider} connect started (workspace ${workspaceId})`);
   const res = NextResponse.redirect(url);
-  res.cookies.set(COOKIE(provider), JSON.stringify({ s: state, w: workspaceId, x: extras } satisfies StateCookie), cookieOpts);
+  res.cookies.set(COOKIE(provider), sealState(provider, { s: state, w: workspaceId, x: extras } satisfies StateCookie), cookieOpts);
   return res;
 }
 
@@ -76,12 +78,7 @@ export async function finishSocialOAuth(req: NextRequest, provider: string): Pro
   const flow = oauthFlow(provider);
   if (!flow) return new NextResponse("not found", { status: 404 });
 
-  let saved: StateCookie | null = null;
-  try {
-    saved = JSON.parse(req.cookies.get(COOKIE(provider))?.value ?? "null") as StateCookie | null;
-  } catch {
-    saved = null;
-  }
+  const saved = openState<StateCookie>(provider, req.cookies.get(COOKIE(provider))?.value);
   const done = (result: string, why = "", params: Record<string, string> = {}) => {
     // Every outcome is logged (never the code or tokens) so a failed connect can be traced from pm2 logs.
     console.log(`[social] ${provider} connect ${result}${why ? ` — ${why}` : ""}`);
@@ -95,7 +92,9 @@ export async function finishSocialOAuth(req: NextRequest, provider: string): Pro
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   if (!code || !state) return done("error", "no code/state in the callback");
-  if (!saved || saved.s !== state) return done("error", saved ? "state mismatch" : "state cookie missing");
+  if (!saved || typeof saved.s !== "string" || typeof saved.w !== "string" || saved.s !== state) {
+    return done("error", saved ? "state mismatch" : "state cookie missing or invalid");
+  }
 
   let ctx;
   try {

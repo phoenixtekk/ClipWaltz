@@ -1,5 +1,7 @@
 import type { PublishProvider, PublishRequest, PublishResult } from "../types";
 import { signedMediaUrl } from "@/lib/social/media";
+import { safeFetch, sanitizeUpstreamMessage } from "@/lib/social/safe-fetch";
+import { isTxtyaWebhookUrl } from "../webhook-urls";
 
 // TxtYa adapter (incoming webhook). A group webhook URL is the only credential.
 // Verified payload: POST { text } → { ok, messageId, deliveredTo }.
@@ -24,8 +26,10 @@ export class TxtYaProvider implements PublishProvider {
     for (const m of req.media ?? []) text += `\n${signedMediaUrl(m.id)}`;
     if ([...text].length > TEXT_MAX) text = [...text].slice(0, TEXT_MAX - 1).join("") + "…";
 
+    if (!isTxtyaWebhookUrl(webhook)) return this.fail("The stored TxtYa webhook URL is not a TxtYa hook — reconnect on the Networks page.");
+
     try {
-      const res = await fetch(webhook, {
+      const res = await safeFetch(webhook, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
@@ -37,7 +41,7 @@ export class TxtYaProvider implements PublishProvider {
         error?: string;
       };
       if (!res.ok || !data.ok) {
-        return this.fail(data.error || `TxtYa returned HTTP ${res.status}.`, res.status);
+        return this.fail(sanitizeUpstreamMessage(data.error) || `TxtYa returned HTTP ${res.status}.`, res.status);
       }
       return { provider: this.id, ok: true, postId: data.messageId, statusCode: res.status };
     } catch (err) {

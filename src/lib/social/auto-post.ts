@@ -100,7 +100,7 @@ async function attachImageCopy(mediaId: string, postId: string, workspaceId: str
   const src = await db.query.socialMedia.findFirst({ where: eq(schema.socialMedia.id, mediaId) });
   if (!src || src.workspaceId !== workspaceId) return false;
   try {
-    const bytes = await readMedia(mediaId);
+    const bytes = await readMedia(mediaId, workspaceId);
     const id = randomUUID();
     const storageKey = await writeMedia(workspaceId, id, bytes, src.mime);
     await db.insert(schema.socialMedia).values({

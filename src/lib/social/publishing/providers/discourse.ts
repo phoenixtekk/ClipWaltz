@@ -6,6 +6,7 @@ import type {
 } from "../types";
 import { markdownLink } from "../link-format";
 import { splitArticle } from "../title";
+import { safeFetch, sanitizeUpstreamMessage } from "@/lib/social/safe-fetch";
 
 // Discourse adapter — creates a new topic per post via the forum's own REST API.
 //
@@ -64,7 +65,7 @@ export async function fetchUploadLimits(
   key: string,
   username: string,
 ): Promise<UploadLimits | null> {
-  const res = await fetch(`${instance}/admin/site_settings.json`, {
+  const res = await safeFetch(`${instance}/admin/site_settings.json`, {
     headers: { "Api-Key": key, "Api-Username": username, Accept: "application/json" },
     signal: AbortSignal.timeout(20_000),
   }).catch(() => null);
@@ -164,7 +165,7 @@ export class DiscourseProvider implements PublishProvider {
         );
       }
 
-      const res = await fetch(`${instance}/posts.json`, {
+      const res = await safeFetch(`${instance}/posts.json`, {
         method: "POST",
         headers: { ...auth, "Content-Type": "application/json" },
         body: JSON.stringify({ title, raw: body, category }),
@@ -222,7 +223,7 @@ export class DiscourseProvider implements PublishProvider {
       m.filename || "upload.bin",
     );
 
-    const res = await fetch(`${instance}/uploads.json`, {
+    const res = await safeFetch(`${instance}/uploads.json`, {
       method: "POST",
       headers: auth,
       body: form,
@@ -239,9 +240,9 @@ export class DiscourseProvider implements PublishProvider {
     let first = "";
     try {
       const d = JSON.parse(body) as { errors?: string[]; error_type?: string };
-      first = d.errors?.[0] ?? "";
+      first = sanitizeUpstreamMessage(d.errors?.[0]);
     } catch {
-      /* fall through to the raw text */
+      /* not JSON — the raw body is never stored; the status is reported instead */
     }
 
     if (status === 403) {
@@ -258,7 +259,7 @@ export class DiscourseProvider implements PublishProvider {
       return first ? `Discourse rejected the topic: ${first}` : "Discourse rejected the topic as invalid (422).";
     }
     if (first) return `Discourse: ${first}`;
-    return body ? body.slice(0, 160) : `Discourse returned HTTP ${status}.`;
+    return `Discourse returned HTTP ${status}.`;
   }
 
   private fail(error: string, statusCode?: number): PublishResult {

@@ -27,6 +27,30 @@ export interface CreatePostInput {
 
 export class PostInputError extends Error {}
 
+/**
+ * Per-network overrides arrive from a request. The only media they may name is a thumbnail (`meta.thumbnailMediaId`),
+ * which publishing loads and uploads to the network — so it must be THIS workspace's media. Called on create and update.
+ */
+export async function assertPerNetworkMediaOwned(workspaceId: string, perNetwork: unknown): Promise<void> {
+  if (perNetwork == null) return;
+  if (typeof perNetwork !== "object" || Array.isArray(perNetwork)) throw new PostInputError("Invalid per-network settings.");
+  const ids = new Set<string>();
+  for (const v of Object.values(perNetwork as Record<string, unknown>)) {
+    const meta = v && typeof v === "object" ? (v as { meta?: unknown }).meta : undefined;
+    if (!meta || typeof meta !== "object") continue;
+    const t = (meta as { thumbnailMediaId?: unknown }).thumbnailMediaId;
+    if (t === undefined) continue;
+    if (typeof t !== "string" || !/^[a-f0-9-]{36}$/i.test(t)) throw new PostInputError("Invalid thumbnail.");
+    ids.add(t);
+  }
+  if (ids.size === 0) return;
+  const owned = await db
+    .select({ id: schema.socialMedia.id })
+    .from(schema.socialMedia)
+    .where(and(eq(schema.socialMedia.workspaceId, workspaceId), inArray(schema.socialMedia.id, [...ids])));
+  if (owned.length !== ids.size) throw new PostInputError("The thumbnail is not media of this workspace.");
+}
+
 export async function createPost(workspaceId: string, createdBy: string, input: CreatePostInput): Promise<string> {
   const text = (input.text ?? "").trim();
   if (!text) throw new PostInputError("A post needs text.");
@@ -45,6 +69,8 @@ export async function createPost(workspaceId: string, createdBy: string, input: 
 
   const link = input.link?.trim() || null;
   if (link && !/^https?:\/\//i.test(link)) throw new PostInputError("The link must start with http:// or https://.");
+
+  await assertPerNetworkMediaOwned(workspaceId, input.perNetwork);
 
   const mediaIds = [...new Set(input.mediaIds ?? [])];
   if (mediaIds.length) {

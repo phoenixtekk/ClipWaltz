@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { getObjectBytes, putObject, deleteObject } from "@/lib/storage";
 import { appUrl } from "./app-url";
@@ -37,13 +37,17 @@ export async function writeMedia(workspaceId: string, id: string, data: Uint8Arr
   return key;
 }
 
-/** Read a stored media file. `id` is a server-generated UUID; anything else is rejected. */
-export async function readMedia(id: string): Promise<Buffer> {
+/**
+ * Read a stored media file of ONE workspace. `id` is a server-generated UUID; anything else is rejected. The workspace
+ * is required: media ids can arrive inside request-supplied JSON (a post's per-network `meta.thumbnailMediaId`), and an
+ * unscoped read would hand another workspace's file to this workspace's destinations.
+ */
+export async function readMedia(id: string, workspaceId: string): Promise<Buffer> {
   if (!ID_RE.test(id)) throw new Error("bad id");
   const [row] = await db
     .select({ storageKey: schema.socialMedia.storageKey })
     .from(schema.socialMedia)
-    .where(eq(schema.socialMedia.id, id));
+    .where(and(eq(schema.socialMedia.id, id), eq(schema.socialMedia.workspaceId, workspaceId)));
   if (!row) throw new Error("media not found");
   return Buffer.from(await getObjectBytes(row.storageKey));
 }

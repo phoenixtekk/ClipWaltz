@@ -1,5 +1,7 @@
 import type { PublishProvider, PublishRequest, PublishResult } from "../types";
 import { markdownLink } from "../link-format";
+import { isTeamsWebhookUrl } from "../webhook-urls";
+import { safeFetch } from "@/lib/social/safe-fetch";
 
 // Microsoft Teams adapter. Posts to a channel via an incoming webhook URL — either
 // a Power Automate "Workflow" webhook (the current path) or a legacy Office 365
@@ -23,19 +25,21 @@ export class TeamsProvider implements PublishProvider {
     const webhookUrl = req.credentials?.teams?.accessToken;
     if (!webhookUrl) return this.fail("Microsoft Teams not connected — add a channel webhook on the Networks page.");
 
+    // Re-checked at send time too: a row stored before the strict check (or edited in the DB) must not become a
+    // server-side request to an arbitrary host.
+    if (!isTeamsWebhookUrl(webhookUrl)) return this.fail("The stored Teams webhook URL is not a Teams webhook — reconnect on the Networks page.");
+
     const card = this.messageCard(req.text, req.link);
     try {
-      const res = await fetch(webhookUrl, {
+      const res = await safeFetch(webhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(card),
         signal: AbortSignal.timeout(20_000),
       });
-      const bodyText = await res.text().catch(() => "");
-      // Legacy connectors return "1"; Workflows return 200/202 (often empty body).
-      if (!res.ok) {
-        return this.fail(bodyText?.slice(0, 200) || `Teams webhook returned HTTP ${res.status}.`, res.status);
-      }
+      await res.body?.cancel().catch(() => {});
+      // Legacy connectors return "1"; Workflows return 200/202 (often empty body). The reply body is never stored.
+      if (!res.ok) return this.fail(`Teams webhook returned HTTP ${res.status}.`, res.status);
       return { provider: this.id, ok: true, statusCode: res.status };
     } catch (err) {
       return this.fail(err instanceof Error ? err.message : "Network error calling the Teams webhook.");

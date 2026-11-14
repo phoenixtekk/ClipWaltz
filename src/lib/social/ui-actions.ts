@@ -22,7 +22,7 @@ import { commentsPull } from "@/lib/social/jobs";
 import { socialMediaKey } from "@/lib/social/media";
 import { checkAllConnections, type Health } from "@/lib/social/network-health";
 import { pinterestAccessToken, pinterestBoards, type PinterestBoard } from "@/lib/social/oauth/pinterest";
-import { createPost, decideApproval, PostInputError } from "@/lib/social/posts";
+import { assertPerNetworkMediaOwned, createPost, decideApproval, PostInputError } from "@/lib/social/posts";
 import { publishPost, type PublishPostResult } from "@/lib/social/publish-post";
 import { refreshPostStatus, retryTargetNow } from "@/lib/social/retry-targets";
 import { COMMENT_NETWORKS } from "@/lib/social/ui";
@@ -125,6 +125,7 @@ async function savePostImpl(input: SavePostInput): Promise<{ id: string; publish
     if (providers.some((k) => !mine.has(k))) throw new PostInputError("One of those channels is not connected to this workspace.");
     const link = input.link?.trim() || null;
     if (link && !/^https?:\/\//i.test(link)) throw new PostInputError("The link must start with http:// or https://.");
+    await assertPerNetworkMediaOwned(sc.workspaceId, input.perNetwork);
     // Media: keep what is listed, release the rest, attach new uploads (must be this workspace's, unattached).
     const current = await db.select({ id: schema.socialMedia.id }).from(schema.socialMedia).where(eq(schema.socialMedia.postId, p.id));
     const keep = new Set(mediaIds);

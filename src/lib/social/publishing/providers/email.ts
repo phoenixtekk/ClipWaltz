@@ -64,6 +64,10 @@ export class EmailProvider implements PublishProvider {
             : escapeHtml(body)
         }</div>`,
         attachments,
+        // Lets mail clients offer "unsubscribe" and keeps bulk-sender rules (Gmail/Yahoo) satisfied. A mailto, because
+        // recipients are a list an admin typed, not subscribers of a page. SOCIAL_EMAIL_UNSUBSCRIBE overrides the
+        // address (or give a full https: URL).
+        headers: { "List-Unsubscribe": listUnsubscribe(from) },
       });
 
       return { provider: this.id, ok: true, postId: info.messageId, statusCode: 200 };
@@ -75,6 +79,14 @@ export class EmailProvider implements PublishProvider {
   private fail(error: string): PublishResult {
     return { provider: this.id, ok: false, error };
   }
+}
+
+/** `<mailto:addr?subject=unsubscribe>` from SOCIAL_EMAIL_UNSUBSCRIBE or the From address; an https URL is used as is. */
+export function listUnsubscribe(from: string): string {
+  const override = (process.env.SOCIAL_EMAIL_UNSUBSCRIBE || "").trim();
+  if (/^https:\/\/\S+$/i.test(override)) return `<${override}>`;
+  const addr = (override || from).match(/<([^<>\s]+@[^<>\s]+)>/)?.[1] ?? (override || from).trim();
+  return `<mailto:${addr}?subject=unsubscribe>`;
 }
 
 function escapeHtml(s: string): string {

@@ -1,5 +1,6 @@
 import type { MediaInput, PublishProvider, PublishRequest, PublishResult } from "../types";
 import { composeWithLink } from "../compose";
+import { safeFetch, sanitizeUpstreamMessage } from "@/lib/social/safe-fetch";
 
 // Mastodon adapter. Posts a status via the instance's REST API. The connection's
 // accessToken holds JSON { instance, token } because Mastodon is federated — the
@@ -84,7 +85,7 @@ export class MastodonProvider implements PublishProvider {
       form.set("status", status);
       for (const id of mediaIds) form.append("media_ids[]", id);
 
-      const res = await fetch(`${instance}/api/v1/statuses`, {
+      const res = await safeFetch(`${instance}/api/v1/statuses`, {
         method: "POST",
         headers: { ...auth, "Content-Type": "application/x-www-form-urlencoded" },
         body: form,
@@ -92,7 +93,7 @@ export class MastodonProvider implements PublishProvider {
       });
       const d = (await res.json().catch(() => ({}))) as { id?: string; url?: string; error?: string };
       if (!res.ok || !d.id) {
-        return this.fail(d.error || `Mastodon returned HTTP ${res.status}.`, res.status);
+        return this.fail(sanitizeUpstreamMessage(d.error) || `Mastodon returned HTTP ${res.status}.`, res.status);
       }
       return {
         provider: this.id,
@@ -110,7 +111,7 @@ export class MastodonProvider implements PublishProvider {
   private async uploadMedia(instance: string, auth: Record<string, string>, m: MediaInput): Promise<string | null> {
     const form = new FormData();
     form.append("file", new Blob([new Uint8Array(m.data)], { type: m.mime || "application/octet-stream" }), m.filename || "upload.bin");
-    const res = await fetch(`${instance}/api/v2/media`, {
+    const res = await safeFetch(`${instance}/api/v2/media`, {
       method: "POST",
       headers: auth,
       body: form,
