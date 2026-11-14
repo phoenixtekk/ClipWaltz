@@ -1598,9 +1598,148 @@ export const productSources = pgTable(
     currency: text(),
     brand: text(),
     images: jsonb().$type<string[]>().notNull().default([]),
-    source: text().notNull().default("text"), // jsonld | og | text — where the name/price came from
+    source: text().notNull().default("text"), // jsonld | og | text | catalog — where the name/price came from
+    // G10: set when the product came from a store catalog sync (null = pasted product link, G3).
+    connectionId: text().references(() => commerceConnections.id, { onDelete: "cascade" }),
+    externalId: text(),
+    available: boolean(),
     fetchedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("product_sources_ws_idx").on(t.workspaceId, t.createdAt)],
+  (t) => [
+    index("product_sources_ws_idx").on(t.workspaceId, t.createdAt),
+    uniqueIndex("product_sources_conn_ext_idx").on(t.connectionId, t.externalId),
+  ],
+);
+
+// ─── P6 batch B (plan §6 G10, G12, G13, G7) ────────────────────────────────────────────────────────────────────────
+
+// G10 store catalog connections. Shopify and WooCommerce sync from the shop's public storefront endpoints with no
+// credentials; Wix (and an optional Shopify Admin token) need a key the store owner creates — stored ENCRYPTED
+// ("enc1:…", TOKEN_ENC_KEY, same as social tokens) and never sent to the client. Deleting the connection deletes the
+// credentials and every product it synced (cascade).
+export const commerceConnections = pgTable(
+  "commerce_connections",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    createdBy: text().references(() => user.id, { onDelete: "set null" }),
+    platform: text().notNull(), // shopify | woocommerce | wix
+    storeUrl: text().notNull(), // https://shop.example.com (origin only)
+    label: text(),
+    currency: text(),
+    credentials: text(), // ENCRYPTED JSON ({ token } | { apiKey, siteId }); null = public storefront sync
+    webhookSecret: text(), // ENCRYPTED; HMAC key for /api/commerce/<platform>/webhook/<id>; null = webhooks off
+    lastSyncedAt: timestamp({ withTimezone: true }),
+    lastSyncCount: integer(),
+    lastError: text(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("commerce_connections_ws_idx").on(t.workspaceId),
+    check("commerce_connections_platform_check", sql`${t.platform} in ('shopify', 'woocommerce', 'wix')`),
+  ],
+);
+
+// G12 public API keys. The secret is shown once; only its SHA-256 is stored (the secret is 32 random bytes, so a fast
+// hash is enough — there is nothing to brute-force). `prefix` (first 12 chars) is shown in the UI to tell keys apart.
+export const apiKeys = pgTable(
+  "api_keys",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    createdBy: text().references(() => user.id, { onDelete: "set null" }),
+    name: text().notNull(),
+    prefix: text().notNull(),
+    hash: text().notNull(),
+    scopes: jsonb().$type<string[]>().notNull().default([]), // read | generate | publish
+    lastUsedAt: timestamp({ withTimezone: true }),
+    revokedAt: timestamp({ withTimezone: true }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("api_keys_hash_idx").on(t.hash), index("api_keys_ws_idx").on(t.workspaceId)],
+);
+
+// One row per authenticated API / MCP request — the rate limiter counts these (a restart cannot reset the allowance).
+// Rows older than 7 days are pruned opportunistically by src/lib/api-keys.ts.
+export const apiRequests = pgTable(
+  "api_requests",
+  {
+    id: text().primaryKey(),
+    keyId: text()
+      .notNull()
+      .references(() => apiKeys.id, { onDelete: "cascade" }),
+    workspaceId: text().notNull(),
+    method: text().notNull(),
+    path: text().notNull(),
+    status: integer(),
+    at: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("api_requests_key_at_idx").on(t.keyId, t.at), index("api_requests_at_idx").on(t.at)],
+);
+
+// Idempotency-Key replay store (24 h): the same key + Idempotency-Key returns the first response instead of creating
+// a second post / job.
+export const apiIdempotency = pgTable(
+  "api_idempotency",
+  {
+    id: text().primaryKey(),
+    keyId: text()
+      .notNull()
+      .references(() => apiKeys.id, { onDelete: "cascade" }),
+    idemKey: text().notNull(),
+    requestHash: text().notNull(),
+    status: integer(), // null while the first request is still running
+    body: jsonb(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("api_idempotency_key_idx").on(t.keyId, t.idemKey)],
+);
+
+// G7 competitor intelligence — public sources only (RSS/Atom feeds, YouTube channel feeds, Bluesky and Mastodon public
+// APIs). Public fields only, with where and when they were fetched.
+export const competitorSources = pgTable(
+  "competitor_sources",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    createdBy: text().references(() => user.id, { onDelete: "set null" }),
+    name: text().notNull(),
+    kind: text().notNull(), // rss | youtube | bluesky | mastodon
+    ref: text().notNull(), // feed URL | YouTube channel id | Bluesky handle | Mastodon @user@host
+    summary: text(),
+    summaryAt: timestamp({ withTimezone: true }),
+    lastFetchedAt: timestamp({ withTimezone: true }),
+    lastError: text(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("competitor_sources_ws_idx").on(t.workspaceId),
+    check("competitor_sources_kind_check", sql`${t.kind} in ('rss', 'youtube', 'bluesky', 'mastodon')`),
+  ],
+);
+
+export const competitorPosts = pgTable(
+  "competitor_posts",
+  {
+    id: text().primaryKey(),
+    sourceId: text()
+      .notNull()
+      .references(() => competitorSources.id, { onDelete: "cascade" }),
+    workspaceId: text().notNull(),
+    externalId: text().notNull(),
+    url: text(),
+    title: text(),
+    text: text().notNull().default(""),
+    publishedAt: timestamp({ withTimezone: true }),
+    fetchedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("competitor_posts_source_ext_idx").on(t.sourceId, t.externalId), index("competitor_posts_ws_idx").on(t.workspaceId, t.publishedAt)],
 );

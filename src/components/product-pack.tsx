@@ -1,5 +1,5 @@
 "use client";
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { Coins, ImageIcon, Link2, Loader2, PackagePlus, Video } from "lucide-react";
 import { toast } from "sonner";
@@ -26,18 +26,35 @@ const SOURCE: Record<string, string> = {
   jsonld: "product data on the page",
   og: "the page's product tags",
   text: "the page text (no product data found — check the details)",
+  catalog: "your store catalog",
 };
 
-/** G3: "Start from a product link" — product page → image ads (Waltz Image) + a WaltzDeck video brief. */
-export function ProductPack() {
+/**
+ * G3: "Start from a product link" — product page → image ads (Waltz Image) + a WaltzDeck video brief.
+ * G10: with `initial`, the product comes from a synced store catalog and the link reader is hidden.
+ */
+export function ProductPack({ initial }: { initial?: ProductView } = {}) {
   const [busy, start] = useTransition();
   const [url, setUrl] = useState("");
-  const [product, setProduct] = useState<ProductView | null>(null);
+  const [product, setProduct] = useState<ProductView | null>(initial ?? null);
   const [formats, setFormats] = useState<string[]>(["1:1", "9:16"]);
   const [deck, setDeck] = useState(true);
   const [aiIfNone, setAiIfNone] = useState(false);
   const [quote, setQuote] = useState<{ hasPhoto: boolean; credits: number } | null>(null);
   const [result, setResult] = useState<PackResult | null>(null);
+  const quoted = useRef(false);
+  // A catalog product is already read: ask for the first quote once (credits depend on whether it has a usable photo).
+  useEffect(() => {
+    if (!initial || quoted.current) return;
+    quoted.current = true;
+    start(async () => {
+      try {
+        setQuote(unwrap(await quoteProductPack(initial.id, ["1:1", "9:16"], false)));
+      } catch (err) {
+        toast.error((err as Error).message);
+      }
+    });
+  }, [initial]);
 
   function read(e: React.FormEvent) {
     e.preventDefault();
@@ -79,8 +96,8 @@ export function ProductPack() {
   }
 
   return (
-    <Card className="mb-6">
-      <CardHeader>
+    <Card className={initial ? "" : "mb-6"}>
+      <CardHeader className={initial ? "hidden" : undefined}>
         <CardTitle className="flex items-center gap-2"><Link2 className="size-4" /> Start from a product link</CardTitle>
         <CardDescription>
           Paste a product page (Shopify, WooCommerce or any shop). ClipWaltz reads the name, price and photos, then makes image ads and a
@@ -88,7 +105,7 @@ export function ProductPack() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <form onSubmit={read} className="flex flex-col gap-2 sm:flex-row">
+        <form onSubmit={read} className={initial ? "hidden" : "flex flex-col gap-2 sm:flex-row"}>
           <Input type="url" inputMode="url" required placeholder="https://shop.example.com/products/…" value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Product page address" className="sm:flex-1" />
           <Button type="submit" disabled={busy || !url.trim()}>
             {busy && !product ? <Loader2 className="animate-spin" /> : <Link2 />} Read the page

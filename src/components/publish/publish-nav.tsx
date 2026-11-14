@@ -19,6 +19,7 @@ const ITEMS: { href: string; label: string }[] = [
   { href: "/publish/podcast", label: "Podcast" },
   { href: "/publish/by-hand", label: "Post by hand" },
   { href: "/publish/analytics", label: "Analytics" },
+  { href: "/publish/competitors", label: "Competitors" },
   { href: "/publish/comments", label: "Comments" },
   { href: "/publish/networks", label: "Networks" },
 ];

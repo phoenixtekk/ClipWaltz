@@ -24,6 +24,11 @@ const PUBLIC_PATHS = [
   /^\/c\/[^/]+(?:\/go|\/leaving)?$/, // WaltzDeck campaign variant landing page, CTA redirect, leaving page (404 unless shared)
   /^\/api\/c\/[^/]+\/event$/, // campaign variant audience beacon
   /^\/voices\/[a-z_]+\.mp3$/, // WaltzDeck voice previews (static files in public/voices)
+  /^\/api\/v1(?:\/|$)/, // G12 public API (API-key gated per request, src/lib/api-keys.ts)
+  /^\/mcp$/, // G13 remote MCP endpoint (same API keys)
+  /^\/api\/commerce\/(?:shopify|woocommerce)\/webhook\/[a-f0-9-]{36}$/, // G10 store webhooks (HMAC-gated)
+  /^\/manifest\.webmanifest$/, // G16 PWA manifest
+  /^\/offline$/, // G16 offline fallback page
   /^\/api\/auth(?:\/|$)/,
   /^\/api\/billing\/webhook(?:\/|$)/, // Stripe posts here with no cookie
   /^\/api\/internal\/render-ready(?:\/|$)/, // worker callback (shared-secret gated)

@@ -1049,6 +1049,40 @@ Ported from publish.phoenixtekk.com. shadcn/ui screens under **Publish**.
   when the checklist ranks the workspace's own ≥ 20 published posts with a positive rank correlation (it says the
   correlation); otherwise it is a checklist. Always labelled an estimate.
 
+## Store catalogs, API + MCP, ads export, competitors, installable app (P6b, 2026-11-14, ADR-0011, plan G10 / G12 / G13 / G11 / G7 / G16)
+- **G10 Store catalogs (Account → Store catalogs, `/account/integrations`):** connect **Shopify** (public storefront
+  `/products.json` + `/meta.json`, no key), **WooCommerce** (public Store API `/wp-json/wc/store/v1/products`, no key) or
+  **Wix** (the owner's API key + site id, stored encrypted; Catalog V3 query with a V1 fallback — not yet tried against a
+  live Wix site). Sync reads up to 250 products (title, price as the store states it, currency, brand/vendor, up to 8
+  photos, product URL, in stock) into `product_sources`; re-sync updates changed titles/prices and removes products the
+  store no longer lists. **Make a pack** on any product = the G3 pack (image ads + WaltzDeck video brief, credits shown
+  first). **Live updates** (Shopify / WooCommerce webhooks, HMAC-SHA256 checked, bad signature → 401). **Disconnect**
+  deletes the saved key, the webhook secret and every synced product. Owners/admins connect; editors sync.
+- **G12 Public API (`/api/v1`, Pro only):** per-workspace keys (Account → **API keys**, owners/admins): shown once,
+  stored as SHA-256 only, scopes **read / generate / publish**, revocable, act as their creator (creator must still be
+  a member; viewers' keys can't create). Endpoints: `me`, `connections`, `posts` (list, create as draft / queue /
+  schedule / publish), `posts/{id}`, `posts/{id}/schedule`, `media` (list, upload), `images` (AI picture, 2 credits,
+  refunded on failure), `images/{id}`, `images/{id}/file`, `generate/copy` (caption + hashtags per channel, free).
+  Idempotency-Key on create (24 h), rate limits 60/min and 1,000/h per key counted from the DB, OpenAPI 3.1 at
+  `/api/v1/openapi.json`, guide at `/help/api`. Pro = the workspace owner's plan, checked on every request. Not built
+  from plan §6 G12: outgoing webhooks (`render.ready`, `post.published`), "create project / start render" endpoints.
+- **G13 MCP server (`/mcp`, Pro only):** remote MCP over Streamable HTTP (stateless, JSON responses), same keys,
+  scopes and limits. Tools: `list_channels`, `create_post`, `schedule_post`, `get_post_status`, `list_posts`,
+  `generate_image`, `get_image_status`, `write_post_copy`. `create_post` defaults to a draft.
+- **G11 Export for ads (Images → Export for Meta / Google Ads, `/images/ads-export`):** pick designs → one ZIP with a
+  Meta Ads Manager bulk-import CSV + images and a Google Ads Editor Performance Max asset-group CSV + images, links
+  tagged with utm_source / utm_medium / utm_campaign / utm_content, everything PAUSED, README with the import steps.
+  Google file follows PMax limits (headlines ≤ 30, long headline ≤ 90, descriptions ≤ 90, business name ≤ 25;
+  1.91:1 / 1:1 / 4:5 only) and lists what is still missing. ClipWaltz never connects to an ad account.
+- **G7 Competitors (Publish → Competitors):** follow public RSS/Atom feeds, Bluesky accounts and Mastodon accounts
+  (official public APIs; robots.txt honoured for feeds); last 20 posts with dates, posts per week, and a free AI Box
+  summary (themes, cadence, hooks, ideas). Facebook / Instagram / X / LinkedIn / TikTok, YouTube and the Meta Ad
+  Library are listed as **not available** (see plan §6 G7 spike findings).
+- **G16 Installable app (PWA, decision D7):** web manifest (`/manifest.webmanifest`, standalone, 192/512 + maskable
+  icons, shortcuts), the existing push service worker now also caches an **offline page** and shows it when a page
+  can't load; registered on every page (same worker and scope as Web Push). iOS home-screen icon + title.
+- **G17 Semrush App Center:** not built — deferred by the owner (decision D8).
+
 ## Waltz Image — image ads, carousels, memes (P3, 2026-11-14, ADR-0011, plan G1 / G2 / G5) — not deployed
 A fourth studio tool (nav **Images**, `/images`, and the **Waltz Image** tab on New project). shadcn/ui screens.
 Words are always drawn by canvas on the server (`@napi-rs/canvas`), never asked of the AI model, so text is

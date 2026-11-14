@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, User as UserIcon, CreditCard, Bell, Cloud, Users, LifeBuoy, MessageSquare, Sparkles } from "lucide-react";
+import { LogOut, User as UserIcon, CreditCard, Bell, Cloud, Users, LifeBuoy, MessageSquare, Sparkles, KeyRound, Store } from "lucide-react";
 import { authClient, useSession } from "@/lib/auth-client";
 import {
   DropdownMenu,
@@ -69,6 +69,12 @@ export function UserMenu() {
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => router.push("/account/ai")}>
           <Sparkles className="size-4" /> AI models
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => router.push("/account/integrations")}>
+          <Store className="size-4" /> Store catalogs
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => router.push("/account/api")}>
+          <KeyRound className="size-4" /> API keys
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => router.push("/help")}>
           <LifeBuoy className="size-4" /> Help Center

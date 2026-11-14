@@ -130,7 +130,7 @@ function pinnedAgent(vetted: Map<string, Resolved>): Agent {
   return new Agent({ connect: { lookup }, keepAliveTimeout: 1_000, keepAliveMaxTimeout: 1_000 });
 }
 
-const CREDENTIAL_HEADERS = ["authorization", "api-key", "api-username", "cookie", "proxy-authorization"];
+const CREDENTIAL_HEADERS = ["authorization", "api-key", "api-username", "cookie", "proxy-authorization", "x-shopify-access-token", "wix-site-id"];
 
 export interface SafeFetchDeps {
   resolve?: Resolver;

@@ -273,6 +273,22 @@ Each item lists: **What**, **Touch**, **Data**, **Workers**, **UI**, **Credits**
 - **Data:** `competitor_accounts`, `competitor_posts` (public fields only, with source + fetched_at).
 - **Workers:** `competitor-pull` repeatable job, rate-limited per source.
 - **Accept:** for each supported source, a known public account's last 20 posts load with correct timestamps; unsupported networks are shown as "not available" rather than empty.
+- **Spike findings (2026-11-14, P6b):**
+  - **Built (lawful, no login):** RSS/Atom feeds (published for syndication; robots.txt still honoured for our UA),
+    Bluesky public AppView `app.bsky.feed.getAuthorFeed` (public.api.bsky.app, documented, no auth), Mastodon instance
+    REST API (`/api/v1/accounts/lookup` + `/statuses`, public accounts). Verified: Cloudflare blog RSS, bsky.app,
+    @Gargron@mastodon.social — 20 posts each, all 20 timestamps equal to the source API's.
+  - **YouTube:** `youtube.com/feeds/videos.xml` is `Disallow`ed in youtube.com/robots.txt and returned 404 for three
+    channels on 2026-11-14; the YouTube Data API v3 needs an API key from a Google Cloud project (owner action) — not built.
+  - **Meta Ad Library API (`ads_archive`):** needs an access token from a Meta developer app whose user has completed
+    identity verification (facebook.com/ID). Per the Graph API reference, ads that reached no EU location are returned only
+    if they are about social issues, elections or politics — so ordinary competitors' ads outside the EU/UK are not
+    available. Not built (no token).
+  - **TikTok Commercial Content API:** application/approval process — not investigated further, not built.
+  - **Facebook / Instagram / Threads / X / LinkedIn / TikTok profiles:** no public read API without the account owner's
+    login; scraping excluded (R7). Shown in the UI as "not available" with the reason.
+  - **Not built from the plan text:** the `competitor-pull` repeatable job (sources refresh on demand) and SP's embedding
+    clustering (the AI summary describes themes instead).
 
 ### G8 — Pre-publish engagement score
 - **What:** A 0–100 score with reasons (hook length, media present, hashtag count, posting time vs G6, similarity to own past top posts). Shown as **guidance, labelled as an estimate**. Calibrate on the workspace's own `social_post_metrics`; no category benchmark data exists in-house, so don't claim one.
@@ -291,10 +307,20 @@ Each item lists: **What**, **Touch**, **Data**, **Workers**, **UI**, **Credits**
 - **Data:** `commerce_connections` (encrypted creds, `workspace_id`), `product_sources.connection_id, external_id`.
 - **Owner actions:** Shopify Partner app (custom/unlisted app first; App Store review later), Wix app registration. WooCommerce uses per-store REST keys (no app review).
 - **Accept:** against a dev store per platform: sync 25 products correctly; price/title change reflected on re-sync; uninstall revokes and deletes creds; webhook signature checked (bad HMAC → 401).
+- **Built P6b (2026-11-14):** Shopify via the public storefront JSON (no partner app needed — verified beardbrand 69,
+  kith 250, allbirds 250 from linuxg1); WooCommerce via the public Store API (verified mercantile.wordpress.org 46
+  products, re-sync restored a changed title + price); Wix via the owner's API key (V3 query, V1 fallback — **not tested
+  against a live Wix site**). Webhooks for Shopify/WooCommerce with HMAC (bad → 401, tested); disconnect deletes creds,
+  webhook secret and products (tested). Needs a partner app (owner): Shopify headless / password-protected stores and App
+  Store listing; Wix webhooks / App Market.
 
 ### G11 — Ads-manager export
 - **What:** Phase 1: export a campaign pack as a ready-to-upload bundle (named creatives by aspect + a CSV of headline/primary text/CTA/URL with UTMs from `campaign.ts`). Phase 2 (spike): push creatives via Meta Marketing API / TikTok Marketing API. That needs app review and ad-account permissions (**unverified**). No ad spend is ever created or changed by ClipWaltz.
 - **Accept (phase 1):** bundle ZIP contains every variant with names matching the CSV rows; the CSV has all UTM parameters.
+- **Built P6b (2026-11-14):** from Waltz Image designs (not campaign-pack videos): Meta bulk-import CSV + images and a
+  Google Ads Editor Performance Max CSV + images in one ZIP, 4 UTM parameters on every link, everything PAUSED. Google
+  headers checked against Google's Editor CSV column list (except "Asset group"); **Meta headers unverified** against
+  Meta's template. Phase 2 (API push) not built — no ad-account writes, by decision.
 
 ### G12 — Public API
 - **What:** `/api/v1` with per-workspace API keys (hashed, scoped: `read`, `generate`, `publish`), rate limits, idempotency keys, and outgoing webhooks (`render.ready`, `post.published`, `post.failed`). Endpoints: create project from brief, start render/campaign pack, get status, list assets, create/schedule post. OpenAPI spec published in the Help Center.
@@ -302,11 +328,19 @@ Each item lists: **What**, **Touch**, **Data**, **Workers**, **UI**, **Credits**
 - **Data:** `api_keys` (`workspace_id, name, prefix, hash, scopes, last_used_at, revoked_at`), `webhook_endpoints`, `webhook_deliveries`.
 - **Credits:** same costs as the UI; Pro only (proposal).
 - **Accept:** key shown once; revoked key → 401; scope `read` cannot publish (403); the same `Idempotency-Key` twice creates one job; webhook signed (HMAC) and retried on 5xx.
+- **Built P6b (2026-11-14):** keys (SHA-256 at rest, shown once, scopes, revoke), `/api/v1` me / connections / posts /
+  posts/{id} / schedule / media / images / generate/copy, Idempotency-Key, DB-counted rate limits, OpenAPI 3.1, `/help/api`,
+  Pro-only (owner tier per request). Accept tests 1–4 pass (`scripts/test-p6b.mts`). **Not built:** outgoing webhooks
+  (accept test 5), create-project / start-render endpoints.
 
 ### G13 — MCP server
 - **What:** A remote MCP server (streamable HTTP) at `https://www.clipwaltz.com/mcp` wrapping G12, OAuth or API-key auth. Tools: `create_video_from_brief`, `get_render_status`, `create_image_ad`, `list_channels`, `schedule_post`.
 - **Touch:** `src/app/mcp/route.ts` (or a small sidecar if the SDK needs a long-lived process — **unverified**, decide in build).
 - **Accept:** connect from Claude Desktop / Claude Code, run each tool end-to-end on a test workspace; a key without `publish` scope cannot call `schedule_post`.
+- **Built P6b (2026-11-14):** `/mcp` in the Next app (no sidecar needed: stateless Streamable HTTP, JSON responses),
+  API-key auth, tools list_channels / create_post / schedule_post / get_post_status / list_posts / generate_image /
+  get_image_status / write_post_copy. Verified by hand over HTTP (initialize → notifications/initialized → tools/list →
+  tools/call; read-only key refused on schedule_post). Not yet connected from Claude Desktop / Claude Code.
 
 ### G14 — Bulk generation / multi-angle copilot
 - **What:** "Make a week": brief → 4 distinct angles (problem-solution, educational, social proof, minimalist) × chosen formats, laid onto the calendar as drafts (respecting G6 slots and approval G9). Builds on campaign packs + SP Auto Post generated slots. Open Auto-Batch (admin-only today, server paths) stays admin-only. This is a new user-facing flow, not that tool.
@@ -320,9 +354,13 @@ Each item lists: **What**, **Touch**, **Data**, **Workers**, **UI**, **Credits**
 ### G16 — Mobile (decision D7)
 - **Recommended:** installable PWA (web manifest + existing `sw.js` push), with approval notifications and a mobile composer. Native iOS/Android apps only if the owner wants store presence.
 - **Accept (PWA):** Lighthouse installable check passes; push for "needs approval" arrives on Android Chrome.
+- **Built P6b (2026-11-14):** manifest + icons + offline page; existing `sw.js` extended (push unchanged). Installability
+  criteria checked on the dev server (manifest valid with 192/512 icons, standalone, start_url; SW active at scope `/`;
+  offline page cached). Lighthouse itself and push on a real Android phone not run.
 
 ### G17 — Semrush App Center (decision D8)
 - Listing on Semrush's App Center is a business/partner process (terms **unverified**). Recommend deferring until G12 exists.
+- **Not built — owner decision D8 (deferred), recorded 2026-11-14 (P6b).**
 
 ---
 

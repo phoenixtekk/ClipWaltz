@@ -1,8 +1,9 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeGuard } from "@/components/theme-guard";
+import { PwaRegister } from "@/components/pwa-register";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -22,7 +23,12 @@ export const metadata: Metadata = {
   },
   description:
     "Turn the photos and videos on your phone into a polished, music-driven highlight video in under a minute — no editing required.",
+  // G16 PWA: the manifest is src/app/manifest.ts; iOS uses these for "Add to Home Screen".
+  appleWebApp: { capable: true, title: "ClipWaltz", statusBarStyle: "black-translucent" },
+  icons: { apple: "/icons/apple-touch-icon.png" },
 };
+
+export const viewport: Viewport = { themeColor: "#0f0c1d" };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
@@ -41,6 +47,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body className="min-h-full flex flex-col">
         <ThemeGuard />
+        <PwaRegister />
         {children}
         <Toaster richColors position="top-center" />
       </body>

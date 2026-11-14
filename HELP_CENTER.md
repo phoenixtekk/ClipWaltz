@@ -671,6 +671,50 @@ each network recommends. You can change the shape later.
 - **Auto AI Image:** a scheduled or Auto Post post with Auto AI Image on gets a picture made from its text just before
   it goes out (2 credits). If the picture can't be made, the post goes out without one and says so.
 
+## Store catalogs — make ads from your shop's products
+Account menu → **Store catalogs**. Pick **Shopify**, **WooCommerce** or **Wix**, enter your store's address and press
+**Connect and sync** (owners and admins).
+- **Shopify and WooCommerce** need no key: ClipWaltz reads the same public product list your storefront shows.
+  Password-protected and "headless" Shopify shops can't be read this way.
+- **Wix** needs an API key: in Wix, account settings → **API Keys** → **Generate API Key** with the Wix Stores read
+  permission for your site, and your site id. The key is stored encrypted and never shown again.
+- Your products appear with their name, price and photo. Press **Make a pack** on any product to make image ads and a
+  WaltzDeck video ad from it (credits are shown before anything is made; the product's own photo is free).
+- **Sync now** brings in new products, updates changed names and prices, and removes products you deleted.
+- **Live updates** (Shopify and WooCommerce): follow the steps shown to add a webhook in your store, and products update
+  in ClipWaltz as soon as you change them.
+- **Disconnect** removes the store, its products and any saved key. Ads you already made stay.
+
+## Export ads for Meta Ads Manager and Google Ads
+**Images** → **Export for Meta / Google Ads**. Tick the designs to use, give the campaign a name and landing page, an
+optional business name (Google), button (Meta) and primary text, then **Download ZIP**. Inside:
+- **meta/** — a spreadsheet for Ads Manager's **bulk import** plus the images. Everything is set to **paused**, so nothing
+  runs until you set the audience and budget and turn it on yourself.
+- **google/** — a spreadsheet for **Google Ads Editor** (Performance Max asset group) plus the images it can use
+  (landscape 1.91:1, square 1:1 and portrait 4:5). Google also needs a logo, which you add in Editor.
+- **README.txt** — the import steps, and anything Google still needs (for example more headlines).
+Every link carries tracking tags (utm_source, utm_medium, utm_campaign, utm_content) so you can see which ad worked.
+ClipWaltz never connects to your ad accounts and never spends money.
+
+## Competitors — see what others post
+**Publish** → **Competitors**. Follow a competitor's **blog or news feed** (RSS/Atom), **Bluesky** account or
+**Mastodon** account. You see their last 20 posts with dates and how often they post. **AI summary** (free) describes
+their main themes, when they post, the hooks they reuse and ideas to try that are different. Only public posts are
+read, through each network's official public API or the site's own feed. Facebook, Instagram, X, LinkedIn, TikTok,
+YouTube and the Meta Ad Library can't be followed — the page says why.
+
+## API and AI assistants (Pro)
+Account menu → **API keys** (owners and admins on Pro). Create a key with the permissions it needs — **Read**,
+**Generate**, **Publish** — and copy it straight away; it's shown once. Use it from your own scripts with the
+[API guide](/help/api), or connect an AI assistant such as Claude to ClipWaltz over MCP with the setup shown on the
+page. The key acts as you, AI pictures use your credits, and **Revoke** stops it at once.
+
+## Install ClipWaltz on your phone or computer
+ClipWaltz can be installed like an app. On Android (Chrome) open the menu → **Install app** (or **Add to Home
+screen**); on iPhone/iPad (Safari) tap **Share** → **Add to Home Screen**; on a computer, use the install icon in Chrome
+or Edge's address bar. It opens in its own window, keeps your notifications, and shows a "You're offline" page instead
+of an error when there's no connection.
+
 ## Working with others (workspaces)
 - Open the **account menu → Workspace** to invite people by email. Pick a role:
   **Viewer** (watch and download only), **Editor** (edit, upload, render and generate) or, if you're

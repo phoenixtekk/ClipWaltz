@@ -4,6 +4,7 @@ import { activeWorkspaceId } from "@/lib/active-workspace";
 import { listDesigns } from "@/lib/image-ad/designs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
 import { NewDesign } from "@/components/images/new-design";
 
 export const metadata = { title: "Waltz Image" };
@@ -15,9 +16,14 @@ export default async function ImagesPage() {
   const designs = await listDesigns(await activeWorkspaceId(userId));
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Waltz Image</h1>
-        <p className="text-sm text-muted-foreground">Image ads, social graphics, carousels and memes — sized exactly for each network.</p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Waltz Image</h1>
+          <p className="text-sm text-muted-foreground">Image ads, social graphics, carousels and memes — sized exactly for each network.</p>
+        </div>
+        {designs.length ? (
+          <Link href="/images/ads-export" className={buttonVariants({ variant: "outline", size: "sm" })}>Export for Meta / Google Ads</Link>
+        ) : null}
       </div>
       <Card>
         <CardHeader>
