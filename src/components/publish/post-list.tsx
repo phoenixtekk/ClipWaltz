@@ -3,8 +3,8 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Check, Copy, ExternalLink, Film, ImageIcon, Link2, Link2Off, Loader2, MoreHorizontal, Pencil, Repeat2, RotateCw, Send,
-  Star, Trash2, X,
+  Check, Copy, ExternalLink, Film, ImageIcon, Link2, Link2Off, Loader2, MessageSquareWarning, MoreHorizontal, Pencil, Repeat2,
+  RotateCw, Send, SendToBack, Star, Trash2, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
@@ -19,8 +19,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { LocalDate } from "@/components/local-date";
 import { unwrap } from "@/lib/action-result";
+import { Textarea } from "@/components/ui/textarea";
 import {
-  decidePost, deletePost, duplicatePost, publishNow, retryTarget, setFavorite, setShareLink, unschedulePost,
+  decidePost, deletePost, duplicatePost, publishNow, retryTarget, setFavorite, setShareLink, submitPostForApproval, unschedulePost,
 } from "@/lib/social/ui-actions";
 import { providerName, type PostView } from "@/lib/social/ui-types";
 import { ApprovalBadge, StatusBadge } from "./status-badge";
@@ -32,14 +33,22 @@ export function PostList({
   posts,
   empty,
   canApprove = false,
+  requireApproval = false,
 }: {
   posts: PostView[];
   empty: React.ReactNode;
   canApprove?: boolean;
+  /** G9: the workspace needs approval before anything goes out. */
+  requireApproval?: boolean;
 }) {
   const router = useRouter();
   const [busy, start] = useTransition();
   const [confirm, setConfirm] = useState<PostView | null>(null);
+  const [changes, setChanges] = useState<PostView | null>(null);
+  const [note, setNote] = useState("");
+  // Mirrors the server gate (approvalBlock): what the menu offers; the server refuses anything else anyway.
+  const mayPublish = (p: PostView) =>
+    p.approvalStatus === "approved" || (p.approvalStatus === "none" && !requireApproval);
 
   function run(fn: () => Promise<unknown>, ok?: string) {
     start(async () => {
@@ -87,6 +96,30 @@ export function PostList({
                       </span>
                     </div>
                     <p className="line-clamp-3 text-sm whitespace-pre-wrap">{p.text}</p>
+                    {p.lastReview && p.lastReview.decision !== "submitted" && p.approvalStatus !== "none" ? (
+                      <p className={cn("text-xs", p.lastReview.decision === "changes_requested" ? "text-destructive" : "text-muted-foreground")}>
+                        {p.lastReview.decision === "approved" ? "Approved" : "Changes requested"} by {p.lastReview.by}
+                        {p.lastReview.note ? `: “${p.lastReview.note}”` : ""}
+                      </p>
+                    ) : null}
+                    {canApprove && p.approvalStatus === "pending" ? (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <Button size="xs" disabled={busy} onClick={() => run(async () => unwrap(await decidePost(p.id, "approved")), "Approved.")}>
+                          <Check /> Approve
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          disabled={busy}
+                          onClick={() => {
+                            setNote("");
+                            setChanges(p);
+                          }}
+                        >
+                          <MessageSquareWarning /> Request changes
+                        </Button>
+                      </div>
+                    ) : null}
                     <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                       {p.destinations.map((d) => (
                         <Badge key={d.key} variant="secondary">{d.label}</Badge>
@@ -120,9 +153,14 @@ export function PostList({
                         {busy ? <Loader2 className="animate-spin" /> : <MoreHorizontal />}
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        {EDITABLE.has(p.status) && p.approvalStatus !== "pending" && p.approvalStatus !== "rejected" ? (
+                        {EDITABLE.has(p.status) && mayPublish(p) ? (
                           <DropdownMenuItem onClick={() => run(async () => unwrap(await publishNow(p.id)), "Publishing…")}>
                             <Send /> Publish now
+                          </DropdownMenuItem>
+                        ) : null}
+                        {EDITABLE.has(p.status) && !mayPublish(p) && p.approvalStatus !== "pending" ? (
+                          <DropdownMenuItem onClick={() => run(async () => unwrap(await submitPostForApproval(p.id)), "Sent for approval.")}>
+                            <SendToBack /> Send for approval
                           </DropdownMenuItem>
                         ) : null}
                         {p.status === "scheduled" || p.status === "queued" ? (
@@ -154,8 +192,13 @@ export function PostList({
                             <DropdownMenuItem onClick={() => run(async () => unwrap(await decidePost(p.id, "approved")), "Approved.")}>
                               <Check /> Approve
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => run(async () => unwrap(await decidePost(p.id, "rejected")), "Rejected.")}>
-                              <X /> Reject
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setNote("");
+                                setChanges(p);
+                              }}
+                            >
+                              <MessageSquareWarning /> Request changes
                             </DropdownMenuItem>
                           </>
                         ) : null}
@@ -213,6 +256,29 @@ export function PostList({
           </li>
         ))}
       </ul>
+
+      <Dialog open={changes !== null} onOpenChange={(o) => (o ? null : setChanges(null))}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Request changes</DialogTitle>
+            <DialogDescription>Tell the author what to change. The post stays unpublished until it is approved.</DialogDescription>
+          </DialogHeader>
+          <Textarea aria-label="What needs to change" value={note} maxLength={2000} onChange={(e) => setNote(e.target.value)} className="min-h-28" />
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+            <Button
+              disabled={busy || !note.trim()}
+              onClick={() => {
+                const p = changes;
+                setChanges(null);
+                if (p) run(async () => unwrap(await decidePost(p.id, "rejected", note)), "Changes requested — the author has been told.");
+              }}
+            >
+              Send
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={confirm !== null} onOpenChange={(o) => (o ? null : setConfirm(null))}>
         <DialogContent>

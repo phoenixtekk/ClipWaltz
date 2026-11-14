@@ -65,6 +65,7 @@ export default async function ComposePage({ searchParams }: { searchParams: Prom
         prefill={prefill}
         editing={editing}
         aiAvailable={aiConfigured()}
+        approvalRule={{ required: sc.requireApproval, approver: sc.approver }}
       />
     </div>
   );

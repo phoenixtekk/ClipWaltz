@@ -12,6 +12,7 @@ const EMPTY: Record<string, string> = {
   drafts: "No drafts. “Save draft” in the composer keeps a post here until you're ready.",
   favorites: "No favorites yet. Star a post to keep it here for re-sharing.",
   shared: "No review links yet. Use “Copy review link” in any post's menu.",
+  approval: "Nothing is waiting for approval.",
 };
 
 /** Server component shared by Posts / Drafts / Favorites / Shared: one filtered list. */
@@ -26,6 +27,7 @@ export async function PostListPage({ filter, intro, minRole }: { filter: PostFil
       <PostList
         posts={posts}
         canApprove={sc.approver}
+        requireApproval={sc.requireApproval}
         empty={
           <Card>
             <CardContent className="flex flex-wrap items-center gap-3 py-6 text-sm text-muted-foreground">

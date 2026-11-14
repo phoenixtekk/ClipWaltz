@@ -4,6 +4,7 @@ import { db, schema } from "@/db";
 import { listDestinations } from "@/lib/social/destinations";
 import { ALLOWED_MIME, MAX_UPLOAD_BYTES, writeMedia } from "@/lib/social/media";
 import { parseTargetKeys } from "@/lib/social/publish-post";
+import { approvalOnSave, decide, logReview, notifyApprovers } from "@/lib/social/approval";
 
 // Creating posts and media for a workspace. The P1 API surface (src/app/api/social/posts, …/media) uses these; the
 // composer in P2 calls the same functions from server actions. Every function takes the workspace explicitly and
@@ -21,6 +22,9 @@ export interface CreatePostInput {
   status?: "draft" | "queued" | "scheduled";
   /** D9: hold for an approver. */
   requireApproval?: boolean;
+  /** G9: the author is sending it out (publish / schedule / queue) — in an approval workspace that submits it. Defaults
+   *  to `status !== "draft"`. */
+  submitForApproval?: boolean;
   renderId?: string | null;
   exportId?: string | null;
 }
@@ -81,6 +85,14 @@ export async function createPost(workspaceId: string, createdBy: string, input: 
     if (owned.length !== mediaIds.length) throw new PostInputError("Some media is missing or already attached to another post.");
   }
 
+  // G9: the server decides the approval state (a client flag cannot skip a workspace's approval rule).
+  const approval = await approvalOnSave({
+    workspaceId,
+    userId: createdBy,
+    submitting: input.submitForApproval ?? status !== "draft",
+    askApproval: input.requireApproval === true,
+  });
+
   const id = randomUUID();
   await db.insert(schema.socialPosts).values({
     id,
@@ -92,7 +104,9 @@ export async function createPost(workspaceId: string, createdBy: string, input: 
     providers: providers.join(","),
     perNetwork: input.perNetwork ?? null,
     scheduledAt: input.scheduledAt ?? null,
-    approvalStatus: input.requireApproval ? "pending" : "none",
+    approvalStatus: approval.status,
+    approvedBy: approval.approvedBy,
+    approvedAt: approval.approvedBy ? new Date() : null,
     renderId: input.renderId ?? null,
     exportId: input.exportId ?? null,
   });
@@ -101,6 +115,10 @@ export async function createPost(workspaceId: string, createdBy: string, input: 
       .update(schema.socialMedia)
       .set({ postId: id })
       .where(and(eq(schema.socialMedia.workspaceId, workspaceId), inArray(schema.socialMedia.id, mediaIds)));
+  }
+  if (approval.status === "pending") {
+    await logReview({ postId: id, workspaceId, decision: "submitted", reviewerUserId: createdBy });
+    await notifyApprovers(workspaceId, id, text, createdBy);
   }
   return id;
 }
@@ -150,23 +168,19 @@ export async function listPosts(workspaceId: string, limit = 50) {
     .limit(Math.min(Math.max(limit, 1), 200));
 }
 
-/** D9: an approver approves or rejects a post that is awaiting approval. */
+/** D9/G9: an approver approves or requests changes on a post that is awaiting approval. */
 export async function decideApproval(
   workspaceId: string,
   postId: string,
   approverId: string,
   decision: "approved" | "rejected",
+  note?: string | null,
 ): Promise<boolean> {
-  const rows = await db
-    .update(schema.socialPosts)
-    .set({ approvalStatus: decision, approvedBy: approverId, approvedAt: new Date(), updatedAt: new Date() })
-    .where(
-      and(
-        eq(schema.socialPosts.id, postId),
-        eq(schema.socialPosts.workspaceId, workspaceId),
-        eq(schema.socialPosts.approvalStatus, "pending"),
-      ),
-    )
-    .returning({ id: schema.socialPosts.id });
-  return rows.length > 0;
+  return decide({
+    workspaceId,
+    postId,
+    reviewerUserId: approverId,
+    decision: decision === "approved" ? "approved" : "changes_requested",
+    note,
+  });
 }

@@ -24,8 +24,10 @@ import { checkAllConnections, type Health } from "@/lib/social/network-health";
 import { pinterestAccessToken, pinterestBoards, type PinterestBoard } from "@/lib/social/oauth/pinterest";
 import { assertPerNetworkMediaOwned, createPost, decideApproval, PostInputError } from "@/lib/social/posts";
 import { publishPost, type PublishPostResult } from "@/lib/social/publish-post";
+import { approvalOnSave, logReview, notifyApprovers } from "@/lib/social/approval";
 import { refreshPostStatus, retryTargetNow } from "@/lib/social/retry-targets";
 import { COMMENT_NETWORKS } from "@/lib/social/ui";
+import { providerName } from "@/lib/social/ui-types";
 
 // Server actions behind the /publish screens (P2). Each one re-checks the caller with requireSocial (feature flag,
 // workspace membership and role) and scopes every read/write to that workspace — ids arriving here are untrusted.
@@ -97,7 +99,7 @@ async function attachVideo(userId: string, workspaceId: string, v: { source: "re
   return id;
 }
 
-async function savePostImpl(input: SavePostInput): Promise<{ id: string; publish?: PublishPostResult }> {
+async function savePostImpl(input: SavePostInput): Promise<{ id: string; publish?: PublishPostResult; submitted?: boolean }> {
   const sc = await requireSocial(null, "editor");
   const scheduledAt = input.mode === "schedule" && input.scheduledAt ? new Date(input.scheduledAt) : null;
   if (input.mode === "schedule") {
@@ -112,7 +114,7 @@ async function savePostImpl(input: SavePostInput): Promise<{ id: string; publish
   if (input.id) {
     // Editing: only posts that have not started publishing.
     const [p] = await db
-      .select({ id: schema.socialPosts.id, status: schema.socialPosts.status })
+      .select({ id: schema.socialPosts.id, status: schema.socialPosts.status, approvalStatus: schema.socialPosts.approvalStatus })
       .from(schema.socialPosts)
       .where(and(eq(schema.socialPosts.id, input.id), eq(schema.socialPosts.workspaceId, sc.workspaceId)));
     if (!p) throw new PostInputError("That post no longer exists.");
@@ -140,13 +142,26 @@ async function savePostImpl(input: SavePostInput): Promise<{ id: string; publish
         .returning({ id: schema.socialMedia.id });
       if (owned.length !== fresh.length) throw new PostInputError("Some media is missing or attached to another post.");
     }
+    // G9: any edit resets approval — the server decides the new state (approvalOnSave), not the client.
+    const approval = await approvalOnSave({
+      workspaceId: sc.workspaceId,
+      userId: sc.userId,
+      submitting: input.mode !== "draft",
+      askApproval: input.requireApproval === true,
+      previous: p.approvalStatus,
+    });
     await db
       .update(schema.socialPosts)
       .set({
         text, link, providers: providers.join(","), perNetwork: input.perNetwork ?? null, status, scheduledAt,
-        approvalStatus: input.requireApproval ? "pending" : "none", warnings: null, updatedAt: new Date(),
+        approvalStatus: approval.status, approvedBy: approval.approvedBy, approvedAt: approval.approvedBy ? new Date() : null,
+        warnings: null, updatedAt: new Date(),
       })
       .where(eq(schema.socialPosts.id, p.id));
+    if (approval.status === "pending" && p.approvalStatus !== "pending") {
+      await logReview({ postId: p.id, workspaceId: sc.workspaceId, decision: "submitted", reviewerUserId: sc.userId });
+      await notifyApprovers(sc.workspaceId, p.id, text, sc.userId);
+    }
     id = p.id;
   } else {
     id = await createPost(sc.workspaceId, sc.userId, {
@@ -158,6 +173,7 @@ async function savePostImpl(input: SavePostInput): Promise<{ id: string; publish
       scheduledAt,
       status,
       requireApproval: input.requireApproval === true,
+      submitForApproval: input.mode !== "draft",
       renderId: input.video?.source === "render" ? input.video.id : null,
       exportId: input.video?.source === "export" ? input.video.id : null,
     });
@@ -165,11 +181,15 @@ async function savePostImpl(input: SavePostInput): Promise<{ id: string; publish
 
   touch();
   if (input.mode === "publish") {
+    // G9: a post that went to review is not published now; it goes out when an approver approves and it is published.
+    const [saved] = await db.select({ a: schema.socialPosts.approvalStatus }).from(schema.socialPosts).where(eq(schema.socialPosts.id, id));
+    if (saved?.a === "pending") return { id, submitted: true };
     const r = await publishPost(id);
     if (!r.ok) throw new PostInputError(r.error ?? "Publishing could not start.");
     return { id, publish: r };
   }
-  return { id };
+  const [saved] = await db.select({ a: schema.socialPosts.approvalStatus }).from(schema.socialPosts).where(eq(schema.socialPosts.id, id));
+  return { id, submitted: saved?.a === "pending" };
 }
 export async function savePost(input: SavePostInput) { return toResult(() => savePostImpl(input)); }
 
@@ -208,7 +228,11 @@ async function reschedulePostImpl(id: string, iso: string) {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) throw new Error("Invalid time.");
   if (at.getTime() < Date.now() - 60_000) throw new Error("That time has already passed.");
-  await db.update(schema.socialPosts).set({ scheduledAt: at, status: "scheduled", updatedAt: new Date() }).where(eq(schema.socialPosts.id, id));
+  // A planned draft (G14 "Plan a week") moves as a draft — dragging it never sends it out.
+  await db
+    .update(schema.socialPosts)
+    .set({ scheduledAt: at, status: p.status === "draft" ? "draft" : "scheduled", updatedAt: new Date() })
+    .where(eq(schema.socialPosts.id, id));
   touch();
 }
 export async function reschedulePost(id: string, iso: string) { return toResult(() => reschedulePostImpl(id, iso)); }
@@ -274,12 +298,32 @@ async function retryTargetImpl(postId: string, targetId: string) {
 }
 export async function retryTarget(postId: string, targetId: string) { return toResult(() => retryTargetImpl(postId, targetId)); }
 
-async function decideImpl(id: string, decision: "approved" | "rejected") {
+async function decideImpl(id: string, decision: "approved" | "rejected", note?: string) {
   const sc = await requireApprover(null);
-  if (!(await decideApproval(sc.workspaceId, id, sc.userId, decision))) throw new Error("That post is not awaiting approval.");
+  if (decision === "rejected" && !note?.trim()) throw new Error("Say what needs to change, so the author knows what to fix.");
+  if (!(await decideApproval(sc.workspaceId, id, sc.userId, decision, note ?? null))) throw new Error("That post is not awaiting approval.");
   touch();
 }
-export async function decidePost(id: string, decision: "approved" | "rejected") { return toResult(() => decideImpl(id, decision)); }
+/** G9: approve, or request changes (with a note). "rejected" is shown as "Changes requested". */
+export async function decidePost(id: string, decision: "approved" | "rejected", note?: string) {
+  return toResult(() => decideImpl(id, decision, note));
+}
+
+async function submitForApprovalImpl(id: string) {
+  const sc = await requireSocial(null, "editor");
+  const p = await ownedPost(sc.workspaceId, id);
+  if (!["draft", "queued", "scheduled", "failed"].includes(p.status)) throw new Error("Only posts that haven't gone out can be sent for approval.");
+  if (p.approvalStatus === "pending") throw new Error("It is already waiting for approval.");
+  await db
+    .update(schema.socialPosts)
+    .set({ approvalStatus: "pending", approvedBy: null, approvedAt: null, updatedAt: new Date() })
+    .where(eq(schema.socialPosts.id, id));
+  await logReview({ postId: id, workspaceId: sc.workspaceId, decision: "submitted", reviewerUserId: sc.userId });
+  await notifyApprovers(sc.workspaceId, id, p.text, sc.userId);
+  touch();
+}
+/** G9: send a saved post for approval. */
+export async function submitPostForApproval(id: string) { return toResult(() => submitForApprovalImpl(id)); }
 
 async function deleteMediaImpl(id: string) {
   const sc = await requireSocial(null, "editor");
@@ -478,3 +522,136 @@ async function markPostedImpl(targetId: string, url: string) {
   touch();
 }
 export async function markHandoffPosted(targetId: string, url: string) { return toResult(() => markPostedImpl(targetId, url)); }
+
+// ─── G6 suggested times · G8 engagement estimate · G4 copy for each network ────────────────────────────────
+
+async function suggestedTimesImpl(keys: string[]) {
+  const sc = await requireSocial(null, "viewer");
+  const { suggestTimes } = await import("@/lib/social/best-time");
+  const providers = [...new Set(keys.map((k) => String(k).split("#")[0]).filter(Boolean))].slice(0, 30);
+  return suggestTimes(sc.workspaceId, providers);
+}
+/** G6: suggested slots per network (personalised from this workspace's results, else general guidance). */
+export async function suggestedTimes(keys: string[]) { return toResult(() => suggestedTimesImpl(keys)); }
+
+async function scoreCalibrationImpl() {
+  const sc = await requireSocial(null, "viewer");
+  const { getCalibration } = await import("@/lib/social/score");
+  return getCalibration(sc.workspaceId);
+}
+/** G8: is the 0–100 estimate backed by this workspace's own history (posts, Spearman rho)? */
+export async function scoreCalibration() { return toResult(() => scoreCalibrationImpl()); }
+
+async function critiqueImpl(text: string, keys: string[]) {
+  await requireSocial(null, "editor");
+  const t = (text ?? "").trim();
+  if (!t) throw new Error("Write the post first.");
+  const { aiCritique } = await import("@/lib/social/score");
+  try {
+    return await aiCritique(t, [...new Set(keys.map((k) => providerName(String(k).split("#")[0])))]);
+  } catch (e) {
+    console.error("[social] critique:", (e as Error).message);
+    throw new Error("The AI reviewer is not reachable right now — try again in a minute.");
+  }
+}
+/** G8: an AI opinion on the post (0 credits). */
+export async function critiquePost(text: string, keys: string[]) { return toResult(() => critiqueImpl(text, keys)); }
+
+async function copyForNetworksImpl(input: { brief: string; keys: string[]; mediaIds?: string[]; video?: boolean; link?: string | null }) {
+  const sc = await requireSocial(null, "editor");
+  const dests = (await listDestinations(sc.workspaceId)).filter((d) => input.keys.includes(d.key));
+  if (!dests.length) throw new Error("Tick at least one channel first.");
+  const conns = await db
+    .select({ id: schema.socialConnections.id, ctx: schema.socialConnections.aiContext })
+    .from(schema.socialConnections)
+    .where(eq(schema.socialConnections.workspaceId, sc.workspaceId));
+  const ctx = new Map(conns.map((c) => [c.id, c.ctx]));
+  const media = input.mediaIds?.length
+    ? await db
+        .select({ id: schema.socialMedia.id, kind: schema.socialMedia.kind, filename: schema.socialMedia.filename, mime: schema.socialMedia.mime, size: schema.socialMedia.size })
+        .from(schema.socialMedia)
+        .where(and(eq(schema.socialMedia.workspaceId, sc.workspaceId), inArray(schema.socialMedia.id, input.mediaIds.slice(0, 20))))
+    : [];
+  const all = [
+    ...media.map((m) => ({ ...m, kind: (m.kind === "video" ? "video" : "image") as "image" | "video" })),
+    ...(input.video ? [{ id: "video", kind: "video" as const, filename: "video.mp4", mime: "video/mp4", size: 0 }] : []),
+  ];
+  const { copyForNetworks } = await import("@/lib/social/copy");
+  try {
+    return await copyForNetworks({
+      brief: input.brief,
+      link: input.link ?? null,
+      media: all,
+      targets: dests.slice(0, 12).map((d) => ({ key: d.key, provider: d.provider, label: d.label, context: d.connectionId ? ctx.get(d.connectionId) : null })),
+    });
+  } catch (e) {
+    if ((e as Error).message.startsWith("Write a line")) throw e;
+    console.error("[social] copy for networks:", (e as Error).message);
+    throw new Error("The AI writer is not reachable right now — try again in a minute.");
+  }
+}
+/** G4: one click — a caption + hashtags written for each selected network, pre-flight checked. 0 credits. */
+export async function writeCopyForNetworks(input: { brief: string; keys: string[]; mediaIds?: string[]; video?: boolean; link?: string | null }) {
+  return toResult(() => copyForNetworksImpl(input));
+}
+
+// ─── G14 Plan a week ───────────────────────────────────────────────────────────────────────────────────────
+
+export interface PlanRequest {
+  brief: string;
+  days: number;
+  perDay: number;
+  angles: string[];
+  keys: string[];
+  autoImage: boolean;
+  startDate?: string | null;
+}
+
+async function planKeys(workspaceId: string, keys: string[]) {
+  const dests = (await listDestinations(workspaceId)).filter((d) => d.configured);
+  const mine = new Map(dests.map((d) => [d.key, d.provider]));
+  const ks = [...new Set(keys)].filter((k) => mine.has(k));
+  if (!ks.length) throw new Error("Choose at least one connected channel.");
+  if (ks.length !== new Set(keys).size) throw new Error("One of those channels is not connected to this workspace.");
+  return { keys: ks, providers: [...new Set(ks.map((k) => mine.get(k)!))] };
+}
+
+async function buildPlanImpl(req: PlanRequest) {
+  const sc = await requireSocial(null, "editor");
+  const brief = (req.brief ?? "").trim();
+  if (brief.length < 10) throw new Error("Describe what the week is about (a sentence or two).");
+  const { keys, providers } = await planKeys(sc.workspaceId, req.keys);
+  const { ANGLE_KEYS, buildPlan } = await import("@/lib/social/content-plan");
+  const angles = req.angles.filter((a): a is (typeof ANGLE_KEYS)[number] => (ANGLE_KEYS as string[]).includes(a));
+  try {
+    return await buildPlan(sc.workspaceId, {
+      brief, days: Number(req.days) || 7, perDay: Number(req.perDay) || 1, angles, keys, providers, autoImage: Boolean(req.autoImage), startDate: req.startDate ?? null,
+    });
+  } catch (e) {
+    console.error("[social] plan:", (e as Error).message);
+    throw new Error("The AI writer is not reachable right now — try again in a minute.");
+  }
+}
+/** G14: write a plan (nothing saved, 0 credits). */
+export async function buildContentPlan(req: PlanRequest) { return toResult(() => buildPlanImpl(req)); }
+
+async function savePlanImpl(input: { drafts: { angle: string; text: string; at: string }[]; keys: string[]; autoImage: boolean; confirmCredits: number }) {
+  const sc = await requireSocial(null, "editor");
+  const { keys } = await planKeys(sc.workspaceId, input.keys);
+  const { ANGLE_KEYS, MAX_PLAN_POSTS, planCredits, savePlan } = await import("@/lib/social/content-plan");
+  const drafts = (input.drafts ?? [])
+    .filter((d) => typeof d.text === "string" && d.text.trim() && !Number.isNaN(new Date(d.at).getTime()))
+    .map((d) => ({ angle: ((ANGLE_KEYS as string[]).includes(d.angle) ? d.angle : "educational") as (typeof ANGLE_KEYS)[number], text: d.text, at: d.at }));
+  if (!drafts.length) throw new Error("There are no drafts to add.");
+  if (drafts.length > MAX_PLAN_POSTS) throw new Error(`A plan can hold at most ${MAX_PLAN_POSTS} posts.`);
+  // The total the user confirmed must be what the server computes — no GPU work is set up without that.
+  const credits = planCredits(drafts.length, Boolean(input.autoImage));
+  if (credits !== Number(input.confirmCredits)) throw new Error(`Confirm the total first: ${credits} credits.`);
+  const r = await savePlan(sc.workspaceId, sc.userId, drafts, keys, Boolean(input.autoImage));
+  touch();
+  return r;
+}
+/** G14: save the confirmed plan as drafts on the calendar. */
+export async function saveContentPlan(input: { drafts: { angle: string; text: string; at: string }[]; keys: string[]; autoImage: boolean; confirmCredits: number }) {
+  return toResult(() => savePlanImpl(input));
+}

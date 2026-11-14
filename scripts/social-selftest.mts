@@ -14,6 +14,9 @@
 //    private address (against a loopback test server), pins the connection to the vetted IP; the Teams URL check
 //    rejects look-alikes; a tampered OAuth state cookie is refused; a cross-network connection id does not skip the
 //    channel limit; a thumbnail id from outside the workspace is refused; the email cap reads from the DB.
+// 6. P6: G9 approval gate (pending / never-approved refused by publishPost and the scheduler; review-link token scoped
+//    and revocable), G15 cross-workspace isolation, G6 best-slot fixture, G14 dedupe (< 0.94), G4 hashtags, G8
+//    checklist + Spearman, G3 product parse + SSRF refusals.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
@@ -281,6 +284,185 @@ const ok = (name: string) => {
     await db.delete(schema.socialConnections).where(eq(schema.socialConnections.id, connId));
     const left = await db.select({ id: schema.socialConnections.id }).from(schema.socialConnections).where(eq(schema.socialConnections.id, connId));
     console.log(`cleanup: test connection removed=${left.length === 0}`);
+  }
+}
+
+// ── 6. P6 (2026-11-14): G9 approval gate, G15 workspace scoping, G6 best time, G14 dedupe, G4 hashtags, G8, G3 ──────
+// DEV DB only. Creates two throwaway users + workspaces (A, B), never posts to a network (no enqueue, no connection
+// has real credentials), and deletes everything at the end. Notifications are switched off for the run.
+{
+  process.env.SOCIAL_NOTIFY_DISABLED = "1";
+  const { db, schema } = await import("@/db");
+  const { eq, inArray } = await import("drizzle-orm");
+  const { addConnection } = await import("@/lib/social/connections");
+  const { publishPost } = await import("@/lib/social/publish-post");
+  const { createPost, getPost, decideApproval } = await import("@/lib/social/posts");
+  const { approvalBlock, decide, memberCanApprove } = await import("@/lib/social/approval");
+  const { dueScheduledPosts } = await import("@/lib/social/scheduler");
+
+  const tag = randomUUID().slice(0, 8);
+  const editor = `p6-editor-${tag}`;
+  const owner = `p6-owner-${tag}`;
+  const wsA = `p6-wsA-${tag}`;
+  const wsB = `p6-wsB-${tag}`;
+  await db.insert(schema.user).values([
+    { id: owner, name: "P6 owner", email: `${owner}@selftest.invalid` },
+    { id: editor, name: "P6 editor", email: `${editor}@selftest.invalid` },
+  ]);
+  try {
+    await db.insert(schema.workspaces).values([
+      { id: wsA, name: "P6 A", ownerUserId: owner, isPersonal: false, socialRequireApproval: true },
+      { id: wsB, name: "P6 B", ownerUserId: owner, isPersonal: false },
+    ]);
+    await db.insert(schema.workspaceMembers).values([
+      { id: randomUUID(), workspaceId: wsA, userId: owner, role: "owner" },
+      { id: randomUUID(), workspaceId: wsA, userId: editor, role: "editor" },
+      { id: randomUUID(), workspaceId: wsB, userId: owner, role: "owner" },
+    ]);
+    const connA = await addConnection("discord", { accessToken: `https://discord.com/api/webhooks/1/p6-${tag}`, externalId: "1", displayName: "p6" }, wsA, owner);
+    const enqueued: string[] = [];
+    const enqueue = async (id: string) => {
+      enqueued.push(id);
+    };
+
+    // G9 (1): with approval on, an editor's scheduled post is held — createPost makes it `pending`, publishPost refuses,
+    // and the scheduler's due query does not even pick it.
+    const past = new Date(Date.now() - 60_000);
+    const p1 = await createPost(wsA, editor, { text: "P6 editor post", providers: [`discord#${connA}`], status: "scheduled", scheduledAt: past });
+    const [r1] = await db.select({ a: schema.socialPosts.approvalStatus }).from(schema.socialPosts).where(eq(schema.socialPosts.id, p1));
+    assert.equal(r1.a, "pending", "an editor's scheduled post in an approval workspace is pending");
+    const pub1 = await publishPost(p1, { enqueue });
+    assert.equal(pub1.ok, false, "publishPost refuses a pending post");
+    // A client that skips the composer: force approval_status back to 'none' — still refused (workspace rule).
+    await db.update(schema.socialPosts).set({ approvalStatus: "none" }).where(eq(schema.socialPosts.id, p1));
+    const pub1b = await publishPost(p1, { enqueue });
+    assert.equal(pub1b.ok, false, "publishPost refuses a never-approved post when the workspace requires approval");
+    assert.match(pub1b.error ?? "", /approved/i);
+    const due1 = await dueScheduledPosts(new Date(), 100, wsA);
+    assert.ok(!due1.some((d) => d.id === p1), "the scheduler never picks an unapproved post");
+    assert.equal(enqueued.length, 0, "nothing was enqueued");
+    assert.equal(await approvalBlock({ workspaceId: wsB, approvalStatus: "none" }), null, "workspace B (no rule) does not block");
+    ok("G9: approval on → editor's post is pending; publishPost refuses pending AND never-approved; scheduler skips it; 0 jobs");
+
+    // G9 (2): an editor is not an approver; the owner is. Approving releases it to the scheduler.
+    assert.equal(await memberCanApprove(editor, wsA), false);
+    assert.equal(await memberCanApprove(owner, wsA), true);
+    await db.update(schema.socialPosts).set({ approvalStatus: "pending" }).where(eq(schema.socialPosts.id, p1));
+    assert.equal(await decideApproval(wsB, p1, owner, "approved"), false, "a decision from workspace B does not touch A's post");
+    assert.equal(await decideApproval(wsA, p1, owner, "approved", "ok"), true);
+    const due2 = await dueScheduledPosts(new Date(), 100, wsA);
+    assert.ok(due2.some((d) => d.id === p1), "approved + due → the scheduler picks it");
+    assert.equal(await decideApproval(wsA, p1, owner, "approved"), false, "deciding twice is refused (only pending can be decided)");
+    const reviews = await db.select().from(schema.socialPostReviews).where(eq(schema.socialPostReviews.postId, p1));
+    assert.ok(reviews.some((r) => r.decision === "submitted") && reviews.some((r) => r.decision === "approved"), "history has submitted + approved");
+    ok("G9: editor is not an approver, owner is; B can't decide A's post; approved → due; history recorded");
+
+    // G9 (3): the review-link token approves exactly its own post, and stops working once the link is turned off.
+    const p2 = await createPost(wsA, editor, { text: "P6 token post", providers: [`discord#${connA}`], status: "scheduled", scheduledAt: past });
+    const p3 = await createPost(wsA, editor, { text: "P6 other post", providers: [`discord#${connA}`], status: "scheduled", scheduledAt: past });
+    const token = `p6tok${randomUUID().replace(/-/g, "")}`.slice(0, 32);
+    await db.update(schema.socialPosts).set({ shareToken: token }).where(eq(schema.socialPosts.id, p2));
+    const { POST: reviewRoute } = await import("@/app/api/social/review/[token]/route");
+    const call = (t: string, body: unknown) =>
+      reviewRoute(new Request(`http://x/api/social/review/${t}`, { method: "POST", body: JSON.stringify(body) }), { params: Promise.resolve({ token: t }) });
+    assert.equal((await call(token, { decision: "changes_requested" })).status, 400, "changes requested needs a note");
+    const okRes = await call(token, { decision: "approved", name: "Client" });
+    assert.equal(okRes.status, 200);
+    const [s2] = await db.select({ a: schema.socialPosts.approvalStatus }).from(schema.socialPosts).where(eq(schema.socialPosts.id, p2));
+    const [s3] = await db.select({ a: schema.socialPosts.approvalStatus }).from(schema.socialPosts).where(eq(schema.socialPosts.id, p3));
+    assert.equal(s2.a, "approved", "the token's post is approved");
+    assert.equal(s3.a, "pending", "another post is untouched");
+    await db.update(schema.socialPosts).set({ approvalStatus: "pending", shareToken: null }).where(eq(schema.socialPosts.id, p2));
+    assert.equal((await call(token, { decision: "approved" })).status, 404, "a revoked link answers 404");
+    ok("G9: review link approves only its own post; note required for changes; revoked link → 404");
+
+    // G15: a post of workspace A is never readable, decidable or publishable through workspace B.
+    assert.equal(await getPost(wsB, p3), null, "getPost with B's context → null");
+    assert.equal(await decide({ workspaceId: wsB, postId: p3, decision: "approved" }), false, "decide with B's context → no-op");
+    const bWithA = await createPost(wsB, owner, { text: "x", providers: [`discord#${connA}`] }).then(() => "created", (e: Error) => e.message);
+    assert.match(bWithA, /Not a channel of this workspace/, "B cannot post through A's channel");
+    ok("G15: A's post / channel is invisible and unusable from workspace B");
+
+    // G6: seeded fixture — Tuesday 10:00 (UTC) clearly best on discord → it is the top slot; under 10 posts → general.
+    const { rankSlots, MIN_POSTS } = await import("@/lib/social/best-time");
+    const base = Date.UTC(2026, 9, 6, 10, 0, 0); // Tue 2026-10-06 10:00 UTC
+    const samples = [
+      ...Array.from({ length: 6 }, (_, i) => ({ provider: "discord", at: new Date(base + i * 7 * 86_400_000), engagement: 50 })),
+      ...Array.from({ length: 6 }, (_, i) => ({ provider: "discord", at: new Date(base + 86_400_000 * 2 + 4 * 3_600_000 + i * 7 * 86_400_000), engagement: 5 })),
+    ];
+    const ranked = rankSlots(samples, "UTC", new Date(Date.UTC(2026, 10, 14)));
+    assert.equal(ranked.personalised, true);
+    assert.deepEqual([ranked.slots[0].weekday, ranked.slots[0].hour], [2, 10], "top slot = Tue 10:00");
+    const thin = rankSlots(samples.slice(0, MIN_POSTS - 1), "UTC", new Date());
+    assert.equal(thin.personalised, false, "below the minimum → not personalised");
+    ok(`G6: fixture's best bucket (Tue 10:00) ranks first (lift ${ranked.slots[0].lift}); < ${MIN_POSTS} posts → general guidance`);
+
+    // G14: the dedupe loop — a writer that repeats itself is re-rolled; a slot that stays too similar is dropped.
+    const { writeDistinct, cosine, SIM_THRESHOLD } = await import("@/lib/social/content-plan");
+    const vec = (t: string) => {
+      const v = new Array(26).fill(0);
+      for (const ch of t.toLowerCase()) if (ch >= "a" && ch <= "z") v[ch.charCodeAt(0) - 97]++;
+      return v;
+    };
+    let writes = 0;
+    const res = await writeDistinct(
+      ["a", "b", "c", "d"],
+      async (slot, nudge) => {
+        writes++;
+        if (slot === "b" && nudge === 0) return "apple apple apple"; // duplicate of a → must re-roll
+        if (slot === "d") return "apple apple apple"; // always a duplicate → dropped after 3 tries
+        return { a: "apple apple apple", b: "zebra quartz jumps", c: "mighty oven kite" }[slot as "a" | "b" | "c"]!;
+      },
+      async (t) => vec(t),
+    );
+    assert.deepEqual(res.kept.map((k) => k.slot), ["a", "b", "c"]);
+    assert.deepEqual(res.dropped.map((d) => d.slot), ["d"]);
+    for (let i = 0; i < res.kept.length; i++)
+      for (let j = i + 1; j < res.kept.length; j++)
+        assert.ok(cosine(vec(res.kept[i].text), vec(res.kept[j].text)) < SIM_THRESHOLD, "no kept pair at ≥ 0.94");
+    assert.equal(writes, 1 + 2 + 1 + 3, "b re-rolled once, d tried 3 times");
+    const { planCredits } = await import("@/lib/social/content-plan");
+    assert.equal(planCredits(7, false), 0);
+    assert.equal(planCredits(7, true), 14);
+    ok("G14: duplicates are re-written (b) or dropped after 3 tries (d); kept pairs all < 0.94; plan credits 0 / 7×2");
+
+    // G4: hashtags deduplicated, no spaces, within each network's count.
+    const { normalizeHashtags, hashtagMax, withHashtags } = await import("@/lib/social/hashtags");
+    const tags = normalizeHashtags("#Coffee #coffee  #Cold Brew, #cold_brew #2026 #café #a-b", hashtagMax("x"));
+    assert.deepEqual(tags, ["#Coffee", "#Cold"], "X takes 2, deduped case-insensitively, digits-only dropped");
+    const ig = normalizeHashtags(Array.from({ length: 40 }, (_, i) => `#tag${i}`).join(" "), hashtagMax("instagram"));
+    assert.equal(ig.length, 30, "Instagram capped at 30");
+    assert.ok(ig.every((t) => !/\s/.test(t)), "no spaces");
+    assert.equal(hashtagMax("email"), 0);
+    const fitted = withHashtags("x".repeat(270), ["#one", "#two"], 280);
+    assert.ok([...fitted].length <= 280, "tags dropped rather than overflowing X");
+    ok("G4: hashtags deduped, no spaces, per-network caps (X 2, IG 30, email 0), never overflow the text limit");
+
+    // G8: the checklist is explainable and bounded; Spearman sanity.
+    const { scoreChecks, spearman } = await import("@/lib/social/score-checks");
+    const good = scoreChecks({ text: "Short hook?\n\nBody #a #b", hasImage: true, hasVideo: false, providers: ["x"], timing: "personalised" });
+    const bad = scoreChecks({ text: "x".repeat(400), hasImage: false, hasVideo: false, providers: ["x"], timing: "other" });
+    assert.ok(good.total > bad.total && good.total <= 100 && bad.total >= 0);
+    assert.equal(spearman([1, 2, 3, 4], [10, 20, 30, 40]), 1);
+    assert.equal(spearman([1, 2, 3, 4], [4, 3, 2, 1]), -1);
+    ok(`G8: checklist ${good.total} vs ${bad.total}; Spearman ±1 on monotone data`);
+
+    // G3: product page parsing + the SSRF guard on the same fetcher.
+    const { readProduct, fetchPublic } = await import("../worker/deck/importer.mjs");
+    const prod = readProduct(
+      `<script type="application/ld+json">{"@type":"Product","name":"Mug","image":"/m.jpg","offers":{"price":"12.50","priceCurrency":"USD"}}</script>`,
+      "https://shop.test/p",
+    );
+    assert.deepEqual([prod.name, prod.price, prod.currency, prod.images[0], prod.source], ["Mug", "12.50", "USD", "https://shop.test/m.jpg", "jsonld"]);
+    for (const u of ["http://127.0.0.1/", "http://10.0.0.1/", "http://169.254.169.254/latest/meta-data/", "http://[::1]/"]) {
+      await assert.rejects(fetchPublic(u), /public website|isn't a public|Couldn't find/, `fetchPublic must refuse ${u}`);
+    }
+    ok("G3: JSON-LD product read (name/price/currency/image); fetchPublic refuses loopback / RFC1918 / metadata / [::1]");
+  } finally {
+    await db.delete(schema.workspaces).where(inArray(schema.workspaces.id, [wsA, wsB]));
+    await db.delete(schema.user).where(inArray(schema.user.id, [owner, editor]));
+    const left = await db.select({ id: schema.workspaces.id }).from(schema.workspaces).where(inArray(schema.workspaces.id, [wsA, wsB]));
+    console.log(`cleanup: P6 test workspaces removed=${left.length === 0}`);
   }
 }
 

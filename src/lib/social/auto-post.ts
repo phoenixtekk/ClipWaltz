@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { initialApprovalStatus, publishableApprovalSql } from "@/lib/social/approval";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { composeForNetwork } from "@/lib/social/ai";
@@ -205,6 +206,8 @@ export async function generateForRule(rule: Rule, now: Date): Promise<GeneratedP
     perNetwork,
     link: link ?? null,
     status: rule.reviewFirst ? "draft" : "queued",
+    // G9: in a workspace that requires approval, a generated post waits for an approver.
+    approvalStatus: await initialApprovalStatus(rule.workspaceId),
     autoImage: rule.imageMode === "generate",
     autoPostRuleId: rule.id,
   });
@@ -284,6 +287,8 @@ export async function nextPostForRule(rule: Rule, now: Date): Promise<{ postId: 
         eq(schema.socialPosts.workspaceId, rule.workspaceId),
         eq(schema.socialPosts.status, "queued"),
         isNull(schema.socialPosts.migrationHold),
+        // G9: an unapproved post never blocks the queue — the next approved one goes instead.
+        publishableApprovalSql(),
       ),
     )
     .orderBy(schema.socialPosts.createdAt)

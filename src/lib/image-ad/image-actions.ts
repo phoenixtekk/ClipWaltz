@@ -7,7 +7,8 @@ import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { requireUserId } from "@/lib/auth";
 import { toResult } from "@/lib/action-result";
-import { ensurePersonalWorkspace } from "@/lib/workspace";
+import { activeWorkspaceId } from "@/lib/active-workspace";
+import { getWorkspaceRole, roleAtLeast } from "@/lib/workspace";
 import { deleteObject, purgePrefix, putObject } from "@/lib/storage";
 import { requireSocial } from "@/lib/social/access";
 import { writeMedia } from "@/lib/social/media";
@@ -28,7 +29,9 @@ async function editable(id: string) {
 async function createDesignImpl(kind: DesignKind, format: string, title?: string): Promise<string> {
   const userId = await requireUserId();
   if (!isDesignKind(kind)) throw new Error("Pick an image, a carousel or a meme.");
-  const workspaceId = await ensurePersonalWorkspace(userId);
+  // G15: designs are made in the active workspace (editor rights needed there).
+  const workspaceId = await activeWorkspaceId(userId);
+  if (!roleAtLeast(await getWorkspaceRole(userId, workspaceId), "editor")) throw new Error("Viewers can't create designs in this workspace.");
   const id = randomUUID();
   const name = String(title ?? "").trim().slice(0, 100) || (kind === "carousel" ? "Untitled carousel" : kind === "meme" ? "Untitled meme" : "Untitled image");
   await db.insert(schema.imageDesigns).values({

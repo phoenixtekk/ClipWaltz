@@ -1,10 +1,13 @@
 "use client";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, LogOut, Mail, Pencil, Trash2, UserPlus, Users } from "lucide-react";
+import { CheckCheck, Copy, LogOut, Mail, Pencil, Trash2, UserPlus, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import type { WorkspaceRole } from "@/lib/workspace";
 import { LocalDate } from "@/components/local-date";
 import {
@@ -14,6 +17,8 @@ import {
   removeMember,
   renameWorkspace,
   revokeInvite,
+  setMemberApprover,
+  setWorkspaceApprovalRequired,
   type ActionResult,
   type WorkspaceDetail,
   type WorkspaceListItem,
@@ -33,10 +38,13 @@ export function WorkspaceManager({
   workspaces,
   detail,
   userId,
+  publishing = false,
 }: {
   workspaces: WorkspaceListItem[];
   detail: WorkspaceDetail;
   userId: string;
+  /** Social Publishing is available to this account: show the approval settings (G9). */
+  publishing?: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -188,6 +196,31 @@ export function WorkspaceManager({
         </section>
       ) : null}
 
+      {publishing ? (
+        <section className="cw-glass space-y-3 rounded-2xl p-5">
+          <h3 className="flex items-center gap-2 font-medium">
+            <CheckCheck className="size-4" /> Post approvals
+          </h3>
+          <Label className="flex items-start gap-3 font-normal">
+            <Switch
+              checked={detail.requireApproval}
+              disabled={!isAdmin || pending}
+              onCheckedChange={(on) =>
+                act(() => setWorkspaceApprovalRequired(detail.id, on), on ? "Posts now need approval." : "Approval is no longer required.")
+              }
+            />
+            <span>
+              <span className="block text-sm font-medium">Posts need approval before they go out</span>
+              <span className="block text-xs text-muted-foreground">
+                Editors send posts for review; nothing is published or scheduled out until an approver approves it. Owners, admins
+                and members marked “Approver” below can approve.
+              </span>
+            </span>
+          </Label>
+          {!isAdmin ? <p className="text-xs text-muted-foreground">Only owners and admins can change this.</p> : null}
+        </section>
+      ) : null}
+
       <section className="cw-glass space-y-3 rounded-2xl p-5">
         <h3 className="flex items-center gap-2 font-medium">
           <Users className="size-4" /> Members ({detail.members.length})
@@ -204,6 +237,23 @@ export function WorkspaceManager({
                   </p>
                   <p className="truncate text-xs text-muted-foreground">{m.email}</p>
                 </div>
+                {publishing ? (
+                  m.role === "owner" || m.role === "admin" ? (
+                    <span className="hidden text-xs text-muted-foreground sm:inline">Approves posts</span>
+                  ) : (
+                    <Label className="flex items-center gap-1.5 text-xs font-normal">
+                      <Checkbox
+                        checked={m.approverFlag}
+                        disabled={!isAdmin || pending}
+                        aria-label={`${m.email} can approve posts`}
+                        onCheckedChange={(v) =>
+                          act(() => setMemberApprover(m.id, Boolean(v)), v ? "They can now approve posts." : "Approver removed.")
+                        }
+                      />
+                      Approver
+                    </Label>
+                  )
+                ) : null}
                 {canManage ? (
                   <>
                     <select

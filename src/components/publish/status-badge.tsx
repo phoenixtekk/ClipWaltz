@@ -19,7 +19,7 @@ export function StatusBadge({ status }: { status: string }) {
 
 export function ApprovalBadge({ status }: { status: string }) {
   if (status === "pending") return <Badge variant="secondary">Awaiting approval</Badge>;
-  if (status === "rejected") return <Badge variant="destructive">Rejected</Badge>;
+  if (status === "rejected") return <Badge variant="destructive">Changes requested</Badge>;
   if (status === "approved") return <Badge variant="outline">Approved</Badge>;
   return null;
 }

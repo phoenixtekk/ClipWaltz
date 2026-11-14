@@ -3,7 +3,9 @@ import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { getSession } from "@/lib/auth";
 import { isAdminEmail } from "@/lib/admin";
-import { ensurePersonalWorkspace, getWorkspaceRole, roleAtLeast, type WorkspaceRole } from "@/lib/workspace";
+import { memberCanApprove } from "@/lib/social/approval";
+import { activeWorkspaceId } from "@/lib/active-workspace";
+import { getWorkspaceRole, roleAtLeast, type WorkspaceRole } from "@/lib/workspace";
 
 // Who may do what in Social Publishing (ADR-0011 / plan §4.3, D9). Request paths only — the worker never imports this
 // (it pulls in the session), which is also why the rest of src/lib/social does not use `server-only`: those modules
@@ -43,7 +45,7 @@ export interface SocialContext {
 
 /**
  * Resolve the caller and check they may act on the workspace with at least `min`. With no workspace given, the
- * caller's personal workspace is used. Throws SocialAccessError (401 signed out, 403 flag/role, 404 not a member).
+ * caller's active workspace (G15 switcher) is used. Throws SocialAccessError (401 signed out, 403 flag/role, 404 not a member).
  */
 export async function requireSocial(workspaceId: string | null | undefined, min: WorkspaceRole): Promise<SocialContext> {
   const session = await getSession();
@@ -51,7 +53,8 @@ export async function requireSocial(workspaceId: string | null | undefined, min:
   const { id: userId, email } = session.user;
   if (!socialAllowedFor(email)) throw new SocialAccessError("Social publishing is not available on this account yet.", 403);
 
-  const ws = workspaceId || (await ensurePersonalWorkspace(userId));
+  // G15: no workspace given = the caller's ACTIVE workspace (cookie, membership re-checked in activeWorkspaceId).
+  const ws = workspaceId || (await activeWorkspaceId(userId));
   const role = await getWorkspaceRole(userId, ws);
   if (!role) throw new SocialAccessError("Workspace not found.", 404);
   if (!roleAtLeast(role, min)) {
@@ -65,12 +68,7 @@ export async function requireSocial(workspaceId: string | null | undefined, min:
 
 /** D9: may this member approve/reject posts in the workspace? */
 export async function canApprove(userId: string, workspaceId: string): Promise<boolean> {
-  const [m] = await db
-    .select({ role: schema.workspaceMembers.role, approver: schema.workspaceMembers.socialApprover })
-    .from(schema.workspaceMembers)
-    .where(and(eq(schema.workspaceMembers.workspaceId, workspaceId), eq(schema.workspaceMembers.userId, userId)));
-  if (!m) return false;
-  return m.role === "owner" || m.role === "admin" || m.approver;
+  return memberCanApprove(userId, workspaceId);
 }
 
 /** requireSocial + the approver capability. */

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Users } from "lucide-react";
 import { getSession } from "@/lib/auth";
+import { activeWorkspaceId } from "@/lib/active-workspace";
 import { listProjects, listCategories } from "@/lib/projects";
 import { listMyWorkspaces } from "@/lib/workspace-actions";
 import { withArticle } from "@/lib/workspace";
@@ -13,8 +14,9 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
   const session = await getSession();
   const { ws, category } = await searchParams;
   const workspaces = await listMyWorkspaces();
-  // Personal workspace first (listMyWorkspaces orders it so); ?ws= switches to a shared one.
-  const current = workspaces.find((w) => w.id === ws) ?? workspaces[0];
+  // ?ws= picks one; otherwise the active workspace from the top-bar switcher (G15), else the personal one.
+  const active = session ? await activeWorkspaceId(session.user.id) : null;
+  const current = workspaces.find((w) => w.id === ws) ?? workspaces.find((w) => w.id === active) ?? workspaces[0];
   const shared = !!current && !current.isPersonal;
   const canCreate = !current || current.role !== "viewer";
   const [projects, categories] = await Promise.all([
@@ -33,7 +35,7 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
           </h1>
           <p className="text-sm text-muted-foreground">
             {projects.length} project{projects.length === 1 ? "" : "s"}
-            {shared ? ` · shared by ${current.ownerName} · you're ${withArticle(current.role)}` : ""}
+            {shared ? (current.role === "owner" ? " · your client / brand workspace" : ` · shared by ${current.ownerName} · you're ${withArticle(current.role)}`) : ""}
           </p>
         </div>
         {canCreate ? <NewProjectButton workspaceId={shared ? current.id : undefined} /> : null}

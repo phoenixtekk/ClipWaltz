@@ -50,6 +50,10 @@ export interface PostView {
   warnings: string[];
   renderId: string | null;
   exportId: string | null;
+  /** G14: the angle of a content-plan post (problem | educational | proof | minimal), else null. */
+  planAngle?: string | null;
+  /** G9: the newest approval event (submitted / approved / changes_requested) and its note. */
+  lastReview?: { decision: string; note: string | null; by: string; at: string } | null;
 }
 
 /** A ClipWaltz video to attach to a new post (Publish button on a render / export / campaign variant). */

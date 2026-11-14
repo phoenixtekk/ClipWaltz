@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireUserId } from "@/lib/auth";
-import { ensurePersonalWorkspace } from "@/lib/workspace";
+import { activeWorkspaceId } from "@/lib/active-workspace";
 import { listDesigns } from "@/lib/image-ad/designs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +12,7 @@ const KIND = { image: "Image", carousel: "Carousel", meme: "Meme" } as const;
 
 export default async function ImagesPage() {
   const userId = await requireUserId();
-  const designs = await listDesigns(await ensurePersonalWorkspace(userId));
+  const designs = await listDesigns(await activeWorkspaceId(userId));
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div>

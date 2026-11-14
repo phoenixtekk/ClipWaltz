@@ -24,7 +24,8 @@ import { composePin, domainOf } from "@/lib/social/publishing/pin-image";
 //  • Auto AI Image / Video / GIF and the per-network render queue are P3 (the generation queue on the ComfyUI box,
 //    D1). Until then a post that asks for one publishes without it and says so in its warnings — the same honesty SP
 //    adopted after a dead GPU went unnoticed for a day (2026-08-31).
-//  • Approval (D9): a post whose `approvalStatus` is `pending` or `rejected` is never published.
+//  • Approval (D9/G9): a post whose `approvalStatus` is `pending` or `rejected` is never published, and in a workspace
+//    with social_require_approval only `approved` posts are (approvalBlock in approval.ts).
 
 type PostRow = typeof schema.socialPosts.$inferSelect;
 
@@ -149,9 +150,11 @@ export async function publishPost(
       error: "This post was imported from Social Publishing and is on hold until the cut-over, so it is not published twice.",
     };
   }
-  if (post.approvalStatus === "pending" || post.approvalStatus === "rejected") {
-    return { ok: false, status: post.status, error: `This post is ${post.approvalStatus === "pending" ? "awaiting approval" : "rejected"}.` };
-  }
+  // G9: the single approval gate — pending / changes requested never publish, and in a workspace that requires
+  // approval nothing publishes until an approver has approved it (src/lib/social/approval.ts).
+  const { approvalBlock } = await import("@/lib/social/approval");
+  const blockedBy = await approvalBlock(post);
+  if (blockedBy) return { ok: false, status: post.status, error: blockedBy };
 
   const media = await loadPostMedia(postId);
   const keys = parseTargetKeys(post.providers);

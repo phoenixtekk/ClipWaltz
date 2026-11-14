@@ -75,6 +75,8 @@ async function createJob(input: {
   const jobId = randomUUID();
   const chargeId = randomUUID();
   const cost = RENDER_COST[input.kind];
+  const { initialApprovalStatus } = await import("@/lib/social/approval");
+  const approvalStatus = await initialApprovalStatus(input.workspaceId);
   await spendCredits(
     input.userId,
     cost,
@@ -99,6 +101,7 @@ async function createJob(input: {
         providers: input.post.providers.join(","),
         link: input.post.link,
         status: "rendering",
+        approvalStatus, // G9: pending when the workspace requires approval
         autoPostRuleId: input.post.autoPostRuleId ?? null,
         shortRuleId: input.post.shortRuleId ?? null,
       });

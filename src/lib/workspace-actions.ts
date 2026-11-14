@@ -38,6 +38,10 @@ export type WorkspaceMemberItem = {
   email: string;
   role: WorkspaceRole;
   joinedAt: string;
+  /** G9/D9: may approve posts (owner/admin by role, or the approver capability). */
+  approver: boolean;
+  /** The approver capability flag itself (only meaningful for editors/viewers). */
+  approverFlag: boolean;
 };
 
 export type WorkspaceInviteItem = {
@@ -53,6 +57,8 @@ export type WorkspaceDetail = {
   name: string;
   isPersonal: boolean;
   myRole: WorkspaceRole;
+  /** G9: posts need an approver's OK before they go out. */
+  requireApproval: boolean;
   members: WorkspaceMemberItem[];
   invites: WorkspaceInviteItem[]; // only populated for admins/owner
 };
@@ -132,6 +138,7 @@ export async function getWorkspaceDetail(workspaceId: string): Promise<Workspace
       id: schema.workspaceMembers.id,
       userId: schema.workspaceMembers.userId,
       role: schema.workspaceMembers.role,
+      approverFlag: schema.workspaceMembers.socialApprover,
       createdAt: schema.workspaceMembers.createdAt,
       name: schema.user.name,
       email: schema.user.email,
@@ -172,9 +179,13 @@ export async function getWorkspaceDetail(workspaceId: string): Promise<Workspace
     name: ws.name,
     isPersonal: ws.isPersonal,
     myRole,
+    requireApproval: ws.socialRequireApproval,
     members: members
       .filter((m) => isWorkspaceRole(m.role))
-      .map((m) => ({ id: m.id, userId: m.userId, name: m.name, email: m.email, role: m.role as WorkspaceRole, joinedAt: m.createdAt.toISOString() })),
+      .map((m) => ({
+        id: m.id, userId: m.userId, name: m.name, email: m.email, role: m.role as WorkspaceRole, joinedAt: m.createdAt.toISOString(),
+        approverFlag: m.approverFlag, approver: m.role === "owner" || m.role === "admin" || m.approverFlag,
+      })),
     invites,
   };
 }
@@ -407,5 +418,107 @@ export async function acceptInvite(token: string): Promise<ActionResult<{ worksp
     revalidatePath("/projects");
     revalidatePath("/account/workspace");
     return { workspaceId: inv.workspaceId };
+  });
+}
+
+// ─── G15 multi-brand / agency workspaces ────────────────────────────────────────────────────────────────────────
+// A user may OWN several workspaces (one per client / brand), each with its own brand kit, channels, calendar,
+// projects and members. Per-plan limit on owned workspaces (plan §6 G15, §4.7 approved 2026-11-14): Free 1 · Plus 1 ·
+// Pro 5 — the personal workspace counts as one. The active one is the `cw_ws` cookie (src/lib/active-workspace.ts).
+
+const WORKSPACE_LIMITS: Record<"free" | "plus" | "pro", number> = { free: 1, plus: 1, pro: 5 };
+
+export type WorkspaceAllowance = { tier: "free" | "plus" | "pro"; limit: number; owned: number };
+
+/** How many workspaces the current user owns, and may own. */
+export async function myWorkspaceAllowance(): Promise<WorkspaceAllowance> {
+  const userId = await requireUserId();
+  return workspaceAllowanceFor(userId);
+}
+
+async function workspaceAllowanceFor(userId: string): Promise<WorkspaceAllowance> {
+  const { getEffectiveTier } = await import("./tier");
+  const tier = await getEffectiveTier(userId);
+  const [{ n }] = await db.select({ n: count() }).from(schema.workspaces).where(eq(schema.workspaces.ownerUserId, userId));
+  return { tier, limit: WORKSPACE_LIMITS[tier], owned: n };
+}
+
+async function setActiveCookie(workspaceId: string) {
+  const { cookies } = await import("next/headers");
+  const { ACTIVE_WS_COOKIE } = await import("./active-workspace");
+  (await cookies()).set(ACTIVE_WS_COOKIE, workspaceId, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 365,
+  });
+}
+
+/** Create another workspace (a client / brand) owned by the caller, within the plan limit, and switch to it. */
+export async function createWorkspace(name: string): Promise<ActionResult<{ id: string }>> {
+  return run(async () => {
+    const userId = await requireUserId();
+    const nm = name.trim().slice(0, 60);
+    if (!nm) throw new ActionError("Give the workspace a name");
+    const a = await workspaceAllowanceFor(userId);
+    if (a.owned >= a.limit) {
+      throw new ActionError(
+        a.tier === "pro"
+          ? `You already own ${a.limit} workspaces, the Pro plan's limit.`
+          : "More workspaces (one per client or brand) come with the Pro plan — up to 5.",
+      );
+    }
+    const id = randomUUID();
+    await db.insert(schema.workspaces).values({ id, ownerUserId: userId, name: nm, isPersonal: false });
+    await db.insert(schema.workspaceMembers).values({ id: randomUUID(), workspaceId: id, userId, role: "owner" });
+    await setActiveCookie(id);
+    revalidatePath("/", "layout");
+    return { id };
+  });
+}
+
+/** Make a workspace the active one (membership checked here and again on every read of the cookie). */
+export async function switchWorkspace(workspaceId: string): Promise<ActionResult> {
+  return run(async () => {
+    const userId = await requireUserId();
+    await requireWorkspaceRole(userId, workspaceId, "viewer");
+    await setActiveCookie(workspaceId);
+    revalidatePath("/", "layout");
+    return {};
+  });
+}
+
+/** The caller's workspaces + which one is active (for the top-bar switcher). */
+export async function workspaceSwitcherData(): Promise<{ workspaces: WorkspaceListItem[]; activeId: string; allowance: WorkspaceAllowance }> {
+  const userId = await requireUserId();
+  const { activeWorkspaceId } = await import("./active-workspace");
+  const [workspaces, activeId, allowance] = await Promise.all([listMyWorkspaces(), activeWorkspaceId(userId), workspaceAllowanceFor(userId)]);
+  return { workspaces, activeId, allowance };
+}
+
+/** G9: switch "posts need approval" for a workspace (admin+). */
+export async function setWorkspaceApprovalRequired(workspaceId: string, on: boolean): Promise<ActionResult> {
+  return run(async () => {
+    const userId = await requireUserId();
+    await requireWorkspaceRole(userId, workspaceId, "admin");
+    await db.update(schema.workspaces).set({ socialRequireApproval: on, updatedAt: new Date() }).where(eq(schema.workspaces.id, workspaceId));
+    revalidatePath("/account/workspace");
+    revalidatePath("/publish", "layout");
+    return {};
+  });
+}
+
+/** G9/D9: grant or revoke the approver capability on an editor or viewer (admin+). */
+export async function setMemberApprover(memberId: string, on: boolean): Promise<ActionResult> {
+  return run(async () => {
+    const userId = await requireUserId();
+    const [m] = await db.select().from(schema.workspaceMembers).where(eq(schema.workspaceMembers.id, memberId));
+    if (!m) throw new ActionError("Member not found");
+    await requireWorkspaceRole(userId, m.workspaceId, "admin");
+    if (m.role === "owner" || m.role === "admin") throw new ActionError("Owners and admins can always approve");
+    await db.update(schema.workspaceMembers).set({ socialApprover: on }).where(eq(schema.workspaceMembers.id, memberId));
+    revalidatePath("/account/workspace");
+    return {};
   });
 }

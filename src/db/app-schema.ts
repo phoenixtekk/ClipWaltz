@@ -564,6 +564,9 @@ export const workspaces = pgTable("workspaces", {
     .references(() => user.id, { onDelete: "cascade" }),
   plan: text().notNull().default("free"), // free | plus | pro
   isPersonal: boolean().notNull().default(true), // the auto-created per-user default workspace
+  // G9 approval workflow (P6): when true, a post may only be published once an approver has approved it — enforced in
+  // publishPost and the scheduler, whatever the composer sent.
+  socialRequireApproval: boolean().notNull().default(false),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
@@ -1172,6 +1175,10 @@ export const socialPosts = pgTable(
     approvalStatus: text().notNull().default("none"),
     approvedBy: text().references(() => user.id, { onDelete: "set null" }),
     approvedAt: timestamp({ withTimezone: true }),
+    // G14 content plan (P6): posts made together by "Plan a week" share a planId; angle = problem | educational |
+    // proof | minimal.
+    planId: text(),
+    planAngle: text(),
     scheduledAt: timestamp({ withTimezone: true }),
     // P4 double-post guard: rows imported from Social Publishing land with migrationHold="sp-import" and are never
     // published, retried, refreshed or swept while set. Cleared only by scripts/migrate-social-publishing.mjs --activate.
@@ -1547,4 +1554,53 @@ export const socialRenderJobs = pgTable(
     index("social_render_jobs_post_idx").on(t.postId),
     check("social_render_jobs_kind_check", sql`${t.kind} in ('explainer', 'short')`),
   ],
+);
+
+// ─── P6: approval history (G9) ─────────────────────────────────────────────────────────────────────────────────
+// One row per approval event on a post: submitted for review, approved, or changes requested (with the note). A
+// decision made through the public review link (/r/<token>) has no reviewer user and `viaToken` = true.
+export const socialPostReviews = pgTable(
+  "social_post_reviews",
+  {
+    id: text().primaryKey(),
+    postId: text()
+      .notNull()
+      .references(() => socialPosts.id, { onDelete: "cascade" }),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    reviewerUserId: text().references(() => user.id, { onDelete: "set null" }),
+    viaToken: boolean().notNull().default(false),
+    reviewerName: text(), // typed by an external reviewer on the review link (optional)
+    decision: text().notNull(), // submitted | approved | changes_requested
+    note: text(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("social_post_reviews_post_idx").on(t.postId, t.createdAt),
+    check("social_post_reviews_decision_check", sql`${t.decision} in ('submitted', 'approved', 'changes_requested')`),
+  ],
+);
+
+// ─── P6: product pages read from a URL (G3; G10 catalog sync will add rows here too) ──────────────────────────────
+export const productSources = pgTable(
+  "product_sources",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    createdBy: text().references(() => user.id, { onDelete: "set null" }),
+    url: text().notNull(),
+    title: text().notNull().default(""),
+    description: text(),
+    price: text(), // as the page states it ("19.99"); never parsed into money
+    currency: text(),
+    brand: text(),
+    images: jsonb().$type<string[]>().notNull().default([]),
+    source: text().notNull().default("text"), // jsonld | og | text — where the name/price came from
+    fetchedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("product_sources_ws_idx").on(t.workspaceId, t.createdAt)],
 );

@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { postByShareToken } from "@/lib/social/ui";
+import { ReviewDecision } from "@/components/publish/review-decision";
 import { STATUS_LABEL, providerName } from "@/lib/social/ui-types";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +38,9 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
           <CardHeader>
             <CardTitle className="flex flex-wrap items-center gap-2">
               Post for review <Badge variant="outline">{STATUS_LABEL[post.status] ?? post.status}</Badge>
+              {post.approvalStatus === "pending" ? <Badge>Waiting for approval</Badge> : null}
+              {post.approvalStatus === "approved" ? <Badge variant="secondary">Approved</Badge> : null}
+              {post.approvalStatus === "rejected" ? <Badge variant="destructive">Changes requested</Badge> : null}
             </CardTitle>
             <CardDescription>
               Shared with you to read before (or after) it goes out. Planned for: {post.destinations.map((d) => providerName(d.provider)).join(", ") || "no channels yet"}.
@@ -81,6 +85,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ token: 
             </CardContent>
           </Card>
         ) : null}
+        {post.approvalStatus === "pending" ? <ReviewDecision token={token} /> : null}
         <p className="text-center text-xs text-muted-foreground">
           Made with <Link href="/" className="underline underline-offset-2">ClipWaltz</Link>.
         </p>

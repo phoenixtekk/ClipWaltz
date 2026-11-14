@@ -55,8 +55,11 @@ async function createProjectImpl(
     if (!roleAtLeast(await getWorkspaceRole(userId, inWorkspaceId), "editor")) throw new Error("Workspace not found");
     workspaceId = inWorkspaceId;
   } else {
+    // G15: the active workspace (top-bar switcher) when the user can edit there, else their personal workspace.
+    const { activeWorkspaceId } = await import("./active-workspace");
     const { ensurePersonalWorkspace } = await import("./workspace");
-    workspaceId = await ensurePersonalWorkspace(userId);
+    const active = await activeWorkspaceId(userId);
+    workspaceId = roleAtLeast(await getWorkspaceRole(userId, active), "editor") ? active : await ensurePersonalWorkspace(userId);
   }
   const id = randomUUID();
   // New WaltzDeck ads / presentations start with a gentle bed (the user can change it); slideshows pick their own.

@@ -7,6 +7,7 @@ import { listDestinations } from "@/lib/social/destinations";
 import { signedMediaUrl } from "@/lib/social/media";
 import { parseTargetKeys } from "@/lib/social/publish-post";
 import { appUrl } from "@/lib/social/app-url";
+import { listReviews } from "@/lib/social/approval";
 import {
   aspectFromResolution, providerName, providersForAspect,
   type ComposePrefill, type DestinationView, type MediaView, type PostView, type VideoAttachment,
@@ -38,10 +39,11 @@ function mediaView(m: typeof schema.socialMedia.$inferSelect): MediaView {
 async function toViews(workspaceId: string, posts: PostRow[]): Promise<PostView[]> {
   if (posts.length === 0) return [];
   const ids = posts.map((p) => p.id);
-  const [targets, media, dests] = await Promise.all([
+  const [targets, media, dests, reviews] = await Promise.all([
     db.select().from(schema.socialPostTargets).where(inArray(schema.socialPostTargets.postId, ids)),
     db.select().from(schema.socialMedia).where(and(eq(schema.socialMedia.workspaceId, workspaceId), inArray(schema.socialMedia.postId, ids))),
     listDestinations(workspaceId),
+    listReviews(ids),
   ]);
   const label = new Map(dests.map((d) => [d.key, d.label]));
   return posts.map((p) => ({
@@ -67,6 +69,18 @@ async function toViews(workspaceId: string, posts: PostRow[]): Promise<PostView[
     warnings: p.warnings ?? [],
     renderId: p.renderId,
     exportId: p.exportId,
+    planAngle: p.planAngle,
+    lastReview: (() => {
+      const r = reviews.find((x) => x.postId === p.id); // newest first
+      return r
+        ? {
+            decision: r.decision,
+            note: r.note,
+            by: r.viaToken ? `${r.reviewerName || "Guest reviewer"} (review link)` : (r.userName ?? "A member"),
+            at: r.createdAt.toISOString(),
+          }
+        : null;
+    })(),
   }));
 }
 

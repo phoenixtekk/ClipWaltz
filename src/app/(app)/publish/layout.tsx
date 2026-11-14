@@ -1,6 +1,9 @@
 import { Send } from "lucide-react";
 import { getSession } from "@/lib/auth";
 import { socialAllowedFor } from "@/lib/social/access";
+import { eq } from "drizzle-orm";
+import { db, schema } from "@/db";
+import { activeWorkspaceId } from "@/lib/active-workspace";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PublishNav } from "@/components/publish/publish-nav";
 
@@ -11,12 +14,19 @@ export const dynamic = "force-dynamic";
 export default async function PublishLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
   const allowed = socialAllowedFor(session?.user.email);
+  // G15: which workspace (client / brand) these screens are showing — switch it in the top bar.
+  let wsName: string | null = null;
+  if (allowed && session) {
+    const [w] = await db.select({ name: schema.workspaces.name }).from(schema.workspaces).where(eq(schema.workspaces.id, await activeWorkspaceId(session.user.id)));
+    wsName = w?.name ?? null;
+  }
 
   return (
     <div className="mx-auto w-full max-w-[100rem] space-y-6">
       <div className="space-y-3">
         <h1 className="cw-gradient-text flex items-center gap-2 text-2xl font-semibold tracking-tight">
           <Send className="size-5 text-[color:var(--cw-violet)]" /> Publish
+          {wsName ? <span className="text-sm font-normal text-muted-foreground [-webkit-text-fill-color:currentColor]">· {wsName}</span> : null}
         </h1>
         {allowed ? <PublishNav /> : null}
       </div>

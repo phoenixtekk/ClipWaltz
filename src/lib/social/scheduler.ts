@@ -1,4 +1,5 @@
-import { and, eq, inArray, isNull, lte, notInArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte } from "drizzle-orm";
+import { publishableApprovalSql } from "@/lib/social/approval";
 import { db, schema } from "@/db";
 import { publishPost } from "@/lib/social/publish-post";
 import { refreshThreadsToken } from "@/lib/social/oauth/threads";
@@ -176,21 +177,9 @@ export async function runSweep(opts: { now?: Date; enqueue?: Enqueue } = {}): Pr
     note("renders", e);
   }
 
-  // 1. Due scheduled posts. Posts awaiting approval (or rejected) are skipped — they stay scheduled.
+  // 1. Due scheduled posts. Posts not cleared by approval (G9) are skipped — they stay scheduled.
   try {
-    const due = await db
-      .select({ id: schema.socialPosts.id })
-      .from(schema.socialPosts)
-      .where(
-        and(
-          eq(schema.socialPosts.status, "scheduled"),
-          lte(schema.socialPosts.scheduledAt, now),
-          notInArray(schema.socialPosts.approvalStatus, ["pending", "rejected"]),
-          // Imported from Social Publishing and not yet cut over (P4): SP still owns it.
-          isNull(schema.socialPosts.migrationHold),
-        ),
-      )
-      .limit(25);
+    const due = await dueScheduledPosts(now, 25);
     for (const p of due) {
       const r = await publishPost(p.id, { enqueue: opts.enqueue });
       if (r.ok) summary.scheduledPublished++;
@@ -294,4 +283,25 @@ export async function heldForApproval(workspaceId: string) {
     .select()
     .from(schema.socialPosts)
     .where(and(eq(schema.socialPosts.workspaceId, workspaceId), inArray(schema.socialPosts.approvalStatus, ["pending"])));
+}
+
+/**
+ * Scheduled posts that are due and allowed to go out: not held by the P4 migration, and cleared by approval (G9) —
+ * approved, or never submitted in a workspace that does not require approval. Exported for the self-test.
+ */
+export async function dueScheduledPosts(now: Date, limit = 25, workspaceId?: string) {
+  return db
+    .select({ id: schema.socialPosts.id })
+    .from(schema.socialPosts)
+    .where(
+      and(
+        eq(schema.socialPosts.status, "scheduled"),
+        lte(schema.socialPosts.scheduledAt, now),
+        publishableApprovalSql(),
+        // Imported from Social Publishing and not yet cut over (P4): SP still owns it.
+        isNull(schema.socialPosts.migrationHold),
+        workspaceId ? eq(schema.socialPosts.workspaceId, workspaceId) : undefined,
+      ),
+    )
+    .limit(limit);
 }

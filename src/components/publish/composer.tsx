@@ -1,9 +1,10 @@
 "use client";
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  AlertTriangle, CalendarClock, CircleCheck, Film, Hash, ImageIcon, Info, Loader2, Paperclip, Send, Sparkles, Wand2, X,
+  AlertTriangle, CalendarClock, CircleCheck, Clock, Film, Gauge, Hash, ImageIcon, Info, Languages, Loader2, Paperclip, Send,
+  Sparkles, Wand2, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
@@ -23,7 +24,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { unwrap } from "@/lib/action-result";
 import { useHydrated } from "@/lib/local-date";
 import { preflight, type TargetPreflight } from "@/lib/social/publishing/preflight";
-import { aiAssist, deleteUnattachedMedia, savePost, type SavePostInput } from "@/lib/social/ui-actions";
+import {
+  aiAssist, critiquePost, deleteUnattachedMedia, savePost, scoreCalibration, suggestedTimes, writeCopyForNetworks, type SavePostInput,
+} from "@/lib/social/ui-actions";
+import { scoreChecks } from "@/lib/social/score-checks";
 import { providerName, type ComposePrefill, type DestinationView, type MediaView, type PostView } from "@/lib/social/ui-types";
 import { uploadPostMedia } from "./upload-media";
 
@@ -39,6 +43,21 @@ function mb(n: number) {
   return n >= 1024 * 1024 ? `${(n / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
 }
 
+type Suggestions = {
+  timezone: string;
+  networks: {
+    provider: string;
+    personalised: boolean;
+    posts: number;
+    note: string;
+    slots: { weekday: number; hour: number; lift: number | null; posts: number; next: string }[];
+  }[];
+};
+type Calib = { posts: number; rho: number; showScore: boolean };
+
+const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEK = 7 * 86_400_000;
+
 function pad(n: number) {
   return String(n).padStart(2, "0");
 }
@@ -49,11 +68,14 @@ export function Composer({
   prefill,
   editing,
   aiAvailable,
+  approvalRule = { required: false, approver: false },
 }: {
   destinations: DestinationView[];
   prefill: ComposePrefill | null;
   editing: PostView | null;
   aiAvailable: boolean;
+  /** G9: does the workspace require approval, and is the caller an approver? */
+  approvalRule?: { required: boolean; approver: boolean };
 }) {
   const router = useRouter();
   const [busy, start] = useTransition();
@@ -85,6 +107,35 @@ export function Composer({
 
   const usable = destinations.filter((d) => d.configured);
   const chosen = usable.filter((d) => selected.includes(d.key));
+  // G9: an editor in a workspace that requires approval sends posts for review instead of publishing them.
+  const reviewFirst = approvalRule.required && !approvalRule.approver;
+  const holdForApproval = reviewFirst || (!approvalRule.required && approval);
+
+  // G6 suggested times, per selected network (re-fetched when the channel set changes).
+  const providerSet = [...new Set(chosen.map((d) => d.provider))].sort().join(",");
+  const [suggest, setSuggest] = useState<Suggestions | null>(null);
+  useEffect(() => {
+    let live = true;
+    if (!providerSet) return;
+    void suggestedTimes(providerSet.split(",")).then((r) => {
+      if (live && r.ok) setSuggest(r.data);
+    });
+    return () => {
+      live = false;
+    };
+  }, [providerSet]);
+  // G8: is the estimate backed by this workspace's own history?
+  const [calib, setCalib] = useState<Calib | null>(null);
+  useEffect(() => {
+    let live = true;
+    void scoreCalibration().then((r) => {
+      if (live && r.ok) setCalib(r.data);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  const [critique, setCritique] = useState<string | null>(null);
 
   // Recomputed every render: pure and cheap (a few string counts per selected channel).
   const checks: TargetPreflight[] = (() => {
@@ -156,6 +207,73 @@ export function Composer({
     return d;
   }
 
+  function pickSlot(iso: string) {
+    const d = new Date(iso);
+    setDay(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
+    setTime(`${pad(d.getHours())}:${pad(d.getMinutes())}`);
+  }
+
+  // G8 timing check: does the chosen time land on a suggested slot (same weekday + hour, any week)?
+  function timingKind(): "personalised" | "general" | "other" | "none" {
+    const at = when();
+    if (!at) return "none";
+    const nets = (suggest?.networks ?? []).filter((n) => n.slots.length);
+    const hit = (n: (typeof nets)[number]) =>
+      n.slots.some((sl) => {
+        const diff = (((at.getTime() - new Date(sl.next).getTime()) % WEEK) + WEEK) % WEEK;
+        return diff < 3_600_000 || diff > WEEK - 3_600_000;
+      });
+    if (nets.some((n) => n.personalised && hit(n))) return "personalised";
+    if (nets.some((n) => !n.personalised && hit(n))) return "general";
+    return "other";
+  }
+
+  const perNetworkText: Record<string, string> = {};
+  for (const d of chosen) if (overrides[d.key]?.trim()) perNetworkText[d.provider] = overrides[d.key];
+  const score = scoreChecks({
+    text,
+    link: link.trim() || null,
+    hasImage: media.some((m) => m.kind === "image"),
+    hasVideo: Boolean(video) || media.some((m) => m.kind === "video"),
+    providers: chosen.map((d) => d.provider),
+    perNetwork: perNetworkText,
+    timing: timingKind(),
+  });
+
+  async function runCritique() {
+    setAiBusy("critique");
+    try {
+      setCritique(unwrap(await critiquePost(text, selected)));
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setAiBusy(null);
+    }
+  }
+
+  // G4: one click — a caption + hashtags for each selected network, written into each network's own version.
+  async function copyEach() {
+    setAiBusy("each");
+    try {
+      const brief = text.trim() || (video ? `A short video called "${video.projectTitle}"` : "");
+      const out = unwrap(
+        await writeCopyForNetworks({ brief, keys: selected, mediaIds: media.map((m) => m.id), video: Boolean(video), link: link.trim() || null }),
+      );
+      setOverrides((o) => {
+        const n = { ...o };
+        for (const c of out) n[c.key] = c.text;
+        return n;
+      });
+      const bad = out.filter((c) => c.preflight.severity === "blocked");
+      if (bad.length) toast.warning(`Written — but ${bad.map((b) => b.preflight.label ?? b.provider).join(", ")} still can't take it (see Channels).`);
+      else toast.success(`Wrote a version for ${out.length} network${out.length === 1 ? "" : "s"}. Read them over in each tab.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setAiBusy(null);
+    }
+  }
+
   function submit(mode: SavePostInput["mode"]) {
     const at = when();
     if (mode === "schedule" && !at) {
@@ -184,11 +302,15 @@ export function Composer({
             requireApproval: approval,
           }),
         );
-        if (mode === "publish") toast.success(`Publishing to ${r.publish?.queued ?? selected.length} channel(s)…`);
+        if (r.submitted && mode !== "draft") toast.success(mode === "schedule" ? "Scheduled and sent for approval — it goes out once approved." : "Sent for approval.");
+        else if (mode === "publish") toast.success(`Publishing to ${r.publish?.queued ?? selected.length} channel(s)…`);
         else if (mode === "schedule") toast.success("Scheduled.");
         else if (mode === "queue") toast.success("Added to the Auto Post queue.");
         else toast.success("Draft saved.");
-        router.push(mode === "draft" ? "/publish/drafts" : mode === "schedule" ? "/publish/calendar" : mode === "queue" ? "/publish/auto" : "/publish/posts");
+        router.push(
+          r.submitted && mode === "publish" ? "/publish/review"
+          : mode === "draft" ? "/publish/drafts" : mode === "schedule" ? "/publish/calendar" : mode === "queue" ? "/publish/auto" : "/publish/posts",
+        );
         router.refresh();
       } catch (e) {
         toast.error((e as Error).message);
@@ -262,6 +384,12 @@ export function Composer({
                   className="min-h-40"
                 />
                 {aiButtons("all")}
+                {aiAvailable && chosen.length ? (
+                  <Button type="button" size="sm" variant="secondary" disabled={aiBusy !== null} onClick={() => void copyEach()}>
+                    {aiBusy === "each" ? <Loader2 className="animate-spin" /> : <Languages />}
+                    Write copy + hashtags for each network
+                  </Button>
+                ) : null}
                 <div className="flex flex-wrap gap-x-4 gap-y-1">
                   {checks.map((c) => (
                     <span key={c.key} className="inline-flex items-center gap-1.5 text-xs">
@@ -451,21 +579,65 @@ export function Composer({
                 Clear the date
               </button>
             ) : null}
-            <Label className="flex items-center gap-2 font-normal">
-              <Switch checked={approval} onCheckedChange={setApproval} />
-              Ask an approver before it goes out
-            </Label>
+            {providerSet && suggest?.networks.length ? (
+              <div className="space-y-1.5 rounded-lg border border-border p-2.5">
+                <p className="flex items-center gap-1.5 text-xs font-medium"><Clock className="size-3.5" /> Suggested times</p>
+                {suggest.networks.map((n) => (
+                  <div key={n.provider} className="space-y-1">
+                    <p className="text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">{providerName(n.provider)}</span> — {n.note}
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {n.slots.map((sl) => {
+                        const d = new Date(sl.next);
+                        return (
+                          <Button
+                            key={sl.next}
+                            type="button"
+                            size="xs"
+                            variant={n.personalised ? "secondary" : "outline"}
+                            title={n.personalised && sl.lift ? `${sl.posts} of your posts went out in this slot; ${sl.lift}× your average on ${providerName(n.provider)}` : "General guidance — not from your posts"}
+                            onClick={() => pickSlot(sl.next)}
+                          >
+                            {hydrated ? `${WEEKDAY[d.getDay()]} ${pad(d.getHours())}:${pad(d.getMinutes())}` : `${WEEKDAY[sl.weekday]} ${pad(sl.hour)}:00`}
+                            {n.personalised ? <span className="ml-0.5 text-[10px] opacity-70">Suggested</span> : null}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+                <p className="text-[11px] text-muted-foreground">Shown in your time zone. A pick fills the day and time above.</p>
+              </div>
+            ) : null}
+            {approvalRule.required ? (
+              <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                <Info className="mt-0.5 size-3 shrink-0" />
+                {approvalRule.approver
+                  ? "This workspace needs approval. You're an approver, so saving or publishing approves it."
+                  : "This workspace needs approval. Publish or Schedule sends it to an approver; it goes out once approved."}
+              </p>
+            ) : (
+              <Label className="flex items-center gap-2 font-normal">
+                <Switch checked={approval} onCheckedChange={setApproval} />
+                Ask an approver before it goes out
+              </Label>
+            )}
             {blocked.length ? (
               <p className="text-xs text-destructive">
                 {blocked.length} channel{blocked.length === 1 ? "" : "s"} can&apos;t take this post as it is. See the notes under Channels.
               </p>
             ) : null}
             <div className="grid gap-2">
-              <Button type="button" disabled={busy || !chosen.length || !text.trim() || pending.length > 0 || approval} onClick={() => submit("publish")}>
-                {busy ? <Loader2 className="animate-spin" /> : <Send />} Publish now
+              <Button
+                type="button"
+                disabled={busy || !chosen.length || !text.trim() || pending.length > 0 || (approval && !approvalRule.required)}
+                onClick={() => submit("publish")}
+              >
+                {busy ? <Loader2 className="animate-spin" /> : <Send />} {reviewFirst ? "Send for approval" : "Publish now"}
               </Button>
               <Button type="button" variant="secondary" disabled={busy || !chosen.length || !text.trim() || pending.length > 0 || !day} onClick={() => submit("schedule")}>
-                <CalendarClock /> Schedule
+                <CalendarClock /> {holdForApproval ? "Schedule & send for approval" : "Schedule"}
               </Button>
               <div className="grid grid-cols-2 gap-2">
                 <Button type="button" variant="outline" disabled={busy || !text.trim() || !chosen.length || pending.length > 0} onClick={() => submit("draft")}>
@@ -475,9 +647,53 @@ export function Composer({
                   Add to queue
                 </Button>
               </div>
-              {approval ? <p className="text-xs text-muted-foreground">Posts waiting for approval can be saved or scheduled, not published straight away.</p> : null}
+              {approval && !approvalRule.required ? <p className="text-xs text-muted-foreground">Posts waiting for approval can be saved or scheduled, not published straight away.</p> : null}
             </div>
             {editing ? <Badge variant="outline">Editing a saved post</Badge> : null}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Gauge className="size-4" /> Engagement estimate</CardTitle>
+            <CardDescription>
+              {calib?.showScore
+                ? `An estimate, not a prediction: this checklist ranked your ${calib.posts} past posts in roughly the order they performed (rank correlation ${calib.rho}).`
+                : `A checklist, not a prediction. A score appears once at least 20 of your published posts have results and the checklist ranks them in the order they performed${calib ? ` (now ${calib.posts} post${calib.posts === 1 ? "" : "s"}${calib.posts >= 3 ? `, correlation ${calib.rho}` : ""})` : ""}.`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {calib?.showScore ? (
+              <p className="flex items-baseline gap-2">
+                <span className="text-3xl font-semibold tabular-nums">≈ {score.total}</span>
+                <span className="text-sm text-muted-foreground">/ 100 · estimate</span>
+              </p>
+            ) : null}
+            <ul className="space-y-1.5">
+              {score.reasons.map((r) => (
+                <li key={r.label} className="text-xs">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5">
+                      {r.points >= r.max ? <CircleCheck className="size-3.5 text-emerald-600" /> : <AlertTriangle className="size-3.5 text-amber-500" />}
+                      {r.label}
+                    </span>
+                    <span className="tabular-nums text-muted-foreground">{r.points}/{r.max}</span>
+                  </span>
+                  {r.tip ? <span className="ml-5 block text-muted-foreground">{r.tip}</span> : null}
+                </li>
+              ))}
+            </ul>
+            {aiAvailable ? (
+              <Button type="button" size="sm" variant="outline" disabled={aiBusy !== null || !text.trim()} onClick={() => void runCritique()}>
+                {aiBusy === "critique" ? <Loader2 className="animate-spin" /> : <Sparkles />} AI critique (free)
+              </Button>
+            ) : null}
+            {critique ? (
+              <div className="rounded-lg border border-border bg-muted/30 p-2.5">
+                <p className="mb-1 text-xs font-medium text-muted-foreground">The AI&apos;s opinion — check it against what you know works</p>
+                <p className="text-xs whitespace-pre-wrap">{critique}</p>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       </div>

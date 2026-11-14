@@ -15,6 +15,7 @@ const PUBLIC_PATHS = [
   /^\/help(?:\/|$)/, // in-app Help Center
   /^\/setup-guide(?:\/|$)/, // public "connect a network" guide (Social Publishing)
   /^\/r\/[A-Za-z0-9_-]+$/, // public read-only review link for a social post (404 unless the owner shared it)
+  /^\/api\/social\/review\/[A-Za-z0-9_-]+$/, // G9: approve / request changes from that review link (token-scoped)
   /^\/community(?:\/|$)/, // public community feed
   /^\/feed(?:\/|$)/, // legacy → redirects to /community
   /^\/w\/[^/]+$/, // public watch page

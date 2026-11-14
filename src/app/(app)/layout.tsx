@@ -6,6 +6,8 @@ import { isAdminEmail } from "@/lib/admin";
 import { socialAllowedFor } from "@/lib/social/access";
 import { UserMenu } from "@/components/user-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { WorkspaceSwitcher } from "@/components/workspace-switcher";
+import { workspaceSwitcherData } from "@/lib/workspace-actions";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -13,6 +15,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const admin = isAdminEmail(session.user.email);
   // Social Publishing (ADR-0011): hidden while SOCIAL_PUBLISHING_ENABLED is off, except for ADMIN_EMAILS accounts.
   const publish = socialAllowedFor(session.user.email);
+  // G15: the workspace switcher — shown once a user has more than one workspace or may create another.
+  const switcher = await workspaceSwitcherData();
+  const showSwitcher = switcher.workspaces.length > 1 || switcher.allowance.limit > 1;
 
   return (
     <div className="cw-app flex min-h-full flex-col">
@@ -68,6 +73,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               >
                 Admin
               </Link>
+            ) : null}
+            {showSwitcher ? (
+              <WorkspaceSwitcher workspaces={switcher.workspaces} activeId={switcher.activeId} allowance={switcher.allowance} />
             ) : null}
             <ThemeToggle className="grid size-8 place-items-center rounded-full border border-border text-muted-foreground transition-colors hover:text-foreground" />
             <UserMenu />

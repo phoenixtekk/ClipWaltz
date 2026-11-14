@@ -336,6 +336,121 @@ export function readPage(html, baseUrl) {
   };
 }
 
+// ── Product pages (plan G3) ──────────────────────────────────────────────────────────────────────
+// Structured product data first: schema.org JSON-LD `Product` (also inside @graph, arrays, and a ProductGroup's
+// variants), then Open Graph product tags (`product:price:amount` / `og:price:amount`), then the page's readable text
+// (readPage). The price is kept as the page states it — never parsed into money or converted.
+
+function ldType(node) {
+  const t = node?.["@type"];
+  return (Array.isArray(t) ? t : [t]).map((x) => String(x ?? "").replace(/^.*[/#]/, ""));
+}
+
+function ldNodes(json) {
+  const out = [];
+  const walk = (n, depth) => {
+    if (!n || typeof n !== "object" || depth > 6) return;
+    if (Array.isArray(n)) { for (const x of n) walk(x, depth + 1); return; }
+    out.push(n);
+    if (n["@graph"]) walk(n["@graph"], depth + 1);
+    if (n.mainEntity) walk(n.mainEntity, depth + 1);
+    if (n.hasVariant) walk(n.hasVariant, depth + 1);
+    if (n.itemListElement) walk(n.itemListElement, depth + 1);
+    if (n.item) walk(n.item, depth + 1);
+  };
+  walk(json, 0);
+  return out;
+}
+
+const ldText = (v) => (typeof v === "string" ? v : typeof v === "number" ? String(v) : v && typeof v === "object" && !Array.isArray(v) ? ldText(v.name ?? v["@value"] ?? "") : Array.isArray(v) ? ldText(v[0]) : "");
+
+function ldImages(v, baseUrl) {
+  const list = Array.isArray(v) ? v : v ? [v] : [];
+  const urls = [];
+  for (const x of list) {
+    const u = typeof x === "string" ? x : x && typeof x === "object" ? (x.url ?? x.contentUrl ?? x["@id"]) : null;
+    if (typeof u !== "string" || !u.trim()) continue;
+    try {
+      const abs = new URL(u.trim(), baseUrl);
+      if (abs.protocol === "https:" || abs.protocol === "http:") urls.push(abs.toString());
+    } catch { /* skip */ }
+  }
+  return urls;
+}
+
+function ldOffer(offers) {
+  const list = Array.isArray(offers) ? offers : offers ? [offers] : [];
+  for (const o of list) {
+    if (!o || typeof o !== "object") continue;
+    const spec = Array.isArray(o.priceSpecification) ? o.priceSpecification[0] : o.priceSpecification;
+    const inner = o.offers ? ldOffer(o.offers) : null;
+    const price = o.price ?? o.lowPrice ?? spec?.price ?? inner?.price;
+    const currency = o.priceCurrency ?? spec?.priceCurrency ?? inner?.currency;
+    if (price !== undefined && price !== null && String(price).trim() !== "") {
+      return { price: clip(String(price), 40), currency: currency ? clip(String(currency), 10) : null };
+    }
+  }
+  return null;
+}
+
+/**
+ * HTML of a product page → { name, description, price, currency, brand, images[], source: "jsonld" | "og" | "text" }.
+ * Run on the RAW html (readPage strips <script>, where JSON-LD lives).
+ */
+export function readProduct(html, baseUrl) {
+  const raw = String(html);
+  const page = readPage(raw, baseUrl);
+  let product = null;
+  for (const m of raw.matchAll(/<script\b[^>]*type\s*=\s*["']?application\/ld\+json["']?[^>]*>([\s\S]*?)<\/script>/gi)) {
+    let json;
+    try { json = JSON.parse(m[1].trim().replace(/^<!--/, "").replace(/-->$/, "")); } catch { continue; }
+    const nodes = ldNodes(json);
+    const p = nodes.find((n) => ldType(n).includes("Product")) ?? nodes.find((n) => ldType(n).includes("ProductGroup"));
+    if (p) {
+      // A ProductGroup: the group's name, the first variant's offer/images when the group has none.
+      const variant = ldNodes(p.hasVariant ?? []).find((n) => ldType(n).includes("Product"));
+      const offer = ldOffer(p.offers) ?? (variant ? ldOffer(variant.offers) : null);
+      product = {
+        name: clip(decodeXml(ldText(p.name)), 200),
+        description: clip(decodeXml(ldText(p.description)).replace(/<[^>]+>/g, " "), 2000),
+        price: offer?.price ?? null,
+        currency: offer?.currency ?? null,
+        brand: clip(ldText(p.brand), 120) || null,
+        images: [...new Set([...ldImages(p.image, baseUrl), ...(variant ? ldImages(variant.image, baseUrl) : [])])],
+      };
+      if (product.name) break;
+    }
+  }
+  const metas = raw.replace(/<!--[\s\S]*?-->/g, "").match(/<meta\b[^>]*>/gi) ?? [];
+  const meta = (key) => {
+    const t = metas.find((x) => [attr(x, "property"), attr(x, "name"), attr(x, "itemprop")].some((v) => v.toLowerCase() === key));
+    return t ? clip(attr(t, "content"), 500) : "";
+  };
+  const ogPrice = meta("product:price:amount") || meta("og:price:amount");
+  const ogCurrency = meta("product:price:currency") || meta("og:price:currency");
+  const ogImages = [page.image].filter(Boolean);
+  if (product?.name) {
+    return {
+      ...product,
+      price: product.price ?? (ogPrice || null),
+      currency: product.currency ?? (ogCurrency || null),
+      description: product.description || page.description || "",
+      images: [...new Set([...product.images, ...ogImages])].slice(0, 12),
+      source: "jsonld",
+    };
+  }
+  const og = meta("og:type").toLowerCase().includes("product") || Boolean(ogPrice);
+  return {
+    name: clip(page.title, 200),
+    description: clip(page.description || page.text, 2000),
+    price: ogPrice || null,
+    currency: ogCurrency || null,
+    brand: meta("product:brand") || meta("og:brand") || null,
+    images: ogImages,
+    source: og ? "og" : "text",
+  };
+}
+
 // ── Brief ────────────────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -370,10 +485,13 @@ export const fallbackBrief = ({ source, title, digest }) => ({
   prompt: clip(`${source === "url" ? "Based on the web page" : "Based on the presentation"} "${clip(title, 120)}": ${clip(digest, 600)}`, 2000),
 });
 
-// Diagnostic: `node worker/deck/importer.mjs <file.pptx|file.pdf|url>` prints what an import would create.
+// Diagnostic: `node worker/deck/importer.mjs <file.pptx|file.pdf|url> [--product]` prints what an import would create.
 if (process.argv[1]?.endsWith("importer.mjs") && process.argv[2]) {
   const a = process.argv[2];
-  if (/^https?:/i.test(a)) {
+  if (/^https?:/i.test(a) && process.argv.includes("--product")) {
+    const r = await fetchPublic(a);
+    console.log(JSON.stringify(readProduct(r.bytes.toString("utf8"), r.url), null, 2));
+  } else if (/^https?:/i.test(a)) {
     const r = await fetchPublic(a);
     const p = readPage(r.bytes.toString("utf8"), r.url);
     console.log(JSON.stringify({ ...p, text: p.text.slice(0, 400) }, null, 2));
