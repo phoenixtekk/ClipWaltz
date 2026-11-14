@@ -1,6 +1,6 @@
 # ClipWaltz — Predis.ai Parity + Social Publishing Merge: Build Instructions
 
-**Status:** PLAN ONLY — awaiting owner approval. Nothing in this document has been built or deployed.
+**Status:** Phase plan (P0–P7) **approved by the owner 2026-11-14**. Decisions D1–D9 and the §4.7 credits answered the same day (§9.1). Ready for P0. Nothing in this document has been built or deployed yet.
 **Written:** 2026-11-13 · **Branch verified against:** `claude/continue-previous-25a0b2` @ `eff9e0c` (the dev branch; prod runs cherry-picked `deploy/*` branches, so prod ⊆ dev for everything cited here).
 **Inputs:** `Predis_vs_ClipWaltz_Feature_Comparison_2026-11-13.md` (repo parent folder), `https://predis.ai/llm-info/` (read 2026-11-13), the Social Publishing source at `G:\VisualStudioCode\SocialPublishing`, and a read-only probe of linuxg1 on 2026-11-13.
 
@@ -384,6 +384,24 @@ Honest residue: competitor intelligence on Meta/TikTok, direct ads-manager push,
 | D7 | Mobile | PWA · native apps |
 | D8 | Semrush listing | Defer · pursue |
 | D9 | Permissions | Workspace roles + one new `approver` capability · port SP's editable role matrix |
+
+### 9.1 Owner answers (2026-11-14)
+
+| # | Answer |
+|---|---|
+| D1 | ComfyUI box `192.168.166.183` (the one SP already uses) |
+| D2 | Retire SP's $99 plan; social publishing is part of ClipWaltz Plus/Pro. No new Stripe products |
+| D3 | Funnels, Autonnel, `funnels.phoenixtekk.com` SSO and `/media` proxy **stay on SP** |
+| D4 | Podcast **moves** to ClipWaltz with `itunes:new-feed-url` + permanent 301 |
+| D5 | Problem Finder **stays on SP** |
+| D6 | Explainer + Shorts pipeline **ports fully** into ClipWaltz (P5) |
+| D7 | PWA |
+| D8 | Semrush deferred |
+| D9 | Workspace roles + one new `approver` capability |
+| §4.7 | Credits and plan limits **approved as proposed** |
+| UI | **All new screens use shadcn/ui (https://ui.shadcn.com/)** via the repo's existing `components.json` (`style: base-nova`, Base UI primitives, lucide icons). Add components with `npx shadcn@latest add <name>`; do not port SP's own UI components. |
+
+Consequence: `publish.phoenixtekk.com` stays alive as a Phoenixtekk-internal tool (funnels, Autonnel, Problem Finder); only the social-publishing user surface, the podcast and the explainer/Shorts pipeline move.
 
 If D3–D6 keep pieces on SP, `publish.phoenixtekk.com` stays alive as a Phoenixtekk-internal tool, and only the social-publishing user surface redirects. §5 covers both cases.
 
