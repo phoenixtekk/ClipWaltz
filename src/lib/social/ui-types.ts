@@ -67,6 +67,8 @@ export interface ComposePrefill {
   text: string;
   link: string | null;
   video: VideoAttachment | null;
+  /** Images attached up front (Waltz Image "Publish": the design's composited outputs, already stored for this post). */
+  media?: MediaView[];
   /** Destination keys suggested for the video's aspect ratio. */
   suggested: string[];
   /** A note shown above the composer (e.g. why the networks were picked). */

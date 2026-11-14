@@ -10,6 +10,7 @@ import type { AiTemplate } from "@/lib/template-actions";
 import type { Aspect } from "@/lib/aspect";
 import { DECK_MODES, type DeckMode } from "@/lib/deck/types";
 import { unwrap } from "@/lib/action-result";
+import { NewDesign } from "@/components/images/new-design";
 
 const TEMPLATE_GLYPH: Record<string, string> = {
   product: "◎", social: "▶", story: "❝", event: "✺", travel: "⛰", cinematic: "🎬",
@@ -28,6 +29,7 @@ const KINDS = [
   ["music", "AutoWaltz", "music video from my media"],
   ["deck", "WaltzDeck", "ad or slideshow with text"],
   ["ai", "Waltz AI", "AI video from a template"],
+  ["image", "Waltz Image", "image ads, carousels, memes"],
 ] as const;
 
 const TEMPLATES: Template[] = [
@@ -39,7 +41,7 @@ const TEMPLATES: Template[] = [
 
 export function NewProjectWizard({ workspaceId, aiTemplates = [] }: { workspaceId?: string; aiTemplates?: AiTemplate[] }) {
   const router = useRouter();
-  const [kind, setKind] = useState<"music" | "deck" | "ai">("music");
+  const [kind, setKind] = useState<"music" | "deck" | "ai" | "image">("music");
   const [deckMode, setDeckMode] = useState<DeckMode>("ad");
   const [selected, setSelected] = useState("trip");
   const [aiTemplateId, setAiTemplateId] = useState<string | null>(aiTemplates[0]?.id ?? null);
@@ -129,7 +131,9 @@ export function NewProjectWizard({ workspaceId, aiTemplates = [] }: { workspaceI
         ))}
       </div>
 
-      {kind === "deck" ? (
+      {kind === "image" ? (
+        <NewDesign title={name.trim() || undefined} compact />
+      ) : kind === "deck" ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {DECK_MODES.map((m) => (
             <button key={m.key} type="button" aria-pressed={deckMode === m.key} disabled={pending}
@@ -207,8 +211,8 @@ export function NewProjectWizard({ workspaceId, aiTemplates = [] }: { workspaceI
       </div>
       )}
 
-      {/* aspect + actions */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+      {/* aspect + actions (Waltz Image has its own format picker and button above) */}
+      <div className={cn("flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4", kind === "image" && "hidden")}>
         <div className={cn("flex items-center gap-2", kind === "ai" && "invisible")}>
           <span className="text-xs uppercase tracking-wide text-muted-foreground">Aspect</span>
           {([

@@ -1,7 +1,7 @@
 import "server-only";
 import { and, desc, eq, gte, inArray, isNotNull, lte, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { userCanAccessProject } from "@/lib/workspace";
+import { getWorkspaceRole, roleAtLeast, userCanAccessProject } from "@/lib/workspace";
 import { headObject } from "@/lib/storage";
 import { listDestinations } from "@/lib/social/destinations";
 import { signedMediaUrl } from "@/lib/social/media";
@@ -318,6 +318,58 @@ function aspectNote(aspect: string | null): string | null {
 }
 
 const safeName = (s: string) => s.replace(/[^\w.\- ]+/g, "_").slice(0, 80) || "clipwaltz";
+
+/** Networks that take a still image of this shape (LinkedIn's adapter posts text only, so it is never suggested). */
+function providersForImage(format: string | null): string[] {
+  if (format === "2:3") return ["pinterest"];
+  if (format === "9:16") return ["instagram", "facebook"];
+  return ["instagram", "facebook", "x", "threads", "bluesky"];
+}
+
+const MEDIA_ID = /^[a-f0-9-]{36}$/i;
+
+/**
+ * Waltz Image "Publish" (plan G1/G2/G5): the design's composited outputs were just stored as unattached social media of
+ * this workspace (src/lib/image-ad/image-actions.ts prepareDesignPost); attach them, in order, with the design's words
+ * as the starting text. Only unattached images of THIS workspace are accepted, so a crafted URL can't borrow another
+ * post's (or workspace's) media.
+ */
+export async function imagesPrefill(userId: string, workspaceId: string, mediaIdsCsv: string, designId: string | null): Promise<ComposePrefill | null> {
+  const ids = [...new Set(mediaIdsCsv.split(",").map((s) => s.trim()).filter((s) => MEDIA_ID.test(s)))].slice(0, 10);
+  if (!ids.length) return null;
+  const rows = await db.select().from(schema.socialMedia)
+    .where(and(eq(schema.socialMedia.workspaceId, workspaceId), inArray(schema.socialMedia.id, ids), sql`${schema.socialMedia.postId} is null`, eq(schema.socialMedia.kind, "image")));
+  if (!rows.length) return null;
+  const media = ids.map((id) => rows.find((r) => r.id === id)).filter((r): r is NonNullable<typeof r> => !!r).map(mediaView);
+
+  let text = "";
+  let format: string | null = null;
+  if (designId && MEDIA_ID.test(designId)) {
+    const [d] = await db.select().from(schema.imageDesigns).where(eq(schema.imageDesigns.id, designId));
+    if (d && roleAtLeast(await getWorkspaceRole(userId, d.workspaceId), "viewer")) {
+      format = d.format;
+      const data = (d.data ?? {}) as Record<string, unknown>;
+      const slides = Array.isArray(data.slides) ? (data.slides as { headline?: string; body?: string }[]) : null;
+      const parts = slides
+        ? [slides[0]?.headline, slides[0]?.body]
+        : [data.headline, data.subhead, data.caption, [data.top, data.bottom].filter(Boolean).join(" ")];
+      text = parts.map((p) => String(p ?? "").trim()).filter(Boolean).join("\n\n");
+    }
+  }
+  const dests = await destinationsView(workspaceId);
+  const want = providersForImage(format);
+  const many = media.length > 1;
+  return {
+    text,
+    link: null,
+    video: null,
+    media,
+    suggested: dests.filter((d) => d.configured && want.includes(d.provider)).map((d) => d.key),
+    note: many
+      ? `${media.length} images attached in order. Instagram, Facebook and Threads post them as one multi-image post; LinkedIn posts text only for now.`
+      : "Image attached. LinkedIn posts text only for now, so it is not suggested.",
+  };
+}
 
 /** The finished render the user may publish, as a composer prefill, or null (not found / no access / not done). */
 export async function renderPrefill(userId: string, workspaceId: string, renderId: string): Promise<ComposePrefill | null> {

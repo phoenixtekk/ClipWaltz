@@ -69,7 +69,7 @@ export function Composer({
     for (const [k, v] of Object.entries(editing?.perNetwork ?? {})) if (v?.text) o[k] = v.text;
     return o;
   });
-  const [media, setMedia] = useState<MediaView[]>(editing?.media ?? []);
+  const [media, setMedia] = useState<MediaView[]>(editing?.media ?? prefill?.media ?? []);
   const [video, setVideo] = useState(prefill?.video ?? null);
   const [pending, setPending] = useState<Pending[]>([]);
   const [approval, setApproval] = useState(editing?.approvalStatus === "pending");
@@ -227,7 +227,7 @@ export function Composer({
         {prefill?.note || video ? (
           <Alert>
             <Film />
-            <AlertTitle>{video ? `Publishing “${video.projectTitle}”` : "From your video"}</AlertTitle>
+            <AlertTitle>{video ? `Publishing “${video.projectTitle}”` : prefill?.media?.length ? "From Waltz Image" : "From your video"}</AlertTitle>
             <AlertDescription>
               {prefill?.note ?? ""}
               {prefill && prefill.suggested.length === 0 && video ? " None of those networks is connected yet — tick the channels to post to, or connect one under Networks." : ""}
