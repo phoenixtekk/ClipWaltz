@@ -32,6 +32,11 @@ export function redis(): IORedis {
   return _connection;
 }
 
+/** The shared connection if one was opened, else null (lets one-shot scripts close it without opening one). */
+export function redisIfOpen(): IORedis | null {
+  return _connection;
+}
+
 let _genQueue: Queue<GenerationJobData> | null = null;
 /** The generation queue (lazy). */
 export function generationQueue(): Queue<GenerationJobData> {
@@ -194,4 +199,51 @@ export async function enqueueDeck(job: DeckJob, jobId?: string): Promise<void> {
     removeOnComplete: 500,
     removeOnFail: 1000,
   });
+}
+
+// ─── Social Publishing (ADR-0011) ─────────────────────────────────────────────────────────────────
+// One queue for every social job, consumed by worker/social-worker.mjs (pm2 `clipwaltz-social-worker`). Named after
+// GENERATION_QUEUE like the others, so a dev override (GENERATION_QUEUE=clipwaltz-generation-dev) keeps dev jobs off
+// prod's queue. Replaces SP's crontab → POST /api/cron/run sweep.
+//
+// Jobs:
+//   publish-target { targetId }   one destination of one post. Idempotent on the social_post_targets row: the worker
+//                                  claims the row (pending → publishing) and a second job for it is a no-op.
+//   sweep          {}             repeatable, every 60 s: due scheduled posts, Auto Post slots, retries, token refresh
+//   metrics-pull   {}             repeatable, hourly: engagement numbers for recently published targets
+//   comments-pull  { targetId }   on demand: comments for one published target
+export const SOCIAL_QUEUE = /-generation(?=$|-)/.test(GENERATION_QUEUE)
+  ? GENERATION_QUEUE.replace(/-generation(?=$|-)/, "-social") // clipwaltz-generation(-dev) → clipwaltz-social(-dev)
+  : `${GENERATION_QUEUE}-social`;
+export type SocialJob =
+  | { name: "publish-target"; data: { targetId: string } }
+  | { name: "sweep"; data: Record<string, never> }
+  | { name: "metrics-pull"; data: Record<string, never> }
+  | { name: "comments-pull"; data: { targetId: string } };
+
+let _socialQueue: Queue | null = null;
+export function socialQueue(): Queue {
+  if (!_socialQueue) _socialQueue = new Queue(SOCIAL_QUEUE, { connection: redis() });
+  return _socialQueue;
+}
+
+/**
+ * Enqueue one destination. `attempt` is part of the BullMQ job id so a retry (a later attempt on the same row) is not
+ * swallowed by BullMQ's de-duplication of a completed job with the same id; duplicate SUBMITS of the same attempt are.
+ * The database claim in the worker is the real idempotency guarantee either way.
+ */
+export async function enqueueSocialPublishTarget(targetId: string, attempt = 0): Promise<void> {
+  await socialQueue().add(
+    "publish-target",
+    { targetId },
+    { jobId: `pt-${targetId}-${attempt}`, attempts: 1, removeOnComplete: 2000, removeOnFail: 5000 },
+  );
+}
+
+export async function enqueueSocialCommentsPull(targetId: string): Promise<void> {
+  await socialQueue().add(
+    "comments-pull",
+    { targetId },
+    { jobId: `cp-${targetId}-${Math.floor(Date.now() / 60_000)}`, attempts: 1, removeOnComplete: 500, removeOnFail: 500 },
+  );
 }

@@ -932,6 +932,15 @@ version in the current project (the "import"); the original is untouched.
   a project. Implausible auto-level estimates (> 35° tilt) are ignored. Follow action fixed: ffmpeg v360 added up
   each rotation (needed `reset_rot=1`), so the pan drifted instead of following the path.
 
+## Social Publishing — publishing core (P1, 2026-11-14, ADR-0011) — 🚧 behind a flag, owner-only, no UI yet
+- Publish to 23 networks from a workspace (Facebook Pages, Instagram, LinkedIn, Threads, Bluesky, Mastodon, X, YouTube,
+  TikTok, Pinterest, Tumblr, Telegram, Discord, Slack, Teams, Discourse, dev.to, Medium, email, TxtYa, Reddit, Facebook
+  Group hand-off; podcast arrives with P5) — ported from publish.phoenixtekk.com with its pre-flight checks.
+- Channels belong to the workspace (editors publish, admins connect), credentials encrypted; Plus 10 / Pro 25 channels.
+- Publishing, scheduling, Auto Post rules, automatic retries and token refresh run in the background social worker;
+  a double-clicked Publish still posts once. Optional approval step (approvers).
+- API only for now (`/api/social/*`); the Publish screens come in P2. See ADMIN_DOCS → Social Publishing.
+
 ## Direct media delivery — storage edge (2026-09-25, ADR-0003)
 
 - Videos, photos and music now stream **directly from storage** (`media.clipwaltz.com`, Cloudflare)

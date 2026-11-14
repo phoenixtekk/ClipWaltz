@@ -1201,6 +1201,11 @@ export const socialPostTargets = pgTable(
     // Latest engagement numbers from the hourly metrics-pull ({ likes, comments, shares, views }).
     metrics: jsonb().$type<{ likes: number | null; comments: number | null; shares: number | null; views: number | null }>(),
     metricsAt: timestamp({ withTimezone: true }),
+    // Latest comments from a comments-pull job (src/lib/social/jobs.ts) — the Comments inbox (P2) reads this cache.
+    comments: jsonb().$type<
+      { id: string; author: string; text: string; createdAt: string | null; ref?: { uri: string; cid: string; rootUri: string; rootCid: string } }[]
+    >(),
+    commentsAt: timestamp({ withTimezone: true }),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },

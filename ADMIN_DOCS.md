@@ -1111,6 +1111,50 @@ Spec `06_ClipWaltz_WaltzDeck_Feature_Spec.md`. Data: `projects.kind` (`autowaltz
   (it runs the deck planner: `deck/{planner,jobs,motion}.mjs`). AI box: `render-worker.mjs` +
   `deck/{motion,text-layer,export,voice}.mjs` (`sudo -n systemctl restart clipwaltz-worker`).
 
+## Social Publishing — P1 publishing core (2026-11-14, ADR-0011)
+Port of publish.phoenixtekk.com's publishing core (plan `docs/PREDIS_PARITY_AND_PUBLISH_MERGE_PLAN.md` §4, P1). **No UI
+yet** (P2); behind `SOCIAL_PUBLISHING_ENABLED` (off → only `ADMIN_EMAILS` accounts). **Not deployed.**
+- **Schema:** `0064_social_publishing` — `social_connections`, `social_posts` (+ `render_id`/`export_id`, D9
+  `approval_status`/`approved_by`/`approved_at`), `social_post_targets` (+ `metrics`), `social_media` (`storage_key`),
+  `social_auto_rules` (+ per-rule `timezone`), `social_auto_presets`, `social_snippets`, `social_ai_generations`;
+  `workspace_members.social_approver`. `0065_social_comments_cache` — `social_post_targets.comments/comments_at`.
+  Both applied to **dev** (`clipwaltz_dev`) only. ⚠️ This branch's schema lacks `render_workers` and the 0052 lease
+  columns that exist in the db; a plain `drizzle-kit generate` therefore emits `DROP COLUMN`s for them — the 0064/0065
+  SQL had those removed and their snapshots keep the columns. Check every future generate on this branch for DROPs.
+- **Code:** `src/lib/social/**` (adapters in `publishing/providers/*` — 23, history comments intact), API under
+  `src/app/api/social/**`. Tenancy: everything is owned by a **workspace**; viewer+ reads, editor+ publishes, admin+
+  connects/disconnects/pauses, approver = owner/admin or `social_approver` (`src/lib/social/access.ts`). Channel limits
+  (`src/lib/social/limits.ts`): Free 0 / Plus 10 / Pro 25 per workspace, from the workspace **owner's** effective tier;
+  no credits charged for publishing.
+- **Credentials:** encrypted at rest with `TOKEN_ENC_KEY` (`src/lib/cloud/crypto.ts`, `enc1:` prefix); the worker must
+  have the same key. Never returned to clients (`publicConnection`). No env-credential destinations: the adapters'
+  old `FACEBOOK_PAGE_*` / `LINKEDIN_*` fallbacks are unreachable because `publishToTargets` refuses any target without a
+  workspace connection.
+- **OAuth:** one route pair, `/api/social/oauth/<provider>/start?workspace=<id>` → `/callback`. Register this redirect URI
+  with each provider: `https://www.clipwaltz.com/api/social/oauth/<provider>/callback` for facebook (also adds the
+  Pages' linked Instagram accounts), linkedin, threads, pinterest, tiktok, tumblr, x, youtube; Mastodon self-registers
+  per instance (`?instance=`). Paste-credential networks: `POST /api/social/connections/<provider>` (bluesky, telegram,
+  discord, slack, teams, discourse, devto, medium, email, txtya, reddit, facebook_group, instagram, and token-paste
+  x/youtube/tiktok). User-typed hosts (Discourse, Mastodon) must resolve to public IPs (SSRF guard).
+- **Public endpoints** (in `src/proxy.ts` PUBLIC_PATHS): `/api/social/media/public/<id>?exp&sig` (HMAC, 6 h; 302 to a
+  1 h presigned GET on `media.clipwaltz.com`, or proxied when the storage edge is off) and
+  `/api/social/webhooks/threads/{deauthorize,delete}` (Meta `signed_request` verified with `THREADS_CLIENT_SECRET`;
+  deletes that Threads user's connections). Register both Threads URLs in the Threads app.
+- **Worker:** `worker/social-worker.mjs`, queue `clipwaltz-social` (dev: `clipwaltz-social-dev` when
+  `GENERATION_QUEUE=clipwaltz-generation-dev`). Run from the repo root:
+  `node --env-file=.env.local --import tsx worker/social-worker.mjs` (pm2 name `clipwaltz-social-worker` — there is no
+  ecosystem file; the exact pm2 start line is decided at deploy — the process needs the two node flags above and the
+  repo root as cwd. Not yet run under pm2 or against Redis).
+  Jobs: `publish-target` (idempotent on the target row: pending → publishing claim), `sweep` (every 60 s: token refresh,
+  due scheduled posts — skipping posts awaiting approval —, Auto Post slots, stuck/lost targets, retries 2/10/30/120 min),
+  `metrics-pull` (hourly), `comments-pull` (on demand). Replaces SP's crontab + `/api/cron/run`.
+  One-shot: `… worker/social-worker.mjs --sweep-once [--inline]`, `--metrics-once`.
+- **Self-test (no live posting):** `node --env-file=.env.local --import tsx scripts/social-selftest.mts` — refuses to run
+  unless `DATABASE_URL` is `clipwaltz_dev`; creates and deletes its own rows.
+- **Env:** see the Social Publishing block in `env.example`.
+- **Not in P1:** UI (P2), Auto AI image/video (P3 — such posts publish without and say so in `warnings`), podcast
+  destination and explainer rules (P5), product grounding for Auto Post (funnels stay on SP, D3).
+
 ## Cloud storage routing + analytics (2026-10-07)
 - **Schema:** `0051_cloud_routing` — `cloud_prefs` (user_id PK, `default_targets` jsonb provider[], `rules` jsonb
   `[{ id, field: type|category|aspect, values[], targets[] }]`), `projects.cloud_targets` and `renders.cloud_targets`
