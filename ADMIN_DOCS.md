@@ -1207,6 +1207,48 @@ buttons. Everything works on the caller's **personal workspace** in P2.
   board" on Pinterest → the account has several boards; use **Board** on Networks. Comments empty → press Refresh (it
   runs the comments pull inline); only FB/IG/Threads/Bluesky are supported.
 
+## Waltz Image — P3 images, carousels, memes (2026-11-14, ADR-0011)
+**Not deployed.** Not behind the social flag (the Publish button on a design is, like every Publish button).
+- **Env (all optional, defaults shown):** `IMAGE_COMFYUI_URL=http://192.168.166.183:8188` (decision D1 — the ComfyUI box
+  Social Publishing uses; must be reachable from the **generation worker** host, linuxg1: checked 2026-11-14,
+  `/system_stats` → 200), `IMAGE_COMFYUI_CKPT=flux1-schnell-fp8.safetensors` (CheckpointLoaderSimple; Flux → euler /
+  simple / cfg 1 / `IMAGE_COMFYUI_STEPS` default 6; an SDXL checkpoint switches to dpmpp_2m / karras / cfg 6.5 / 30),
+  `OLLAMA_URL` + `IMAGE_PROMPT_MODEL=qwen3.8:27b` (brief → image prompt, `think:false`; on failure the brief is used
+  as-is), `IMAGE_FONTS_DIR` (extra .ttf/.otf for the compositor). No new secrets.
+- **Fonts:** the compositor runs in the **web app** (previews, downloads, Save, Publish). Brand-kit fonts (Montserrat,
+  Inter, Lato, Open Sans, Roboto, Noto Serif) must be installed there or in `IMAGE_FONTS_DIR`; linuxg1 has only
+  DejaVu/Liberation (checked 2026-11-14), so it falls back to Liberation Sans and the studio shows "Brand font not on
+  this server". Fix: install the same Debian `fonts-*` packages the AI box has, or point `IMAGE_FONTS_DIR` at the
+  TTFs, then restart the app.
+- **Pipeline:** `createImageJob` (`src/lib/image-ad/jobs.ts`) charges `IMAGE_COST` (2) and inserts
+  `generation_jobs(job_type='image', workflow_name='comfy-image')` + the pending `image_design_images` row in one
+  transaction, then enqueues on `GENERATION_QUEUE`. `worker/generation-worker.mjs` → `worker/image/job.mjs`
+  `runImageJob` → `worker/image/comfy.mjs` (submit `/prompt`, poll `/history`, fetch `/view`, cancel via `/queue`
+  delete) → `fitCover` to the exact size → MinIO `images/<ws>/<designId>/pic/<imageId>.png`. Failure → BullMQ retry
+  (2 attempts) → `failed` → refunded automatically. Text is composited on demand by `GET /api/images/<id>/render`
+  (`worker/image/compose.mjs`); ZIP `GET /api/images/<id>/zip`; uploads `POST /api/images/<id>/upload` (PNG/JPEG/WebP,
+  20 MB, decoded to reject non-images); clean pictures `GET /api/images/<id>/picture/<imageId>`. Save to library →
+  `media` rows (`images/<ws>/<id>/out/<mediaId>.png`); Publish → unattached `social_media` rows →
+  `/publish/compose?media=<ids>&from=<design>` (only unattached images of the caller's workspace are accepted).
+- **Auto AI Image (social posts):** `publishPost` → `src/lib/image-ad/post-image.ts`: post → `rendering`, one image job
+  with `request_json.socialPostId`; the worker attaches a `social_media` row (`source='ai'`) and sets the post
+  `scheduled`, due now; the social sweep publishes it. Final failure → `afterImageJobFailure` releases the post, which
+  then publishes without a picture and a warning. One job per post, ever. The social worker can spend credits because
+  the ledger now lives in `src/lib/credits-ledger.ts` (no `server-only`; `credits-server.ts` re-exports it with the guard).
+- **Data:** migration **0066** `image_designs` (kind check `image|carousel|meme`) + `image_design_images` (source
+  check `ai|upload`). `generation_jobs.job_type` has no check constraint, so `'image'` needed none. drizzle-kit wanted
+  to DROP the drifted lease columns (`deck_exports`/`renders`/`media` worker+heartbeat, `renders.priority`) and
+  `render_workers`; those lines were removed by hand and the 0066 snapshot keeps them.
+- **Verify (dev DB only):** `node --env-file=.env.local scripts/verify-image-presets.mjs --email <dev account>` renders
+  one image per preset through `runImageJob` and checks exact sizes + compositor determinism; `--fail` checks the
+  refund. Uses 2 credits per preset on that account.
+- **Dev note:** without Redis, enqueue in dev waits forever (ioredis offline queue) — run a local Redis and set
+  `REDIS_URL` + a dev `GENERATION_QUEUE` to try Make with AI locally; never point dev at prod's queue names.
+- **Runbook:** pictures stuck "Painting…" → generation worker not running / Redis down / `.183` busy (check
+  `curl http://192.168.166.183:8188/queue`). "The image server has work waiting and nothing running" → restart ComfyUI
+  on .183. Every picture failing with "Prompt outputs failed validation" → `IMAGE_COMFYUI_CKPT` not on the box
+  (`/object_info/CheckpointLoaderSimple`).
+
 ## Cloud storage routing + analytics (2026-10-07)
 - **Schema:** `0051_cloud_routing` — `cloud_prefs` (user_id PK, `default_targets` jsonb provider[], `rules` jsonb
   `[{ id, field: type|category|aspect, values[], targets[] }]`), `projects.cloud_targets` and `renders.cloud_targets`

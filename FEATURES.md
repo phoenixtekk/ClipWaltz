@@ -984,6 +984,31 @@ All screens are shadcn/ui (`components.json`, base-nova). Nav **Publish** shows 
 - **Public:** `/r/<token>` read-only review link (404 once turned off); `/setup-guide` how to connect each network.
 - Screens: `docs/social/screens/`.
 
+## Waltz Image — image ads, carousels, memes (P3, 2026-11-14, ADR-0011, plan G1 / G2 / G5) — not deployed
+A fourth studio tool (nav **Images**, `/images`, and the **Waltz Image** tab on New project). shadcn/ui screens.
+Words are always drawn by canvas on the server (`@napi-rs/canvas`), never asked of the AI model, so text is
+pixel-exact and editable; changing it re-composites instantly with **no GPU job and no credits**.
+- **Formats at exact pixel sizes:** 1:1 1080×1080, 4:5 1080×1350, 9:16 1080×1920, 1.91:1 1200×628, 2:3 1000×1500.
+  The AI draws at ~1 MP in the same aspect; the result is scaled and centre-cropped to the exact size.
+- **Image / ad (G1):** describe the picture → **Make with AI** (1–4 variations, Flux schnell on the ComfyUI box
+  `192.168.166.183`, prompt rewritten by the AI Box first), or upload your own (free). Layouts: no text, ad — left
+  (brand fade), ad — centred, ad — bottom band; headline, subhead, button; brand kit colours, fonts and logo on/off.
+- **Carousel (G2):** 2–10 slides (square or 4:5): hook slide, value slides, optional CTA button on the last slide;
+  template slides use the brand kit (free), any slide can take an AI background (2 credits) or an upload; slide
+  strip with move left/right, add, duplicate, remove; slide counter on each slide. Export: each slide as PNG/JPG and
+  **all slides as a ZIP**. **No LinkedIn PDF**: the LinkedIn adapter posts text only (no image or document upload),
+  so PDF document posts are not offered yet.
+- **Meme (G5):** four original layouts (top & bottom outlined text, caption above, brand bar, big quote) — no
+  third-party meme template images ship. Upload (free) or AI picture (2 credits). Long text wraps and shrinks to fit.
+- **Outputs:** download PNG / JPG, **Save to library** (each output becomes a photo in the Media library), **Publish**
+  → composer with every output attached in order (Instagram / Facebook / Threads multi-image where the adapter does it).
+- **Credits:** `IMAGE_COST = 2` per AI picture (§4.7). Each AI picture is a `generation_jobs` row with
+  `job_type = 'image'` on the generation queue — failed / cancelled pictures are refunded by the ledger.
+- **Auto AI Image on posts (P1 warning path, now wired):** a post with Auto AI Image and no picture gets one AI image
+  (1:1, from the post text, 2 credits from the author) before it publishes; it waits as "rendering" and publishes on
+  the next scheduler sweep. If the picture fails it publishes without one and says so (credits refunded); never retried.
+- Data: `image_designs`, `image_design_images` (migration **0066**). Verification: `scripts/verify-image-presets.mjs`.
+
 ## Direct media delivery — storage edge (2026-09-25, ADR-0003)
 
 - Videos, photos and music now stream **directly from storage** (`media.clipwaltz.com`, Cloudflare)

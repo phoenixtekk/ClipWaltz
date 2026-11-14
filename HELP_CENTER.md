@@ -599,6 +599,26 @@ neither does the AI writer. Plus connects up to 10 channels and Pro up to 25.
 - **Email destinations** send at most 200 emails per workspace in any 24 hours, and every email has an unsubscribe
   link in the mail app. A post over the limit shows "Email not sent"; publish it again later.
 
+## Waltz Image — image ads, carousels and memes
+Open **Images** in the top bar (or **New project → Waltz Image**), pick **Image or ad**, **Carousel** or **Meme** and a
+shape: square 1:1, portrait 4:5, story 9:16, link/ad 1.91:1 or Pinterest 2:3. Every image comes out at the exact size
+each network recommends. You can change the shape later.
+- **Pictures:** describe what you want and press **Make with AI** (2 AI credits per picture, refunded if it fails —
+  for an image you can ask for up to 4 variations and pick one), or **Upload** your own photo for free. The AI never
+  writes words into the picture; your text is added on top so it is always sharp and spelled right.
+- **Text is free to change:** headlines, subheads, buttons, slide text and meme text update the preview straight
+  away and never use credits. **Use brand kit** applies your brand colours, fonts and logo.
+- **Carousels:** start with three slides. Pick a slide below the preview to edit it; **Move left / Move right**,
+  **Add slide**, **Duplicate** and **Remove** (2–10 slides). A slide with no picture uses your brand colours (free).
+  The last slide shows a button if you fill in **Last slide's button**.
+- **Memes:** choose top & bottom text, a caption above, a brand bar or a big quote. Long text wraps and shrinks to fit.
+- **Getting it out:** **PNG** / **JPG** download the image (or the slide you're on), **All slides (ZIP)** downloads a
+  carousel, **Save to library** adds it to your Media library for use in videos, and **Publish** opens a new post with
+  every image attached (carousels post as one multi-image post on Instagram, Facebook and Threads). LinkedIn posts are
+  text only for now, so images and PDF carousels aren't sent there yet.
+- **Auto AI Image:** a scheduled or Auto Post post with Auto AI Image on gets a picture made from its text just before
+  it goes out (2 credits). If the picture can't be made, the post goes out without one and says so.
+
 ## Working with others (workspaces)
 - Open the **account menu → Workspace** to invite people by email. Pick a role:
   **Viewer** (watch and download only), **Editor** (edit, upload, render and generate) or, if you're
