@@ -599,6 +599,23 @@ neither does the AI writer. Plus connects up to 10 channels and Pro up to 25.
 - **Email destinations** send at most 200 emails per workspace in any 24 hours, and every email has an unsubscribe
   link in the mail app. A post over the limit shows "Email not sent"; publish it again later.
 
+## Publish — explainer videos, Shorts and your podcast
+- **Explainers (Publish → Explainers):** give a topic and a short brief (who it's for, the tone, what to get right).
+  ClipWaltz writes a six-part script, records the voice-over, draws the diagrams and captions, and makes the video
+  with a thumbnail, YouTube chapters and a description for each network. It takes about ten minutes and costs 10 AI
+  credits (you get them back if it fails). Leave **Hold the finished video in Drafts** on to watch it before it goes
+  out. To get one on a schedule, make an Auto Post rule that writes posts with AI and turn on **Make a narrated
+  explainer video**.
+- **Shorts (Publish → Shorts):** a 30–50 second vertical tip video for YouTube Shorts, TikTok and Reels: a hook, a few
+  concrete steps and a payoff, with captions that follow the voice. **Make the Short** makes one now (4 AI credits);
+  a **Shorts rule** makes one at the times you pick, working through your topics in turn. **Run now** makes the next
+  one straight away.
+- **Your podcast (Publish → Podcast):** workspace owners and admins create a show (title, description, category).
+  ClipWaltz makes a cover; you can upload your own square JPEG (1400–3000 px). Copy the **feed address** and submit
+  it once to Apple Podcasts, Spotify and other apps. Each explainer you send to the show becomes an episode: its
+  audio is the episode. The table shows downloads per episode, counted once per listener per day and only after a
+  minute of listening. No cookies are used and no IP addresses are kept.
+
 ## Waltz Image — image ads, carousels and memes
 Open **Images** in the top bar (or **New project → Waltz Image**), pick **Image or ad**, **Carousel** or **Meme** and a
 shape: square 1:1, portrait 4:5, story 9:16, link/ad 1.91:1 or Pinterest 2:3. Every image comes out at the exact size

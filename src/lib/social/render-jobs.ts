@@ -30,18 +30,18 @@ const ADMIN_EMAILS = () =>
   (process.env.ADMIN_EMAILS || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 
 /**
- * Is this a site-admin (Phoenixtekk) workspace — its owner's verified email in ADMIN_EMAILS? Only such workspaces may
- * use SP's Phoenixtekk-specific pieces: the Workplace-catalogue grounding and the owner's cloned narration voice.
- * Read from env directly (not src/lib/admin.ts, which pulls in the session and can't load in the worker).
+ * Is this a site-admin (Phoenixtekk) workspace — its owner's email in ADMIN_EMAILS? Only such workspaces may use SP's
+ * Phoenixtekk-specific pieces: the Workplace-catalogue grounding and the owner's cloned narration voice. Same test as
+ * src/lib/admin.ts isAdminEmail (read from env directly: admin.ts pulls in the session and can't load in the worker).
  */
 export async function isAdminWorkspace(workspaceId: string): Promise<boolean> {
   const [row] = await db
-    .select({ email: schema.user.email, verified: schema.user.emailVerified })
+    .select({ email: schema.user.email })
     .from(schema.workspaces)
     .innerJoin(schema.user, eq(schema.user.id, schema.workspaces.ownerUserId))
     .where(eq(schema.workspaces.id, workspaceId))
     .limit(1);
-  return Boolean(row?.verified && row.email && ADMIN_EMAILS().includes(row.email.toLowerCase()));
+  return Boolean(row?.email && ADMIN_EMAILS().includes(row.email.toLowerCase()));
 }
 
 /** SP's Shorts audience line, for the admin workspace's un-grounded rules only. */
@@ -403,7 +403,7 @@ export async function finalizeRenderJobs(): Promise<{ finalized: number; failed:
             .update(schema.socialPosts)
             .set({
               status: "failed",
-              warnings: [`${what} could not be made: ${(j.error ?? "the render failed").slice(0, 300)}. The credits were refunded.`],
+              warnings: [`${what} could not be made: ${(j.error ?? "the render failed").slice(0, 300).replace(/\.+$/, "")}. The credits were refunded.`],
               updatedAt: new Date(),
             })
             .where(eq(schema.socialPosts.id, post.id));

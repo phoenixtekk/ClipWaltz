@@ -988,6 +988,34 @@ All screens are shadcn/ui (`components.json`, base-nova). Nav **Publish** shows 
 - **Public:** `/r/<token>` read-only review link (404 once turned off); `/setup-guide` how to connect each network.
 - Screens: `docs/social/screens/`.
 
+## Social Publishing — podcast, explainers, Shorts (P5, 2026-11-14, ADR-0011, decisions D4 / D6) — 🚧 behind the flag
+Ported from publish.phoenixtekk.com. shadcn/ui screens under **Publish**.
+- **Podcast hosting (`/publish/podcast`, D4):** shows with an Apple-compliant RSS 2.0 + iTunes feed at
+  `https://www.clipwaltz.com/p/<slug>/rss.xml` (exactly the old paths), generated cover (or upload a square 1400–3000 px
+  JPEG), episodes table with counted downloads, remove an episode, feed on/off. Admins create/edit shows; a show is a
+  destination (`social_connections` provider `podcast`). Public `cover.jpg`, `audio/<id>.mp3` (HEAD + byte ranges
+  streamed from MinIO) and `episode/<id>.png`. Downloads counted IAB v2.2-style (one per client per UTC day after a
+  minute of audio, self-identified bots and >50/day clients excluded) from a salted hash — no IP stored, no cookies.
+  Every feed carries `<itunes:new-feed-url>` (Apple's move procedure). The **podcast publishing provider** adds an
+  episode (immutable `urn:uuid:` GUID) from a post that carries episode audio.
+- **Explainers (`/publish/explainers`, D6):** topic + brief → six-part script (AI Box) → ElevenLabs narration with
+  word timings → canvas-drawn diagrams + captions + ambient background → ffmpeg master (+ compact cut over 50 MB,
+  9:16 cut for TikTok/Instagram) → thumbnail, YouTube title/description/chapters/tags, per-network copy, podcast
+  audio. Resumable by stage (a crash never re-buys narration). Also from **Auto Post** rules in AI mode with the new
+  "explainer video" switch. 10 AI credits, refunded on failure.
+- **Shorts (`/publish/shorts`, D6):** 30–50 s vertical tip videos (hook, 2–4 concrete steps, payoff) with word-by-word
+  captions; "Make a Short now" and **Shorts rules** (days, time, zone, channels, topics in rotation, review-first,
+  run now, on/off). 4 AI credits, refunded on failure.
+- **Where it runs:** the render worker on the AI box (`worker/social-render/job.mjs`, pipeline bundled from
+  `src/lib/explainer` + `src/lib/shorts`); the social worker's sweep finalizes the post and publishes it (or leaves a
+  draft when review-first). Progress lists poll every 10 s.
+- **Phoenixtekk-only pieces:** the owner's cloned ElevenLabs voice and Workplace-catalogue grounding for Shorts are
+  used only by site-admin workspaces (owner's email in `ADMIN_EMAILS`, the same test as the admin overlay); everyone else gets a stock voice and
+  writes their own brief.
+- **Import:** `scripts/migrate-social-publishing.mjs --podcast` copies the SP show, episodes (identical GUIDs and
+  enclosure byte lengths), listens and files; SP's Shorts rules and the show destination arrive held and are released
+  by `--activate`.
+
 ## Waltz Image — image ads, carousels, memes (P3, 2026-11-14, ADR-0011, plan G1 / G2 / G5) — not deployed
 A fourth studio tool (nav **Images**, `/images`, and the **Waltz Image** tab on New project). shadcn/ui screens.
 Words are always drawn by canvas on the server (`@napi-rs/canvas`), never asked of the AI model, so text is
