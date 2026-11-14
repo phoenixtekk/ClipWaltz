@@ -10,8 +10,14 @@
 //    a temporary Discord connection is stored ENCRYPTED, a post is published twice (double-submit) → ONE target row
 //    and ONE enqueue; the publish-target job runs against a stubbed Discord webhook → published; running the same job
 //    again is a no-op. Everything created is deleted at the end.
+// 5. security regressions (2026-11-14): safeFetch refuses loopback / RFC1918 / metadata / [::1] and a redirect into a
+//    private address (against a loopback test server), pins the connection to the vetted IP; the Teams URL check
+//    rejects look-alikes; a tampered OAuth state cookie is refused; a cross-network connection id does not skip the
+//    channel limit; a thumbnail id from outside the workspace is refused; the email cap reads from the DB.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 
 const url = process.env.DATABASE_URL ?? "";
 if (!/\/clipwaltz_dev(\?|$)/.test(url)) {
@@ -104,6 +110,92 @@ const ok = (name: string) => {
   ok("publishToTargets refuses a target without a workspace connection (no env-credential fallback)");
 }
 
+// ── 5a. security regressions (no DB) ─────────────────────────────────────────
+{
+  const { safeFetch, createSafeFetch, isBlockedAddress, UnsafeUrlError } = await import("@/lib/social/safe-fetch");
+  const { isTeamsWebhookUrl } = await import("@/lib/social/publishing/webhook-urls");
+  const { sealState, openState } = await import("@/lib/social/oauth/state-cookie");
+
+  // Direct private targets: refused before any socket is opened.
+  for (const u of ["http://127.0.0.1/", "http://10.0.0.1/", "http://169.254.169.254/latest/meta-data/", "http://[::1]/", "https://localhost/"]) {
+    await assert.rejects(safeFetch(u, { signal: AbortSignal.timeout(5_000) }), UnsafeUrlError, `safeFetch must refuse ${u}`);
+  }
+  for (const ip of ["::ffff:127.0.0.1", "::ffff:a9fe:a9fe", "fd00:ec2::254", "fe80::1", "100.64.0.1", "0.0.0.0", "64:ff9b::a00:1"]) {
+    assert.equal(isBlockedAddress(ip), true, `${ip} is blocked`);
+  }
+  for (const ip of ["8.8.8.8", "1.1.1.1", "2606:4700:4700::1111"]) assert.equal(isBlockedAddress(ip), false, `${ip} is public`);
+  ok("safeFetch refuses 127.0.0.1, 10.x, 169.254.169.254, [::1], localhost (+ mapped/ULA/CGNAT/NAT64 addresses blocked)");
+
+  // A loopback server stands in for "a public server that redirects inward". The test policy allows 127.0.0.1 ONLY so
+  // the first hop can connect; every other address goes through the production block list.
+  const server: Server = createServer((req, res) => {
+    if (req.url === "/to-private") return void res.writeHead(302, { location: "http://10.0.0.5/admin" }).end();
+    if (req.url === "/to-metadata") return void res.writeHead(307, { location: "http://169.254.169.254/latest/meta-data/" }).end();
+    if (req.url === "/loop") return void res.writeHead(302, { location: "/loop" }).end();
+    if (req.url === "/hop") return void res.writeHead(303, { location: "/ok" }).end();
+    if (req.url === "/echo") {
+      let n = 0;
+      req.on("data", (c: Buffer) => (n += c.length));
+      req.on("end", () =>
+        res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ method: req.method, bytes: n, type: req.headers["content-type"] ?? "" })),
+      );
+      return;
+    }
+    res.writeHead(200, { "content-type": "text/plain" }).end("ok");
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const port = (server.address() as AddressInfo).port;
+  const allowLoopback = (ip: string) => ip !== "127.0.0.1" && isBlockedAddress(ip);
+  const testFetch = createSafeFetch({ isBlocked: allowLoopback });
+  try {
+    const base = `http://127.0.0.1:${port}`;
+    await assert.rejects(testFetch(`${base}/to-private`), UnsafeUrlError, "302 to 10.0.0.5 refused");
+    await assert.rejects(testFetch(`${base}/to-metadata`), UnsafeUrlError, "307 to 169.254.169.254 refused");
+    await assert.rejects(testFetch(`${base}/loop`), /Too many redirects/, "redirect loop stops after 3 hops");
+    const hop = await testFetch(`${base}/hop`, { method: "POST", body: "x" });
+    assert.equal(await hop.text(), "ok", "a same-host redirect is followed");
+    const form = new FormData();
+    form.append("file", new Blob([new Uint8Array(1234)], { type: "image/png" }), "a.png");
+    const echo = (await (await testFetch(`${base}/echo`, { method: "POST", body: form })).json()) as { method: string; bytes: number; type: string };
+    assert.equal(echo.method, "POST");
+    assert.ok(echo.bytes > 1234 && echo.type.startsWith("multipart/form-data"), "FormData body is sent intact");
+    // Pinning: a name that does not exist in DNS connects only because the vetted address is handed to the socket.
+    const pinned = createSafeFetch({ isBlocked: allowLoopback, resolve: async () => [{ address: "127.0.0.1", family: 4 }] });
+    assert.equal(await (await pinned(`http://pinned.selftest.invalid:${port}/ok`)).text(), "ok", "connection uses the vetted IP");
+    const rebinding = createSafeFetch({ resolve: async () => [{ address: "93.184.215.14", family: 4 }, { address: "10.1.2.3", family: 4 }] });
+    await assert.rejects(rebinding("https://mixed.selftest.invalid/"), UnsafeUrlError, "any private answer in the set is refused");
+  } finally {
+    server.close();
+  }
+  ok("safeFetch re-vets every redirect hop (302→10.x, 307→metadata refused; max 3), pins the socket to the vetted IP");
+
+  for (const bad of [
+    "https://10.0.0.5:8443?office.com",
+    "https://attackeroffice.com/",
+    "https://evil.com/x.webhook.office.com",
+    "http://x.webhook.office.com/a",
+    "https://webhook.office.com.evil.com/",
+    "https://a.logic.azure.com:8443/x",
+  ]) {
+    assert.equal(isTeamsWebhookUrl(bad), false, `Teams check must reject ${bad}`);
+  }
+  for (const good of ["https://contoso.webhook.office.com/webhookb2/abc", "https://prod-12.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?sig=x"]) {
+    assert.equal(isTeamsWebhookUrl(good), true, `Teams check must accept ${good}`);
+  }
+  ok("Teams webhook check rejects https://10.0.0.5:8443?office.com and https://attackeroffice.com/");
+
+  const cookie = sealState("mastodon", { s: "state-1", w: "ws-1", x: { instance: "https://mastodon.social" } });
+  assert.deepEqual(openState("mastodon", cookie), { s: "state-1", w: "ws-1", x: { instance: "https://mastodon.social" } });
+  const [payload, sig] = cookie.split(".");
+  const evil = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+  evil.v.x.instance = "https://10.0.0.5";
+  assert.equal(openState("mastodon", `${Buffer.from(JSON.stringify(evil)).toString("base64url")}.${sig}`), null, "edited payload refused");
+  assert.equal(openState("mastodon", JSON.stringify({ s: "state-1", w: "ws-1" })), null, "an unsigned (old-format) cookie is refused");
+  assert.equal(openState("x", cookie), null, "a cookie sealed for another provider is refused");
+  assert.equal(openState("mastodon", cookie, Date.now() + 11 * 60_000), null, "an expired cookie is refused");
+  ok("tampered / unsigned / cross-provider / expired OAuth state cookies are refused");
+}
+
 // ── 4. DB round trip: encryption, double-submit, idempotent job ──────────────
 {
   const { db, schema } = await import("@/db");
@@ -121,6 +213,38 @@ const ok = (name: string) => {
     assert.ok(raw.t.startsWith("enc1:"), "token stored encrypted");
     assert.ok(!raw.t.includes("selftest"), "plaintext not present in the stored value");
     ok("connection credentials are stored encrypted (enc1:…)");
+
+    // 5b. security regressions that need the DB.
+    const { isInPlaceUpdate } = await import("@/lib/social/connections");
+    assert.equal(await isInPlaceUpdate("discord", connId, ws.id), true, "same network + same workspace = in-place update");
+    assert.equal(await isInPlaceUpdate("teams", connId, ws.id), false, "a Discord id must not let a Teams connect skip the limit");
+    assert.equal(await isInPlaceUpdate("discord", connId, randomUUID()), false, "another workspace's id is not an update");
+    assert.equal(await isInPlaceUpdate("discord", "new", ws.id), false);
+    ok("a cross-network (or foreign) connection id does not bypass the channel limit");
+
+    const { assertPerNetworkMediaOwned, PostInputError } = await import("@/lib/social/posts");
+    await assert.rejects(
+      assertPerNetworkMediaOwned(ws.id, { [`youtube#${connId}`]: { meta: { thumbnailMediaId: randomUUID() } } }),
+      PostInputError,
+      "a thumbnail id that is not this workspace's media is refused",
+    );
+    await assert.rejects(assertPerNetworkMediaOwned(ws.id, { k: { meta: { thumbnailMediaId: "../x" } } }), PostInputError);
+    await assertPerNetworkMediaOwned(ws.id, { k: { text: "no thumbnail" } });
+    ok("thumbnailMediaId outside the workspace is refused at create/update");
+
+    const { emailDailyCap, emailSendsLast24h, DEFAULT_EMAIL_DAILY_CAP } = await import("@/lib/social/email-cap");
+    const savedCap = process.env.SOCIAL_EMAIL_DAILY_CAP;
+    delete process.env.SOCIAL_EMAIL_DAILY_CAP;
+    assert.equal(emailDailyCap(), DEFAULT_EMAIL_DAILY_CAP);
+    process.env.SOCIAL_EMAIL_DAILY_CAP = "5";
+    assert.equal(emailDailyCap(), 5);
+    if (savedCap === undefined) delete process.env.SOCIAL_EMAIL_DAILY_CAP;
+    else process.env.SOCIAL_EMAIL_DAILY_CAP = savedCap;
+    const sentCount = await emailSendsLast24h(ws.id);
+    assert.ok(Number.isInteger(sentCount) && sentCount >= 0);
+    const { listUnsubscribe } = await import("@/lib/social/publishing/providers/email");
+    assert.equal(listUnsubscribe("ClipWaltz <noreply@clipwaltz.com>"), "<mailto:noreply@clipwaltz.com?subject=unsubscribe>");
+    ok(`email daily cap reads env (default ${DEFAULT_EMAIL_DAILY_CAP}) and counts sends from the DB (${sentCount} in 24 h); List-Unsubscribe built`);
 
     await db.insert(schema.socialPosts).values({
       id: postId, workspaceId: ws.id, createdBy: ws.owner, text: "ClipWaltz self-test post", status: "draft", providers: `discord#${connId}`,
