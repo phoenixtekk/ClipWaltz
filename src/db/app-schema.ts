@@ -579,6 +579,9 @@ export const workspaceMembers = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     role: text().notNull().default("editor"), // owner | admin | editor | viewer
+    // Social Publishing (ADR-0011, D9): the one extra capability on top of the role model. An approver may
+    // approve/reject posts awaiting approval. Owners and admins approve by role; this flag grants it to an editor.
+    socialApprover: boolean().notNull().default(false),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [unique().on(t.workspaceId, t.userId)],
@@ -1096,5 +1099,223 @@ export const feedback = pgTable("feedback", {
   kind: text().notNull().default("idea"), // idea | bug | praise | other
   message: text().notNull(),
   status: text().notNull().default("new"), // new | read | done
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+// ─── Social Publishing (ADR-0011; ported from publish.phoenixtekk.com) ──────────────────────────
+// Column shapes mirror Social Publishing's `social_connection` / `post` / `post_target` / `media` / `auto_post_rule` /
+// `auto_post_preset` / `snippet` / `ai_generation` so the P4 migration script can copy rows across. The differences:
+// every table is owned by a WORKSPACE (SP owned rows per user), the author is `createdBy`, connection credentials are
+// encrypted at rest (src/lib/cloud/crypto.ts), and media lives in MinIO (`storageKey`) instead of on disk.
+
+// A connected social account. Many per provider per workspace (two Facebook Pages, two Telegram channels).
+export const socialConnections = pgTable(
+  "social_connections",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    createdBy: text().references(() => user.id, { onDelete: "set null" }),
+    provider: text().notNull(), // "facebook" | "linkedin" | … (src/lib/social/publishing/types.ts ProviderId)
+    label: text(),
+    // ENCRYPTED ("enc1:…", AES-256-GCM, TOKEN_ENC_KEY). Some providers store a JSON blob here (Mastodon instance +
+    // token, X/TikTok/YouTube refresh material); it is encrypted as one string. Never sent to the client.
+    accessToken: text().notNull(),
+    refreshToken: text(), // ENCRYPTED
+    expiresAt: timestamp({ withTimezone: true }),
+    externalId: text(), // org id (LinkedIn) / page id (Facebook) / channel id …
+    displayName: text(),
+    scope: text(),
+    aiContext: text(), // per-network AI persona/brief
+    paused: boolean().notNull().default(false), // parked: kept, never published to
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("social_connections_ws_provider_idx").on(t.workspaceId, t.provider)],
+);
+
+// The unit of content; fans out to one social_post_targets row per destination.
+export const socialPosts = pgTable(
+  "social_posts",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    createdBy: text().references(() => user.id, { onDelete: "set null" }),
+    text: text().notNull().default(""),
+    link: text(),
+    // draft | queued | scheduled | publishing | published | failed | partial | handoff | rendering
+    status: text().notNull().default("draft"),
+    providers: text().notNull().default(""), // comma-separated destination keys (provider or provider#connId)
+    perNetwork: jsonb().$type<Record<string, { text?: string; mediaIds?: string[]; link?: string; meta?: Record<string, unknown> }>>(),
+    favorite: boolean().notNull().default(false),
+    autoImage: boolean().notNull().default(false),
+    autoVideo: boolean().notNull().default(false),
+    autoGif: boolean().notNull().default(false),
+    mergeMediaId: text(),
+    shareToken: text().unique(), // public read-only review link
+    funnelId: text(),
+    funnelStageId: text(),
+    autoPostRuleId: text(),
+    shortRuleId: text(),
+    // A post can carry a ClipWaltz render or export (the "Publish" button on renders, P2).
+    renderId: text().references(() => renders.id, { onDelete: "set null" }),
+    exportId: text().references(() => exportJobs.id, { onDelete: "set null" }),
+    // D9 approval workflow: none | pending | approved | rejected. A post that is `pending` or `rejected` is never
+    // published by the scheduler, whatever its status says.
+    approvalStatus: text().notNull().default("none"),
+    approvedBy: text().references(() => user.id, { onDelete: "set null" }),
+    approvedAt: timestamp({ withTimezone: true }),
+    scheduledAt: timestamp({ withTimezone: true }),
+    publishedAt: timestamp({ withTimezone: true }),
+    warnings: jsonb().$type<string[]>(), // non-fatal notes kept on the post (see SP history)
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("social_posts_ws_status_idx").on(t.workspaceId, t.status),
+    index("social_posts_status_scheduled_idx").on(t.status, t.scheduledAt),
+  ],
+);
+
+// One destination of a post. The row id is the idempotency key of the `publish-target` queue job.
+export const socialPostTargets = pgTable(
+  "social_post_targets",
+  {
+    id: text().primaryKey(),
+    postId: text()
+      .notNull()
+      .references(() => socialPosts.id, { onDelete: "cascade" }),
+    provider: text().notNull(),
+    connectionId: text(),
+    label: text(),
+    // pending | publishing | published | failed | handoff
+    status: text().notNull().default("pending"),
+    externalId: text(),
+    url: text(),
+    error: text(),
+    attempts: integer().notNull().default(0),
+    retryAt: timestamp({ withTimezone: true }),
+    // Latest engagement numbers from the hourly metrics-pull ({ likes, comments, shares, views }).
+    metrics: jsonb().$type<{ likes: number | null; comments: number | null; shares: number | null; views: number | null }>(),
+    metricsAt: timestamp({ withTimezone: true }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("social_post_targets_post_idx").on(t.postId),
+    index("social_post_targets_status_retry_idx").on(t.status, t.retryAt),
+  ],
+);
+
+// Media attached to posts. Bytes live in MinIO under `social/<workspaceId>/<id>`.
+export const socialMedia = pgTable(
+  "social_media",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    createdBy: text().references(() => user.id, { onDelete: "set null" }),
+    postId: text().references(() => socialPosts.id, { onDelete: "set null" }),
+    kind: text().notNull(), // image | video | audio
+    filename: text().notNull(),
+    mime: text().notNull(),
+    size: bigint({ mode: "number" }).notNull(),
+    storageKey: text().notNull(),
+    source: text().notNull().default("upload"), // upload | ai | render
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("social_media_post_idx").on(t.postId), index("social_media_ws_idx").on(t.workspaceId)],
+);
+
+// Auto Post: recurring rules (many per workspace).
+export const socialAutoRules = pgTable(
+  "social_auto_rules",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    createdBy: text().references(() => user.id, { onDelete: "set null" }),
+    name: text().notNull().default("Queue"),
+    daysOfWeek: text().notNull().default("1,2,3,4,5"), // 0=Sun..6=Sat
+    timeOfDay: text().notNull().default("09:00"), // HH:MM (or comma list), evaluated in `timezone`
+    // IANA zone for this rule. SP had one zone per installation; a multi-tenant app needs one per rule.
+    timezone: text(),
+    providers: text().notNull().default(""),
+    active: boolean().notNull().default(true),
+    mode: text().notNull().default("queue"), // queue | generate
+    seedPrompt: text().notNull().default(""),
+    topics: text().notNull().default(""),
+    topicCursor: integer().notNull().default(0),
+    links: text().notNull().default(""),
+    linkCursor: integer().notNull().default(0),
+    linkUtm: boolean().notNull().default(false),
+    productId: text(), // SP product grounding (funnels stay on SP — D3); kept for row-copy fidelity
+    imageMode: text().notNull().default("none"), // none | generate | set
+    videoMode: text().notNull().default("none"), // none | explainer (P5)
+    imageSet: text().notNull().default(""),
+    imageCursor: integer().notNull().default(0),
+    reviewFirst: boolean().notNull().default(false),
+    nextRunAt: timestamp({ withTimezone: true }),
+    lastRunAt: timestamp({ withTimezone: true }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("social_auto_rules_active_next_idx").on(t.active, t.nextRunAt)],
+);
+
+// Saved Auto Post configurations.
+export const socialAutoPresets = pgTable("social_auto_presets", {
+  id: text().primaryKey(),
+  workspaceId: text()
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  createdBy: text().references(() => user.id, { onDelete: "set null" }),
+  name: text().notNull().default("Untitled preset"),
+  daysOfWeek: text().notNull().default("1,2,3,4,5"),
+  timeOfDay: text().notNull().default("09:00"),
+  providers: text().notNull().default(""),
+  mode: text().notNull().default("generate"),
+  seedPrompt: text().notNull().default(""),
+  topics: text().notNull().default(""),
+  productId: text(),
+  imageMode: text().notNull().default("none"),
+  videoMode: text().notNull().default("none"),
+  imageSet: text().notNull().default(""),
+  links: text().notNull().default(""),
+  linkUtm: boolean().notNull().default(false),
+  reviewFirst: boolean().notNull().default(false),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+// Saved post-text templates for the composer.
+export const socialSnippets = pgTable("social_snippets", {
+  id: text().primaryKey(),
+  workspaceId: text()
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  createdBy: text().references(() => user.id, { onDelete: "set null" }),
+  name: text().notNull().default(""),
+  text: text().notNull().default(""),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+// AI writing-assistant history.
+export const socialAiGenerations = pgTable("social_ai_generations", {
+  id: text().primaryKey(),
+  workspaceId: text()
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  createdBy: text().references(() => user.id, { onDelete: "set null" }),
+  mode: text().notNull(), // write | improve | shorten | hashtags | ideas
+  length: text(),
+  input: text().notNull().default(""),
+  output: text().notNull().default(""),
+  favorite: boolean().notNull().default(false),
+  tags: text().notNull().default(""),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
