@@ -973,7 +973,14 @@ All screens are shadcn/ui (`components.json`, base-nova). Nav **Publish** shows 
 - **`/publish/networks`** — channels used vs plan (Plus 10 / Pro 25, Upgrade link when full or on Free), connected
   channels (pause/resume, disconnect, per-channel AI brief, health check, Pinterest board picker), connect cards
   (OAuth or paste-credential forms). **Email destinations are limited to `ADMIN_EMAILS`** (server-enforced; they send
-  through ClipWaltz's SES account).
+  through ClipWaltz's SES account), capped at `SOCIAL_EMAIL_DAILY_CAP` (200) sends per workspace per 24 h, with a
+  `List-Unsubscribe` header.
+- **Roles per screen:** Compose, Drafts, Auto Post, Post by hand → editor+ (viewers get an explanation card);
+  Networks controls → admin+ (read-only below); comment replies → editor+.
+- **Security hardening (2026-11-14):** `safeFetch` (DNS-pinned, private-range-blocking, redirect-revalidating) for every
+  user-chosen host; strict Teams/TxtYa webhook URL parsing; HMAC-sealed OAuth state cookie; TxtYa hook secret no
+  longer exposed as externalId; thumbnail media scoped to the workspace; channel-limit bypass via a cross-network id
+  closed.
 - **Public:** `/r/<token>` read-only review link (404 once turned off); `/setup-guide` how to connect each network.
 - Screens: `docs/social/screens/`.
 

@@ -592,6 +592,12 @@ neither does the AI writer. Plus connects up to 10 channels and Pro up to 25.
   from Facebook, Instagram, Threads and Bluesky and update about once an hour.
 - **Comments:** comments on your Facebook, Instagram, Threads and Bluesky posts. Press **Refresh** to fetch the
   latest and **Reply** to answer from the same channel.
+- **Who can do what:** everyone in the workspace can read posts, the calendar, analytics, comments and the list of
+  networks. **Editors** and above can write posts (Compose), see Drafts, set up Auto Post, use Post by hand and reply to
+  comments. **Owners and admins** connect, pause and disconnect networks. If a screen says it is for editors or admins,
+  ask a workspace owner to change your role.
+- **Email destinations** send at most 200 emails per workspace in any 24 hours, and every email has an unsubscribe
+  link in the mail app. A post over the limit shows "Email not sent"; publish it again later.
 
 ## Working with others (workspaces)
 - Open the **account menu → Workspace** to invite people by email. Pick a role:

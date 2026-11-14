@@ -1135,7 +1135,21 @@ yet** (P2); behind `SOCIAL_PUBLISHING_ENABLED` (off → only `ADMIN_EMAILS` acco
   Pages' linked Instagram accounts), linkedin, threads, pinterest, tiktok, tumblr, x, youtube; Mastodon self-registers
   per instance (`?instance=`). Paste-credential networks: `POST /api/social/connections/<provider>` (bluesky, telegram,
   discord, slack, teams, discourse, devto, medium, email, txtya, reddit, facebook_group, instagram, and token-paste
-  x/youtube/tiktok). User-typed hosts (Discourse, Mastodon) must resolve to public IPs (SSRF guard).
+  x/youtube/tiktok). User-typed hosts (Discourse, Mastodon, Teams/TxtYa webhooks) go through `safeFetch`
+  (`src/lib/social/safe-fetch.ts`): resolves DNS once, refuses private / loopback / link-local / CGNAT / ULA /
+  multicast / metadata ranges (IPv4 + IPv6 incl. IPv4-mapped, NAT64, 6to4), connects only to the vetted IP (undici
+  Agent `connect.lookup`), follows at most 3 redirects itself and re-vets each hop. "That address is not a public
+  server." on a connect or a failed target = this guard. Teams URLs must be `https://*.webhook.office.com` /
+  `*.logic.azure.com` (parsed, not regex); TxtYa `https://(www.)txtya.com/api/hooks/…`. Failed targets store the HTTP
+  status + a short sanitized message, never the upstream body.
+- **OAuth state cookie** (`social_oauth_<provider>`) is HMAC-sealed (`src/lib/social/oauth/state-cookie.ts`, key
+  derived from `SOCIAL_OAUTH_STATE_SECRET` or `BETTER_AUTH_SECRET`, bound to the provider, 10 min). An edited or
+  expired cookie → callback "state cookie missing or invalid". Mastodon's instance is re-normalized and re-vetted at
+  the callback. Rotating the secret only breaks connects in flight.
+- **TxtYa:** the webhook URL is the secret; `externalId` is `hook:<sha256 prefix>` (rows from before 2026-11-14 hold
+  the hook's last path segment — `publicConnection` never returns externalId for txtya).
+- **Channel limit on updates:** a paste-connect with `id` skips the plan check only when that id is this workspace's
+  connection **of the same network** (`isInPlaceUpdate`); any other id is saved as a new row and counted.
 - **Public endpoints** (in `src/proxy.ts` PUBLIC_PATHS): `/api/social/media/public/<id>?exp&sig` (HMAC, 6 h; 302 to a
   1 h presigned GET on `media.clipwaltz.com`, or proxied when the storage edge is off) and
   `/api/social/webhooks/threads/{deauthorize,delete}` (Meta `signed_request` verified with `THREADS_CLIENT_SECRET`;
@@ -1176,7 +1190,17 @@ buttons. Everything works on the caller's **personal workspace** in P2.
   (`social_media.source='render'`), so deleting the render later does not break the post.
 - **Email destination:** `POST /api/social/connections/email` returns 403 unless the caller's email is in
   `ADMIN_EMAILS` (it sends through our SES identity). The Networks page hides the card for everyone else. Existing
-  email connections keep working for their workspace.
+  email connections keep working for their workspace. **Daily cap:** each workspace may send at most
+  `SOCIAL_EMAIL_DAILY_CAP` (default 200; `0` = no email sends) Email targets per rolling 24 h, counted from
+  `social_post_targets` (published, provider `email`) — survives restarts. Over the cap the target fails with "Email not
+  sent: this workspace has reached its cap…" and is not retried; publish it again later. Every message carries
+  `List-Unsubscribe: <mailto:EMAIL_FROM?subject=unsubscribe>` (`SOCIAL_EMAIL_UNSUBSCRIBE` overrides with an address or
+  an `https:` URL); unsubscribe mails arrive at the From mailbox and are handled by hand (remove the address from the
+  destination).
+- **Role per screen** (page guard + the same check again in every server action/API): viewer+ reads Overview, Posts,
+  Favorites, Shared, Calendar, Analytics, Comments and Networks. **Editor+** for Compose, Drafts, Auto Post, Post by
+  hand and replying to comments; a viewer opening those gets a "Editors and above only" card. **Admin+** for
+  connect / disconnect / pause / AI brief / Pinterest board on Networks (viewers and editors see the list read-only).
 - **Review links:** `social_posts.share_token` (24-char base64url). Turning a link off clears the token (`/r/<token>`
   then 404s). The page shows text, per-network versions, media previews (signed URLs), no workspace data.
 - **Runbook:** a post stuck "Publishing" → the social worker is not running or Redis is down (P1 runbook). "Choose a
