@@ -159,9 +159,16 @@ export async function publishPost(
     );
   }
 
-  // P3 will route these through the generation queue (ComfyUI box, D1). Say so rather than silently dropping them.
-  if ((post.autoImage || post.autoVideo || post.autoGif) && media.length === 0) {
-    const what = post.autoVideo ? "Auto AI Video" : post.autoGif ? "Auto AI GIF" : "Auto AI Image";
+  // Auto AI Image (P3): one picture through the generation queue on the ComfyUI box (D1). The post waits in
+  // 'rendering' until the worker attaches it and releases the post to the next sweep (src/lib/image-ad/post-image.ts).
+  // Video and GIF are not built yet — say so rather than silently dropping them.
+  if (post.autoImage && !post.autoVideo && !post.autoGif && !media.some((m) => m.kind === "image")) {
+    const { requestPostImage } = await import("@/lib/image-ad/post-image");
+    const r = await requestPostImage(post);
+    if (r.state === "rendering") return { ok: true, status: "rendering", warnings };
+    warnings.push(r.warning);
+  } else if ((post.autoVideo || post.autoGif) && media.length === 0) {
+    const what = post.autoVideo ? "Auto AI Video" : "Auto AI GIF";
     warnings.push(`${what} is not available yet in ClipWaltz — the post was published without generated media.`);
   }
 
