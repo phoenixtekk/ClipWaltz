@@ -9,7 +9,15 @@ const AUTH_URL = "https://threads.net/oauth/authorize";
 const TOKEN_URL = "https://graph.threads.net/oauth/access_token";
 const LONG_LIVED_URL = "https://graph.threads.net/access_token";
 
-export const THREADS_SCOPES = ["threads_basic", "threads_content_publish", "threads_manage_replies"];
+// threads_read_replies: GET reply endpoints (comments inbox, comments.ts); threads_manage_insights: GET insights
+// (analytics.ts). Both are required per Meta's "Get started with the Threads API" permissions list (read 2026-11-14).
+export const THREADS_SCOPES = [
+  "threads_basic",
+  "threads_content_publish",
+  "threads_manage_replies",
+  "threads_read_replies",
+  "threads_manage_insights",
+];
 
 export function threadsConfigured(): boolean {
   return Boolean(process.env.THREADS_CLIENT_ID && process.env.THREADS_CLIENT_SECRET);
