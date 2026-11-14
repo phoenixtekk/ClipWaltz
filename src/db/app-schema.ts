@@ -10,6 +10,7 @@ import {
   index,
   uniqueIndex,
   bigint,
+  check,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { user } from "./auth-schema";
@@ -1324,3 +1325,61 @@ export const socialAiGenerations = pgTable("social_ai_generations", {
   tags: text().notNull().default(""),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });
+
+// Waltz Image (plan G1 / G2 / G5, P3): an image ad, a carousel or a meme. The words live here (data), never in the
+// pictures, so editing a headline re-composites on the server with no GPU job (src/lib/image-ad/render.ts). Workspace-
+// scoped like social posts (the caller's personal workspace in P3).
+//   data, by kind (src/lib/image-ad/types.ts):
+//     image    { brief, style, layout, headline, subhead, cta, useBrand, imageId }
+//     carousel { style, cta, slides: [{ id, imageId|null, headline, body }] }
+//     meme     { layout, top, bottom, caption, imageId }
+export const imageDesigns = pgTable(
+  "image_designs",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    createdBy: text().references(() => user.id, { onDelete: "set null" }),
+    kind: text().notNull().default("image"), // image | carousel | meme
+    title: text().notNull().default(""),
+    format: text().notNull().default("1:1"), // worker/image/presets.mjs IMAGE_FORMATS key
+    data: jsonb().notNull().default({}),
+    // Library copies of the last saved output (media.id[], one per image / slide), replaced on the next save.
+    savedMediaIds: jsonb(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("image_designs_ws_updated_idx").on(t.workspaceId, t.updatedAt),
+    check("image_designs_kind_check", sql`${t.kind} in ('image', 'carousel', 'meme')`),
+  ],
+);
+
+// The pictures a design can use: AI renders (generation_jobs.job_type = 'image', 2 credits each, refunded on failure)
+// and uploads (free). Clean pictures only — text is composited at render time. An AI row has no storage_key until the
+// generation worker stores the finished render (worker/image/job.mjs).
+export const imageDesignImages = pgTable(
+  "image_design_images",
+  {
+    id: text().primaryKey(),
+    designId: text()
+      .notNull()
+      .references(() => imageDesigns.id, { onDelete: "cascade" }),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    source: text().notNull(), // ai | upload
+    generationJobId: text().references(() => generationJobs.id, { onDelete: "set null" }),
+    storageKey: text(),
+    width: integer(),
+    height: integer(),
+    prompt: text(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("image_design_images_design_idx").on(t.designId),
+    index("image_design_images_job_idx").on(t.generationJobId),
+    check("image_design_images_source_check", sql`${t.source} in ('ai', 'upload')`),
+  ],
+);

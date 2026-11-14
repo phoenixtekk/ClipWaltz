@@ -24,6 +24,7 @@ import IORedis from "ioredis";
 import { Worker, Queue, UnrecoverableError } from "bullmq";
 import { WATERMARK_PATH, wmChain, wmBox } from "./watermark.mjs";
 import { composeRemix } from "./remix-compose.mjs";
+import { runImageJob, afterImageJobFailure } from "./image/job.mjs";
 import { startDeckWorker, DECK_QUEUE } from "./deck/jobs.mjs";
 import { decryptSecret } from "./deck/llm.mjs";
 import { chatJson, TEXT_MODEL, LANG_NAMES } from "./deck/planner.mjs";
@@ -179,6 +180,15 @@ async function processJob(genJobId) {
   const workflow = j.workflow_name ?? req.workflow;
   console.log(`[gen] ${genJobId} start (${j.job_type}, ${workflow})`);
   await setStatus(genJobId, { status: "preparing", progress: 5, started_at: new Date() });
+
+  // Waltz Image (plan G1/G2/G5): one still on the ComfyUI box 192.168.166.183 (D1), not the AISERVER wrapper.
+  if (j.job_type === "image") {
+    await runImageJob({
+      sql, setStatus, wasCancelled,
+      putBytes: (Key, Body, ContentType) => s3.send(new PutObjectCommand({ Bucket: BUCKET, Key, Body, ContentType })),
+    }, j);
+    return;
+  }
 
   if (j.job_type === "translate_prep") return runTranslatePrep(j, req, genJobId);
   const videoBytes = req.cloud ? await runCloud(j, req, genJobId)
@@ -877,6 +887,8 @@ worker.on("failed", async (job, err) => {
     try {
       await markAttemptFailed(job, id, err);
     } catch (e) { console.error("[gen] status write failed", e); }
+    // A post waiting for its Auto AI Image publishes without it once the image job has finally failed.
+    await afterImageJobFailure(sql, id).catch((e) => console.error("[gen] image failure release failed", e));
   }
 });
 worker.on("completed", (job) => console.log(`[gen] queue job ${job.id} completed`));
