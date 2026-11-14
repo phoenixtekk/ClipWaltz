@@ -3,6 +3,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { getSession } from "@/lib/auth";
 import { isAdminEmail } from "@/lib/admin";
+import { socialAllowedFor } from "@/lib/social/access";
 import { UserMenu } from "@/components/user-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -10,6 +11,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const session = await getSession();
   if (!session) redirect("/sign-in");
   const admin = isAdminEmail(session.user.email);
+  // Social Publishing (ADR-0011): hidden while SOCIAL_PUBLISHING_ENABLED is off, except for ADMIN_EMAILS accounts.
+  const publish = socialAllowedFor(session.user.email);
 
   return (
     <div className="cw-app flex min-h-full flex-col">
@@ -38,6 +41,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             >
               Avatars
             </Link>
+            {publish ? (
+              <Link
+                href="/publish"
+                className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Publish
+              </Link>
+            ) : null}
             <Link
               href="/community"
               className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"

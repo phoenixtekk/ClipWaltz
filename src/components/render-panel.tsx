@@ -11,6 +11,7 @@ import type { RenderCheckpoint } from "@/lib/render";
 import { shareRender } from "@/lib/feed-actions";
 import { EnterContestButton } from "@/components/enter-contest";
 import { DownloadButton, DownloadFolderChip } from "@/components/download-controls";
+import { PublishButton } from "@/components/publish/publish-button";
 import { RenderCheckpointModal, SKIP_KEY } from "@/components/render-checkpoint-modal";
 import { unwrap } from "@/lib/action-result";
 import { previewRenderTargets } from "@/lib/cloud-actions";
@@ -185,6 +186,7 @@ export function RenderPanel({
           </div>
           <div className="flex items-center gap-2">
             <DownloadButton url={`/api/renders/${render.id}/download`} fallbackName="clipwaltz-video.mp4" />
+            <PublishButton renderId={render.id} />
             {render.description ? <CopyPostButton text={render.description} /> : null}
             <Button variant="outline" onClick={requestRender} disabled={pending || checking}>
               {checking ? "Checking…" : "Re-render"}

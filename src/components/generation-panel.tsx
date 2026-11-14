@@ -69,6 +69,7 @@ import {
   type ExportResolution,
   type ExportJobItem,
 } from "@/lib/export-actions";
+import { PublishButton } from "@/components/publish/publish-button";
 
 // The server's routing engine picks the workflow from mode + quality (ADR-0009); the panel only
 // sends the quality. Image→video needs a source photo; text→video needs a prompt.
@@ -1327,6 +1328,7 @@ function ExportCenter({
                     <Download className="size-3.5" /> Download
                   </Button>
                 ) : null}
+                {e.hasOutput && e.status === "completed" ? <PublishButton exportId={e.id} size="sm" /> : null}
                 <Button
                   variant="ghost"
                   size="icon-sm"

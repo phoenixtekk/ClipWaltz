@@ -10,6 +10,7 @@ import {
   AbortMultipartUploadCommand,
   ListObjectsV2Command,
   ListObjectVersionsCommand,
+  CopyObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { NodeHttpHandler } from "@smithy/node-http-handler";
@@ -51,6 +52,18 @@ function s3(): S3Client {
 export async function putObject(key: string, body: Uint8Array, contentType?: string) {
   await s3().send(
     new PutObjectCommand({ Bucket: S3_BUCKET, Key: key, Body: body, ContentType: contentType }),
+  );
+}
+
+/** Server-side copy inside the bucket (no bytes through the app). MinIO copies objects up to 5 GB this way. */
+export async function copyObject(fromKey: string, toKey: string, contentType?: string) {
+  await s3().send(
+    new CopyObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: toKey,
+      CopySource: `${S3_BUCKET}/${fromKey.split("/").map(encodeURIComponent).join("/")}`,
+      ...(contentType ? { ContentType: contentType, MetadataDirective: "REPLACE" as const } : {}),
+    }),
   );
 }
 

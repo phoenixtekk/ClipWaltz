@@ -13,6 +13,8 @@ const PUBLIC_PATHS = [
   /^\/privacy(?:\/|$)/,
   /^\/refund(?:\/|$)/,
   /^\/help(?:\/|$)/, // in-app Help Center
+  /^\/setup-guide(?:\/|$)/, // public "connect a network" guide (Social Publishing)
+  /^\/r\/[A-Za-z0-9_-]+$/, // public read-only review link for a social post (404 unless the owner shared it)
   /^\/community(?:\/|$)/, // public community feed
   /^\/feed(?:\/|$)/, // legacy → redirects to /community
   /^\/w\/[^/]+$/, // public watch page

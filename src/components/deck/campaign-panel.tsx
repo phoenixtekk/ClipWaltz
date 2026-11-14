@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Loader2, Megaphone, Plus, Trash2, Trophy, Link2, Copy, Download, Sparkles, ExternalLink, X } from "lucide-react";
+import { PublishButton } from "@/components/publish/publish-button";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { aspectClass } from "@/lib/aspect";
@@ -334,6 +335,7 @@ function PackResults({ pack, canEdit, onShare, onMore }: {
                         ) : null}
                         {tracked ? <IconBtn label="Copy the tracked CTA link (UTM) — use it as the ad's destination" onClick={() => void copy(tracked, "Tracked link")}><Link2 className="size-3.5" /></IconBtn> : null}
                         <IconLink label="Download the video" href={`/api/renders/${v.renderId}/download`}><Download className="size-3.5" /></IconLink>
+                        <PublishButton renderId={v.renderId} iconOnly variant="ghost" />
                         {canEdit ? <IconBtn label="Make more like this one" onClick={() => void onMore(v.renderId)}><Sparkles className="size-3.5" /></IconBtn> : null}
                       </span>
                     ) : null}

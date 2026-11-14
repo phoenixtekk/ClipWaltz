@@ -1155,6 +1155,34 @@ yet** (P2); behind `SOCIAL_PUBLISHING_ENABLED` (off → only `ADMIN_EMAILS` acco
 - **Not in P1:** UI (P2), Auto AI image/video (P3 — such posts publish without and say so in `warnings`), podcast
   destination and explainer rules (P5), product grounding for Auto Post (funnels stay on SP, D3).
 
+## Social Publishing — P2 Publish screens (2026-11-14, ADR-0011)
+**Not deployed.** Same flag as P1: `SOCIAL_PUBLISHING_ENABLED=1` shows Publish to everyone; unset → only
+`ADMIN_EMAILS` accounts see the nav entry, the `/publish` pages (others get a "coming soon" card) and the Publish
+buttons. Everything works on the caller's **personal workspace** in P2.
+- **Routes:** `src/app/(app)/publish/**` (overview, compose, posts, drafts, favorites, shared, calendar, auto, by-hand,
+  analytics, comments, networks); public `src/app/r/[token]` and `src/app/setup-guide` (both in `src/proxy.ts`
+  PUBLIC_PATHS). UI components `src/components/publish/*` (shadcn/ui: card, tabs, dialog, select, textarea, badge,
+  calendar, popover, table, switch, checkbox, tooltip, sheet, separator, skeleton, alert, progress; new deps
+  `react-day-picker`, `date-fns`).
+- **Server side:** read models `src/lib/social/ui.ts` (server-only), server actions `src/lib/social/ui-actions.ts`
+  (each re-checks `requireSocial` and scopes ids to the workspace; errors return as `ActionResult`), page guard
+  `src/lib/social/page-context.ts`, client-safe types `src/lib/social/ui-types.ts`.
+- **Chunked uploads:** `POST /api/social/media/multipart` (`init` / `complete` / `abort`) +
+  `GET|PUT /api/social/media/<id>/part` (presigned direct PUT when the storage edge is on, else proxied). Keys are
+  `social/<workspace>/<id>` derived from the caller's workspace; the `social_media` row is written on complete.
+  Files over 40 MB use it; 200 MB cap.
+- **Publish button → composer:** `?render=<id>` / `?export=<id>`. Access = `userCanAccessProject`. On save the
+  video is **copied** server-side (`copyObject` in `src/lib/storage.ts`, S3 CopyObject) to `social/<workspace>/<id>`
+  (`social_media.source='render'`), so deleting the render later does not break the post.
+- **Email destination:** `POST /api/social/connections/email` returns 403 unless the caller's email is in
+  `ADMIN_EMAILS` (it sends through our SES identity). The Networks page hides the card for everyone else. Existing
+  email connections keep working for their workspace.
+- **Review links:** `social_posts.share_token` (24-char base64url). Turning a link off clears the token (`/r/<token>`
+  then 404s). The page shows text, per-network versions, media previews (signed URLs), no workspace data.
+- **Runbook:** a post stuck "Publishing" → the social worker is not running or Redis is down (P1 runbook). "Choose a
+  board" on Pinterest → the account has several boards; use **Board** on Networks. Comments empty → press Refresh (it
+  runs the comments pull inline); only FB/IG/Threads/Bluesky are supported.
+
 ## Cloud storage routing + analytics (2026-10-07)
 - **Schema:** `0051_cloud_routing` — `cloud_prefs` (user_id PK, `default_targets` jsonb provider[], `rules` jsonb
   `[{ id, field: type|category|aspect, values[], targets[] }]`), `projects.cloud_targets` and `renders.cloud_targets`

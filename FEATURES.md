@@ -932,14 +932,50 @@ version in the current project (the "import"); the original is untouched.
   a project. Implausible auto-level estimates (> 35° tilt) are ignored. Follow action fixed: ffmpeg v360 added up
   each rotation (needed `reset_rot=1`), so the pan drifted instead of following the path.
 
-## Social Publishing — publishing core (P1, 2026-11-14, ADR-0011) — 🚧 behind a flag, owner-only, no UI yet
+## Social Publishing — publishing core (P1, 2026-11-14, ADR-0011) — 🚧 behind a flag
 - Publish to 23 networks from a workspace (Facebook Pages, Instagram, LinkedIn, Threads, Bluesky, Mastodon, X, YouTube,
   TikTok, Pinterest, Tumblr, Telegram, Discord, Slack, Teams, Discourse, dev.to, Medium, email, TxtYa, Reddit, Facebook
   Group hand-off; podcast arrives with P5) — ported from publish.phoenixtekk.com with its pre-flight checks.
 - Channels belong to the workspace (editors publish, admins connect), credentials encrypted; Plus 10 / Pro 25 channels.
 - Publishing, scheduling, Auto Post rules, automatic retries and token refresh run in the background social worker;
   a double-clicked Publish still posts once. Optional approval step (approvers).
-- API only for now (`/api/social/*`); the Publish screens come in P2. See ADMIN_DOCS → Social Publishing.
+- API under `/api/social/*`; the Publish screens are P2 (below). See ADMIN_DOCS → Social Publishing.
+
+## Social Publishing — Publish screens + render integration (P2, 2026-11-14, ADR-0011) — 🚧 behind the flag
+All screens are shadcn/ui (`components.json`, base-nova). Nav **Publish** shows only when the flag is on, or for
+`ADMIN_EMAILS` accounts while it is off. Personal workspace in P2. No credits for any of it (AI copy included).
+- **`/publish` overview** — counts (scheduled, drafts, published 30 days, failed, waiting for you, awaiting approval),
+  next scheduled posts, recent activity, channels used vs plan.
+- **`/publish/compose`** — one text for every network, an optional separate version per network (tabs), live
+  character meters and pre-flight notes per channel (blocked / will be adjusted / warning, from P1's `preflight`),
+  "what this network will receive" preview, link, image/video upload (one request up to 40 MB, otherwise 8 MB chunked
+  parts direct to storage with proxy fallback; 200 MB max), AI **Write it / Improve / Shorten / Hashtags** (Ollama
+  AI Box, 0 credits), schedule (calendar + time), approval toggle, **Publish now / Schedule / Save draft / Add to
+  queue**. `?render=<id>` / `?export=<id>` attach a finished ClipWaltz video and prefill; `?post=<id>` edits.
+- **Publish button** on every finished render (render panel + render history), every finished WaltzDeck campaign
+  variant and every completed Waltz AI export → composer with the video attached, the AI description (renders) /
+  project description or prompt (exports) as text, a shared campaign pack's tracked landing link, and channels
+  suggested by aspect: 9:16 (and 4:5) → TikTok / Instagram / YouTube, 16:9 → YouTube / LinkedIn / X,
+  1:1 → Instagram / Facebook / LinkedIn / X (only connected channels are ticked).
+- **`/publish/posts`, `/drafts`, `/favorites`, `/shared`** — per-channel results with links and metrics, retry a
+  failed channel, publish now, unschedule, favorite, **Re-share** (copy into a new draft, media copied), review link
+  on/off, approve/reject (approvers), delete.
+- **`/publish/calendar`** — month/week views in the viewer's time zone; drag a not-yet-published post to another day
+  to reschedule (keeps its time).
+- **`/publish/auto`** — Auto Post rules (days, times, time zone, channels, queue or AI-writes mode, brief, topics,
+  rotating links + UTM, review-first, on/off, duplicate, clash warnings), presets (save / use / delete), Re-Share list.
+- **`/publish/by-hand`** — hand-off queue for networks with no API (Facebook Groups): copy text, open the group, mark
+  posted (optional link); recently posted list.
+- **`/publish/analytics`** — last 90 days: totals, per-network table, top posts (metrics for Facebook, Instagram,
+  Threads, Bluesky from the hourly metrics pull).
+- **`/publish/comments`** — inbox for Facebook / Instagram / Threads / Bluesky posts (60 days), refresh per post,
+  reply in place (editor+).
+- **`/publish/networks`** — channels used vs plan (Plus 10 / Pro 25, Upgrade link when full or on Free), connected
+  channels (pause/resume, disconnect, per-channel AI brief, health check, Pinterest board picker), connect cards
+  (OAuth or paste-credential forms). **Email destinations are limited to `ADMIN_EMAILS`** (server-enforced; they send
+  through ClipWaltz's SES account).
+- **Public:** `/r/<token>` read-only review link (404 once turned off); `/setup-guide` how to connect each network.
+- Screens: `docs/social/screens/`.
 
 ## Direct media delivery — storage edge (2026-09-25, ADR-0003)
 

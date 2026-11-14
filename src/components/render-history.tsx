@@ -5,6 +5,7 @@ import { History, Trash2, RectangleHorizontal, RectangleVertical, Square, Loader
 import { toast } from "sonner";
 import { cn } from "cn";
 import { DownloadButton } from "@/components/download-controls";
+import { PublishButton } from "@/components/publish/publish-button";
 import { deleteRender } from "@/lib/render-actions";
 import type { RenderHistoryItem } from "@/lib/render";
 import { isWide } from "@/lib/aspect";
@@ -130,6 +131,7 @@ export function RenderHistory({ renders }: { renders: RenderHistoryItem[] }) {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              <PublishButton renderId={r.id} iconOnly variant="ghost" />
               <DownloadButton url={`/api/renders/${r.id}/download`} fallbackName={`clipwaltz-v${r.version}.mp4`} />
               <button
                 type="button"

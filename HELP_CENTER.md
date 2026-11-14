@@ -558,6 +558,41 @@ was closed: click that icon (or the icon at the left of the address bar → **Si
   If your video carries the ClipWaltz logo, the remix shows it once, in the usual corner — the AI parts
   don't copy it.
 
+## Publish — post your videos to social networks
+Publish appears in the top bar once it's switched on for your account. Posting and scheduling cost no credits, and
+neither does the AI writer. Plus connects up to 10 channels and Pro up to 25.
+- **From a video:** every finished video has a **Publish** button: in the Render panel, on each row of Render
+  history, on each finished WaltzDeck campaign variant and on each finished Waltz AI export. It opens a new post
+  with the video attached and its description written in. ClipWaltz ticks the connected channels that suit the
+  video's shape: vertical → TikTok, Instagram Reels and YouTube Shorts; wide → YouTube, LinkedIn and X.
+- **Connect networks (Publish → Networks):** press **Connect** on a network and approve ClipWaltz there, or paste
+  the details it asks for. The [setup guide](/setup-guide) shows where to find them. Pause a channel to stop posting
+  to it without losing the connection; **Check they still work** tests each one. Pinterest asks which board to use
+  (change it with **Board**). Workspace owners and admins connect channels. Email destinations are for ClipWaltz
+  administrators only.
+- **Write a post (Publish → Compose):** type once for every network. Open a network's tab and turn on
+  **Write a separate version** to give it its own text. The counter under the text shows each network's limit, and
+  the notes under **Channels** tell you before you post if something will be trimmed, left off or refused (for
+  example YouTube and TikTok need a video, Pinterest needs an image). **Write it**, **Improve**, **Shorten** and
+  **Hashtags** ask the AI to help; read what it wrote before posting. Add images or video up to 200 MB. Big files
+  upload in parts, so keep the page open until the bar finishes.
+- **When it goes out:** **Publish now**, pick a day and time and **Schedule**, **Save draft**, or **Add to queue**
+  for Auto Post. Turn on **Ask an approver** to hold the post until an approver says yes.
+- **Posts, Drafts, Favorites, Shared:** see each post's result per channel with a link to it. Use the **⋯** menu to
+  publish now, unschedule, **Re-share as a new draft**, copy a **review link** (anyone with it can read the post, not
+  change it), approve or reject, or delete. Press **Retry** on a channel that failed. Star posts you want to reuse.
+- **Calendar:** month or week view. Drag a post that hasn't gone out yet onto another day to move it (it keeps its
+  time).
+- **Auto Post:** a rule posts on the days and times you choose: either the next post in your queue, or a new one the
+  AI writes from your brief and topics. You can rotate links, add UTM tags, hold AI posts for review first, save
+  settings as a preset, and switch a rule off. **Re-Share** lists your published posts to recycle.
+- **Post by hand:** Facebook Groups can't be posted to by apps, so those posts wait here ready to go. Copy the text,
+  open the group, post it, then press **Mark as posted**.
+- **Analytics:** views, likes, comments and shares for the last 90 days, per network and your top posts. Numbers come
+  from Facebook, Instagram, Threads and Bluesky and update about once an hour.
+- **Comments:** comments on your Facebook, Instagram, Threads and Bluesky posts. Press **Refresh** to fetch the
+  latest and **Reply** to answer from the same channel.
+
 ## Working with others (workspaces)
 - Open the **account menu → Workspace** to invite people by email. Pick a role:
   **Viewer** (watch and download only), **Editor** (edit, upload, render and generate) or, if you're
