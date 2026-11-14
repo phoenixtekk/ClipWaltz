@@ -1,4 +1,4 @@
-import { and, eq, inArray, lte, notInArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, notInArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { publishPost } from "@/lib/social/publish-post";
 import { refreshThreadsToken } from "@/lib/social/oauth/threads";
@@ -169,6 +169,8 @@ export async function runSweep(opts: { now?: Date; enqueue?: Enqueue } = {}): Pr
           eq(schema.socialPosts.status, "scheduled"),
           lte(schema.socialPosts.scheduledAt, now),
           notInArray(schema.socialPosts.approvalStatus, ["pending", "rejected"]),
+          // Imported from Social Publishing and not yet cut over (P4): SP still owns it.
+          isNull(schema.socialPosts.migrationHold),
         ),
       )
       .limit(25);
@@ -185,7 +187,7 @@ export async function runSweep(opts: { now?: Date; enqueue?: Enqueue } = {}): Pr
     const rules = await db
       .select()
       .from(schema.socialAutoRules)
-      .where(eq(schema.socialAutoRules.active, true));
+      .where(and(eq(schema.socialAutoRules.active, true), isNull(schema.socialAutoRules.migrationHold)));
 
     for (const rule of rules) {
       try {

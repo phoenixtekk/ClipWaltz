@@ -1130,6 +1130,9 @@ export const socialConnections = pgTable(
     scope: text(),
     aiContext: text(), // per-network AI persona/brief
     paused: boolean().notNull().default(false), // parked: kept, never published to
+    // P4 double-post guard: rows imported from Social Publishing land with migrationHold="sp-import" and are never
+    // published, retried, refreshed or swept while set. Cleared only by scripts/migrate-social-publishing.mjs --activate.
+    migrationHold: text(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
@@ -1170,6 +1173,9 @@ export const socialPosts = pgTable(
     approvedBy: text().references(() => user.id, { onDelete: "set null" }),
     approvedAt: timestamp({ withTimezone: true }),
     scheduledAt: timestamp({ withTimezone: true }),
+    // P4 double-post guard: rows imported from Social Publishing land with migrationHold="sp-import" and are never
+    // published, retried, refreshed or swept while set. Cleared only by scripts/migrate-social-publishing.mjs --activate.
+    migrationHold: text(),
     publishedAt: timestamp({ withTimezone: true }),
     warnings: jsonb().$type<string[]>(), // non-fatal notes kept on the post (see SP history)
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -1199,6 +1205,9 @@ export const socialPostTargets = pgTable(
     error: text(),
     attempts: integer().notNull().default(0),
     retryAt: timestamp({ withTimezone: true }),
+    // P4 double-post guard: rows imported from Social Publishing land with migrationHold="sp-import" and are never
+    // published, retried, refreshed or swept while set. Cleared only by scripts/migrate-social-publishing.mjs --activate.
+    migrationHold: text(),
     // Latest engagement numbers from the hourly metrics-pull ({ likes, comments, shares, views }).
     metrics: jsonb().$type<{ likes: number | null; comments: number | null; shares: number | null; views: number | null }>(),
     metricsAt: timestamp({ withTimezone: true }),
@@ -1254,6 +1263,9 @@ export const socialAutoRules = pgTable(
     providers: text().notNull().default(""),
     active: boolean().notNull().default(true),
     mode: text().notNull().default("queue"), // queue | generate
+    // P4 double-post guard: rows imported from Social Publishing land with migrationHold="sp-import" and are never
+    // published, retried, refreshed or swept while set. Cleared only by scripts/migrate-social-publishing.mjs --activate.
+    migrationHold: text(),
     seedPrompt: text().notNull().default(""),
     topics: text().notNull().default(""),
     topicCursor: integer().notNull().default(0),

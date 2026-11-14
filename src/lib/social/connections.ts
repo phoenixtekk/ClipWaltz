@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { and, asc, count, eq } from "drizzle-orm";
+import { and, asc, count, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { decryptToken, encryptToken } from "@/lib/cloud/crypto";
 import { listProviders } from "@/lib/social/publishing";
@@ -309,9 +309,15 @@ export async function setConnectionPaused(id: string, paused: boolean, workspace
  * ALL workspaces. Never call this from a request on behalf of a user.
  */
 export async function listAllConnectionsForMaintenance(provider?: ProviderId): Promise<Connection[]> {
+  // Connections imported from Social Publishing (migration_hold set) are skipped: until the cut-over SP refreshes
+  // those tokens, and a refresh here could rotate a token out from under it.
+  const held = isNull(schema.socialConnections.migrationHold);
   const rows = provider
-    ? await db.select().from(schema.socialConnections).where(eq(schema.socialConnections.provider, provider))
-    : await db.select().from(schema.socialConnections);
+    ? await db
+        .select()
+        .from(schema.socialConnections)
+        .where(and(eq(schema.socialConnections.provider, provider), held))
+    : await db.select().from(schema.socialConnections).where(held);
   return rows.map(toConn);
 }
 

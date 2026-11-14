@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { composeForNetwork } from "@/lib/social/ai";
 import { parseLinks, nextLink, withUtm } from "@/lib/social/post-links";
@@ -241,7 +241,13 @@ export async function nextPostForRule(rule: Rule, now: Date): Promise<{ postId: 
   const [queued] = await db
     .select()
     .from(schema.socialPosts)
-    .where(and(eq(schema.socialPosts.workspaceId, rule.workspaceId), eq(schema.socialPosts.status, "queued")))
+    .where(
+      and(
+        eq(schema.socialPosts.workspaceId, rule.workspaceId),
+        eq(schema.socialPosts.status, "queued"),
+        isNull(schema.socialPosts.migrationHold),
+      ),
+    )
     .orderBy(schema.socialPosts.createdAt)
     .limit(1);
   if (queued) return { postId: queued.id, generated: false };

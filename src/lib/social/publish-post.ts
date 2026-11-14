@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { publishToTargets } from "@/lib/social/publishing";
 import { readMedia } from "@/lib/social/media";
@@ -142,6 +142,13 @@ export async function publishPost(
 ): Promise<PublishPostResult> {
   const post = await db.query.socialPosts.findFirst({ where: eq(schema.socialPosts.id, postId) });
   if (!post) return { ok: false, status: "failed", error: "not found" };
+  if (post.migrationHold) {
+    return {
+      ok: false,
+      status: post.status,
+      error: "This post was imported from Social Publishing and is on hold until the cut-over, so it is not published twice.",
+    };
+  }
   if (post.approvalStatus === "pending" || post.approvalStatus === "rejected") {
     return { ok: false, status: post.status, error: `This post is ${post.approvalStatus === "pending" ? "awaiting approval" : "rejected"}.` };
   }
@@ -176,7 +183,13 @@ export async function publishPost(
   const claimed = await db
     .update(schema.socialPosts)
     .set({ status: "publishing", warnings: null, updatedAt: new Date() })
-    .where(and(eq(schema.socialPosts.id, postId), inArray(schema.socialPosts.status, PUBLISHABLE_FROM)))
+    .where(
+      and(
+        eq(schema.socialPosts.id, postId),
+        inArray(schema.socialPosts.status, PUBLISHABLE_FROM),
+        isNull(schema.socialPosts.migrationHold),
+      ),
+    )
     .returning({ id: schema.socialPosts.id });
   if (claimed.length === 0) {
     return { ok: false, status: post.status, error: "This post is already publishing or published." };
@@ -227,7 +240,13 @@ export async function publishTargetJob(targetId: string): Promise<PublishTargetR
   const [row] = await db
     .update(schema.socialPostTargets)
     .set({ status: "publishing", updatedAt: new Date() })
-    .where(and(eq(schema.socialPostTargets.id, targetId), eq(schema.socialPostTargets.status, "pending")))
+    .where(
+      and(
+        eq(schema.socialPostTargets.id, targetId),
+        eq(schema.socialPostTargets.status, "pending"),
+        isNull(schema.socialPostTargets.migrationHold),
+      ),
+    )
     .returning();
   if (!row) return { claimed: false };
 

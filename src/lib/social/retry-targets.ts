@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 
 // ─── Retrying a destination that failed for a transient reason ───────────────
@@ -75,6 +75,7 @@ export async function retryDueTargets(
     WHERE id IN (
       SELECT id FROM social_post_targets
       WHERE status = 'failed' AND retry_at IS NOT NULL AND retry_at <= ${now.toISOString()}::timestamptz
+        AND migration_hold IS NULL
       ORDER BY retry_at LIMIT 25 FOR UPDATE SKIP LOCKED
     )
     RETURNING id, post_id, attempts`)) as unknown as Array<{ id: string; post_id: string; attempts: number }>;
@@ -162,7 +163,13 @@ export async function reapStuckPublishing(
         "Publishing was interrupted (the worker stopped mid-publish). Check the network before retrying — the post may already be live.",
       updatedAt: now,
     })
-    .where(and(eq(schema.socialPostTargets.status, "publishing"), lte(schema.socialPostTargets.updatedAt, cutoff)))
+    .where(
+      and(
+        eq(schema.socialPostTargets.status, "publishing"),
+        lte(schema.socialPostTargets.updatedAt, cutoff),
+        isNull(schema.socialPostTargets.migrationHold),
+      ),
+    )
     .returning({ postId: schema.socialPostTargets.postId });
   for (const postId of new Set(stuck.map((r) => r.postId))) await refreshPostStatus(postId);
 
@@ -170,7 +177,13 @@ export async function reapStuckPublishing(
   const stale = await db
     .select({ id: schema.socialPostTargets.id, attempts: schema.socialPostTargets.attempts })
     .from(schema.socialPostTargets)
-    .where(and(eq(schema.socialPostTargets.status, "pending"), lte(schema.socialPostTargets.updatedAt, staleCutoff)))
+    .where(
+      and(
+        eq(schema.socialPostTargets.status, "pending"),
+        lte(schema.socialPostTargets.updatedAt, staleCutoff),
+        isNull(schema.socialPostTargets.migrationHold),
+      ),
+    )
     .limit(50);
   const send = enqueue ?? defaultEnqueue;
   let requeued = 0;
@@ -189,7 +202,13 @@ export async function reapStuckPublishing(
   const posts = await db
     .select({ id: schema.socialPosts.id })
     .from(schema.socialPosts)
-    .where(and(eq(schema.socialPosts.status, "publishing"), lte(schema.socialPosts.updatedAt, cutoff)))
+    .where(
+      and(
+        eq(schema.socialPosts.status, "publishing"),
+        lte(schema.socialPosts.updatedAt, cutoff),
+        isNull(schema.socialPosts.migrationHold),
+      ),
+    )
     .limit(50);
   for (const p of posts) {
     const n = await db
@@ -223,6 +242,7 @@ export async function retryTargetNow(
         eq(schema.socialPostTargets.id, targetId),
         eq(schema.socialPostTargets.postId, postId),
         inArray(schema.socialPostTargets.status, ["failed"]),
+        isNull(schema.socialPostTargets.migrationHold),
       ),
     )
     .returning({ id: schema.socialPostTargets.id, attempts: schema.socialPostTargets.attempts });

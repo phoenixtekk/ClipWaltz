@@ -470,6 +470,13 @@
       "when": 1794679925465,
       "tag": "0066_image_designs",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1794681574109,
+      "tag": "0067_social_migration_hold",
+      "breakpoints": true
     }
   ]
 }
