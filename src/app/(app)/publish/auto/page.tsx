@@ -1,5 +1,7 @@
 import { and, count, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { RoleRequired } from "@/components/publish/role-required";
+import { roleAtLeast } from "@/lib/workspace";
 import { AutoPostManager, type PresetView, type RuleView } from "@/components/publish/auto-post-manager";
 import { listRules } from "@/lib/social/auto-post-rules";
 import { publishPage } from "@/lib/social/page-context";
@@ -10,6 +12,7 @@ export const metadata = { title: "Auto Post · Publish" };
 export default async function AutoPostPage() {
   const sc = await publishPage();
   if (!sc) return null;
+  if (!roleAtLeast(sc.role, "editor")) return <RoleRequired role={sc.role} need="editor" />;
   const [rules, presets, destinations, [q], published] = await Promise.all([
     listRules(sc.workspaceId),
     db.select().from(schema.socialAutoPresets).where(eq(schema.socialAutoPresets.workspaceId, sc.workspaceId)).orderBy(desc(schema.socialAutoPresets.createdAt)),

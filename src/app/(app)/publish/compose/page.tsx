@@ -1,4 +1,6 @@
 import { Composer } from "@/components/publish/composer";
+import { RoleRequired } from "@/components/publish/role-required";
+import { roleAtLeast } from "@/lib/workspace";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { aiConfigured } from "@/lib/social/ai";
 import { publishPage } from "@/lib/social/page-context";
@@ -11,8 +13,9 @@ export const metadata = { title: "Compose · Publish" };
 // /publish/compose?export=<id> new post with a finished export attached
 // /publish/compose?post=<id>   edit a saved draft / scheduled / queued post
 export default async function ComposePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const sc = await publishPage("editor");
+  const sc = await publishPage();
   if (!sc) return null;
+  if (!roleAtLeast(sc.role, "editor")) return <RoleRequired role={sc.role} need="editor" />;
   const sp = await searchParams;
   const one = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string) : null);
   const postId = one("post");

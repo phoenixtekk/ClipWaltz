@@ -1,4 +1,6 @@
 import { HandoffQueue } from "@/components/publish/handoff-queue";
+import { RoleRequired } from "@/components/publish/role-required";
+import { roleAtLeast } from "@/lib/workspace";
 import { publishPage } from "@/lib/social/page-context";
 import { handoffItems } from "@/lib/social/ui";
 
@@ -7,6 +9,7 @@ export const metadata = { title: "Post by hand · Publish" };
 export default async function ByHandPage() {
   const sc = await publishPage();
   if (!sc) return null;
+  if (!roleAtLeast(sc.role, "editor")) return <RoleRequired role={sc.role} need="editor" />;
   const { waiting, done } = await handoffItems(sc.workspaceId);
   return (
     <div className="space-y-4">
