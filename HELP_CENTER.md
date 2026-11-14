@@ -569,7 +569,8 @@ neither does the AI writer. Plus connects up to 10 channels and Pro up to 25.
   the details it asks for. The [setup guide](/setup-guide) shows where to find them. Pause a channel to stop posting
   to it without losing the connection; **Check they still work** tests each one. Pinterest asks which board to use
   (change it with **Board**). Workspace owners and admins connect channels. Email destinations are for ClipWaltz
-  administrators only.
+  administrators only. A network whose **Connect** button is greyed out ("Not set up on ClipWaltz yet") can't be
+  connected yet — for example TikTok. LinkedIn posts are text only for now.
 - **Write a post (Publish → Compose):** type once for every network. Open a network's tab and turn on
   **Write a separate version** to give it its own text. The counter under the text shows each network's limit, and
   the notes under **Channels** tell you before you post if something will be trimmed, left off or refused (for

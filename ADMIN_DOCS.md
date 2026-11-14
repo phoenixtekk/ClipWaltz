@@ -1208,7 +1208,7 @@ buttons. Everything works on the caller's **personal workspace** in P2.
   runs the comments pull inline); only FB/IG/Threads/Bluesky are supported.
 
 ## Waltz Image — P3 images, carousels, memes (2026-11-14, ADR-0011)
-**Deployed to prod 2026-11-14** (see P4 below; brand fonts NOT installed on linuxg1 yet). Not behind the social flag (the Publish button on a design is, like every Publish button).
+**Deployed to prod 2026-11-14** (see P4 below; brand fonts installed on linuxg1 2026-11-14). Not behind the social flag (the Publish button on a design is, like every Publish button).
 - **Env (all optional, defaults shown):** `IMAGE_COMFYUI_URL=http://192.168.166.183:8188` (decision D1 — the ComfyUI box
   Social Publishing uses; must be reachable from the **generation worker** host, linuxg1: checked 2026-11-14,
   `/system_stats` → 200), `IMAGE_COMFYUI_CKPT=flux1-schnell-fp8.safetensors` (CheckpointLoaderSimple; Flux → euler /
@@ -1216,10 +1216,10 @@ buttons. Everything works on the caller's **personal workspace** in P2.
   `OLLAMA_URL` + `IMAGE_PROMPT_MODEL=qwen3.8:27b` (brief → image prompt, `think:false`; on failure the brief is used
   as-is), `IMAGE_FONTS_DIR` (extra .ttf/.otf for the compositor). No new secrets.
 - **Fonts:** the compositor runs in the **web app** (previews, downloads, Save, Publish). Brand-kit fonts (Montserrat,
-  Inter, Lato, Open Sans, Roboto, Noto Serif) must be installed there or in `IMAGE_FONTS_DIR`; linuxg1 has only
-  DejaVu/Liberation (checked 2026-11-14), so it falls back to Liberation Sans and the studio shows "Brand font not on
-  this server". Fix: install the same Debian `fonts-*` packages the AI box has, or point `IMAGE_FONTS_DIR` at the
-  TTFs, then restart the app.
+  Inter, Lato, Open Sans, Roboto, Noto Serif) must be installed there or in `IMAGE_FONTS_DIR`. **linuxg1: installed
+  2026-11-14** via apt (`fonts-montserrat fonts-inter fonts-lato fonts-open-sans fonts-roboto fonts-noto-core`;
+  `dpkg -l` and `fc-list` re-checked 2026-11-14 in P7). A server without them falls back to Liberation Sans and the
+  studio shows "Brand font not on this server" — install the same packages (or set `IMAGE_FONTS_DIR`) and restart.
 - **Pipeline:** `createImageJob` (`src/lib/image-ad/jobs.ts`) charges `IMAGE_COST` (2) and inserts
   `generation_jobs(job_type='image', workflow_name='comfy-image')` + the pending `image_design_images` row in one
   transaction, then enqueues on `GENERATION_QUEUE`. `worker/generation-worker.mjs` → `worker/image/job.mjs`
@@ -1454,8 +1454,9 @@ overlay (SP commit `77d23f7`), `PODCAST_MOVED_TO` added, build exit 0, `pm2 rest
 ## Social Publishing — P4 data import + prod deploy (2026-11-14, ADR-0011)
 **Deployed to prod 2026-11-14** — deploy branch `deploy/social-20261114` @ `691593d` (P1–P3 + P4 script + hold).
 `SOCIAL_PUBLISHING_ENABLED` is **unset** on prod → Publish and Waltz Image's Publish buttons are admin-only
-(`ADMIN_EMAILS`). **SP data NOT imported yet** (owner decision pending, see below). SP (`social-publishing` pm2, its
-crontab sweep) untouched and still the live publisher.
+(`ADMIN_EMAILS`). **SP data imported 2026-11-14** with `--apply --map lacy@phoenixtekk.com=lacy@clipwaltz.com`, all
+tables reconciled, everything held (`migration_hold = 'sp-import'`) — see "Prod import" below. SP (`social-publishing`
+pm2, its crontab sweep) is still the live publisher until `--activate` (cut-over, owner's call).
 - **What was done on linuxg1:** backups `~/backups/clipwaltz-src-pre-social-20261114-p4.tgz`,
   `~/backups/clipwaltz-db-pre-social-20261114-p4.dump`, `~/backups/clipwaltz-next-pre-social-20261114-p4/` (old `.next`),
   `~/backups/clipwaltz-package-lock-pre-social-20261114-p4.json`, `.env.local.bak-pre-social-20261114-p4`; 200-file overlay
@@ -1472,8 +1473,8 @@ crontab sweep) untouched and still the live publisher.
   `SOCIAL_OAUTH_STATE_SECRET`, `SOCIAL_EMAIL_DAILY_CAP=200`, `IMAGE_COMFYUI_URL=http://192.168.166.183:8188`. SP's
   `*_REDIRECT_URI` values were NOT copied (ClipWaltz derives `${NEXT_PUBLIC_APP_URL}/api/social/oauth/<p>/callback`;
   those URIs must be registered with each provider by the owner before OAuth connects work). TikTok creds: none in SP.
-- **Brand fonts:** not installed on linuxg1 (needs `sudo apt install fonts-inter fonts-lato fonts-montserrat
-  fonts-open-sans fonts-roboto fonts-noto-core` + app restart) — the image studio falls back to Liberation Sans.
+- **Brand fonts:** installed on linuxg1 2026-11-14 (`fonts-inter fonts-lato fonts-montserrat fonts-open-sans
+  fonts-roboto fonts-noto-core` via apt + app restart); re-checked with `dpkg -l` / `fc-list` in P7.
 - **Double-post guard (migration 0067):** `migration_hold` on `social_connections`, `social_posts`,
   `social_post_targets`, `social_auto_rules`. A held row is never swept, retried, reaped, claimed by `publish-target`,
   published by `publishPost` ("…on hold until the cut-over…") or the Retry button, picked from an Auto Post queue, and a
@@ -1501,6 +1502,11 @@ crontab sweep) untouched and still the live publisher.
   `lacy@clipwaltz.com`), so a plain run imports nothing. With `--map lacy@phoenixtekk.com=lacy@clipwaltz.com` it would
   import 19 connections, 494 posts, 2,391 destinations, 1,860 media rows (1,855 files), 11 rules, 14 presets, 13 AI
   generations, 3 settings, holding 19 connections / 11 rules / 135 posts / 110 destinations.
+- **Prod import (run 2026-11-14):** `--apply --map lacy@phoenixtekk.com=lacy@clipwaltz.com`; all tables reconciled,
+  everything held. Read-only re-count in P7 (2026-11-14): `social_connections` 20 (all `migration_hold='sp-import'`),
+  `social_posts` 494 (135 held), `social_post_targets` 2,391 (2,281 published, 110 failed, none pending),
+  `social_media` 1,855, `social_auto_rules` 11 (all held, 0 active), 0 scheduled posts. Next step is `--activate`
+  (cut-over) — owner's call.
 - **Dev test 2026-11-14:** SP prod `pg_dump` (`~/backups/socialpublishing-20261114-p4test.dump`) restored as scratch db
   `sp_scratch_20261114`; imported into `clipwaltz_dev` (15 media files): reconciliation all OK, re-run inserted 0, tokens
   decrypt with the app's `decryptToken` to SP's values (18/18 + 1 empty hand-off token), `--sweep-once --inline` published 0

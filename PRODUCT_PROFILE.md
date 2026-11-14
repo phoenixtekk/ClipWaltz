@@ -14,8 +14,8 @@ editor: markdown
 ## Identity
 - **Name:** ClipWaltz
 - **Category:** SaaS
-- **One-liner:** Drop in the photos and clips from your trip, event or launch, and ClipWaltz auto-edits them into a beat-synced, share-ready music video; no editing skills needed.
-- **Description:** ClipWaltz is a cloud video maker with two tools. **AutoWaltz** turns your own photos and videos into a music video that cuts on the beat, with licensed music, templates and HD rendering done on ClipWaltz's servers. It also handles Insta360 360° footage, keeping the horizon level and following the action. **Waltz AI** creates brand-new video clips from a description or a photo, which you can enhance, arrange into scenes and export.
+- **One-liner:** Turn your photos, clips, product links and ideas into beat-synced videos, image ads, carousels and memes — ready to post.
+- **Description:** ClipWaltz is a cloud video maker with two tools. **AutoWaltz** turns your own photos and videos into a music video that cuts on the beat, with licensed music, templates and HD rendering done on ClipWaltz's servers. It also handles Insta360 360° footage, keeping the horizon level and following the action. **Waltz AI** creates brand-new video clips from a description or a photo, which you can enhance, arrange into scenes and export. Since November 2026 it also makes static image ads, carousels and memes (**Waltz Image**), builds ad packs from a product link or a Shopify / WooCommerce catalog, exports image ads for Meta Ads Manager and Google Ads Editor, installs as an app (PWA), and offers a Pro public API and MCP server. A full social publishing suite is built and in **admin-only preview**, not yet open to customers.
 - **Website URL:** https://www.clipwaltz.com
 - **Repo path:** G:\VisualStudioCode\ClipWaltz
 
@@ -35,6 +35,7 @@ editor: markdown
   - A licensed music catalog that's safe to post.
   - 360-camera ready: Insta360 files (including split `_00_`/`_10_` lens pairs) are stitched, levelled by the camera's own gyro data, and reframed to Front, Follow action or Tiny planet.
   - AI clip generation (Waltz AI) runs on self-hosted GPUs, alongside your own footage in the same project.
+  - Waltz Image draws ad text on the server, never by the AI model, so words are pixel-exact and edits are free.
 - **Competitive alternatives:** CapCut templates, Google Photos / Apple Memories, VivaVideo, other on-device slideshow makers, and doing it by hand in a video editor. *(From PRODUCT_PLAN.md §3; confirm against current market.)*
 
 ## Features (one row per marketable feature)
@@ -55,6 +56,16 @@ editor: markdown
 | Post text | AI-written description and hashtags for your post | Ready to publish, copy and paste |
 | Workspaces | Invite teammates with roles (owner, admin, editor, viewer) | Team collaboration on projects |
 | Google Drive backup | Back up original uploads to your Drive | Keep your originals safe |
+| Waltz Image — image ads | AI or uploaded picture with headline, subhead and button drawn crisply on top, at exact sizes for feed, story, link/ad card and Pinterest (1:1, 4:5, 9:16, 1.91:1, 2:3); brand kit colours, fonts and logo. | Platform-ready ads and social graphics in minutes; text edits cost nothing. |
+| Carousels | 2–10 slide carousels (square or 4:5) with hook, value and CTA slides, brand templates free, AI backgrounds optional; download each slide or a ZIP. | Swipeable posts without a design tool. |
+| Memes | Four original meme layouts on your own or an AI picture; long text wraps and shrinks to fit. | On-brand memes with no third-party templates. |
+| Product link → ad pack | Paste a product page: ClipWaltz reads name, price and photo, then makes image ads in every chosen size plus a WaltzDeck video ad brief with a Shop-now button. | From a product URL to a set of ads in one step. |
+| Store catalogs | Connect a Shopify or WooCommerce store (public catalog, no key) and sync up to 250 products, then make an ad pack from any product. Wix connects with an API key (not yet tested against a live Wix store). | Ads for your whole catalog, kept in sync. |
+| Export for Meta / Google Ads | Pick image designs and download one ZIP with a Meta Ads Manager bulk-import CSV and a Google Ads Editor Performance Max CSV, images included, UTM-tagged, everything paused. | Upload ready-made ads to your ad accounts without retyping. |
+| Brand / client workspaces | Workspace switcher and New workspace: one per client or brand (Pro: up to 5), each with its own projects, images and brand kit. | Agencies keep every client separate. |
+| Public API + MCP server (Pro) | Per-workspace API keys with read / generate / publish scopes, OpenAPI 3.1 at /api/v1, and a remote MCP server at /mcp for AI assistants (images, post copy, posts). No video-render endpoints yet. | Automate content from your own tools or an AI assistant. |
+| Installable app (PWA) | Install ClipWaltz on a phone or desktop home screen, with an offline page and web push. | ClipWaltz one tap away, no app store. |
+| Social publishing (admin-only preview) | Built and on prod but not yet open to customers: post to 20+ networks, calendar, scheduling and queue, Auto Post rules, per-network AI copy and hashtags, suggested posting times, approvals with client review links, analytics and comments for Facebook / Instagram / Threads / Bluesky, Plan a week, competitor feeds, podcast hosting, explainer videos and Shorts. | Make it and post it from one place — once switched on. |
 
 ## Pricing
 - **Model:** tiered (free plan plus monthly subscriptions)
@@ -63,8 +74,8 @@ editor: markdown
 
 ## Tech & Integrations
 - **Stack:** Next.js (App Router, React), TypeScript, Tailwind + shadcn/Base UI, Better Auth, Drizzle ORM + PostgreSQL, BullMQ + Redis, MinIO (S3-compatible) object storage, ffmpeg render worker, ComfyUI (Wan 2.2, Real-ESRGAN, RIFE, SeedVR2) on self-hosted GPUs, Ollama (self-hosted LLM) for post text
-- **Integrations:** Stripe, Amazon SES (email), Google Drive, Web Push notifications, Cloudflare (tunnel + media edge), Insta360 telemetry (gyro2bb)
-- **Deployment:** linuxg1 (pm2 `clipwaltz` :3100 + generation worker) behind a Cloudflare Tunnel at www.clipwaltz.com (apex → www 308); render worker on the AI box; AI inference on AISERVER; MinIO on linuxg7 with the media.clipwaltz.com edge
+- **Integrations:** Stripe, Amazon SES (email), Google Drive, Web Push notifications, Cloudflare (tunnel + media edge), Insta360 telemetry (gyro2bb), Shopify (public catalog), WooCommerce (Store API), Wix (API key, untested live), Meta Ads Manager + Google Ads Editor (CSV export), Model Context Protocol (remote MCP server)
+- **Deployment:** linuxg1 (pm2 clipwaltz :3100 + generation worker + social worker) behind a Cloudflare Tunnel at www.clipwaltz.com (apex → www 308); render worker on the AI box; AI inference on AISERVER; image generation on the ComfyUI box; MinIO on linuxg7 with the media.clipwaltz.com edge
 
 ## Brand
 - **Voice/tone:** Warm, playful and confident: "Let's Waltz", "We waltz it", "Done before your coffee". *(Inferred from site copy; confirm.)*
@@ -77,4 +88,4 @@ editor: markdown
 - **Can produce demo/screen-capture:** yes
 
 ---
-*Generated by: dev session on 2026-09-27. Confirm accuracy before building campaigns.*
+*Generated by: dev session on 2026-09-27; refreshed 2026-11-14 (Predis parity P7 — see `docs/PREDIS_PARITY_AND_PUBLISH_MERGE_PLAN.md` §8). Confirm accuracy before building campaigns.*

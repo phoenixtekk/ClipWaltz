@@ -14,6 +14,26 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
+## Social Publishing P7 — parity re-check + docs, 2026-11-14 (branch `feat/social-publish-20261114`)
+- **Current state:** prod = overlay `deploy/social-p6b-20261114` @ `c08fdc3` (linuxg1 `/home/lacy/clipwaltz` is not a
+  git checkout; build `F5Ll5_wsBhlpob2knkLWX`, 2026-11-14 14:36). pm2 `clipwaltz`, `clipwaltz-gen-worker`,
+  `clipwaltz-social-worker` online. `SOCIAL_PUBLISHING_ENABLED` unset → Publish is admin-only. P7 made doc changes only.
+- **Parity (plan §8, verified with file:line + prod build/curl):** 24 Present · 9 Partial · 2 Missing of 35. Missing:
+  #34 Semrush (owner-approved, D8) and **#24 competitor ad intelligence — no owner-approved exclusion**.
+- **Prod data (read-only):** 20 connections (all held `sp-import`), 494 posts (135 held), 2,391 destinations (2,281
+  published, 110 failed, 0 pending), 1,855 media, 11 rules (all held, 0 active), 0 scheduled.
+- **Owner actions remaining:**
+  1. Decide #24: approve competitor ad intelligence as an exclusion, or get a verified Meta developer token and ask
+     for an Ad Library build.
+  2. Register `https://www.clipwaltz.com/api/social/oauth/<provider>/callback` in each provider app (Meta/Threads,
+     LinkedIn, Pinterest, Tumblr, X, YouTube) before OAuth connects work.
+  3. TikTok: create/supply a TikTok app (`TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET` are not in prod env; SP had none).
+  4. LinkedIn Community Management API approval (LinkedIn posting).
+  5. Cut-over when ready: `scripts/migrate-social-publishing.mjs --activate`, then set `SOCIAL_PUBLISHING_ENABLED`.
+     After cut-over: repoint or delete the Social Publishing My Apps card (it stays until then).
+  6. Cloudflare purge of the two cached podcast mp3 URLs + Apple Podcasts Connect feed check (P5 note below).
+  7. Optional: YouTube Data API key (competitors), Wix test site, Shopify partner app (headless stores).
+
 ## Social Publishing P6b — deployed 2026-11-14 (branch `feat/social-publish-20261114`)
 - **Prod = `deploy/social-p6b-20261114` @ `c08fdc3`** (P1–P6a + P6b: G10 store catalogs, G12 public API + keys, G13 MCP
   `/mcp`, G11 Meta/Google ads export, G7 competitors, G16 PWA; G17 not built — D8). Migration **0070** (70 → 71 rows, no
@@ -59,8 +79,7 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
   SP 301s `/p/<slug>/*` (`PODCAST_MOVED_TO`, SP commit `77d23f7`). Explainers / Shorts render on the AI-box render
   worker (`worker/social-render/`); re-run `node scripts/build-social-render.mjs` and copy `dist/pipeline.mjs` to the AI
   box after any change in `src/lib/explainer|shorts`. Details: ADMIN_DOCS → "Social Publishing — P5".
-- **Prod DB already holds the P4 import** (19 SP connections, 494 posts, 1,855 media, 11 rules — all held) — it was
-  run outside this session; the P4 "not imported" notes below are stale. `--activate` (cut-over) is still the owner's call;
+- **Prod DB holds the P4 import** (run 2026-11-14 with `--map lacy@phoenixtekk.com=lacy@clipwaltz.com`; all held). `--activate` (cut-over) is still the owner's call;
   it now also pauses SP's active Shorts rule ("Intune quick tips", auto-publish, next 2026-11-16 16:20 UTC) and
   releases the podcast destination + Shorts rules here.
 - **Owner TODO:** purge in Cloudflare (Caching → Purge by URL) the two edge-cached copies of the episode mp3:
@@ -72,13 +91,9 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 - **Prod = `deploy/social-20261114` @ `691593d`** (P1–P3 + P4 import script + migration 0067 hold). Flag
   `SOCIAL_PUBLISHING_ENABLED` unset (admin-only). New pm2 `clipwaltz-social-worker`. Migrations 0064–0067 on prod (68 rows).
   Details, backups, env, rollback: ADMIN_DOCS → "Social Publishing — P4 data import + prod deploy".
-- **SP data NOT imported — owner decision needed:** SP's data belongs to `lacy@phoenixtekk.com`, which has no ClipWaltz
-  account; the owner's ClipWaltz account is `lacy@clipwaltz.com`. Options: run with
-  `--map lacy@phoenixtekk.com=lacy@clipwaltz.com` (dry-run preview done: 19 conns / 494 posts / 2,391 targets / 1,860
-  media), or the owner signs up as lacy@phoenixtekk.com first. Then `--apply` (all held), later `--activate` at cut-over.
-- **Owner TODO before OAuth connects work on ClipWaltz:** register `https://www.clipwaltz.com/api/social/oauth/<p>/callback`
-  in each provider app; brand fonts on linuxg1 (`fonts-inter fonts-lato fonts-montserrat fonts-open-sans fonts-roboto
-  fonts-noto-core`) need sudo apt + app restart.
+- **SP data imported 2026-11-14** with `--apply --map lacy@phoenixtekk.com=lacy@clipwaltz.com` (all tables
+  reconciled, everything held; re-counted in P7). Brand fonts installed on linuxg1 2026-11-14 (apt fonts-montserrat /
+  inter / lato / open-sans / roboto / noto-core). OAuth redirect URIs: still the owner's action (see P7 below).
 
 ## Working state (2026-10-14, v15) — Phase C2 talking photo LIVE on prod
 **Branch `claude/continue-previous-b21cc2`** (worktree `.claude/worktrees/continue-previous-728cde`), not pushed / not merged.

@@ -1,6 +1,6 @@
 # ClipWaltz — Predis.ai Parity + Social Publishing Merge: Build Instructions
 
-**Status:** Phase plan (P0–P7) **approved by the owner 2026-11-14**. Decisions D1–D9 and the §4.7 credits answered the same day (§9.1). Ready for P0. Nothing in this document has been built or deployed yet.
+**Status:** Phase plan (P0–P7) **approved by the owner 2026-11-14**. Decisions D1–D9 and the §4.7 credits answered the same day (§9.1). **P1–P6 built and deployed to prod 2026-11-14** (prod overlay `deploy/social-p6b-20261114` @ `c08fdc3`); **P7 parity re-check done 2026-11-14 — see §8 (verified result)**. Cut-over (`--activate`, `SOCIAL_PUBLISHING_ENABLED`) is still the owner's call. §1–§7 are the original plan text; "Built P6b" notes in §6 record what was built.
 **Written:** 2026-11-13 · **Branch verified against:** `claude/continue-previous-25a0b2` @ `eff9e0c` (the dev branch; prod runs cherry-picked `deploy/*` branches, so prod ⊆ dev for everything cited here).
 **Inputs:** `Predis_vs_ClipWaltz_Feature_Comparison_2026-11-13.md` (repo parent folder), `https://predis.ai/llm-info/` (read 2026-11-13), the Social Publishing source at `G:\VisualStudioCode\SocialPublishing`, and a read-only probe of linuxg1 on 2026-11-13.
 
@@ -381,29 +381,90 @@ Ordering rationale: P1–P2 deliver the biggest Predis gaps (rows 16–22) by po
 
 ---
 
-## 8. Parity re-check — combined product after all phases (target state)
+## 8. Parity re-check — verified result
 
-| Predis capability | ClipWaltz after plan | Source |
-|---|---|---|
-| Text/image-to-video, video ads, UGC avatars, voiceover/cloning/dubbing, captions, music, brand kits, aspect ratios | Present (today) | §3 rows 1–9 |
-| Static image ads + social graphics | Present | G1 |
-| Carousels | Present | G2 |
-| Product URL → ads/videos | Present | G3 |
-| Hashtags / complete posts | Present | SP port + G4 |
-| Memes | Present | G5 |
-| Calendar, scheduling, autopublishing, multi-account | Present (LinkedIn pending LinkedIn's API approval) | SP port |
-| Best time to post | Present (own-history based) | G6 |
-| Social analytics | Present (FB, IG, Threads, Bluesky; others where APIs allow) | SP port |
-| Competitor content/ad intelligence | **Partial** (open APIs only; closed networks depend on G7 spike) | G7 |
-| Engagement score | Present (labelled estimate) | G8 |
-| Approval workflow | Present | G9 |
-| Shopify / WooCommerce / Wix | Present (after partner-app approvals) | G10 |
-| Export to ads managers | Present (bundle); direct push = spike | G11 |
-| Public API, MCP | Present | G12, G13 |
-| Bulk / agent mode / multi-angle | Present | G14 |
-| Multi-brand agency workspaces | Present | G15 |
-| Mobile app | PWA (native only if D7 says so) | G16 |
-| Semrush listing | Deferred (D8) | G17 |
+**Verified 2026-11-14 (P7).** Every row of §3 re-checked against the code on branch `feat/social-publish-20261114` @
+`d1f64b4` (file:line cited) and against prod (linuxg1 `/home/lacy/clipwaltz`, build `F5Ll5_wsBhlpob2knkLWX` of
+2026-11-14 14:36; `www.clipwaltz.com`). How prod was checked:
+
+- **Signed-in pages** (`/publish/*`, `/images*`, `/account/*`) cannot be opened without a session, and Publish is
+  admin-only while `SOCIAL_PUBLISHING_ENABLED` is unset (it is unset on prod — key absent from `.env.local`). For those,
+  the route was confirmed to exist in the **prod build output** (`.next/server/app/(app)/<route>/page.js` present for all
+  23 routes: `publish`, `publish/{compose,calendar,auto,by-hand,analytics,comments,networks,competitors,plan,review,posts,
+  drafts,favorites,shared,podcast,explainers,shorts}`, `images`, `images/[id]`, `images/ads-export`, `account/workspace`,
+  `account/api`) and signed-out `curl` returns `307 → /sign-in?redirect=…` (`/publish`, `/publish/compose`, `/images`).
+  **Not exercised through the prod UI.**
+- **Public endpoints, curl 2026-11-14:** `/` 200, `/help/api` 200, `/setup-guide` 200, `/manifest.webmanifest` 200
+  (`display: standalone`, 192/512 icons), `/offline` 200, `/sw.js` 200, `/api/v1/openapi.json` 200 (OpenAPI 3.1.0, 10
+  paths), `/api/v1/me` unauthenticated 401, `POST /mcp` unauthenticated 401, `/r/<unknown token>` 404.
+- **Prod data (read-only count):** `social_connections` 20, `social_posts` 494, `social_post_targets` 2,391,
+  `social_media` 1,855, `social_auto_rules` 11 (0 active), 0 scheduled posts; `migration_hold = 'sp-import'` on all 20
+  connections, all 11 rules and 135 posts; destinations 2,281 published / 110 failed, none pending — the P4 import is in
+  and held.
+
+**Result: 24 Present · 9 Partial · 2 Missing (35 rows).** One Missing row (#34 Semrush) is the owner-approved exclusion
+D8. **The other Missing row (#24 competitor ad intelligence) has no owner-approved exclusion** — it fails the P7 exit
+criterion as written and needs an owner decision (see below).
+
+| # | Predis capability | Verified state | Evidence (code; prod) |
+|---|---|---|---|
+| 1 | Text-to-video / image-to-video | Present | `src/lib/credits.ts:17` `generationCost`; `worker/generation-worker.mjs` |
+| 2 | Video ads + hook/CTA variants | Present | `src/lib/campaign-actions.ts:2` (hooks × CTAs × lengths); `src/db/app-schema.ts:984` `deck_campaigns` |
+| 3 | AI avatars / UGC presenters | Present | `src/lib/presenters.ts`; `src/app/(app)/avatars/` |
+| 4 | Voiceover, cloning, dubbing + lip-sync | Present | `worker/deck/clone-voice.mjs`; `src/lib/translate-actions.ts:16-19` (translate + MuseTalk lip-sync) |
+| 5 | Captions | Present | `worker/deck/motion.mjs:200` |
+| 6 | Licensed music | Present | `src/db/app-schema.ts:24` `music_tracks`; `src/lib/music-providers.ts` |
+| 7 | Brand kits | Present | `src/db/app-schema.ts:900` `brand_kits` |
+| 8 | Team roles | Present | `src/lib/workspace.ts:14` viewer/editor/admin/owner; `src/lib/social/access.ts:18` approver capability (D9) |
+| 9 | Multiple aspect ratios | Present | `src/lib/aspect.ts:2` |
+| 10 | Static image ads | Present | `worker/image/presets.mjs` + `src/lib/image-ad/types.ts:9,18-20` (headline/subhead/CTA); `src/lib/credits.ts:24` `IMAGE_COST = 2`; `worker/generation-worker.mjs:185` image jobs; prod `(app)/images/page.js` |
+| 11 | Platform-sized social graphics | Present | `worker/image/presets.mjs:12-18` (1:1, 4:5, 9:16, 1.91:1, 2:3 with target networks) |
+| 12 | Social carousels | Present | `worker/image/presets.mjs:21-23` (1:1/4:5, 2–10 slides); `src/lib/image-ad/designs.ts:30,206,236`; IG carousel publish `src/lib/social/publishing/providers/instagram.ts:121` |
+| 13 | Product URL → ad/video | Present | `src/lib/product-actions.ts:18-27,71,200` (image-ad set + WaltzDeck ad brief, `:165-183`); UI `src/components/product-pack.tsx` on `projects/new` |
+| 14 | AI hashtags | Present | `src/lib/social/hashtags.ts:7-22` (per-network max, normalised); `src/lib/social/copy.ts:30` |
+| 15 | AI memes | Present | `worker/image/presets.mjs:55-60` (4 layouts, no third-party templates); `src/lib/image-ad/designs.ts:40,250` |
+| 16 | Complete social posts | Present | `src/lib/social/copy.ts:30` `copyForNetworks`; `src/components/publish/publish-button.tsx` on render/campaign/generation panels; prod `publish/compose` |
+| 17 | Content calendar | Present | `src/app/(app)/publish/calendar/page.tsx`; prod build route |
+| 18 | Schedule posts / queue | Present | `src/lib/social/scheduler.ts:142` `runSweep`; `src/db/app-schema.ts:1182,1193`; pm2 `clipwaltz-social-worker` online |
+| 19 | Direct autopublishing (IG, FB, LinkedIn, TikTok, YouTube) | **Partial** | Adapters for all five in `src/lib/social/publishing/providers/`. Prod env has FACEBOOK_*, LINKEDIN_*, YOUTUBE_*, THREADS_*, X_*, PINTEREST_*, TUMBLR_* key names but **no `TIKTOK_CLIENT_KEY`/`TIKTOK_CLIENT_SECRET`** (read by `src/lib/social/oauth/tiktok.ts`), so a TikTok connect cannot start on prod. LinkedIn posting still waits on LinkedIn's Community Management API approval (R2/R4); new OAuth redirect URIs are an owner action (§5) |
+| 20 | Multi-account management | Present | `src/lib/social/connections.ts:104` per-provider statuses, workspace-scoped (`:20`); index `social_connections_ws_provider_idx` |
+| 21 | Suggested posting times | Present | `src/lib/social/best-time.ts:17-19` (90 days, ≥10 posts, else labelled general guidance); `src/components/publish/composer.tsx:124,595` |
+| 22 | Social performance reporting | Present | `src/lib/social/analytics.ts:31-75` (Facebook, Instagram, Threads, Bluesky); prod `publish/analytics` |
+| 23 | Competitor content analysis | **Partial** | `src/lib/competitors.ts:20` sources are RSS/Atom, Bluesky, Mastodon only. Facebook/Instagram/X/LinkedIn/TikTok have no lawful public API (R7); YouTube needs a Data API key (owner action). No auto-refresh job |
+| 24 | Competitor ad intelligence | **Missing — no owner exclusion** | No ad source in code; `src/lib/competitors.ts:15-16` and `src/components/publish/competitor-board.tsx:31` list Meta Ad Library as "not available" (needs a verified Meta developer identity; non-political ads only where delivered in the EU/UK). TikTok Commercial Content API not investigated |
+| 25 | Pre-publish engagement score | **Partial** | `src/lib/social/score.ts:6-16`: checklist always shown; the 0–100 number only after ≥20 published posts with positive correlation. Owner's data per the P6a read-only report: 14 posts, ρ = 0.025, so only the checklist shows (not re-run in P7) |
+| 26 | Content approval workflow | Present | `src/lib/social/approval.ts:21-43`; enforced in `src/lib/social/publish-post.ts:155-156`; client approve/request-changes `src/app/api/social/review/[token]/route.ts:8-17`; `src/db/app-schema.ts:1175` `approvalStatus`, `:1562` `social_post_reviews`; prod `publish/review` |
+| 27 | Shopify / WooCommerce / Wix catalog sync | **Partial** | `src/lib/commerce/catalog.ts:7-17`: Shopify (public storefront JSON) and WooCommerce (Store API) built; **Wix code never run against a live Wix site**. Headless/password-protected Shopify stores need a partner app (owner). Prod has `api/commerce/[platform]/webhook/[id]` |
+| 28 | Export to Meta / TikTok Ads Manager | **Partial** | `src/lib/image-ad/ads-export.ts:2-15`: Meta bulk-import CSV + Google Ads Editor PMax CSV from Waltz Image designs. **No TikTok Ads Manager format**; Meta headers unverified against Meta's template; video campaign packs not exported; no API push (by decision) |
+| 29 | Public content-generation API | **Partial** | `src/app/api/v1/**` + `src/lib/api-keys.ts:11-22` (hashed keys, read/generate/publish scopes, Pro only); prod OpenAPI 200, 401 without key. Generates copy and images only — **no create-project / render (video) endpoints and no outgoing webhooks** |
+| 30 | MCP server | **Partial** | `src/app/mcp/route.ts`; tools `src/lib/api/mcp.ts:32-103` (list_channels, create_post, schedule_post, get_post_status, list_posts, generate_image, get_image_status, write_post_copy); prod `POST /mcp` 401 without key. **No video tool** (plan's `create_video_from_brief` / `get_render_status` not built); not yet connected from Claude Desktop/Code |
+| 31 | Bulk generation / multi-angle copilot | Present | `src/lib/social/content-plan.ts:22-31` (4 angles, ≤21 posts, similarity < 0.94); `src/components/publish/plan-maker.tsx:38`; prod `publish/plan` |
+| 32 | Multi-brand (agency) workspaces | Present | `src/lib/workspace-actions.ts:427,459,482` (create, switch, Plus 1 / Pro 5, `cw_ws` cookie); `src/components/workspace-switcher.tsx` in `src/app/(app)/layout.tsx`. Not built: delete a workspace, move projects between workspaces |
+| 33 | Mobile apps (iOS/Android) | **Partial — owner-approved (D7: PWA)** | `src/app/manifest.ts`, `public/sw.js`, `/offline`; prod manifest 200 (standalone, 192/512 icons). No native apps by decision; Lighthouse and push-on-Android not run |
+| 34 | Semrush App Center listing | **Missing — owner-approved exclusion (D8, deferred)** | Not built |
+| 35 | Product "product-in-hand" video from URL | **Partial** | URL → WaltzDeck ad brief (`src/lib/product-actions.ts:165-183`) makes a video from the page text with a Shop-now CTA, but the product photo is not passed into the deck and there is no presenter-holding-product generation |
+
+**Every Partial / Missing row and why:**
+
+1. **#19 Autopublishing — Partial.** TikTok OAuth keys absent from prod env; LinkedIn waits on LinkedIn's CM API
+   approval; OAuth redirect URIs for `www.clipwaltz.com` are an owner action in each provider app.
+2. **#23 Competitor content — Partial.** Open sources only (RSS/Atom, Bluesky, Mastodon); closed networks have no
+   lawful public API (R7); YouTube needs an owner-supplied Data API key.
+3. **#24 Competitor ad intelligence — Missing, no owner-approved exclusion.** Meta Ad Library needs a verified Meta
+   developer identity and covers only EU/UK-delivered or political ads; TikTok CCA not pursued. **Owner decision
+   needed:** approve it as an exclusion, or supply a verified Meta developer token and ask for a build.
+4. **#25 Engagement score — Partial.** The number is hidden until a workspace has ≥ 20 published posts with a positive
+   correlation (plan rule); the owner's workspace does not meet it yet.
+5. **#27 Store catalogs — Partial.** Wix untested against a live site; headless Shopify needs a partner app.
+6. **#28 Ads-manager export — Partial.** Meta + Google only (no TikTok); Meta headers unverified; images only.
+7. **#29 Public API — Partial.** No video/render endpoints; no outgoing webhooks.
+8. **#30 MCP — Partial.** No video tools; not yet connected from an MCP client.
+9. **#33 Mobile — Partial, owner-approved (D7 PWA).**
+10. **#34 Semrush — Missing, owner-approved (D8).**
+11. **#35 Product-in-hand video — Partial.** Deck brief from URL, no product photo / presenter holding the product.
+
+**Out of scope by owner decision (not Predis rows):** SP funnels, Autonnel, `funnels.phoenixtekk.com` SSO and `/media`
+proxy stay on SP (D3); Problem Finder stays on SP (D5).
 
 Honest residue: competitor intelligence on Meta/TikTok, direct ads-manager push, and LinkedIn posting each depend on a third party granting API access. Parity there cannot be promised by code alone.
 

@@ -943,7 +943,9 @@ version in the current project (the "import"); the original is untouched.
 - **On prod since 2026-11-14** (flag off → admin-only). **Import from publish.phoenixtekk.com (P4):**
   `scripts/migrate-social-publishing.mjs` copies channels, posts, results, media, Auto Post rules/presets and AI
   history into the owner's workspace; everything that could still publish arrives **on hold** (never sent by
-  ClipWaltz) until the cut-over step pauses it on the old site and releases it here. Not run on prod yet.
+  ClipWaltz) until the cut-over step pauses it on the old site and releases it here. **Run on prod 2026-11-14**
+  (`--apply --map lacy@phoenixtekk.com=lacy@clipwaltz.com`): 20 channels, 494 posts, 2,391 results, 1,855 media,
+  11 rules — everything held; cut-over (`--activate`) not run yet (owner's call).
 
 ## Social Publishing — Publish screens + render integration (P2, 2026-11-14, ADR-0011) — 🚧 behind the flag
 All screens are shadcn/ui (`components.json`, base-nova). Nav **Publish** shows only when the flag is on, or for
@@ -1083,7 +1085,18 @@ Ported from publish.phoenixtekk.com. shadcn/ui screens under **Publish**.
   can't load; registered on every page (same worker and scope as Web Push). iOS home-screen icon + title.
 - **G17 Semrush App Center:** not built — deferred by the owner (decision D8).
 
-## Waltz Image — image ads, carousels, memes (P3, 2026-11-14, ADR-0011, plan G1 / G2 / G5) — not deployed
+## Predis.ai parity — verified 2026-11-14 (P7)
+Every row of the plan's gap table re-checked against the code and prod: **24 Present · 9 Partial · 2 Missing** of 35.
+Full table with file:line evidence: `docs/PREDIS_PARITY_AND_PUBLISH_MERGE_PLAN.md` §8.
+- **Partial:** autopublishing (no TikTok app keys on prod; LinkedIn awaits LinkedIn's API approval), competitor content
+  (open sources only), engagement number (needs ≥ 20 own posts with a positive correlation), store catalogs (Wix not
+  tested live), ads export (Meta + Google, no TikTok), public API and MCP (no video/render endpoints, no outgoing
+  webhooks), mobile (PWA by decision D7), product-in-hand video (deck brief only).
+- **Missing:** Semrush listing (deferred, D8); **competitor ad intelligence** (no lawful ad source without a verified
+  Meta developer identity — needs an owner decision).
+- All Publish features are admin-only on prod until `SOCIAL_PUBLISHING_ENABLED` is set.
+
+## Waltz Image — image ads, carousels, memes (P3, 2026-11-14, ADR-0011, plan G1 / G2 / G5) — on prod since 2026-11-14
 A fourth studio tool (nav **Images**, `/images`, and the **Waltz Image** tab on New project). shadcn/ui screens.
 Words are always drawn by canvas on the server (`@napi-rs/canvas`), never asked of the AI model, so text is
 pixel-exact and editable; changing it re-composites instantly with **no GPU job and no credits**.
