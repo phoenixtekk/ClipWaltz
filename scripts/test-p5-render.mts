@@ -63,15 +63,18 @@ async function status() {
 async function cleanup() {
   if (!existsSync(STATE)) return console.log("nothing to clean");
   const st = JSON.parse(readFileSync(STATE, "utf8"));
-  const jobs = await db.select({ chargeId: schema.socialRenderJobs.chargeId, payload: schema.socialRenderJobs.payload }).from(schema.socialRenderJobs).where(inArray(schema.socialRenderJobs.id, [st.explainer.jobId, st.short.jobId]));
+  // Extra runs recorded in the state file (e.g. a second explainer) are cleaned the same way.
+  const extra = Object.keys(st).filter((k) => /^(explainer|short)\d+$/.test(k)).map((k) => st[k] as { postId: string; jobId: string });
+  const jobs = await db.select({ chargeId: schema.socialRenderJobs.chargeId, payload: schema.socialRenderJobs.payload }).from(schema.socialRenderJobs).where(inArray(schema.socialRenderJobs.id, [st.explainer.jobId, st.short.jobId, ...extra.map((e) => e.jobId)]));
   // Only this test's files: the posts' media, the show cover, and any narration parts still listed on the job.
   const [show] = await db.select({ cover: schema.podcastShows.coverMediaId }).from(schema.podcastShows).where(eq(schema.podcastShows.id, st.showId));
-  const postMedia = await db.select({ id: schema.socialMedia.id }).from(schema.socialMedia).where(inArray(schema.socialMedia.postId, [st.explainer.postId, st.short.postId]));
+  const postIds = [st.explainer.postId, st.short.postId, ...extra.map((e) => e.postId)];
+  const postMedia = await db.select({ id: schema.socialMedia.id }).from(schema.socialMedia).where(inArray(schema.socialMedia.postId, postIds));
   const narration = jobs.flatMap((j) => ((j.payload as { narrationMediaIds?: string[] }).narrationMediaIds ?? []));
   const ids = [...new Set([...postMedia.map((m) => m.id), ...(show?.cover ? [show.cover] : []), ...narration])];
   await db.delete(schema.podcastShows).where(eq(schema.podcastShows.id, st.showId)); // episodes + listens cascade
   await db.delete(schema.socialConnections).where(eq(schema.socialConnections.id, st.connId));
-  await db.delete(schema.socialPosts).where(inArray(schema.socialPosts.id, [st.explainer.postId, st.short.postId])); // jobs + targets cascade
+  await db.delete(schema.socialPosts).where(inArray(schema.socialPosts.id, postIds)); // jobs + targets cascade
   for (const id of ids) {
     await deleteMedia(id).catch(() => {});
     await db.delete(schema.socialMedia).where(and(eq(schema.socialMedia.id, id), eq(schema.socialMedia.workspaceId, st.workspaceId)));
@@ -80,7 +83,7 @@ async function cleanup() {
   const charges = jobs.map((j) => j.chargeId).filter((x): x is string => Boolean(x));
   if (charges.length) await db.delete(schema.generationJobs).where(inArray(schema.generationJobs.id, charges));
   rmSync(STATE);
-  console.log(`cleaned: show, connection, 2 posts (+ jobs/targets), ${media.length} media rows + objects, ${charges.length} charge rows`);
+  console.log(`cleaned: show, connection, ${postIds.length} posts (+ jobs/targets), ${media.length} media rows + objects, ${charges.length} charge rows`);
 }
 
 try {

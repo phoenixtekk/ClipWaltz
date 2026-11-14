@@ -14,6 +14,21 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
+## Social Publishing P5 — deployed 2026-11-14 (branch `feat/social-publish-20261114`)
+- **Prod = `deploy/social-p5-20261114`** (P1–P5). Migration 0068 on prod (69 rows). Flag still unset (admin-only).
+  Podcast moved: `https://www.clipwaltz.com/p/the-intune-explainer/rss.xml` live (same GUID + enclosure length as SP);
+  SP 301s `/p/<slug>/*` (`PODCAST_MOVED_TO`, SP commit `77d23f7`). Explainers / Shorts render on the AI-box render
+  worker (`worker/social-render/`); re-run `node scripts/build-social-render.mjs` and copy `dist/pipeline.mjs` to the AI
+  box after any change in `src/lib/explainer|shorts`. Details: ADMIN_DOCS → "Social Publishing — P5".
+- **Prod DB already holds the P4 import** (19 SP connections, 494 posts, 1,855 media, 11 rules — all held) — it was
+  run outside this session; the P4 "not imported" notes below are stale. `--activate` (cut-over) is still the owner's call;
+  it now also pauses SP's active Shorts rule ("Intune quick tips", auto-publish, next 2026-11-16 16:20 UTC) and
+  releases the podcast destination + Shorts rules here.
+- **Owner TODO:** purge in Cloudflare (Caching → Purge by URL) the two edge-cached copies of the episode mp3:
+  `https://publish.phoenixtekk.com/p/the-intune-explainer/audio/b478bc4e56214e6fae0ec1092102784b.mp3` and the same path on
+  `https://www.clipwaltz.com` (until then the old one answers from cache instead of 301, and the new one isn't counted).
+  In Apple Podcasts Connect, confirm the show picked up the new feed URL after its next refresh.
+
 ## Social Publishing P4 — deployed 2026-11-14 (branch `feat/social-publish-20261114`)
 - **Prod = `deploy/social-20261114` @ `691593d`** (P1–P3 + P4 import script + migration 0067 hold). Flag
   `SOCIAL_PUBLISHING_ENABLED` unset (admin-only). New pm2 `clipwaltz-social-worker`. Migrations 0064–0067 on prod (68 rows).
