@@ -143,6 +143,37 @@ export async function headObject(key: string): Promise<{ size: number; contentTy
   return { size: Number(h.ContentLength ?? 0), contentType: h.ContentType ?? null };
 }
 
+/**
+ * Stream bytes [start, end] (inclusive) of an object, or the whole object with no range. For public endpoints that
+ * must answer ranges themselves (the podcast enclosure route counts delivered bytes, so it cannot redirect to MinIO).
+ */
+export async function getObjectStream(
+  key: string,
+  range: { start: number; end: number } | null,
+  signal?: AbortSignal,
+): Promise<ReadableStream<Uint8Array>> {
+  const out = await s3().send(
+    new GetObjectCommand({ Bucket: S3_BUCKET, Key: key, Range: range ? `bytes=${range.start}-${range.end}` : undefined }),
+    { abortSignal: signal },
+  );
+  const src = (out.Body as unknown as { transformToWebStream: () => ReadableStream<Uint8Array> }).transformToWebStream();
+  const reader = src.getReader();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) controller.close();
+        else controller.enqueue(value);
+      } catch {
+        try { controller.close(); } catch { /* already closed on abort */ }
+      }
+    },
+    cancel(reason) {
+      reader.cancel(reason).catch(() => {});
+    },
+  });
+}
+
 /** Bytes [start, end] (inclusive) of an object — for chunked copies that must not buffer whole files. */
 export async function getObjectRange(key: string, start: number, end: number): Promise<Uint8Array> {
   const out = await s3().send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: key, Range: `bytes=${start}-${end}` }));

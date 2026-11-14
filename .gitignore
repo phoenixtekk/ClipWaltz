@@ -48,3 +48,7 @@ AGENTS.md
 
 # Local Insta360 sample(s) for reprojection calibration — do not commit/deploy
 public/insta360/
+
+# P5: generated pipeline bundle for the AI-box render worker (scripts/build-social-render.mjs)
+/worker/social-render/dist/
+/.p5-test.json

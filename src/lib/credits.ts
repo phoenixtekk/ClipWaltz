@@ -22,6 +22,13 @@ export const BACKDROP_COST = 2;
  * carousel slide background or an AI meme picture. Template slides, uploads and every text edit cost nothing.
  */
 export const IMAGE_COST = 2;
+/**
+ * Explainer episode / Short (P5, D6). No GPU — but ElevenLabs narration is billed per character against one shared
+ * monthly allowance (a ~5-minute episode ≈ 4–5k characters, a Short ≈ 700), so each job is charged to bound one
+ * account's share of it. Refunded when the job fails (the charge row ends 'failed').
+ */
+export const EXPLAINER_COST = 10;
+export const SHORT_COST = 4;
 /** A Remix: only the AI seconds it adds (lead-in + moments + extend), at its quality. */
 export const remixCost = (aiSeconds: number, quality = "standard") => up(aiSeconds * (QUALITY_RATE[quality] ?? 1));
 /** An enhancement of a clip of `clipSeconds`. 0 for the Fast engine. */

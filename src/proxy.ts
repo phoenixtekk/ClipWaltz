@@ -32,6 +32,7 @@ const PUBLIC_PATHS = [
   /^\/connector\/[a-z0-9.-]+$/, // Connector program download (public/connector)
   /^\/api\/social\/media\/public\/[a-f0-9-]{36}$/, // signed media URLs fetched by Threads/Instagram/TikTok (HMAC-gated)
   /^\/api\/social\/webhooks\/threads\/(?:deauthorize|delete)$/, // Meta's servers (signed_request-gated)
+  /^\/p\/[a-z0-9-]+\/(?:rss\.xml|cover\.jpg|audio\/[a-f0-9]{32}\.mp3|episode\/[a-f0-9]{32}\.png)$/, // public podcast feed + enclosures (P5)
 ];
 
 export default function proxy(req: NextRequest) {

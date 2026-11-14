@@ -20,7 +20,7 @@ import { effectiveLimit } from "@/lib/social/post-limits";
 
 // ClipWaltz port notes: rules belong to a WORKSPACE (SP: a user). Product grounding is not ported — products and funnels
 // stay on SP (decision D3) — so `product` is always null here; the column is kept on the rule for row-copy fidelity.
-// The "explainer" video mode is P5 (decision D6), so a rule in that mode produces nothing until then.
+// The "explainer" video mode (P5, decision D6) enqueues an episode on the render worker (src/lib/social/render-jobs.ts).
 
 type Rule = typeof schema.socialAutoRules.$inferSelect;
 /** SP's product shape, as far as the seed builder reads it. Always null in ClipWaltz until/unless D3 changes. */
@@ -46,7 +46,7 @@ export interface GeneratedPost {
   topic: string | null;
   imageAttached: boolean;
   autoImage: boolean;
-  status: "queued-for-publish" | "draft";
+  status: "queued-for-publish" | "draft" | "rendering";
 }
 
 export function parseTopics(raw: string): string[] {
@@ -144,10 +144,7 @@ export async function generateForRule(rule: Rule, now: Date): Promise<GeneratedP
   // the copy from that — minutes of work across five stages. So this enqueues a
   // job and returns; the render queue drives the stages and fills the post in.
   if (rule.videoMode === "explainer") {
-    // P5 (decision D6): the explainer pipeline is not in ClipWaltz yet. Producing nothing leaves the slot empty and
-    // the topic un-advanced, exactly as a failed generation would, so no topic is skipped when it arrives.
-    void topics;
-    return null;
+    return enqueueExplainer(rule, keys, topic, link, topics.length);
   }
 
   const seed = buildSeed(rule, topic, product, link);
@@ -236,6 +233,47 @@ export async function generateForRule(rule: Rule, now: Date): Promise<GeneratedP
   };
 }
 
+/**
+ * Create the post and its render job for one explainer slot (SP enqueueExplainer). The post lands in `rendering`
+ * with the topic as placeholder text; the episode's own copy replaces it when the job finishes, and review-first is
+ * applied then (src/lib/social/render-jobs.ts finalizeRenderJobs). The rule's creator pays the credits; a slot they
+ * can't afford (or one with no topic / brief) produces nothing and does not advance the topic.
+ */
+async function enqueueExplainer(
+  rule: Rule,
+  keys: string[],
+  topic: string | null,
+  link: string | null,
+  topicCount: number,
+): Promise<GeneratedPost | null> {
+  if (!topic || !rule.seedPrompt.trim() || !rule.createdBy) return null;
+  const { startExplainer, usableKeys } = await import("@/lib/social/render-jobs");
+  const usable = await usableKeys(keys, rule.workspaceId, { allowPodcast: true });
+  if (!usable.length) return null;
+  let postId: string;
+  try {
+    ({ postId } = await startExplainer({
+      workspaceId: rule.workspaceId,
+      userId: rule.createdBy,
+      keys: usable,
+      topic,
+      seedPrompt: rule.seedPrompt,
+      link,
+      reviewFirst: rule.reviewFirst,
+      autoRuleId: rule.id,
+    }));
+  } catch (e) {
+    console.warn(`[social] explainer slot for rule ${rule.id} skipped: ${(e as Error).message}`);
+    return null;
+  }
+  // Advance the rotation only because a slot was genuinely produced — a failed render never skips a topic.
+  await db
+    .update(schema.socialAutoRules)
+    .set({ topicCursor: topicCount ? (rule.topicCursor + 1) % topicCount : 0 })
+    .where(eq(schema.socialAutoRules.id, rule.id));
+  return { postId, text: topic, destinations: usable, topic, imageAttached: false, autoImage: false, status: "rendering" };
+}
+
 /** The post a rule should publish this slot: whatever is queued, else a fresh one. */
 export async function nextPostForRule(rule: Rule, now: Date): Promise<{ postId: string; generated: boolean } | null> {
   const [queued] = await db
@@ -255,6 +293,6 @@ export async function nextPostForRule(rule: Rule, now: Date): Promise<{ postId: 
 
   const gen = await generateForRule(rule, now);
   if (!gen) return null;
-  // A review-first rule leaves the draft for a human; nothing publishes now.
-  return gen.status === "draft" ? null : { postId: gen.postId, generated: true };
+  // A review-first rule leaves the draft for a human; an explainer is still rendering (its job releases it later).
+  return gen.status === "queued-for-publish" ? { postId: gen.postId, generated: true } : null;
 }

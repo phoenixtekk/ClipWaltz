@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Agent worktrees are full repo copies (incl. their .next builds).
     ".claude/**",
+    // Generated pipeline bundle for the AI-box render worker (scripts/build-social-render.mjs).
+    "worker/social-render/dist/**",
   ]),
 ]);
 

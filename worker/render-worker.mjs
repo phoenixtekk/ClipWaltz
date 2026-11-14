@@ -2241,6 +2241,16 @@ async function reapStaleDeckExports() {
   if (failed.length || requeued.length) console.log(`[worker] deck exports: re-queued ${requeued.length}, failed ${failed.length} after a restart`);
 }
 
+// ── Explainer + Shorts render jobs (Social Publishing P5, worker/social-render/job.mjs) ─────────────────────────────
+// Lower priority than renders and slide exports; an explainer advances one stage per claim so a render queued behind it
+// waits at most one stage. Lazy import: a box without the pipeline bundle / @napi-rs/canvas still renders normally.
+const socialRenderIo = () => ({ sql, s3, BUCKET });
+async function socialTick() {
+  if (process.env.SOCIAL_RENDER_DISABLED === "1") return false;
+  const { socialRenderTick } = await import("./social-render/job.mjs");
+  return socialRenderTick(socialRenderIo());
+}
+
 async function tick() {
   const r = await claimOne();
   if (!r) return false;
@@ -2686,6 +2696,14 @@ async function main() {
     await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
     return sql.end();
   }
+  if (process.argv.includes("--social-once")) {
+    // `--social-once`: drain queued explainer / Short jobs (each explainer stage is one claim) and exit — touches
+    // nothing else (no renders, no reapers). For testing the P5 pipeline against a dev DB.
+    let n = 0;
+    while (n < 50 && (await socialTick())) n++;
+    console.log(`[social-render] --social-once: ${n} claim(s)`);
+    return sql.end();
+  }
   if (process.argv.includes("--selftest")) return selftest();
   if (process.argv.includes("--posttest")) return posttest();
   if (process.argv.includes("--filltest")) return filltest();
@@ -2718,17 +2736,23 @@ async function main() {
     if (!did) console.log("[worker] no queued renders");
     // Also drain queued slide exports (PDF / PPTX), so a one-shot can test them too.
     while (await deckExportTick()) { /* next */ }
+    // `--once --social`: also run one explainer stage / short (manual test of the P5 pipeline).
+    if (process.argv.includes("--social")) await socialTick();
     await sql.end();
     return;
   }
   await reapStaleRenders().catch((e) => console.error("[worker] reap error:", e.message));
   await reapStaleConversions().catch((e) => console.error("[worker] conversion reap error:", e.message));
   await reapStaleDeckExports().catch((e) => console.error("[worker] deck export reap error:", e.message));
+  if (process.env.SOCIAL_RENDER_DISABLED !== "1") {
+    await import("./social-render/job.mjs").then((m) => m.reapSocialRenders(socialRenderIo())).catch((e) => console.error("[worker] social render reap error:", e.message));
+  }
   for (;;) {
     let worked = false;
     try {
       worked = await tick();
       if (!worked) worked = await deckExportTick(); // WaltzDeck PDF / PPTX (seconds each)
+      if (!worked) worked = await socialTick().catch((e) => { console.error("[worker] social render tick error:", e.message); return false; }); // explainers / Shorts (P5)
       if (!worked) worked = await convTick(); // 360 reprojection queue
       if (!worked) worked = await batchTick(); // Auto-Batch: queue the next folder group
       if (!worked) worked = await durTick(); // lowest priority: fill in missing clip lengths

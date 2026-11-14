@@ -5,6 +5,8 @@
 //   node --env-file=.env.local scripts/migrate-social-publishing.mjs                 # DRY RUN (default): report only
 //   node --env-file=.env.local scripts/migrate-social-publishing.mjs --apply         # copy rows + media, all HELD
 //   node --env-file=.env.local scripts/migrate-social-publishing.mjs --activate      # cut-over (see below)
+//   node --env-file=.env.local scripts/migrate-social-publishing.mjs --podcast [--apply]  # P5: ONLY the podcast
+//                             (shows, episodes, listens, their cover/audio/artwork media, the show's destination row)
 //
 // Options:
 //   --map sp@email=cw@email   map an SP account to a ClipWaltz account with a different address (repeatable). No
@@ -22,12 +24,16 @@
 //      S3_ACCESS_KEY / S3_SECRET_KEY.
 //
 // What is copied (FK order; ids are preserved, every insert is ON CONFLICT DO NOTHING, so re-running is safe):
-//   social_connection → social_connections (tokens re-encrypted with TOKEN_ENC_KEY; provider "podcast" skipped — P5)
+//   social_connection → social_connections (tokens re-encrypted with TOKEN_ENC_KEY; a "podcast" row is the show's
+//   destination — its "token" is just {showId, slug})
 //   post → social_posts, post_target → social_post_targets, media → social_media (+ file disk → MinIO
 //   social/<workspace>/<id>), auto_post_rule → social_auto_rules, auto_post_preset → social_auto_presets,
 //   snippet → social_snippets, ai_generation → social_ai_generations, and the app_setting keys ClipWaltz reads
 //   (app:timezone, post:max_chars, mastodon_app:*) → app_settings "social:<key>".
-//   Not copied: users/sessions/billing/invites (ClipWaltz accounts are used), funnels, podcast, research, shorts.
+//   P5: podcast_show → podcast_shows, podcast_episode → podcast_episodes (GUIDs, titles, durations, dates verbatim;
+//   the enclosure length is the audio media row's size, copied verbatim and HEAD-checked against MinIO),
+//   podcast_listen → podcast_listens, short_rule → short_rules (HELD, like auto rules).
+//   Not copied: users/sessions/billing/invites (ClipWaltz accounts are used), funnels, research (they stay on SP).
 //
 // DOUBLE-POST GUARD (plan R3). While SP is live, everything that could publish lands HELD in ClipWaltz:
 // migration_hold = 'sp-import' on every imported connection (no token refresh — SP owns rotation), every auto rule,
@@ -39,6 +45,7 @@
 //       pending/publishing); capture the state of what SP would still publish — active rules, scheduled/queued posts,
 //       failed destinations with a retry — write it to a state file, then pause it on SP (rules inactive, those posts
 //       to 'draft', retries cleared) and commit;
+//       — P5: SP's active Shorts rules are paused the same way (captured, set inactive);
 //   (b) on ClipWaltz, in one transaction: import anything new (held), re-sync every held row from SP's current data
 //       with the captured pre-pause state laid over it (so nothing SP already published is released as unpublished),
 //       re-copy connection tokens (SP may have refreshed them), mark rows deleted on SP 'sp-deleted' (they stay held
@@ -64,6 +71,7 @@ const SKIP_MEDIA = flag("--skip-media");
 const MEDIA_LIMIT = opt("--media-limit") != null ? Math.max(0, Number(opt("--media-limit"))) : Infinity;
 const REPORT_FILE = opt("--report");
 const STATE_FILE = opt("--state");
+const PODCAST_ONLY = flag("--podcast");
 const HOLD = "sp-import";
 const HOLD_DELETED = "sp-deleted";
 
@@ -93,6 +101,7 @@ const dbHost = (u) => new URL(u).host;
 if (dbName(CW_URL) === dbName(SP_URL) && dbHost(CW_URL) === dbHost(SP_URL)) die("source and target are the same database");
 if ((APPLY || ACTIVATE) && !process.env.TOKEN_ENC_KEY) die("TOKEN_ENC_KEY is required to write (tokens are encrypted at rest)");
 if (APPLY && ACTIVATE) die("use --apply or --activate, not both");
+if (PODCAST_ONLY && ACTIVATE) die("--podcast is an import mode (dry run or --apply); --activate always includes the podcast");
 
 const cw = postgres(CW_URL, { prepare: false, max: 4, onnotice: () => {} });
 const sp = postgres(SP_URL, { prepare: false, max: 2, onnotice: () => {} });
@@ -153,7 +162,20 @@ function readSpEnvFacebook() {
 }
 
 // ── Load SP + resolve owners ──────────────────────────────────────────────────
+async function hasTable(db, t) {
+  const [r] = await db`select to_regclass(${"public." + t}) is not null as ok`;
+  return r.ok;
+}
+
 async function loadSp(db = sp) {
+  // P5 tables: present on SP prod (podcast 0029/0030; short_rule exists although 0031 is not in its journal).
+  const [hasShows, hasShortRules] = await Promise.all([hasTable(db, "podcast_show"), hasTable(db, "short_rule")]);
+  const [shows, episodes, listens, shortRules] = await Promise.all([
+    hasShows ? db`select * from podcast_show` : [],
+    hasShows ? db`select * from podcast_episode` : [],
+    hasShows ? db`select show_id, episode_id, day::text as day, client_hash, bytes, requests, counted, app, first_at, last_at from podcast_listen` : [],
+    hasShortRules ? db`select * from short_rule` : [],
+  ]);
   const [users, conns, posts, targets, media, rules, presets, snippets, aigens, settings] = await Promise.all([
     db`select id, lower(email) as email from "user"`,
     db`select * from social_connection`,
@@ -166,7 +188,7 @@ async function loadSp(db = sp) {
     db`select * from ai_generation`,
     db`select key, value from app_setting where key in ('app:timezone','post:max_chars') or key like 'mastodon_app:%'`,
   ]);
-  return { users, conns, posts, targets, media, rules, presets, snippets, aigens, settings };
+  return { users, conns, posts, targets, media, rules, presets, snippets, aigens, settings, shows, episodes, listens, shortRules };
 }
 
 async function resolveOwners(spUsers) {
@@ -199,7 +221,6 @@ function buildRows(src, owners, fbEnv, ownerSpUserId) {
   for (const c of src.conns) {
     const o = own(c);
     if (!o) { skipped.connections.push({ id: c.id, provider: c.provider, reason: "owner not mapped" }); continue; }
-    if (c.provider === "podcast") { skipped.connections.push({ id: c.id, provider: c.provider, reason: "podcast is P5" }); continue; }
     connections.push({
       id: c.id, workspace_id: o.workspaceId, created_by: o.userId, provider: c.provider, label: c.label,
       access_token: c.access_token, refresh_token: c.refresh_token, // encrypted at write time
@@ -314,7 +335,65 @@ function buildRows(src, owners, fbEnv, ownerSpUserId) {
 
   const settings = src.settings.map((s) => ({ key: `social:${s.key}`, value: cw.json(s.value), updated_at: new Date() }));
 
-  return { connections, posts, targets, media, rules, presets, snippets, aiGenerations, settings, skipped, fbEnv, fbEnvRow };
+  // ── P5: podcast + Shorts rules ──
+  skipped.shows = 0; skipped.episodes = 0; skipped.listens = 0; skipped.shortRules = 0;
+  const shows = [];
+  const showWs = new Map();
+  for (const r of src.shows) {
+    const o = own(r);
+    if (!o) { skipped.shows++; continue; }
+    showWs.set(r.id, o.workspaceId);
+    shows.push({
+      id: r.id, workspace_id: o.workspaceId, created_by: o.userId, slug: r.slug, title: r.title, description: r.description,
+      author: r.author, language: r.language, category: r.category, subcategory: r.subcategory, explicit: !!r.explicit,
+      link: r.link, cover_media_id: r.cover_media_id, copyright: r.copyright, active: !!r.active,
+      created_at: r.created_at, updated_at: r.updated_at,
+    });
+  }
+  const episodes = [];
+  for (const e of src.episodes) {
+    if (!showWs.has(e.show_id)) { skipped.episodes++; continue; }
+    episodes.push({
+      id: e.id, show_id: e.show_id, post_id: e.post_id && postWs.has(e.post_id) ? e.post_id : null,
+      guid: e.guid, // VERBATIM — Apple treats a changed GUID as a new episode
+      title: e.title, description: e.description, audio_media_id: e.audio_media_id, duration_sec: e.duration_sec,
+      image_media_id: e.image_media_id, link: e.link, published_at: e.published_at, created_at: e.created_at,
+    });
+  }
+  const epIds = new Set(episodes.map((e) => e.id));
+  const listens = [];
+  for (const l of src.listens) {
+    if (!epIds.has(l.episode_id)) { skipped.listens++; continue; }
+    listens.push({
+      show_id: l.show_id, episode_id: l.episode_id, day: l.day, client_hash: l.client_hash, bytes: Number(l.bytes),
+      requests: l.requests, counted: !!l.counted, app: l.app, first_at: l.first_at, last_at: l.last_at,
+    });
+  }
+  const shortRules = [];
+  for (const r of src.shortRules) {
+    const o = own(r);
+    if (!o) { skipped.shortRules++; continue; }
+    shortRules.push({
+      id: r.id, workspace_id: o.workspaceId, created_by: o.userId, name: r.name, source: r.source ?? "workplace",
+      solution_filter: r.solution_filter ?? "", solution_cursor: r.solution_cursor ?? 0, seed_prompt: r.seed_prompt ?? "",
+      topics: r.topics ?? "", topic_cursor: r.topic_cursor ?? 0, days_of_week: r.days_of_week, time_of_day: r.time_of_day,
+      timezone: null, providers: r.providers ?? "", active: !!r.active, review_first: !!r.review_first,
+      migration_hold: HOLD, next_run_at: r.next_run_at, last_run_at: r.last_run_at, created_at: r.created_at,
+      updated_at: r.updated_at,
+    });
+  }
+
+  const all = { connections, posts, targets, media, rules, presets, snippets, aiGenerations, settings, shows, episodes, listens, shortRules };
+  if (PODCAST_ONLY) {
+    // Only what the feed needs: the shows, their episodes + listens, the media they point at, the show destinations.
+    const need = new Set([...shows.map((r) => r.cover_media_id), ...episodes.flatMap((e) => [e.audio_media_id, e.image_media_id])].filter(Boolean));
+    const showIds = new Set(shows.map((r) => r.id));
+    for (const k of ["posts", "targets", "rules", "presets", "snippets", "aiGenerations", "settings", "shortRules"]) all[k] = [];
+    all.media = media.filter((m) => need.has(m.id)).map((m) => ({ ...m, post_id: null })); // their posts are not imported in this mode
+    all.connections = connections.filter((c) => c.provider === "podcast" && showIds.has(c.external_id));
+    all.episodes = episodes.map((e) => ({ ...e, post_id: null }));
+  }
+  return { ...all, skipped, fbEnv: PODCAST_ONLY ? { state: "not read (--podcast)" } : fbEnv, fbEnvRow: PODCAST_ONLY ? null : fbEnvRow };
 }
 
 const TABLES = [
@@ -326,6 +405,9 @@ const TABLES = [
   ["presets", "social_auto_presets"],
   ["snippets", "social_snippets"],
   ["aiGenerations", "social_ai_generations"],
+  ["shows", "podcast_shows"],
+  ["episodes", "podcast_episodes"],
+  ["shortRules", "short_rules"],
 ];
 
 async function existingIds(db, table, ids) {
@@ -416,7 +498,9 @@ async function runImport({ apply, db = cw }) {
       rules: rows.rules.length,
       posts: rows.posts.filter((p) => p.migration_hold).length,
       targets: rows.targets.filter((t) => t.migration_hold).length,
+      shortRules: rows.shortRules.length,
     },
+    podcastOnly: PODCAST_ONLY,
   };
 
   for (const [k, table] of TABLES) {
@@ -427,6 +511,11 @@ async function runImport({ apply, db = cw }) {
     (await db`select key from app_settings where key in ${db(rows.settings.map((s) => s.key).concat(["-"]))}`).map((r) => r.key),
   );
   report.tables.app_settings = { candidates: rows.settings.length, alreadyPresent: haveSettings.size, toInsert: rows.settings.length - haveSettings.size };
+  report.tables.podcast_listens = { candidates: rows.listens.length };
+  const slugClash = rows.shows.length
+    ? await db`select id, slug from podcast_shows where slug in ${db(rows.shows.map((r) => r.slug))} and id not in ${db(rows.shows.map((r) => r.id))}`
+    : [];
+  if (slugClash.length) report.podcastSlugClash = slugClash; // a different ClipWaltz show already owns the address
 
   if (!apply) {
     report.media = SKIP_MEDIA ? "skipped (--skip-media)" : await planMedia(rows.media);
@@ -452,6 +541,15 @@ async function runImport({ apply, db = cw }) {
     inserted.social_snippets = await insertRows(tx, "social_snippets", rows.snippets);
     inserted.social_ai_generations = await insertRows(tx, "social_ai_generations", rows.aiGenerations);
     inserted.app_settings = await insertRows(tx, "app_settings", rows.settings);
+    // P5 — a show whose cover was not copied keeps no cover; an episode whose audio was not copied is not listable,
+    // so it is not imported (reported) rather than published with a broken enclosure.
+    inserted.podcast_shows = await insertRows(tx, "podcast_shows", rows.shows.map((r) => ({ ...r, cover_media_id: mediaReady.has(r.cover_media_id) ? r.cover_media_id : null })));
+    const eps = rows.episodes.filter((e) => mediaReady.has(e.audio_media_id)).map((e) => ({ ...e, image_media_id: mediaReady.has(e.image_media_id) ? e.image_media_id : null }));
+    report.episodesWithoutAudio = rows.episodes.filter((e) => !mediaReady.has(e.audio_media_id)).map((e) => e.id);
+    inserted.podcast_episodes = await insertRows(tx, "podcast_episodes", eps);
+    const epOk = new Set(eps.map((e) => e.id));
+    inserted.podcast_listens = await insertRows(tx, "podcast_listens", rows.listens.filter((l) => epOk.has(l.episode_id)));
+    inserted.short_rules = await insertRows(tx, "short_rules", rows.shortRules);
   });
   for (const [t, n] of Object.entries(inserted)) report.tables[t].inserted = n;
 
@@ -463,11 +561,22 @@ async function runImport({ apply, db = cw }) {
     report.reconciliation[table] = { expected: ids.length, present: have.size, ok: have.size === ids.length };
   }
   report.reconciliation.social_media.notCopied = rows.media.length - mediaReady.size;
+  {
+    const epIds = rows.episodes.map((e) => e.id);
+    const [{ n }] = epIds.length ? await db`select count(*)::int as n from podcast_listens where episode_id in ${db(epIds)}` : [{ n: 0 }];
+    report.reconciliation.podcast_listens = { expected: rows.listens.length, present: n, ok: n >= rows.listens.length };
+    // Feed fidelity: the GUID + enclosure length every imported episode will be served with.
+    report.podcastFeed = epIds.length
+      ? await db`select e.guid, e.title, m.size as enclosure_length, m.storage_key from podcast_episodes e
+          join social_media m on m.id = e.audio_media_id where e.id in ${db(epIds)} order by e.published_at desc`
+      : [];
+  }
   const heldNow = await db`
     select (select count(*) from social_connections where migration_hold is not null)::int as connections,
            (select count(*) from social_auto_rules where migration_hold is not null)::int as rules,
            (select count(*) from social_posts where migration_hold is not null)::int as posts,
-           (select count(*) from social_post_targets where migration_hold is not null)::int as targets`;
+           (select count(*) from social_post_targets where migration_hold is not null)::int as targets,
+           (select count(*) from short_rules where migration_hold is not null)::int as short_rules`;
   report.heldInClipWaltz = heldNow[0];
   return report;
 }
@@ -493,14 +602,17 @@ async function activate() {
       const rules = await tx`select id, active, next_run_at from auto_post_rule where active = true`;
       const posts = await tx`select id, status, scheduled_at from post where status in ('scheduled','queued')`;
       const retries = await tx`select id, retry_at from post_target where status = 'failed' and retry_at is not null`;
-      const s = { pausedAt: new Date().toISOString(), rules, posts, retries };
+      // P5: SP's Shorts rules publish too — pause them the same way.
+      const shortRules = (await hasTable(tx, "short_rule")) ? await tx`select id, active, next_run_at from short_rule where active = true` : [];
+      const s = { pausedAt: new Date().toISOString(), rules, posts, retries, shortRules };
       writeFileSync(file, JSON.stringify(s, null, 2));
       if (rules.length) await tx`update auto_post_rule set active = false where id in ${tx(rules.map((r) => r.id))}`;
       if (posts.length) await tx`update post set status = 'draft', updated_at = now() where id in ${tx(posts.map((p) => p.id))}`;
       if (retries.length) await tx`update post_target set retry_at = null where id in ${tx(retries.map((t) => t.id))}`;
+      if (shortRules.length) await tx`update short_rule set active = false where id in ${tx(shortRules.map((r) => r.id))}`;
       return s;
     });
-    log(`(a) SP paused: ${state.rules.length} rules, ${state.posts.length} scheduled/queued posts, ${state.retries.length} retries — state ${file}`);
+    log(`(a) SP paused: ${state.rules.length} rules, ${state.shortRules.length} Shorts rules, ${state.posts.length} scheduled/queued posts, ${state.retries.length} retries — state ${file}`);
   }
 
   // (b) Import + re-sync + release on ClipWaltz, in one transaction.
@@ -514,7 +626,9 @@ async function activate() {
     const spTarget = new Map(src.targets.map((t) => [t.id, t]));
     const spRule = new Map(src.rules.map((r) => [r.id, r]));
     const spConn = new Map(src.conns.map((c) => [c.id, c]));
-    const n = { posts: 0, targets: 0, rules: 0, connections: 0, deletedOnSp: 0 };
+    const spShort = new Map(src.shortRules.map((r) => [r.id, r]));
+    const capShort = new Map((state.shortRules ?? []).map((r) => [r.id, r]));
+    const n = { posts: 0, targets: 0, rules: 0, shortRules: 0, connections: 0, deletedOnSp: 0 };
 
     for (const p of await tx`select id from social_posts where migration_hold = ${HOLD}`) {
       const s = spPost.get(p.id);
@@ -555,13 +669,24 @@ async function activate() {
         updated_at = now() where id = ${c.id}`;
       n.connections++;
     }
+    for (const r of await tx`select id from short_rules where migration_hold = ${HOLD}`) {
+      const s = spShort.get(r.id);
+      if (!s) { await tx`update short_rules set migration_hold = ${HOLD_DELETED} where id = ${r.id}`; n.deletedOnSp++; continue; }
+      const c = capShort.get(r.id);
+      await tx`update short_rules set active = ${c ? true : !!s.active}, next_run_at = ${c ? c.next_run_at : s.next_run_at},
+        last_run_at = ${s.last_run_at}, solution_cursor = ${s.solution_cursor ?? 0}, topic_cursor = ${s.topic_cursor ?? 0},
+        days_of_week = ${s.days_of_week}, time_of_day = ${s.time_of_day}, providers = ${s.providers ?? ""},
+        source = ${s.source ?? "workplace"}, solution_filter = ${s.solution_filter ?? ""}, seed_prompt = ${s.seed_prompt ?? ""},
+        topics = ${s.topics ?? ""}, review_first = ${!!s.review_first}, updated_at = now() where id = ${r.id}`;
+      n.shortRules++;
+    }
     const released = {};
-    for (const t of ["social_connections", "social_auto_rules", "social_posts", "social_post_targets"]) {
+    for (const t of ["social_connections", "social_auto_rules", "social_posts", "social_post_targets", "short_rules"]) {
       released[t] = (await tx`update ${tx(t)} set migration_hold = null where migration_hold = ${HOLD}`).count;
     }
     return { import: imp, resynced: n, released };
   });
-  return { activate: true, spPaused: { rules: state.rules.length, posts: state.posts.length, retries: state.retries.length }, ...result };
+  return { activate: true, spPaused: { rules: state.rules.length, shortRules: (state.shortRules ?? []).length, posts: state.posts.length, retries: state.retries.length }, ...result };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────

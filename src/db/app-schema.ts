@@ -1395,3 +1395,156 @@ export const imageDesignImages = pgTable(
     check("image_design_images_source_check", sql`${t.source} in ('ai', 'upload')`),
   ],
 );
+
+// ─── P5: podcast hosting (decision D4 — the feed moved here from Social Publishing) ─────────────────────────────────
+// Shapes follow SP's 0029/0030 (Apple's RSS requirements, IAB Podcast Measurement v2.2) plus `workspace_id`. Audio and
+// artwork are `social_media` rows (MinIO `social/<workspace>/<id>`); the feed reads each enclosure's byte length from
+// `social_media.size`, so an imported episode keeps its exact length. GUIDs are immutable: Apple treats a changed GUID
+// as a different episode.
+export const podcastShows = pgTable(
+  "podcast_shows",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    createdBy: text().references(() => user.id, { onDelete: "set null" }),
+    slug: text().notNull().unique(), // public: /p/<slug>/rss.xml
+    title: text().notNull(),
+    description: text().notNull(),
+    author: text(),
+    language: text().notNull().default("en-us"),
+    category: text().notNull().default("Technology"),
+    subcategory: text(),
+    explicit: boolean().notNull().default(false),
+    link: text(),
+    coverMediaId: text().references(() => socialMedia.id, { onDelete: "set null" }),
+    copyright: text(),
+    active: boolean().notNull().default(true),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("podcast_shows_ws_idx").on(t.workspaceId)],
+);
+
+export const podcastEpisodes = pgTable(
+  "podcast_episodes",
+  {
+    id: text().primaryKey(),
+    showId: text()
+      .notNull()
+      .references(() => podcastShows.id, { onDelete: "cascade" }),
+    postId: text().references(() => socialPosts.id, { onDelete: "set null" }),
+    guid: text().notNull().unique(), // `urn:uuid:<id>` for new episodes; imported episodes keep SP's value verbatim
+    title: text().notNull(),
+    description: text().notNull(),
+    audioMediaId: text()
+      .notNull()
+      .references(() => socialMedia.id, { onDelete: "restrict" }),
+    durationSec: integer().notNull(),
+    imageMediaId: text().references(() => socialMedia.id, { onDelete: "set null" }),
+    link: text(),
+    publishedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("podcast_episodes_feed_idx").on(t.showId, t.publishedAt.desc())],
+);
+
+// One row per (episode, UTC day, client) — the IAB dedup unit. The client is only a salted hash (never the IP).
+export const podcastListens = pgTable(
+  "podcast_listens",
+  {
+    showId: text()
+      .notNull()
+      .references(() => podcastShows.id, { onDelete: "cascade" }),
+    episodeId: text()
+      .notNull()
+      .references(() => podcastEpisodes.id, { onDelete: "cascade" }),
+    day: text().notNull(), // YYYY-MM-DD (UTC)
+    clientHash: text().notNull(),
+    bytes: bigint({ mode: "number" }).notNull().default(0),
+    requests: integer().notNull().default(0),
+    counted: boolean().notNull().default(false),
+    app: text(),
+    firstAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    lastAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("podcast_listens_pk").on(t.episodeId, t.day, t.clientHash),
+    index("podcast_listens_show_day_idx").on(t.showId, t.day),
+    index("podcast_listens_episode_idx").on(t.episodeId),
+  ],
+);
+
+// ─── P5: Shorts rules (decision D6, SP 0031) ───────────────────────────────────────────────────────────────────────
+// A recurring rule that produces one vertical tip video per slot. `source = 'workplace'` (ground the script in the
+// Phoenixtekk Workplace catalogue) is only allowed for site-admin workspaces; everyone else writes their own brief
+// (`source = 'seed'`). Built on the render worker (AI box) as a `social_render_jobs` row of kind 'short'.
+export const shortRules = pgTable(
+  "short_rules",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    createdBy: text().references(() => user.id, { onDelete: "set null" }),
+    name: text().notNull(),
+    source: text().notNull().default("seed"), // workplace | seed
+    solutionFilter: text().notNull().default(""),
+    solutionCursor: integer().notNull().default(0),
+    seedPrompt: text().notNull().default(""),
+    topics: text().notNull().default(""),
+    topicCursor: integer().notNull().default(0),
+    daysOfWeek: text().notNull().default("1,2,3,4,5"),
+    timeOfDay: text().notNull().default("09:00"),
+    timezone: text(),
+    providers: text().notNull().default(""),
+    active: boolean().notNull().default(true),
+    reviewFirst: boolean().notNull().default(true),
+    // P4/P5 double-post guard: rules imported from SP stay held until `--activate`.
+    migrationHold: text(),
+    nextRunAt: timestamp({ withTimezone: true }),
+    lastRunAt: timestamp({ withTimezone: true }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("short_rules_due_idx").on(t.active, t.nextRunAt)],
+);
+
+// ─── P5: explainer / short render jobs (SP `render_job` kind 'explainer', plus shorts) ─────────────────────────────
+// Claimed by the render worker on the AI box (worker/social-render/job.mjs, FOR UPDATE SKIP LOCKED). An explainer
+// advances ONE stage per claim (scripting → voicing → assembling → meta → ready) and persists between stages, so a
+// crash never re-spends ElevenLabs characters; a short is built in one pass. Bytes go to MinIO (`social_media` rows)
+// and `payload` carries ids only. When a job is `done`, the social worker's sweep finalizes its post (per-network copy
+// + media) and releases it to publish (or to draft when review-first). `charge_id` is the generation_jobs row holding
+// the AI credits — settled 'completed' on success, 'failed' (= refunded by the ledger) otherwise.
+export const socialRenderJobs = pgTable(
+  "social_render_jobs",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    createdBy: text().references(() => user.id, { onDelete: "set null" }),
+    postId: text().references(() => socialPosts.id, { onDelete: "cascade" }),
+    kind: text().notNull(), // explainer | short
+    ruleId: text(), // social_auto_rules.id (explainer) or short_rules.id (short); null = made by hand
+    status: text().notNull().default("queued"), // queued | running | done | failed
+    stage: text(),
+    payload: jsonb().notNull().default({}),
+    progress: integer().notNull().default(0),
+    attempts: integer().notNull().default(0),
+    error: text(),
+    chargeId: text().references(() => generationJobs.id, { onDelete: "set null" }),
+    finalizedAt: timestamp({ withTimezone: true }),
+    startedAt: timestamp({ withTimezone: true }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("social_render_jobs_status_idx").on(t.status, t.createdAt),
+    index("social_render_jobs_ws_idx").on(t.workspaceId, t.createdAt),
+    index("social_render_jobs_post_idx").on(t.postId),
+    check("social_render_jobs_kind_check", sql`${t.kind} in ('explainer', 'short')`),
+  ],
+);

@@ -553,9 +553,10 @@ async function tiktok(b: ConnectBody): Promise<ConnectResult> {
   };
 }
 
-// A podcast "connection" is a show this app hosts. Shows arrive with the podcast move (P5, decision D4).
+// A podcast "connection" is a show this app hosts (P5, decision D4). Shows are created on Publish → Podcast
+// (src/lib/podcast/shows.ts), which also creates this destination row — there is no credential to paste.
 async function podcast(): Promise<ConnectResult> {
-  return fail("Podcast shows are not available in ClipWaltz yet — they move over with the podcast feed.", 501);
+  return fail("Create the show on Publish → Podcast — it then appears here as a destination.", 400);
 }
 
 type Connector = (b: ConnectBody, ctx: { workspaceId: string }) => Promise<ConnectResult>;

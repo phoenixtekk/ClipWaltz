@@ -36,7 +36,8 @@ export interface RuleView {
   links: string;
   linkUtm: boolean;
   reviewFirst: boolean;
-  // Not editable until P3 (AI images / explainer video), but carried through so saving a rule never blanks them.
+  // imageMode / imageSet / productId are carried through so saving a rule never blanks them; videoMode is the explainer
+  // switch (P5).
   imageMode: string;
   videoMode: string;
   imageSet: string;
@@ -182,6 +183,7 @@ export function AutoPostManager({
                 <CardTitle className="flex items-center gap-2">
                   {r.name}
                   <Badge variant={r.mode === "generate" ? "secondary" : "outline"}>{r.mode === "generate" ? "AI writes" : "Queue"}</Badge>
+                  {r.mode === "generate" && r.videoMode === "explainer" ? <Badge variant="secondary">Explainer video</Badge> : null}
                 </CardTitle>
                 <CardDescription>
                   {r.daysOfWeek.split(",").filter(Boolean).map((d) => DAYS[Number(d)]).join(", ")} at {r.timeOfDay.split(",").join(", ")}
@@ -363,6 +365,18 @@ export function AutoPostManager({
                     <Label htmlFor="rule-topics">Topics (one per line — used in turn)</Label>
                     <Textarea id="rule-topics" value={draft.topics} onChange={(e) => setDraft({ ...draft, topics: e.target.value })} />
                   </div>
+                  <Label className="flex items-start gap-2 font-normal">
+                    <Switch
+                      checked={draft.keep.videoMode === "explainer"}
+                      onCheckedChange={(v) => setDraft({ ...draft, keep: { ...draft.keep, videoMode: v ? "explainer" : "none" } })}
+                    />
+                    <span>
+                      Make a narrated explainer video for each topic instead of a text post
+                      <span className="block text-xs text-muted-foreground">
+                        Script, voice-over, video, thumbnail and per-network copy — about 10 minutes per episode, 10 AI credits each. A podcast show on this rule gets the episode audio.
+                      </span>
+                    </span>
+                  </Label>
                 </>
               ) : null}
               <div className="space-y-1.5">
