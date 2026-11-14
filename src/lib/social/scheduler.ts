@@ -167,7 +167,7 @@ export async function runSweep(opts: { now?: Date; enqueue?: Enqueue } = {}): Pr
   // 'scheduled' (so step 1 publishes it in this same sweep) or 'draft' (review-first); settle the credits.
   try {
     const { finalizeRenderJobs, reapOrphanRenderingPosts } = await import("@/lib/social/render-jobs");
-    const r = await finalizeRenderJobs();
+    const r = await finalizeRenderJobs(now);
     summary.rendersFinalized = r.finalized;
     summary.rendersFailed = r.failed;
     summary.errors.push(...r.errors);

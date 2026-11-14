@@ -22,6 +22,12 @@ interface ServeOpts {
   maxAge?: number;
   /** Feeds the `Last-Modified` header that Apple asks artwork hosts to answer. */
   lastModified?: Date;
+  /**
+   * "private" keeps shared caches (Cloudflare) from storing the response. Used for episode audio: Cloudflare caches
+   * .mp3 by extension, and an edge-cached download never reaches this app, so it could not be counted (verified
+   * 2026-11-14: `cf-cache-status: HIT` and no listen row). Listeners' own apps still cache it.
+   */
+  cacheScope?: "public" | "private";
   signal?: AbortSignal;
 }
 
@@ -46,7 +52,7 @@ export async function serveStored(
   const headers: Record<string, string> = {
     "Content-Type": opts.mime,
     "Accept-Ranges": "bytes",
-    "Cache-Control": `public, max-age=${opts.maxAge ?? 86_400}`,
+    "Cache-Control": `${opts.cacheScope ?? "public"}, max-age=${opts.maxAge ?? 86_400}`,
   };
   if (opts.lastModified) headers["Last-Modified"] = opts.lastModified.toUTCString();
 

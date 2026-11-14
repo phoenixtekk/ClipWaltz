@@ -262,14 +262,18 @@ async function settleCharge(chargeId: string | null, ok: boolean, error?: string
     .where(and(eq(schema.generationJobs.id, chargeId), eq(schema.generationJobs.status, "generating")));
 }
 
-/** Release a finished post: hold it as a draft (review-first) or schedule it for now so this sweep publishes it. */
-function releaseSet(reviewFirst: boolean) {
+/**
+ * Release a finished post: hold it as a draft (review-first) or schedule it at the sweep's own `now` — the due-posts
+ * step compares scheduled_at <= that same `now`, so the post publishes in this sweep (a fresh `new Date()` here would
+ * be a few ms later and miss it by one sweep).
+ */
+function releaseSet(reviewFirst: boolean, now: Date) {
   return reviewFirst
     ? { status: "draft" as const, scheduledAt: null }
-    : { status: "scheduled" as const, scheduledAt: new Date() };
+    : { status: "scheduled" as const, scheduledAt: now };
 }
 
-async function finalizeExplainer(job: typeof schema.socialRenderJobs.$inferSelect, post: typeof schema.socialPosts.$inferSelect) {
+async function finalizeExplainer(job: typeof schema.socialRenderJobs.$inferSelect, post: typeof schema.socialPosts.$inferSelect, now: Date) {
   const p = job.payload as unknown as EpisodePayload;
   const keys = post.providers.split(",").map((s) => s.trim()).filter(Boolean);
   const media = await pickMedia(keys, job.workspaceId, {
@@ -295,7 +299,7 @@ async function finalizeExplainer(job: typeof schema.socialRenderJobs.$inferSelec
       perNetwork: perNetwork as never,
       ...(p.youtube?.title ? { text: p.youtube.title } : {}),
       warnings: p.warnings?.length ? p.warnings : null,
-      ...releaseSet(Boolean(p.reviewFirst)),
+      ...releaseSet(Boolean(p.reviewFirst), now),
       updatedAt: new Date(),
     })
     .where(and(eq(schema.socialPosts.id, post.id), eq(schema.socialPosts.status, "rendering")));
@@ -320,7 +324,7 @@ interface ShortResult {
   thumbnailMediaId: string;
 }
 
-async function finalizeShort(job: typeof schema.socialRenderJobs.$inferSelect, post: typeof schema.socialPosts.$inferSelect) {
+async function finalizeShort(job: typeof schema.socialRenderJobs.$inferSelect, post: typeof schema.socialPosts.$inferSelect, now: Date) {
   const p = job.payload as { result?: ShortResult; reviewFirst?: boolean; source?: string };
   const r = p.result;
   if (!r) throw new Error("short job finished without a result");
@@ -353,7 +357,7 @@ async function finalizeShort(job: typeof schema.socialRenderJobs.$inferSelect, p
       link: r.sourceUrl ?? post.link,
       perNetwork: perNetwork as never,
       warnings: r.warnings?.length ? r.warnings : null,
-      ...releaseSet(Boolean(p.reviewFirst)),
+      ...releaseSet(Boolean(p.reviewFirst), now),
       updatedAt: new Date(),
     })
     .where(and(eq(schema.socialPosts.id, post.id), eq(schema.socialPosts.status, "rendering")));
@@ -379,7 +383,7 @@ async function finalizeShort(job: typeof schema.socialRenderJobs.$inferSelect, p
  * sweep. Each job is claimed (finalized_at set conditionally) before any work, so overlapping sweeps can't both apply
  * it. Never throws.
  */
-export async function finalizeRenderJobs(): Promise<{ finalized: number; failed: number; errors: string[] }> {
+export async function finalizeRenderJobs(now: Date = new Date()): Promise<{ finalized: number; failed: number; errors: string[] }> {
   const out = { finalized: 0, failed: 0, errors: [] as string[] };
   const jobs = await db
     .select()
@@ -413,8 +417,8 @@ export async function finalizeRenderJobs(): Promise<{ finalized: number; failed:
         continue;
       }
       if (post && post.status === "rendering") {
-        if (j.kind === "explainer") await finalizeExplainer(j, post);
-        else await finalizeShort(j, post);
+        if (j.kind === "explainer") await finalizeExplainer(j, post, now);
+        else await finalizeShort(j, post, now);
       }
       await settleCharge(j.chargeId, true);
       out.finalized++;

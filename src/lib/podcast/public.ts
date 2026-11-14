@@ -154,6 +154,7 @@ export async function audioResponse(req: Request, slug: string, file: string): P
   const r = await serveStored(req.method, req.headers.get("range"), m.storageKey, m.size, {
     mime: m.mime || "audio/mpeg",
     maxAge: 31_536_000, // immutable once published
+    cacheScope: "private", // every download must reach the app to be counted (see serve.ts)
     lastModified: hit.ep.publishedAt,
     signal: req.signal,
   });
