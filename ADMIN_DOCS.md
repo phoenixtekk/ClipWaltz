@@ -1249,6 +1249,56 @@ buttons. Everything works on the caller's **personal workspace** in P2.
   on .183. Every picture failing with "Prompt outputs failed validation" → `IMAGE_COMFYUI_CKPT` not on the box
   (`/object_info/CheckpointLoaderSimple`).
 
+## Social Publishing — P6a approvals, best times, workspaces, plan, product links, estimate (2026-11-14, ADR-0011)
+Plan §6 G9, G6, G15, G14, G4, G3, G8. Same flag (`SOCIAL_PUBLISHING_ENABLED`); the workspace switcher and the product
+link are not behind it.
+- **Schema (migration `0069_p6_approval_products`, additive):** `workspaces.social_require_approval` (bool, default
+  false), `social_posts.plan_id` / `plan_angle`, `social_post_reviews` (post, workspace, reviewer user | `via_token`,
+  `reviewer_name`, decision `submitted|approved|changes_requested` check, note), `product_sources` (workspace, url,
+  title, description, price/currency as text, brand, images jsonb, source `jsonld|og|text`). Generated cleanly — no drift
+  DROP lines this time (checked).
+- **G9 approval gate:** `src/lib/social/approval.ts` (no `server-only`; the worker uses it). `approvalBlock` is called by
+  `publishPost` for every path (manual, scheduler, Auto Post, API); `publishableApprovalSql()` is in the scheduler's due
+  query (`dueScheduledPosts`) and the Auto Post queue pick. States: `none` (publishable only if the workspace does not
+  require approval), `pending`, `approved`, `rejected` (UI: "Changes requested"). The server decides the state on every
+  save (`approvalOnSave`); an approver's own save = approved. Review-link decisions: `POST /api/social/review/<token>`
+  (public path in `src/proxy.ts`; only a `pending` post; a revoked link 404s). Notifications: `sendPushToUser` + SES to
+  approvers on submit, to the author on a decision (best effort; `SOCIAL_NOTIFY_DISABLED=1` switches them off — the
+  self-test sets it). Approver toggle and the workspace setting: `setMemberApprover` / `setWorkspaceApprovalRequired`
+  (`src/lib/workspace-actions.ts`, admin+).
+- **G15 workspaces:** active workspace = cookie `cw_ws` (httpOnly, 1 year), read by `activeWorkspaceId`
+  (`src/lib/active-workspace.ts`), which re-checks membership and falls back to the personal workspace. `requireSocial(null)`,
+  `createProject` (when no `?ws=`), Waltz Image designs and the product pack use it. `createWorkspace` limit on OWNED
+  workspaces: Free 1 · Plus 1 · Pro 5 (`WORKSPACE_LIMITS`, owner's effective tier). Not built: deleting a workspace,
+  moving projects between workspaces.
+- **G6:** `src/lib/social/best-time.ts` — samples = published targets with metrics (latest `social_post_targets.metrics`;
+  no history table was added — the plan's `social_post_metrics` is not needed for this), bucketed in `getAppTimezone()`.
+  `MIN_POSTS` 10, `MIN_BUCKET` 2, `WINDOW_DAYS` 90. General guidance = Tue 9 / Wed 12 / Thu 17 (Tue 19 / Thu 19 / Sat 11 for
+  TikTok/Instagram/YouTube/Threads/Pinterest/Tumblr), placed in the viewer's own time zone, labelled.
+- **G14:** `src/lib/social/content-plan.ts` (`buildPlan` writes nothing; `savePlan` inserts drafts with `scheduledAt`,
+  `plan_id`, `plan_angle`). Embeddings: AI Box `nomic-embed-text` (`SOCIAL_EMBED_MODEL` overrides). Threshold 0.94, 3 tries,
+  ≤ 21 posts. `saveContentPlan` refuses unless the confirmed credits equal `planCredits` (AI picture 2 × posts, charged by
+  the existing Auto AI Image path when each post publishes). Dev acceptance: `scripts/test-p6-plan.mts` (DEV DB, real AI
+  Box, writes nothing).
+- **G4:** `src/lib/social/copy.ts` (AI) + `src/lib/social/hashtags.ts` (pure caps / normalise). Action
+  `writeCopyForNetworks`.
+- **G3:** `readProduct` + the `--product` diagnostic in `worker/deck/importer.mjs`; app actions `src/lib/product-actions.ts`.
+  Photos are fetched with the same `fetchPublic` (≤ 15 MB, PNG/JPEG/WebP, ≥ 200 px) and stored as Waltz Image uploads.
+  **SSRF guard change:** `isPrivateAddress` refused all of 192.0.0.0/16; it now refuses 192.0.0.0/24 and 192.0.2.0/24
+  only (the rest is public — e.g. Automattic's 192.0.64.0/18 serves WordPress.com / WooCommerce shops). That file is also
+  used by WaltzDeck URL import and brand-from-site in the generation worker (linuxg1), so those now accept such sites too.
+  Diagnostic: `node worker/deck/importer.mjs <url> --product`. Shops that answer 403/429 to automated readers get a plain
+  message.
+- **G8:** `src/lib/social/score-checks.ts` (pure, composer) + `src/lib/social/score.ts` (calibration, AI critique).
+  Calibration cached 24 h in `app_settings` key `social:score-calibration:<workspace>`. Read-only report:
+  `node --env-file=.env.local --import tsx scripts/score-calibration.mts <owner email>`.
+- **Self-test:** `scripts/social-selftest.mts` section 6 (G9 gate + scheduler + review token, G15 isolation, G6 fixture,
+  G14 dedupe, G4, G8, G3 parse + SSRF). DEV DB only; creates and deletes its own users/workspaces.
+- **Runbook:** a post "Awaiting approval" never goes out by design — approve it (Approvals tab) or turn the workspace
+  setting off. An approved post whose time has passed goes out on the next sweep. "Confirm the total first" on Plan a
+  week / product pack = the client's credit total no longer matches (sizes or option changed) — re-read the total.
+  Workspace switcher missing = the user has one workspace and a plan that allows one.
+
 ## Social Publishing — P5 podcast, explainers, Shorts (2026-11-14, ADR-0011, decisions D4 / D6)
 **Deployed to prod 2026-11-14** — deploy branch `deploy/social-p5-20261114` (P1–P5). Flag `SOCIAL_PUBLISHING_ENABLED`
 still unset (admin-only screens). linuxg1: backups `~/backups/*-pre-social-20261114-p5*` (src tgz, db dump, `.next`,

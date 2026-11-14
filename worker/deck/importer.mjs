@@ -221,9 +221,12 @@ export async function parsePdf(file, run) {
 /** True for loopback, private, link-local, CGNAT, multicast and reserved addresses (IPv4 + IPv6). */
 export function isPrivateAddress(ip) {
   if (isIP(ip) === 4) {
-    const [a, b] = ip.split(".").map(Number);
+    const [a, b, c] = ip.split(".").map(Number);
+    // 192.0.0.0/24 (IETF) and 192.0.2.0/24 (TEST-NET-1) only — the rest of 192.0.x is public (e.g. Automattic's
+    // 192.0.64.0/18 hosts WordPress.com / WooCommerce shops; refusing the whole /16 blocked them, 2026-11-14).
     return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 192 && b === 0) || (a === 198 && (b === 18 || b === 19)) || a >= 224;
+      (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 192 && b === 0 && (c === 0 || c === 2)) ||
+      (a === 198 && (b === 18 || b === 19)) || a >= 224;
   }
   const b = ipv6Bytes(ip);
   if (!b) return true; // unparseable → refuse

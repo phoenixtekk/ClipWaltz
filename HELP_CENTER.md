@@ -616,6 +616,41 @@ neither does the AI writer. Plus connects up to 10 channels and Pro up to 25.
   audio is the episode. The table shows downloads per episode, counted once per listener per day and only after a
   minute of listening. No cookies are used and no IP addresses are kept.
 
+## Publish — approvals, best times, client workspaces and planning
+- **Approvals:** a workspace owner or admin can turn on **Posts need approval** (your account menu → Workspace →
+  Post approvals). Then nothing goes out until it is approved. If you are an editor, **Publish** becomes **Send for
+  approval** and **Schedule** schedules it *and* sends it for approval; it goes out at its time once approved. Owners,
+  admins and anyone ticked **Approver** on the Workspace page approve posts under **Publish → Approvals** — **Approve**,
+  or **Request changes** with a note. The note shows on the post; edit it and send it again. Any edit after approval
+  needs approval again. You get a notification (browser and email) when a post waits for you, and when yours is decided.
+- **A client can approve without an account:** open the post's menu → **Copy review link** and send it. While the post
+  is waiting for approval the page shows **Approve** and **Request changes**. Turning the link off stops it working.
+- **Suggested times:** pick channels in the composer and **Suggested times** shows the best slots for each network,
+  learnt from how your own posts did over the last 90 days. Click one to fill the day and time. Until a network has 10
+  published posts with results it shows general guidance instead, and says so. The calendar shows your learnt slots.
+- **Workspaces for clients and brands:** the workspace button in the top bar switches between workspaces and makes new
+  ones. Each workspace has its own projects, images, brand kit, social channels, calendar, approvals and members.
+  The Pro plan can own up to 5 (your personal one included); Free and Plus have one.
+- **Plan a week (Publish → Plan a week):** describe the week (a product, launch or theme), pick channels, days and posts
+  per day. ClipWaltz writes a post for each slot from four angles and makes sure no two say nearly the same thing. Read
+  and edit them, remove any you don't want, then **Add to the calendar** — they arrive as drafts at suggested times and
+  go nowhere until you schedule them. Writing is free; an AI picture on each post costs 2 credits each, and the total is
+  shown before you confirm.
+- **Copy and hashtags for every network:** in the composer, tick your channels and press **Write copy + hashtags for
+  each network**. Each network's tab gets its own version with hashtags that fit it. Free.
+- **Engagement estimate:** the composer's checklist tells you what could help (a short first line, a picture, hashtags
+  that fit, a question or call to action, a suggested time). Press **AI critique** for a second opinion. A number
+  appears only once at least 20 of your published posts have results and the checklist matches how they actually did —
+  it is an estimate, not a promise.
+
+## New project — start from a product link
+On **New project**, paste a product page into **Start from a product link** and press **Read the page**. ClipWaltz
+shows the name, price and how many photos it found. Pick the ad sizes and whether you want a video ad brief, then
+**Make the pack**: you get image ads (opened in Waltz Image, with the product photo, name, price and a Shop now
+button) and a WaltzDeck video ad ready to plan. Using the product's own photo is free. If the page has no usable photo,
+the ads are text on your brand colours — or tick the AI picture option (2 credits each, shown before you confirm). Some
+large shops refuse to let ClipWaltz read their pages; then start a design by hand.
+
 ## Waltz Image — image ads, carousels and memes
 Open **Images** in the top bar (or **New project → Waltz Image**), pick **Image or ad**, **Carousel** or **Meme** and a
 shape: square 1:1, portrait 4:5, story 9:16, link/ad 1.91:1 or Pinterest 2:3. Every image comes out at the exact size

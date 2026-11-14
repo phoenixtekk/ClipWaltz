@@ -24,8 +24,15 @@ export interface Calibration {
   showScore: boolean;
 }
 
-/** Score every past published post (without timing) against what it actually got. */
+/** Score every past published post (without timing) and store the result (see computeCalibration). */
 export async function calibrate(workspaceId: string): Promise<Calibration> {
+  const out = await computeCalibration(workspaceId);
+  await setSetting(`score-calibration:${workspaceId}`, JSON.stringify(out));
+  return out;
+}
+
+/** Read-only: score every past published post (without timing) against what it actually got. */
+export async function computeCalibration(workspaceId: string): Promise<Calibration> {
   const rows = await db
     .select({
       postId: schema.socialPosts.id,
@@ -84,9 +91,7 @@ export async function calibrate(workspaceId: string): Promise<Calibration> {
     ys.push(p.rel.reduce((a, b) => a + b, 0) / p.rel.length);
   }
   const rho = Math.round(spearman(xs, ys) * 1000) / 1000;
-  const out: Calibration = { posts: xs.length, rho, at: new Date().toISOString(), showScore: xs.length >= CALIBRATION_MIN && rho > 0 };
-  await setSetting(`score-calibration:${workspaceId}`, JSON.stringify(out));
-  return out;
+  return { posts: xs.length, rho, at: new Date().toISOString(), showScore: xs.length >= CALIBRATION_MIN && rho > 0 };
 }
 
 /** The stored calibration (recomputed when older than a day). */

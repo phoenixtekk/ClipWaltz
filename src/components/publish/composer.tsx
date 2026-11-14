@@ -58,6 +58,16 @@ type Calib = { posts: number; rho: number; showScore: boolean };
 const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEK = 7 * 86_400_000;
 
+/** The next time (after now) a weekday + hour comes round in the browser's own time zone. */
+function nextLocal(weekday: number, hour: number): Date {
+  const now = new Date();
+  for (let i = 0; i < 8; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i, hour, 0, 0, 0);
+    if (d.getDay() === weekday && d.getTime() > now.getTime() + 5 * 60_000) return d;
+  }
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, hour, 0, 0, 0);
+}
+
 function pad(n: number) {
   return String(n).padStart(2, "0");
 }
@@ -220,7 +230,8 @@ export function Composer({
     const nets = (suggest?.networks ?? []).filter((n) => n.slots.length);
     const hit = (n: (typeof nets)[number]) =>
       n.slots.some((sl) => {
-        const diff = (((at.getTime() - new Date(sl.next).getTime()) % WEEK) + WEEK) % WEEK;
+        const ref = n.personalised ? new Date(sl.next) : nextLocal(sl.weekday, sl.hour);
+        const diff = (((at.getTime() - ref.getTime()) % WEEK) + WEEK) % WEEK;
         return diff < 3_600_000 || diff > WEEK - 3_600_000;
       });
     if (nets.some((n) => n.personalised && hit(n))) return "personalised";
@@ -589,7 +600,8 @@ export function Composer({
                     </p>
                     <div className="flex flex-wrap gap-1">
                       {n.slots.map((sl) => {
-                        const d = new Date(sl.next);
+                        // General guidance is office hours where YOU are; learnt slots are instants from your data.
+                        const d = n.personalised ? new Date(sl.next) : nextLocal(sl.weekday, sl.hour);
                         return (
                           <Button
                             key={sl.next}
@@ -597,7 +609,7 @@ export function Composer({
                             size="xs"
                             variant={n.personalised ? "secondary" : "outline"}
                             title={n.personalised && sl.lift ? `${sl.posts} of your posts went out in this slot; ${sl.lift}× your average on ${providerName(n.provider)}` : "General guidance — not from your posts"}
-                            onClick={() => pickSlot(sl.next)}
+                            onClick={() => pickSlot(d.toISOString())}
                           >
                             {hydrated ? `${WEEKDAY[d.getDay()]} ${pad(d.getHours())}:${pad(d.getMinutes())}` : `${WEEKDAY[sl.weekday]} ${pad(sl.hour)}:00`}
                             {n.personalised ? <span className="ml-0.5 text-[10px] opacity-70">Suggested</span> : null}

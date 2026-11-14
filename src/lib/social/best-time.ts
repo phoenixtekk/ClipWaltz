@@ -10,7 +10,9 @@ import { getAppTimezone, tzOffsetMs, zonedTimeToUtc, zonedYmd } from "@/lib/soci
 //
 // Below MIN_POSTS published posts with metrics on a network, there is not enough history: the answer is clearly marked
 // `personalised: false` with GENERAL defaults (common weekday office-hour slots, not research data and not this
-// workspace's data). A bucket needs MIN_BUCKET posts before it can be recommended at all.
+// workspace's data). A bucket needs MIN_BUCKET posts before it can be recommended at all. Learnt slots are bucketed in
+// the scheduling time zone (getAppTimezone, the zone Auto Post uses); general slots are plain weekday + hour, which the
+// composer places in the viewer's own time zone.
 
 export const WINDOW_DAYS = 90;
 export const MIN_POSTS = 10;

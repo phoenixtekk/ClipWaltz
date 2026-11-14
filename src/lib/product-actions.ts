@@ -52,7 +52,11 @@ async function readProductImpl(url: string): Promise<ProductView> {
   const workspaceId = await editorWorkspace(userId);
   const u = String(url ?? "").trim();
   if (!/^https?:\/\//i.test(u)) throw new Error("Paste the product page's address (starting with https://).");
-  const page = await fetchPublic(u, { maxBytes: 3 << 20 });
+  const page = await fetchPublic(u, { maxBytes: 3 << 20 }).catch((e: Error) => {
+    // Many large shops refuse automated readers outright (seen 2026-11-14: several Shopify stores answer 429).
+    if (/answered (403|429)/.test(e.message)) throw new Error("That shop refused to let ClipWaltz read the page. Try another product page, or start a design by hand.");
+    throw e;
+  });
   if (!/html|xml/i.test(page.type)) throw new Error("That address isn't a web page.");
   const p = readProduct(page.bytes.toString("utf8"), page.url);
   if (!p.name) throw new Error("Couldn't find a product name on that page.");

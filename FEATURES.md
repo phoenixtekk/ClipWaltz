@@ -1016,6 +1016,39 @@ Ported from publish.phoenixtekk.com. shadcn/ui screens under **Publish**.
   enclosure byte lengths), listens and files; SP's Shorts rules and the show destination arrive held and are released
   by `--activate`.
 
+## Social Publishing — approvals, best times, workspaces, Plan a week, product links, estimate (P6a, 2026-11-14, ADR-0011, plan G9 / G6 / G15 / G14 / G4 / G3 / G8) — 🚧 behind the flag
+- **G9 approval workflow:** per-workspace setting **Posts need approval** (Workspace page, owners/admins). When on, a
+  post publishes only once approved — enforced in `publishPost` (one gate, `approvalBlock`) and in the scheduler / Auto
+  Post queue SQL, whatever a client sends. Editors' **Publish / Schedule** sends the post for review; approvers' own saves
+  count as approved; any edit resets approval. Approvers = owners, admins, and members ticked **Approver** (D9
+  capability). **Approvals** tab (`/publish/review`) with Approve / **Request changes** (note required); the newest
+  decision and note show on the post. External approval on the review link `/r/<token>` (no login, token-scoped,
+  dies when the link is turned off). History in `social_post_reviews`; web push + email (SES) to approvers on submit and
+  to the author on a decision. Machine-made posts (Auto Post, explainers, Shorts) start `pending` in such a workspace.
+- **G6 suggested posting times:** per network, the best weekday × hour slots from the workspace's own published results
+  (likes + comments + shares ÷ that network's average, last 90 days, ≥ 10 posts, ≥ 2 per slot). Below that, labelled
+  general guidance in your own time zone. Composer chips fill the day + time; the calendar shows the learnt slots.
+- **G15 multi-brand / agency workspaces:** top-bar **workspace switcher** + **New workspace** (one per client / brand;
+  Free 1 · Plus 1 · Pro 5 owned, personal included). The active workspace (cookie, membership re-checked on every
+  request) decides Publish (channels, posts, calendar, approvals), new projects, Images and the brand kit.
+- **G14 Plan a week (`/publish/plan`):** brief → up to 21 drafts across four angles (problem → solution, educational,
+  social proof, minimalist) at suggested times, as **drafts** on the calendar. No two drafts are near-duplicates
+  (nomic-embed cosine < 0.94 vs each other and recent posts; re-written up to 3 times, else dropped). Writing is free;
+  the optional AI picture per post (2 credits each) is totalled and must be confirmed before the drafts are saved.
+  Dragging a planned draft on the calendar keeps it a draft.
+- **G4 copy + hashtags for each network:** one click in the composer (opened by every Publish button on renders,
+  exports, campaign variants and image designs) writes a caption for each ticked network with hashtags that are
+  deduplicated, have no spaces and fit that network (Instagram ≤ 30, LinkedIn ≤ 5, X ≤ 2, others 3–5, none on email /
+  chat / forums), checked with the same pre-flight. 0 credits.
+- **G3 product link → ad pack (New project → Start from a product link):** reads the product (JSON-LD `Product`, then
+  Open Graph, then page text) through the SSRF-guarded fetcher, saves it (`product_sources`), and makes image ads in
+  Waltz Image per chosen size with the product's own photo (0 credits) — or an AI picture (2 each, confirmed) or a
+  text-led ad when the page has no usable photo, and says so — plus a WaltzDeck "ad" video brief with a Shop-now CTA.
+- **G8 engagement estimate:** composer panel with an explainable checklist (opening line, picture/video, fits each
+  network, hashtags, call to action, posting time vs G6) and a free **AI critique**. The ≈ 0–100 number appears only
+  when the checklist ranks the workspace's own ≥ 20 published posts with a positive rank correlation (it says the
+  correlation); otherwise it is a checklist. Always labelled an estimate.
+
 ## Waltz Image — image ads, carousels, memes (P3, 2026-11-14, ADR-0011, plan G1 / G2 / G5) — not deployed
 A fourth studio tool (nav **Images**, `/images`, and the **Waltz Image** tab on New project). shadcn/ui screens.
 Words are always drawn by canvas on the server (`@napi-rs/canvas`), never asked of the AI model, so text is
