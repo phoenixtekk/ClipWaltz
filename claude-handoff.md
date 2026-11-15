@@ -14,6 +14,16 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
+## Render scaling — deployed 2026-11-14 (`main` @ `44661ef`)
+- `feat/social-publish-20261114` merged into `main` and pushed (render-scaling commits re-applied on top). Prod now runs
+  `main`; deploy record + rollback in ADMIN_DOCS "Render scaling deployed (2026-11-14)".
+- NEW pm2 `clipwaltz-bg-worker` (cloud uploads + queue alerts — required). AI box worker `aibox` renders 3 at once.
+  Role connection cap 45. Parallel proof done (3 at once, 22–44 s).
+- Left from the plan: app pm2 cluster ×2; AISERVER as a 2nd render worker (needs SSH key, tunnels, unit).
+- 3 test videos were auto-saved to the owner's Dropbox (owner to delete): `ClipWaltz/ENVYRIX/Cloud Intelligence/Cloud
+  Intelligence v4 (16x9).mp4`, `ClipWaltz/Uncategorized/Envyrix/Envyrix v2 (16x9).mp4`, `ClipWaltz/AI Box/Private AI -
+  Get Yours Today/Private AI - Get Yours Today v6 (16x9).mp4`.
+
 ## Post kits — deployed 2026-11-14 (branch `feat/social-publish-20261114`)
 - **Owner direction:** forget the parts that post to social networks. ClipWaltz produces the content and the owner posts
   by hand. Publishing stays paused on SP and ClipWaltz, and nothing was re-enabled.

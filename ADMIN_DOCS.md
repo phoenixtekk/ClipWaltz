@@ -36,7 +36,7 @@ were refused. Two caps now apply:
 - **Per-process pools** (postgres.js defaults to 10): app `src/db/index.ts` **5**, gen worker **5**
   (job concurrency 2+2+1), render worker **3**; override with `DATABASE_POOL_MAX`. `idle_timeout` 30 s.
   In `next dev` the client is cached on `globalThis` so hot reloads don't leak a new pool each time.
-- **Hard role cap:** `ALTER ROLE clipwaltz CONNECTION LIMIT 30` (covers `clipwaltz` + `clipwaltz_dev`
+- **Hard role cap:** `ALTER ROLE clipwaltz CONNECTION LIMIT 45` (was 30; raised 2026-11-14 for render scaling — covers `clipwaltz` + `clipwaltz_dev`
   together). Over the cap, ClipWaltz alone gets `too many connections for role` — other apps are safe.
   Check: `sudo -u postgres psql -Atc "select count(*) from pg_stat_activity where usename='clipwaltz'"`.
   Undo: `ALTER ROLE clipwaltz CONNECTION LIMIT -1`.
@@ -1686,3 +1686,24 @@ when a ClipWaltz tab is focused (the in-tab notification covers that case).
   - **Captions stay empty and the kit shows "Needs a retry":** check that the AI Box answers from linuxg1:
     `curl -s $OLLAMA_URL/api/tags`.
   - **No pictures for a design:** the design was deleted before the kit was built. Make a new kit.
+
+## Render scaling deployed (2026-11-14)
+Prod = `main` @ `44661ef` (deploy branch `deploy/render-scaling-20261114`). Code: multi-worker render leases (`a6c581e`
++ `543635d`, re-applied in the merge), paid-first queue with position/ETA, uploads moved to a background worker.
+- **linuxg1:** 14-file overlay, no migration (0052 was applied on 2026-10-13; rows stay 72), build exit 0,
+  `pm2 restart clipwaltz clipwaltz-gen-worker clipwaltz-social-worker`. NEW pm2 **`clipwaltz-bg-worker`**:
+  `pm2 start node_modules/.bin/tsx --name clipwaltz-bg-worker --cwd /home/lacy/clipwaltz --interpreter node
+  --node-args="--env-file=.env.local" -- scripts/background-worker.ts`; `pm2 save` done. **It is required:** the web
+  app no longer uploads cloud saves itself (only queues `cloud_saves` rows). It also emails ADMIN_EMAILS when the
+  oldest queued render waits > `QUEUE_ALERT_MIN` (5) min or no render worker is online.
+- **DB:** `ALTER ROLE clipwaltz CONNECTION LIMIT 45`.
+- **AI box:** `worker/render-worker.mjs` + `worker/deck/jobs.mjs` copied; `.env.worker` adds `RENDER_CONCURRENCY=3`,
+  `WORKER_ID=aibox`, `DATABASE_POOL_MAX=6`; log line `id=aibox renders at once=3 misc jobs=on lease=180s`.
+  Workers register in `render_workers` (heartbeat each `HEARTBEAT_MS`); a dead worker's renders fail after the 180 s lease.
+- **Verified:** 3 renders queued at once on the owner's projects started within 3 s on `aibox` and finished in 22–44 s;
+  `clipwaltz-bg-worker` uploaded all 3 to Dropbox via the auto-save rule. Test renders + MinIO files deleted afterwards.
+- **Backups:** linuxg1 `~/backups/*pre-20261114-scaling*` (src, .next, db dump, env); AI box
+  `/home/lacy/clipwaltz-worker-pre-20261114-scaling.tgz` + `.env.worker.bak-pre-20261114-scaling`.
+- **Rollback:** stop AI box worker → restore the src tgz + .next tgz on linuxg1 → `pm2 delete clipwaltz-bg-worker && pm2
+  save` → `pm2 restart clipwaltz clipwaltz-gen-worker clipwaltz-social-worker` → restore AI box tgz/env → start worker.
+- **Not done (from the original plan):** app as a pm2 cluster ×2, and a second render worker on AISERVER.
