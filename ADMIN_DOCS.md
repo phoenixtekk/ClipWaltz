@@ -1661,6 +1661,8 @@ when a ClipWaltz tab is focused (the in-tab notification covers that case).
 - **Undo snapshot:** `linuxg1:~/backups/pause-20261114-pause/*.csv` (prior `paused`/`active`/hold values for both apps).
 
 ## Post kits (2026-11-14)
+- **Deployed** 2026-11-14 as `deploy/post-kits-20261114` @ `9b146d2`: migration 0071 (71 → 72 rows), build exit 0, `pm2 restart clipwaltz`. Backups `~/backups/*-pre-kits-20261114*`. Rollback: restore the src tarball and the `.next` copy, then restart; 0071 is additive and can stay.
+- **Test (DEV only):** `node --env-file=.env.local --import ./scripts/lib/server-only-stub.mjs --import tsx scripts/test-kits.mts` (11 checks; refuses unless DATABASE_URL is clipwaltz_dev).
 - **What it is:** per-network captions and pictures for posting by hand. It never calls a network API and needs no
   connected channel.
 - **Access:** same as Publish. Off for customers until `SOCIAL_PUBLISHING_ENABLED=1`; while it is off, only ADMIN_EMAILS

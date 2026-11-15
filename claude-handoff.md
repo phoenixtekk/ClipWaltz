@@ -14,6 +14,26 @@ ClipWaltz = a cloud auto-video-maker (drop in phone photos/videos → beat-drive
 
 ---
 
+## Post kits — deployed 2026-11-14 (branch `feat/social-publish-20261114`)
+- **Owner direction:** forget the parts that post to social networks. ClipWaltz produces the content and the owner posts
+  by hand. Publishing stays paused on SP and ClipWaltz, and nothing was re-enabled.
+- **Built:** Publish → **Post kits**. One source (a render, an export, a Waltz Image design, uploads or an idea) becomes,
+  for each network, an AI Box caption, hashtags, a title (YouTube / Pinterest) and pictures at that network's size.
+  Kits offer copy buttons, a zip, Open <network>, and a Posted tick with a link. The **Post kit** button replaces Publish
+  on renders, exports and Waltz Image. Details: FEATURES / HELP_CENTER / ADMIN_DOCS → "Post kits".
+- **Prod:** `deploy/post-kits-20261114` @ `9b146d2`, a 22-file overlay.
+  - Migration 0071: 71 → 72 rows; `render_workers` drift intact.
+  - `next build` exit 0. Only `clipwaltz` restarted. www 200; /publish/kits 307 → sign-in when signed out.
+  - Backups: `~/backups/*-pre-kits-20261114*`.
+- **Verified:** `scripts/test-kits.mts` 11/11 on clipwaltz_dev (real AI Box and MinIO). A UI run on local dev made a
+  text kit, filled 5 networks, produced the zip, and kept the Posted tick after a reload. A Code Reviewer pass found
+  6 defects, all fixed.
+- **Not verified on prod:** making a kit while signed in. That needs the owner's account, so it hasn't been done.
+- **Wiki:** `ClipWaltz/admin-docs` and `ClipWaltz/features` were public and showed internal 192.168.x addresses.
+  - Moved to `SystemDocs/ClipWaltz/{admin-docs,features}` (gated, 403 to guests).
+  - The public paths are now "moved" stubs.
+  - `ClipWaltz/help-center` stays public and has no internal addresses.
+
 ## Social Publishing P7 — parity re-check + docs, 2026-11-14 (branch `feat/social-publish-20261114`)
 - **Current state:** prod = overlay `deploy/social-p6b-20261114` @ `c08fdc3` (linuxg1 `/home/lacy/clipwaltz` is not a
   git checkout; build `F5Ll5_wsBhlpob2knkLWX`, 2026-11-14 14:36). pm2 `clipwaltz`, `clipwaltz-gen-worker`,
