@@ -1121,6 +1121,43 @@ pixel-exact and editable; changing it re-composites instantly with **no GPU job 
   the next scheduler sweep. If the picture fails it publishes without one and says so (credits refunded); never retried.
 - Data: `image_designs`, `image_design_images` (migration **0066**). Verification: `scripts/verify-image-presets.mjs`.
 
+## Post kits — content for posting by hand (2026-11-14) — behind the Publish flag
+Owner (2026-11-14): "create and design a feature that produces the content, and I'll publish to social media networks
+manually." A post kit takes one source and makes everything needed to post it on each chosen network. **Nothing is posted:**
+no network connection is used or needed.
+
+- **Sources:** a finished render or campaign variant, a finished export, a Waltz Image design (image ad, carousel, meme),
+  up to 10 uploaded images or one uploaded video, or just an idea (text only).
+- **Networks (9):** Instagram, TikTok, YouTube, Facebook, LinkedIn, X, Threads, Pinterest, Bluesky. The list is filtered by
+  the source: video networks for a video, picture networks for images; text-only excludes Instagram, TikTok, YouTube and Pinterest.
+- **Per network:**
+  - a caption written for that network on the AI Box, within its character limit (`LIMITS` in `network-capabilities.ts`);
+  - a hashtag set sized for the network (`hashtags.ts`);
+  - a title for YouTube (100) and Pinterest (100);
+  - a note when the network takes fewer images than the kit has.
+- **Pictures at each network's size** (`IMAGE_FORMATS`): 4:5 Instagram/Facebook, 1:1 LinkedIn/Threads/Bluesky, 1.91:1 X,
+  9:16 TikTok, 2:3 Pinterest.
+  - A **design is redrawn** at each size, so its text and logo are laid out again instead of cropped (carousels are
+    limited to 1:1 / 4:5).
+  - **Uploaded photos are cover-cropped** around the subject (sharp `attention`), and the originals are kept too.
+- **Kit page:**
+  - Copy caption / title / hashtags / link;
+  - download each picture;
+  - **Download all (.zip)**: a folder per network with `caption.txt` and its pictures; a video is downloaded separately;
+  - **Download video**;
+  - **Open <network>**;
+  - per-network **Posted** tick + post link;
+  - edit any caption (saved on blur);
+  - **Write again** for one network or all.
+- **Entry points:**
+  - Publish → **Post kits** (tab) → New kit;
+  - the **Post kit** button on renders, campaign variants and exports (it used to open the composer);
+  - **Post kit** in Waltz Image (it used to be Publish).
+- **Cost:** 0 credits. Captions use the AI Box. Pictures are composited, with no GPU work.
+- **Code:** `src/lib/kits/*`, `src/components/kits/*`, `src/app/(app)/publish/kits/**`, `src/app/api/kits/[id]/{file,zip}`.
+  Table `post_kits` (migration 0071).
+
+
 ## Direct media delivery — storage edge (2026-09-25, ADR-0003)
 
 - Videos, photos and music now stream **directly from storage** (`media.clipwaltz.com`, Cloudflare)

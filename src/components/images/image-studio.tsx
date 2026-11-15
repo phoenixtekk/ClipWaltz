@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowDown, ArrowUp, Copy, Download, FileArchive, ImagePlus, Library, Loader2, Plus, Send, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, Download, FileArchive, ImagePlus, Library, Loader2, Package, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,7 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { CreditsLine, notEnough } from "@/components/credits-line";
 import { unwrap } from "@/lib/action-result";
 import { IMAGE_COST } from "@/lib/credits";
-import { deleteDesign, deletePicture, generatePictures, getDesign, prepareDesignPost, saveDesign, saveToLibrary } from "@/lib/image-ad/image-actions";
+import { deleteDesign, deletePicture, generatePictures, getDesign, saveDesign, saveToLibrary } from "@/lib/image-ad/image-actions";
 import type { CarouselData, CarouselSlide, DesignData, DesignImageView, DesignView, ImageAdData, MemeData } from "@/lib/image-ad/types";
 import {
   AD_LAYOUTS, CAROUSEL_FORMATS, CAROUSEL_MAX, CAROUSEL_MIN, IMAGE_FORMATS, IMAGE_STYLES, MAX_VARIATIONS, MEME_LAYOUTS, TEXT_LIMITS, imageFormat,
@@ -177,8 +177,7 @@ export function ImageStudio({ initial, publishEnabled }: { initial: DesignView; 
     await flush();
     start(async () => {
       try {
-        const r = unwrap(await prepareDesignPost(id));
-        router.push(r.url);
+        router.push(`/publish/kits/new?design=${encodeURIComponent(id)}`);
       } catch (e) {
         toast.error((e as Error).message);
       }
@@ -232,7 +231,7 @@ export function ImageStudio({ initial, publishEnabled }: { initial: DesignView; 
             <Button variant="outline" size="sm" disabled={busy} onClick={onSaveLibrary}><Library /> Save to library</Button>
           ) : null}
           {canEdit && publishEnabled ? (
-            <Button size="sm" disabled={busy} onClick={onPublish}><Send /> Publish</Button>
+            <Button size="sm" disabled={busy} onClick={onPublish}><Package /> Post kit</Button>
           ) : null}
           {canEdit ? (
             <Button variant="ghost" size="icon-sm" disabled={busy} onClick={onDelete} aria-label="Delete design"><Trash2 /></Button>

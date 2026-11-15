@@ -1659,3 +1659,28 @@ when a ClipWaltz tab is focused (the in-tab notification covers that case).
   rules active, nothing scheduled. New channels connected in ClipWaltz are not held and can be resumed in the UI.
 - **Verified:** SP cron sweep 15:35/15:36 MST and a ClipWaltz `--sweep-once` both published 0, errors none.
 - **Undo snapshot:** `linuxg1:~/backups/pause-20261114-pause/*.csv` (prior `paused`/`active`/hold values for both apps).
+
+## Post kits (2026-11-14)
+- **What it is:** per-network captions and pictures for posting by hand. It never calls a network API and needs no
+  connected channel.
+- **Access:** same as Publish. Off for customers until `SOCIAL_PUBLISHING_ENABLED=1`; while it is off, only ADMIN_EMAILS
+  accounts can use it. Viewers can read kits; editors can make and change them.
+- **How a kit is built:**
+  - The `createPostKit` server action stores a `post_kits` row with `status='writing'` and returns.
+  - `buildKit` (`src/lib/kits/kits.ts`) then runs in Next's `after()` inside the `clipwaltz` process:
+    1. It makes the pictures. Designs go through `renderDesign` at each format; uploads are cropped with sharp.
+       Pictures are stored as `social_media` rows with `post_id` null.
+    2. It writes one caption per network on the AI Box (`OLLAMA_URL`), saving after each network.
+    3. It sets `status='ready'`.
+  - If anything fails it sets `status='failed'` with a readable `error`, and **Write again** retries.
+  - A kit stuck in `writing` (for example after a pm2 restart mid-build) can be retried after 5 minutes.
+- **Storage:**
+  - Pictures live under `social/<workspace>/<media id>` in MinIO and are listed in `post_kits.assets`.
+  - Deleting a kit removes its pictures and uploaded originals, but skips any that a post has taken (`post_id` not null).
+- **Downloads:**
+  - `/api/kits/<id>/file/<media>` serves only media listed in that kit's `assets`, to viewers of the workspace.
+  - `/api/kits/<id>/zip` builds the zip in memory with pictures only. Videos are left out on purpose (size).
+- **Troubleshooting:**
+  - **Captions stay empty and the kit shows "Needs a retry":** check that the AI Box answers from linuxg1:
+    `curl -s $OLLAMA_URL/api/tags`.
+  - **No pictures for a design:** the design was deleted before the kit was built. Make a new kit.

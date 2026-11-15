@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Send } from "lucide-react";
+import { Package } from "lucide-react";
 import { cn } from "cn";
 import { buttonVariants } from "@/components/ui/button";
 import { publishEnabled } from "@/lib/social/ui-actions";
@@ -24,8 +24,8 @@ function usePublishEnabled(): boolean {
 }
 
 /**
- * "Publish" on a finished render, export or campaign variant: opens the composer with the video attached, its
- * AI-written description as the text and networks suggested by its aspect ratio. Hidden when publishing is off.
+ * "Post kit" on a finished render, export or campaign variant: opens Publish → Post kits → New with the video as the
+ * source (captions per network, written for posting by hand — owner 2026-11-14). Hidden when Publish is off.
  */
 export function PublishButton({
   renderId,
@@ -44,16 +44,16 @@ export function PublishButton({
 }) {
   const on = usePublishEnabled();
   if (!on || (!renderId && !exportId)) return null;
-  const href = renderId ? `/publish/compose?render=${encodeURIComponent(renderId)}` : `/publish/compose?export=${encodeURIComponent(exportId!)}`;
+  const href = renderId ? `/publish/kits/new?render=${encodeURIComponent(renderId)}` : `/publish/kits/new?export=${encodeURIComponent(exportId!)}`;
   return (
     <Link
       href={href}
-      title="Publish to your social channels"
-      aria-label={iconOnly ? "Publish to social channels" : undefined}
+      title="Make a post kit: captions and files for each network"
+      aria-label={iconOnly ? "Make a post kit" : undefined}
       className={cn(buttonVariants({ variant, size: iconOnly ? "icon-sm" : size }), className)}
     >
-      <Send className="size-4" />
-      {iconOnly ? null : "Publish"}
+      <Package className="size-4" />
+      {iconOnly ? null : "Post kit"}
     </Link>
   );
 }

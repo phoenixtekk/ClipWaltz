@@ -1743,3 +1743,30 @@ export const competitorPosts = pgTable(
   },
   (t) => [uniqueIndex("competitor_posts_source_ext_idx").on(t.sourceId, t.externalId), index("competitor_posts_ws_idx").on(t.workspaceId, t.publishedAt)],
 );
+
+// Post kits (2026-11-14, owner: "a feature that produces the content; I'll publish manually"). One source — a render,
+// an export, a Waltz Image design, uploaded images or just an idea — becomes, per chosen network, a caption + hashtags
+// (+ a title where the network has one) and the images redrawn or cropped to that network's size. Nothing is posted:
+// the owner copies, downloads and ticks "posted". Image bytes are social_media rows (post_id null) listed in `assets`.
+export const postKits = pgTable(
+  "post_kits",
+  {
+    id: text().primaryKey(),
+    workspaceId: text()
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    createdBy: text().references(() => user.id, { onDelete: "set null" }),
+    title: text().notNull().default(""),
+    brief: text().notNull().default(""),
+    link: text(),
+    source: jsonb().notNull(), // KitSource (src/lib/kits/types.ts)
+    networks: text().notNull().default(""), // comma list of provider ids, in display order
+    items: jsonb().notNull().default([]), // KitItem[]
+    assets: jsonb().notNull().default([]), // KitAsset[]
+    status: text().notNull().default("writing"), // writing | ready | failed
+    error: text(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("post_kits_ws_idx").on(t.workspaceId, t.createdAt)],
+);

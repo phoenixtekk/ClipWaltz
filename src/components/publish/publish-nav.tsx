@@ -5,6 +5,7 @@ import { cn } from "cn";
 
 const ITEMS: { href: string; label: string }[] = [
   { href: "/publish", label: "Overview" },
+  { href: "/publish/kits", label: "Post kits" },
   { href: "/publish/compose", label: "Compose" },
   { href: "/publish/posts", label: "Posts" },
   { href: "/publish/drafts", label: "Drafts" },

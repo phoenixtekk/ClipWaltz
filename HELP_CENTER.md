@@ -644,6 +644,25 @@ neither does the AI writer. Plus connects up to 10 channels and Pro up to 25.
   appears only once at least 20 of your published posts have results and the checklist matches how they actually did —
   it is an estimate, not a promise.
 
+## Post kits — everything to post it yourself
+A post kit gets one video, image or idea ready for each social network. You do the posting yourself; ClipWaltz never
+posts for you.
+
+1. Start a kit in one of these ways:
+   - **Post kit** under a finished video or export;
+   - **Post kit** in Waltz Image;
+   - **Publish → Post kits → New kit**. Here you can upload up to 10 images or one video, or leave it empty for a text post.
+2. Say what the post should be about, add a link if you have one, and tick the networks. Then press **Make the kit**.
+3. The kit page fills in one network at a time, usually in 10–30 seconds each. You can leave the page while it works.
+4. For each network:
+   - press **Copy caption**, and copy the title too for YouTube and Pinterest;
+   - download its pictures, which are already the right size for that network;
+   - press **Open <network>**, paste and post.
+5. Tick **Posted** and paste the post's link, so you can see what's left.
+
+**Download all (.zip)** gives you a folder per network with the caption and pictures. Download a video separately with
+**Download video**. You can edit any caption, and **Write again** writes a fresh one. Post kits use no credits.
+
 ## New project — start from a product link
 On **New project**, paste a product page into **Start from a product link** and press **Read the page**. ClipWaltz
 shows the name, price and how many photos it found. Pick the ad sizes and whether you want a video ad brief, then
